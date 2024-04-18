@@ -7,7 +7,7 @@ pub enum NoteNameStyle {
     JohnstonFiveLimitFull,
 }
 
-impl<'a> Stack<'a> {
+impl<'a, const T: usize> Stack<'a, 3, T> {
   pub fn notename(&self, style: &NoteNameStyle) -> String {
       match style {
           NoteNameStyle::JohnstonFiveLimitFull =>  johnston::fivelimit::NoteName::new(&self).str_full(),

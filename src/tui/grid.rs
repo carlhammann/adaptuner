@@ -18,9 +18,9 @@ pub enum CellState {
     On,
 }
 
-pub struct Cell<'a> {
+pub struct Cell<'a, const T: usize> {
     pub config: &'a DisplayConfig,
-    pub stack: Stack<'a>,
+    pub stack: Stack<'a, 3, T>,
     pub state: CellState,
 }
 
@@ -43,7 +43,7 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
     }
 }
 
-impl<'a> WidgetRef for Cell<'a> {
+impl<'a, const T: usize> WidgetRef for Cell<'a, T> {
     /// Rendering grid cells expects that we have two rows.
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         buf.set_string(
@@ -91,17 +91,17 @@ impl<'a> WidgetRef for Cell<'a> {
     }
 }
 
-pub struct Grid<'a> {
-    pub cells: Array2<Cell<'a>>,
+pub struct Grid<'a, const T: usize> {
+    pub cells: Array2<Cell<'a, T>>,
 }
 
-impl<'a> Widget for Grid<'a> {
+impl<'a, const T: usize> Widget for Grid<'a, T> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.render_ref(area, buf)
     }
 }
 
-impl<'a> WidgetRef for Grid<'a> {
+impl<'a, const T: usize> WidgetRef for Grid<'a, T> {
     /// rendering of Grids expects there to be 2n rows of characters for an n-row grid, because
     /// Cells are two rows high
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {

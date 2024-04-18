@@ -2,7 +2,7 @@
 //! basically an explanation of how stacks of tempered intervals relate to stacks of pure
 //! intervals, where "stacks" are integer linear combinations.
 
-use ndarray::{s, Array1, Array2, ArrayView1};
+use ndarray::{Array1, Array2};
 use num_integer::Integer;
 use num_traits::Signed;
 use std::{error::Error, fmt, ops};
@@ -11,18 +11,18 @@ use fractionfree;
 
 /// A description of a temperament, i.e. "how much you detune" some intervals.
 ///
-/// Assume we're working in a setting with `d` base intervals (octaves, fifths, thirds,
+/// Assume we're working in a setting with `D` base intervals (octaves, fifths, thirds,
 /// sevenths...) which we conceive of as "pure". Sometimes, we want to describe a slightly detuned
 /// version of this set of intervals. How much we detune the intervals, in terms of fractions of
 /// linear combinations of the base intervals, is what an element of this type encodes.
 #[derive(Debug)]
-pub struct Temperament<I> {
+pub struct Temperament<const D: usize, I> {
     pub name: Box<str>,
-    commas: Array2<I>,
-    denominators: Array1<I>,
+    commas: [[I; D]; D],
+    denominators: [I; D],
 }
 
-impl<I> Temperament<I>
+impl<const D: usize, I> Temperament<D, I>
 where
     I: Copy
         + ops::Div<Output = I>
@@ -33,25 +33,19 @@ where
         + Integer
         + 'static,
 {
-    /// The number of base intervals.
-    pub fn dimension(&self) -> usize {
-        self.denominators.len()
-    }
-
     /// The error "tempered out" by the `i`-th interval, given as (the coefficients of) a linear
     /// combination of pure intervals.
     ///
     /// This may not be the actual adjustment that has to be applied to an individual interval; in
     /// order obtain that, divide by the `i`-th [denominator][Temperament::denominator].
     ///
-    /// The following invariants always hold, where `d` is the [dimension][Temperament::dimension]
-    /// of the temperament:
+    /// The following invariants always hold:
     ///
-    /// * `gcd(denominator(i), comma(i)[0], ..., comma(i)[d]) == 1`
+    /// * `gcd(x.denominator(i), x.comma(i)[0], ..., x.comma(i)[D]) == 1`
     ///
-    /// * `denominator(i) > 0`
-    pub fn comma(&self, i: usize) -> ArrayView1<I> {
-        self.commas.slice(s![i, ..])
+    /// * `x.denominator(i) > 0`
+    pub fn comma(&self, i: usize) -> &[I; D] {
+        &self.commas[i]
     }
 
     /// See the documentation of [comma][Temperament::comma].
@@ -59,11 +53,11 @@ where
         self.denominators[i]
     }
 
-    /// Compute the [Temperament] of `d` intervals from `d` pairwise identifications of notes.
+    /// Compute the [Temperament] of `D` intervals from `D` pairwise identifications of notes.
     ///
-    /// A geometric intuition might help. If there are `d` base intervals, we've got two
-    /// `d`-dimensional grids: The grid of pure intervals, and the grid of tempered intervals. In order
-    /// to define the tempered intervals, we'll have to specify for `d` points of the "tempered grid"
+    /// A geometric intuition might help. If there are `D` base intervals, we've got two
+    /// `D`-dimensional grids: The grid of pure intervals, and the grid of tempered intervals. In order
+    /// to define the tempered intervals, we'll have to specify for `D` points of the "tempered grid"
     /// where they should end up on the "pure grid".
     //
     /// The arguments are two square matrices of the same size:
@@ -79,14 +73,14 @@ where
     /// # use ndarray::{arr1, arr2};
     /// # use adaptuner::interval::*;
     /// # fn main () -> Result<(),TemperamentErr> {
-    /// let tempered = arr2(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]);
-    /// let pure     = arr2(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]);
+    /// let tempered = [[0, 4, 0], [1, 0, 0], [0, 0, 1]];
+    /// let pure     = [[2, 0, 1], [1, 0, 0], [0, 0, 1]];
     ///
-    /// let t = Temperament::new("name of temperament".into(), tempered, &pure)?;
+    /// let t = Temperament::new("name of temperament".into(), tempered, pure)?;
     ///
-    /// assert_eq!(t.comma(0), arr1(&[0, 0, 0]));
-    /// assert_eq!(t.comma(1), arr1(&[2, -4, 1]));
-    /// assert_eq!(t.comma(2), arr1(&[0, 0, 0]));
+    /// assert_eq!(t.comma(0), &[0, 0, 0]);
+    /// assert_eq!(t.comma(1), &[2, -4, 1]);
+    /// assert_eq!(t.comma(2), &[0, 0, 0]);
     /// assert_eq!(t.denominator(0), 1);
     /// assert_eq!(t.denominator(1), 4);
     /// assert_eq!(t.denominator(2), 1);
@@ -106,17 +100,13 @@ where
     /// error is distributed between four fifths.
     pub fn new(
         name: Box<str>,
-        tempered: Array2<I>,
-        pure: &Array2<I>,
-    ) -> Result<Temperament<I>, TemperamentErr> {
-        if !tempered.is_square() {
-            return Err(TemperamentErr::NotSquare);
-        }
-        if tempered.raw_dim() != pure.raw_dim() {
-            return Err(TemperamentErr::DimensionMismatch);
-        }
+        mut tempered: [[I; D]; D],
+        mut pure: [[I; D]; D],
+    ) -> Result<Temperament<D, I>, TemperamentErr> {
+        let a = Array2::from_shape_fn((D, D), |(i, j)| tempered[i][j]);
+        let b = Array2::from_shape_fn((D, D), |(i, j)| pure[i][j]);
 
-        let tempered_lu = match fractionfree::lu(tempered) {
+        let tempered_lu = match fractionfree::lu(a) {
             Err(fractionfree::LinalgErr::LURankDeficient) => {
                 return Err(TemperamentErr::Indeterminate)
             }
@@ -126,17 +116,26 @@ where
 
         let (det, adj) = tempered_lu.inverse()?;
 
-        let d = adj.raw_dim()[0];
-        let mut e = adj.dot(pure);
-        for i in 0..d {
+        let mut e = adj.dot(&b);
+        for i in 0..D {
             e[[i, i]] -= det;
         }
-        let mut k = Array1::from_elem(d, det);
+
+        let mut k = Array1::from_elem(D, det);
         fractionfree::normalise(&mut k.view_mut(), &mut e.view_mut())?;
+
+        // overwrite `tempered` and the first row of `pure` with the new values:
+        for i in 0..D {
+            pure[0][i] = k[i];
+            for j in 0..D {
+                tempered[i][j] = e[[i, j]];
+            }
+        }
+
         Ok(Temperament {
             name,
-            commas: e,
-            denominators: k,
+            commas: tempered,
+            denominators: pure[0],
         })
     }
 }
@@ -145,8 +144,6 @@ where
 pub enum TemperamentErr {
     FromLinalgErr(fractionfree::LinalgErr),
     Indeterminate,
-    NotSquare,
-    DimensionMismatch,
 }
 
 impl fmt::Display for TemperamentErr {
@@ -157,11 +154,6 @@ impl fmt::Display for TemperamentErr {
                 f,
                 "constraints on tempered and pure intervals are indeterminate"
             ),
-            TemperamentErr::NotSquare => write!(
-                f,
-                "there are not exactly as many constraints as there are intervals"
-            ),
-            TemperamentErr::DimensionMismatch => write!(f, "the shapes of constraint matrices for pure and tempered intervals are not the same"),
         }
     }
 }

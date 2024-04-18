@@ -16,7 +16,7 @@ pub mod fivelimit {
         /// It is assumed that the first three entries in the [coefficients][Stack::coefficients]
         /// of the argument denote the numbers of octaves, fifths, and thirds, in that order. (In
         /// particular, there must be at least three base intervals.)
-        pub fn new(s: &Stack) -> Self {
+        pub fn new<const T: usize>(s: &Stack<3, T>) -> Self {
             let octaves = s.coefficients()[0];
             let fifths = s.coefficients()[1];
             let thirds = s.coefficients()[2];
@@ -93,7 +93,6 @@ pub mod fivelimit {
     mod test {
         use super::*;
         use crate::interval::stack_test_setup::init_stacktype;
-        use ndarray::arr1;
 
         #[test]
         fn test_str_name() {
@@ -127,8 +126,7 @@ pub mod fivelimit {
 
             for (coeffs, name) in examples.iter() {
                 assert_eq!(
-                    NoteName::new(&Stack::new(&st, &arr1(&[false, false]), arr1(coeffs)).unwrap())
-                        .str_full(),
+                    NoteName::new(&Stack::new(&st, &[false, false], *coeffs)).str_full(),
                     String::from(*name)
                 );
             }

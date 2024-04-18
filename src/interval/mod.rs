@@ -1,7 +1,6 @@
 //! Everything that has to do with (stacks of) intervals, pure or tempered.
 
-use ndarray::{s, Array1, Array2, ArrayView1, Zip};
-use std::{error::Error, fmt, ops};
+use std::ops;
 
 mod temperament;
 pub use temperament::*;
@@ -23,47 +22,44 @@ pub struct Interval {
 }
 
 /// A description which [Interval]s and [Temperament]s are to be used in a [Stack].
+///
+/// The numbers `D` of different intervals and `T` of temperaments are statically known.
 #[derive(Debug)]
-pub struct StackType {
-    intervals: Vec<Interval>,
-    temperaments: Vec<Temperament<StackCoeff>>,
-    precomputed_temperings: Array2<Semitones>,
+pub struct StackType<const D: usize, const T: usize> {
+    intervals: [Interval; D],
+    temperaments: [Temperament<D, StackCoeff>; T],
+    precomputed_temperings: [[Semitones; T]; D],
 }
 
-impl StackType {
+impl<const D: usize, const T: usize> StackType<D, T> {
     /// The base intervals to be used by [Stack]s of this type.
-    pub fn intervals(&self) -> &Vec<Interval> {
+    pub fn intervals(&self) -> &[Interval; D] {
         &self.intervals
     }
 
     /// The [Temperament]s that may be used by [Stack]s of this type.
-    pub fn temperaments(&self) -> &Vec<Temperament<StackCoeff>> {
+    pub fn temperaments(&self) -> &[Temperament<D, StackCoeff>; T] {
         &self.temperaments
     }
 
     /// Construct a [StackType] from its [intervals][StackType::intervals] and
-    /// [temperaments][StackType::temperaments]. Checks that dimensions match.
-    pub fn new(
-        intervals: Vec<Interval>,
-        temperaments: Vec<Temperament<StackCoeff>>,
-    ) -> Result<Self, StackErr> {
-        let d = intervals.len();
-        for (i, t) in temperaments.iter().enumerate() {
-            if t.dimension() != d {
-                return Err(StackErr::NewStackTypeDimensionMismatch(i, t.dimension(), d));
+    /// [temperaments][StackType::temperaments].
+    pub fn new(intervals: [Interval; D], temperaments: [Temperament<D, StackCoeff>; T]) -> Self {
+        let mut precomputed_temperings = [[0.0; T]; D];
+
+        for i in 0..D {
+            for t in 0..T {
+                precomputed_temperings[i][t] =
+                    pure_stack_semitones(temperaments[t].comma(i), &intervals)
+                        / temperaments[t].denominator(i) as Semitones;
             }
         }
 
-        let precomputed_temperings = Array2::from_shape_fn((d, temperaments.len()), |(i, t)| {
-            pure_stack_semitones(temperaments[t].comma(i), &intervals)
-                / temperaments[t].denominator(i) as Semitones
-        });
-
-        Ok(StackType {
+        StackType {
             intervals,
             temperaments,
             precomputed_temperings,
-        })
+        }
     }
 }
 
@@ -94,26 +90,26 @@ impl StackType {
 /// pure intervals. See the documentation comment of [increment][Stack::increment] for a discussion
 /// of this phenomenon.
 #[derive(Clone, Debug)]
-pub struct Stack<'a> {
-    stacktype: &'a StackType,
-    coefficients: Array1<StackCoeff>,
-    corrections: Array2<StackCoeff>,
+pub struct Stack<'a, const D: usize, const T: usize> {
+    stacktype: &'a StackType<D, T>,
+    coefficients: [StackCoeff; D],
+    corrections: [[StackCoeff; T]; D],
 }
 
-impl<'a> Stack<'a> {
+impl<'a, const D: usize, const T: usize> Stack<'a, D, T> {
     /// See the documentation comment of [Stack].
-    pub fn stacktype(&self) -> &'a StackType {
+    pub fn stacktype(&self) -> &'a StackType<D, T> {
         self.stacktype
     }
 
     /// See the documentation comment of [Stack].
-    pub fn coefficients(&self) -> &Array1<StackCoeff> {
+    pub fn coefficients(&self) -> &[StackCoeff; D] {
         &self.coefficients
     }
 
     /// See the documentation comment of [Stack].
     pub fn semitones(&self) -> Semitones {
-        pure_stack_semitones(self.coefficients.view(), &self.stacktype.intervals)
+        pure_stack_semitones(&self.coefficients, &self.stacktype.intervals)
             + self.correction_semitones()
     }
 
@@ -121,10 +117,10 @@ impl<'a> Stack<'a> {
     pub fn correction_semitones(&self) -> Semitones {
         let mut res = 0.0;
 
-        for i in 0..self.stacktype.intervals.len() {
-            for j in 0..self.stacktype.temperaments.len() {
-                res += self.corrections[[i, j]] as Semitones
-                    * self.stacktype.precomputed_temperings[[i, j]];
+        for i in 0..D {
+            for j in 0..T {
+                res += self.corrections[i][j] as Semitones
+                    * self.stacktype.precomputed_temperings[i][j];
             }
         }
 
@@ -133,29 +129,28 @@ impl<'a> Stack<'a> {
 
     /// See the documentation comment of [Stack].
     pub fn is_pure(&self) -> bool {
-        Zip::from(&self.corrections).fold(true, |acc, c| *c == 0 && acc)
+        self.corrections.iter().fold(true, |accouter, cs| {
+            cs.iter().fold(true, |accinner, c| *c == 0 && accinner) && accouter
+        })
     }
 
-    /// private: the absolute value of `corrections[[i,t]]` must be less than the
+    /// private: the absolute value of `corrections[i][t]` must be less than the
     /// [denominator][Temperament::denominator] of the `t`-th temperament for interval `i`.
     /// This invariant is enforced by all functions we expose.
     fn normalise(&mut self) {
-        let d = self.stacktype.intervals.len();
-        let n = self.stacktype.temperaments.len();
-
-        for t in 0..n {
-            for i in 0..d {
+        for t in 0..T {
+            for i in 0..D {
                 let comma = self.stacktype.temperaments[t].comma(i);
                 let denominator = &self.stacktype.temperaments[t].denominator(i);
 
-                let quot = self.corrections[[i, t]] / denominator;
-                let rem = self.corrections[[i, t]] % denominator;
+                let quot = self.corrections[i][t] / denominator;
+                let rem = self.corrections[i][t] % denominator;
 
-                Zip::from(&mut self.coefficients)
-                    .and(&comma)
-                    .for_each(|l, r| *l += quot * r);
+                for j in 0..D {
+                    self.coefficients[j] += quot * comma[j]
+                }
 
-                self.corrections[[i, t]] = rem;
+                self.corrections[i][t] = rem;
             }
         }
     }
@@ -188,95 +183,62 @@ impl<'a> Stack<'a> {
     /// error" has accumulated to reach a pure interval, the [coefficients][Stack::coefficients] of
     /// the [increment][Stack::increment]ed stack will reflect the pure interval, and its
     /// internally stored representation of the temperament errors will be reset accordingly.
-    pub fn increment(
-        &mut self,
-        active_temperaments: &Array1<bool>,
-        coefficients: &Array1<StackCoeff>,
-    ) -> Result<(), StackErr> {
-        if active_temperaments.len() != self.stacktype.temperaments.len() {
-            return Err(StackErr::StackDimensionMismatchActiveTemperaments(
-                "Stack::increment",
-                self.stacktype.temperaments.len(),
-                active_temperaments.len(),
-            ));
+    pub fn increment(&mut self, active_temperaments: &[bool; T], coefficients: &[StackCoeff; D]) {
+        for i in 0..D {
+            self.coefficients[i] += coefficients[i];
         }
 
-        if coefficients.len() != self.stacktype.intervals.len() {
-            return Err(StackErr::StackDimensionMismatchCoefficients(
-                "Stack::increment",
-                self.stacktype.intervals.len(),
-                coefficients.len(),
-            ));
-        }
-
-        Zip::from(&mut self.coefficients)
-            .and(coefficients)
-            .for_each(|l, r| *l += r);
-
-        for t in 0..self.stacktype.temperaments.len() {
+        for t in 0..T {
             if active_temperaments[t] {
-                Zip::from(&mut self.corrections.slice_mut(s![.., t]))
-                    .and(coefficients)
-                    .for_each(|l, r| *l += r);
+                for i in 0..D {
+                    self.corrections[i][t] += coefficients[i];
+                }
             }
         }
         self.normalise();
-        Ok(())
     }
 
     /// Build a stack for a given [StackType]. The logic around `active_temperaments` and
     /// `coefficients` is the same as for [increment][Stack::increment].
     pub fn new(
-        stacktype: &'a StackType,
-        active_temperaments: &Array1<bool>,
-        coefficients: Array1<StackCoeff>,
-    ) -> Result<Stack<'a>, StackErr> {
-        if active_temperaments.len() != stacktype.temperaments.len() {
-            return Err(StackErr::StackDimensionMismatchActiveTemperaments(
-                "Stack::new",
-                stacktype.temperaments.len(),
-                active_temperaments.len(),
-            ));
-        }
-
-        if coefficients.len() != stacktype.intervals.len() {
-            return Err(StackErr::StackDimensionMismatchCoefficients(
-                "Stack::new",
-                stacktype.intervals.len(),
-                coefficients.len(),
-            ));
-        }
-
-        let mut corr = Array2::zeros((stacktype.intervals.len(), stacktype.temperaments.len()));
-        for t in 0..stacktype.temperaments.len() {
+        stacktype: &'a StackType<D, T>,
+        active_temperaments: &[bool; T],
+        coefficients: [StackCoeff; D],
+    ) -> Self {
+        let mut corrections = [[0; T]; D];
+        for t in 0..T {
             if active_temperaments[t] {
-                corr.slice_mut(s![.., t]).assign(&coefficients);
+                for i in 0..D {
+                    corrections[i][t] = coefficients[i];
+                }
             }
         }
 
         let mut res = Stack {
             stacktype,
             coefficients,
-            corrections: corr,
+            corrections,
         };
         res.normalise();
 
-        Ok(res)
+        res
     }
 }
 
 /// private: compute the size of the composite interval described by a linear combination of
 /// [Interval]s (without any temperament).
-fn pure_stack_semitones(
-    coefficients: ArrayView1<StackCoeff>,
-    intervals: &Vec<Interval>,
+fn pure_stack_semitones<const D: usize>(
+    coefficients: &[StackCoeff; D],
+    intervals: &[Interval; D],
 ) -> Semitones {
-    Zip::from(coefficients)
-        .and(intervals)
-        .fold(0.0, |acc, c, i| acc + (*c as Semitones) * i.semitones)
+    let mut sum = 0.0;
+    for i in 0..D {
+        sum = sum + (coefficients[i] as Semitones) * intervals[i].semitones;
+    }
+    sum
 }
 
-impl<'a> ops::Add<&Stack<'a>> for Stack<'a> {
+impl<'a, const D: usize, const T: usize> ops::Add<&Stack<'a, D, T>> for Stack<'a, D, T> {
     type Output = Self;
 
     /// Addition of [Stack]s is a bit more involved than one might think at first glance: It
@@ -293,41 +255,21 @@ impl<'a> ops::Add<&Stack<'a>> for Stack<'a> {
             panic!("tried to add two `Stack`s of different `StackType`s")
         }
 
-        Zip::from(&mut self.coefficients)
-            .and(&x.coefficients)
-            .for_each(|l, r| *l += r);
-        Zip::from(&mut self.corrections)
-            .and(&x.corrections)
-            .for_each(|l, r| *l += r);
+        for i in 0..D {
+            self.coefficients[i] += x.coefficients[i];
+            for t in 0..T {
+                self.corrections[i][t] += x.corrections[i][t];
+            }
+        }
         self.normalise();
 
         self
     }
 }
 
-#[derive(Debug)]
-pub enum StackErr {
-    NewStackTypeDimensionMismatch(usize, usize, usize),
-    StackDimensionMismatchActiveTemperaments(&'static str, usize, usize),
-    StackDimensionMismatchCoefficients(&'static str, usize, usize),
-}
-
-impl fmt::Display for StackErr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            StackErr::NewStackTypeDimensionMismatch(i, n, d) => write!(f, "dimension mismatch when creating a StackType: the {}-th temperament's dimension is {}, but should be {}", i, n, d),
-            StackErr::StackDimensionMismatchActiveTemperaments(fname, n, d) => write!(f, "dimension mismatch in function '{}': the number of temperaments in the StackType is {}, but the `active_temperaments` argument has length {}", fname, n, d),
-            StackErr::StackDimensionMismatchCoefficients(fname, n, d) => write!(f, "dimension mismatch in function '{}': the number of intervals in the StackType is {}, but the `coefficients` argument has length {}", fname, n, d),
-        }
-    }
-}
-
-impl Error for StackErr {}
-
 #[cfg(test)]
 pub mod stack_test_setup {
     use super::*;
-    use ndarray::arr2;
 
     /// some base intervals: octaves, fifths, thirds.
     pub fn init_intervals() -> [Interval; 3] {
@@ -348,26 +290,26 @@ pub mod stack_test_setup {
     }
 
     /// some example temperaments: quarter-comma meantone, and 12-EDO
-    pub fn init_temperaments() -> [Temperament<StackCoeff>; 2] {
+    pub fn init_temperaments() -> [Temperament<3, StackCoeff>; 2] {
         [
             Temperament::new(
                 "1/4-comma meantone".into(),
-                arr2(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]),
-                &arr2(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]),
+                [[0, 4, 0], [1, 0, 0], [0, 0, 1]],
+                [[2, 0, 1], [1, 0, 0], [0, 0, 1]],
             )
             .unwrap(),
             Temperament::new(
                 "12edo".into(),
-                arr2(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]),
-                &arr2(&[[7, 0, 0], [1, 0, 0], [1, 0, 0]]),
+                [[0, 12, 0], [0, 0, 3], [1, 0, 0]],
+                [[7, 0, 0], [1, 0, 0], [1, 0, 0]],
             )
             .unwrap(),
         ]
     }
 
     /// an example [StackType].
-    pub fn init_stacktype() -> StackType {
-        StackType::new(Vec::from(init_intervals()), Vec::from(init_temperaments())).unwrap()
+    pub fn init_stacktype() -> StackType<3, 2> {
+        StackType::new(init_intervals(), init_temperaments())
     }
 }
 
@@ -375,7 +317,6 @@ pub mod stack_test_setup {
 mod test {
     use super::{stack_test_setup::init_stacktype, *};
     use approx::*;
-    use ndarray::{arr1, arr2};
 
     #[test]
     fn test_stack_semitones() {
@@ -392,7 +333,7 @@ mod test {
         let eps = 0.00000000001; // just an arbitrary small number. I don't care about
                                  // extreme numerical stbility.
 
-        let s = Stack::new(&st, &arr1(&[false, true]), arr1(&[0, 0, 1])).unwrap();
+        let s = Stack::new(&st, &[false, true], [0, 0, 1]);
         assert_relative_eq!(
             s.correction_semitones(),
             edo12_third_error,
@@ -400,11 +341,11 @@ mod test {
         );
         assert_relative_eq!(s.semitones(), third + edo12_third_error, max_relative = eps);
 
-        let s = Stack::new(&st, &arr1(&[true, false]), arr1(&[0, 4, 0])).unwrap();
+        let s = Stack::new(&st, &[true, false], [0, 4, 0]);
         assert_relative_eq!(s.correction_semitones(), 0.0, max_relative = eps);
         assert_relative_eq!(s.semitones(), third + 2.0 * octave, max_relative = eps);
 
-        let s = Stack::new(&st, &arr1(&[true, false]), arr1(&[0, 6, 0])).unwrap();
+        let s = Stack::new(&st, &[true, false], [0, 6, 0]);
         assert_relative_eq!(
             s.correction_semitones(),
             2.0 * quarter_comma,
@@ -416,7 +357,7 @@ mod test {
             max_relative = eps
         );
 
-        let s = Stack::new(&st, &arr1(&[false, true]), arr1(&[0, 0, 7])).unwrap();
+        let s = Stack::new(&st, &[false, true], [0, 0, 7]);
         assert_relative_eq!(
             s.correction_semitones(),
             edo12_third_error,
@@ -428,7 +369,7 @@ mod test {
             max_relative = eps
         );
 
-        let s = Stack::new(&st, &arr1(&[true, true]), arr1(&[0, 5, 7])).unwrap();
+        let s = Stack::new(&st, &[true, true], [0, 5, 7]);
         assert_relative_eq!(
             s.correction_semitones(),
             quarter_comma + 5.0 * edo12_fifth_error + edo12_third_error,
@@ -452,34 +393,34 @@ mod test {
     fn test_stack_add() {
         let st = init_stacktype();
 
-        let s1 = Stack::new(&st, &arr1(&[false, false]), arr1(&[0, 4, 3])).unwrap();
-        let s2 = Stack::new(&st, &arr1(&[false, false]), arr1(&[0, 2, 5])).unwrap();
+        let s1 = Stack::new(&st, &[false, false], [0, 4, 3]);
+        let s2 = Stack::new(&st, &[false, false], [0, 2, 5]);
         let s = s1 + &s2;
-        assert_eq!(s.coefficients, arr1(&[0 + 0, 4 + 2, 3 + 5]));
-        assert_eq!(s.corrections, arr2(&[[0, 0], [0, 0], [0, 0]]));
+        assert_eq!(s.coefficients, [0 + 0, 4 + 2, 3 + 5]);
+        assert_eq!(s.corrections, [[0, 0], [0, 0], [0, 0]]);
 
-        let s1 = Stack::new(&st, &arr1(&[true, false]), arr1(&[0, 4, 3])).unwrap();
-        let s2 = Stack::new(&st, &arr1(&[false, false]), arr1(&[0, 2, 5])).unwrap();
+        let s1 = Stack::new(&st, &[true, false], [0, 4, 3]);
+        let s2 = Stack::new(&st, &[false, false], [0, 2, 5]);
         let s = s1 + &s2;
-        assert_eq!(s.coefficients, arr1(&[2 + 0, 0 + 2, 4 + 5]));
-        assert_eq!(s.corrections, arr2(&[[0, 0], [0, 0], [0, 0]]));
+        assert_eq!(s.coefficients, [2 + 0, 0 + 2, 4 + 5]);
+        assert_eq!(s.corrections, [[0, 0], [0, 0], [0, 0]]);
 
-        let s1 = Stack::new(&st, &arr1(&[true, false]), arr1(&[0, 4, 3])).unwrap();
-        let s2 = Stack::new(&st, &arr1(&[true, false]), arr1(&[0, 2, 5])).unwrap();
+        let s1 = Stack::new(&st, &[true, false], [0, 4, 3]);
+        let s2 = Stack::new(&st, &[true, false], [0, 2, 5]);
         let s = s1 + &s2;
-        assert_eq!(s.coefficients, arr1(&[2 + 0, 0 + 2, 4 + 5]));
-        assert_eq!(s.corrections, arr2(&[[0, 0], [2, 0], [0, 0]]));
+        assert_eq!(s.coefficients, [2 + 0, 0 + 2, 4 + 5]);
+        assert_eq!(s.corrections, [[0, 0], [2, 0], [0, 0]]);
 
-        let s1 = Stack::new(&st, &arr1(&[true, true]), arr1(&[0, 4, 3])).unwrap();
-        let s2 = Stack::new(&st, &arr1(&[true, false]), arr1(&[0, 2, 5])).unwrap();
+        let s1 = Stack::new(&st, &[true, true], [0, 4, 3]);
+        let s2 = Stack::new(&st, &[true, false], [0, 2, 5]);
         let s = s1 + &s2;
-        assert_eq!(s.coefficients, arr1(&[3 + 0, 0 + 2, 1 + 5]));
-        assert_eq!(s.corrections, arr2(&[[0, 0], [2, 4], [0, 0]]));
+        assert_eq!(s.coefficients, [3 + 0, 0 + 2, 1 + 5]);
+        assert_eq!(s.corrections, [[0, 0], [2, 4], [0, 0]]);
 
-        let s1 = Stack::new(&st, &arr1(&[true, true]), arr1(&[0, 4, 3])).unwrap();
-        let s2 = Stack::new(&st, &arr1(&[true, true]), arr1(&[0, 2, 5])).unwrap();
+        let s1 = Stack::new(&st, &[true, true], [0, 4, 3]);
+        let s2 = Stack::new(&st, &[true, true], [0, 2, 5]);
         let s = s1 + &s2;
-        assert_eq!(s.coefficients, arr1(&[3 + 1, 0 + 2, 1 + 2]));
-        assert_eq!(s.corrections, arr2(&[[0, 0], [2, 6], [0, 2]]));
+        assert_eq!(s.coefficients, [3 + 1, 0 + 2, 1 + 2]);
+        assert_eq!(s.corrections, [[0, 0], [2, 6], [0, 2]]);
     }
 }

@@ -3,7 +3,7 @@ use std::io;
 use colorous;
 use crossterm::event;
 
-use ndarray::{arr1, arr2, Array2};
+use ndarray::Array2;
 
 use adaptuner::{
     interval::{Interval, Semitones, Stack, StackCoeff, StackType, Temperament},
@@ -39,55 +39,54 @@ fn init_intervals() -> [Interval; 3] {
     ]
 }
 
-fn init_temperaments() -> [Temperament<StackCoeff>; 3] {
+fn init_temperaments() -> [Temperament<3, StackCoeff>; 3] {
     [
         Temperament::new(
             "1/4-comma meantone".into(),
-            arr2(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]),
-            &arr2(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]),
+            [[0, 4, 0], [1, 0, 0], [0, 0, 1]],
+            [[2, 0, 1], [1, 0, 0], [0, 0, 1]],
         )
         .unwrap(),
         Temperament::new(
             "1/3-comma meantone".into(),
-            arr2(&[[0, 3, 0], [1, 0, 0], [0, 0, 1]]),
-            &arr2(&[[2, -1, 1], [1, 0, 0], [0, 0, 1]]),
+            [[0, 3, 0], [1, 0, 0], [0, 0, 1]],
+            [[2, -1, 1], [1, 0, 0], [0, 0, 1]],
         )
         .unwrap(),
         Temperament::new(
             "12edo".into(),
-            arr2(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]),
-            &arr2(&[[7, 0, 0], [1, 0, 0], [1, 0, 0]]),
+            [[0, 12, 0], [0, 0, 3], [1, 0, 0]],
+            [[7, 0, 0], [1, 0, 0], [1, 0, 0]],
         )
         .unwrap(),
     ]
 }
 
-fn init_stacktype() -> StackType {
-    StackType::new(Vec::from(init_intervals()), Vec::from(init_temperaments())).unwrap()
+fn init_stacktype() -> StackType<3, 3> {
+    StackType::new(init_intervals(), init_temperaments())
 }
 
-fn init_grid<'a>(
-    stacktype: &'a StackType,
+fn init_grid<'a, const T: usize>(
+    stacktype: &'a StackType<3, T>,
     config: &'a DisplayConfig,
-    active_temperings: &[bool],
+    active_temperings: &[bool; T],
     minfifth: StackCoeff,
     minthird: StackCoeff,
     cols: usize,
     rows: usize,
-) -> Grid<'a> {
+) -> Grid<'a, T> {
     let mut res = Grid {
         cells: Array2::from_shape_fn((rows, cols), |(i, j)| Cell {
             config,
             stack: Stack::new(
                 stacktype,
-                &arr1(active_temperings),
-                arr1(&[
+                active_temperings,
+                [
                     0,
                     minfifth + j as StackCoeff,
                     minthird + (rows - i - 1) as StackCoeff,
-                ]),
-            )
-            .unwrap(),
+                ],
+            ),
             state: CellState::Considered,
         }),
     };
