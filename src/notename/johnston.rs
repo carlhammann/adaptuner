@@ -1,5 +1,6 @@
 pub mod fivelimit {
     use crate::interval::{Stack, StackCoeff};
+    use crate::util::{fixed_sizes::Size3, Bounded, Dimension};
     use std::fmt;
 
     pub struct NoteName {
@@ -16,10 +17,10 @@ pub mod fivelimit {
         /// It is assumed that the first three entries in the [coefficients][Stack::coefficients]
         /// of the argument denote the numbers of octaves, fifths, and thirds, in that order. (In
         /// particular, there must be at least three base intervals.)
-        pub fn new<const T: usize>(s: &Stack<3, T>) -> Self {
-            let octaves = s.coefficients()[0];
-            let fifths = s.coefficients()[1];
-            let thirds = s.coefficients()[2];
+        pub fn new<T: Dimension + Copy>(s: &Stack<Size3, T>) -> Self {
+            let octaves = s.coefficients()[Bounded::new(0).unwrap()];
+            let fifths = s.coefficients()[Bounded::new(1).unwrap()];
+            let thirds = s.coefficients()[Bounded::new(2).unwrap()];
             let ix = 2 + 2 * fifths + thirds;
             NoteName {
                 base: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],
@@ -93,6 +94,7 @@ pub mod fivelimit {
     mod test {
         use super::*;
         use crate::interval::stack_test_setup::init_stacktype;
+        use crate::util::vector;
 
         #[test]
         fn test_str_name() {
@@ -126,7 +128,15 @@ pub mod fivelimit {
 
             for (coeffs, name) in examples.iter() {
                 assert_eq!(
-                    NoteName::new(&Stack::new(&st, &[false, false], *coeffs)).str_full(),
+                    NoteName::new(
+                        &Stack::new(
+                            &st,
+                            &vector(&[false, false]).unwrap(),
+                            vector(coeffs).unwrap()
+                        )
+                        .unwrap()
+                    )
+                    .str_full(),
                     String::from(*name)
                 );
             }

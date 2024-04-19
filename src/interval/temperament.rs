@@ -2,12 +2,13 @@
 //! basically an explanation of how stacks of tempered intervals relate to stacks of pure
 //! intervals, where "stacks" are integer linear combinations.
 
-use ndarray::{Array1, Array2};
+use fractionfree;
+use ndarray::Array1;
 use num_integer::Integer;
 use num_traits::Signed;
 use std::{error::Error, fmt, ops};
 
-use fractionfree;
+use crate::util::{Bounded, Dimension, Matrix, Vector, VectorView};
 
 /// A description of a temperament, i.e. "how much you detune" some intervals.
 ///
@@ -15,14 +16,14 @@ use fractionfree;
 /// sevenths...) which we conceive of as "pure". Sometimes, we want to describe a slightly detuned
 /// version of this set of intervals. How much we detune the intervals, in terms of fractions of
 /// linear combinations of the base intervals, is what an element of this type encodes.
-#[derive(Debug)]
-pub struct Temperament<const D: usize, I> {
-    pub name: Box<str>,
-    commas: [[I; D]; D],
-    denominators: [I; D],
+#[derive(Debug, Clone)]
+pub struct Temperament<D: Dimension, I> {
+    pub name: String, 
+    commas: Matrix<D, D, I>,
+    denominators: Vector<D, I>,
 }
 
-impl<const D: usize, I> Temperament<D, I>
+impl<D, I> Temperament<D, I>
 where
     I: Copy
         + ops::Div<Output = I>
@@ -32,6 +33,7 @@ where
         + Signed
         + Integer
         + 'static,
+    D: Dimension + fmt::Debug,
 {
     /// The error "tempered out" by the `i`-th interval, given as (the coefficients of) a linear
     /// combination of pure intervals.
@@ -43,13 +45,13 @@ where
     ///
     /// * `gcd(x.denominator(i), x.comma(i)[0], ..., x.comma(i)[D]) == 1`
     ///
-    /// * `x.denominator(i) > 0`
-    pub fn comma(&self, i: usize) -> &[I; D] {
-        &self.commas[i]
+    /// * `denominator(i) > 0`
+    pub fn comma(&self, i: Bounded<D>) -> VectorView<D, I> {
+        self.commas.row_ref(i)
     }
 
     /// See the documentation of [comma][Temperament::comma].
-    pub fn denominator(&self, i: usize) -> I {
+    pub fn denominator(&self, i: Bounded<D>) -> I {
         self.denominators[i]
     }
 
@@ -72,19 +74,25 @@ where
     /// ```
     /// # use ndarray::{arr1, arr2};
     /// # use adaptuner::interval::*;
-    /// # fn main () -> Result<(),TemperamentErr> {
-    /// let tempered = [[0, 4, 0], [1, 0, 0], [0, 0, 1]];
-    /// let pure     = [[2, 0, 1], [1, 0, 0], [0, 0, 1]];
+    /// # use adaptuner::util::*;
+    /// # use adaptuner::util::fixed_sizes::*;
+    /// # fn main () {
+    /// let tempered = matrix(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]).unwrap();
+    /// let pure     = matrix(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]).unwrap();
     ///
-    /// let t = Temperament::new("name of temperament".into(), tempered, pure)?;
+    /// let t = Temperament::<Size3, i32>::new(String::from("name of temperament"), tempered, &pure).unwrap();
     ///
-    /// assert_eq!(t.comma(0), &[0, 0, 0]);
-    /// assert_eq!(t.comma(1), &[2, -4, 1]);
-    /// assert_eq!(t.comma(2), &[0, 0, 0]);
-    /// assert_eq!(t.denominator(0), 1);
-    /// assert_eq!(t.denominator(1), 4);
-    /// assert_eq!(t.denominator(2), 1);
-    /// # Ok(())
+    /// let i0 = Bounded::<Size3>::new(0).unwrap();
+    /// let i1 = Bounded::<Size3>::new(1).unwrap();
+    /// let i2 = Bounded::<Size3>::new(2).unwrap();
+    ///
+    /// assert_eq!(t.comma(i0), vector(&[0, 0, 0]).unwrap().view());
+    /// assert_eq!(t.comma(i1), vector(&[2, -4, 1]).unwrap().view());
+    /// assert_eq!(t.comma(i2), vector(&[0, 0, 0]).unwrap().view());
+    ///
+    /// assert_eq!(t.denominator(i0), 1);
+    /// assert_eq!(t.denominator(i1), 4);
+    /// assert_eq!(t.denominator(i2), 1);
     /// # }
     ///```
     /// The first rows of `tempered` and `pure` encode the constraint that four tempered fifths should
@@ -99,15 +107,11 @@ where
     /// comma downwards). The corresponding [denominator][Temperament::denominator] says that this
     /// error is distributed between four fifths.
     pub fn new(
-        name: Box<str>,
-        mut tempered: [[I; D]; D],
-        mut pure: [[I; D]; D],
+        name: String,
+        tempered: Matrix<D, D, I>,
+        pure: &Matrix<D, D, I>,
     ) -> Result<Temperament<D, I>, TemperamentErr> {
-        let a = Array2::from_shape_fn((D, D), |(i, j)| tempered[i][j]);
-        let b = Array2::from_shape_fn((D, D), |(i, j)| pure[i][j]);
-
-        let tempered_lu = match fractionfree::lu(a) {
-            Err(fractionfree::LinalgErr::LURankDeficient) => {
+        let tempered_lu = match fractionfree::lu(tempered.into_array2()) {
                 return Err(TemperamentErr::Indeterminate)
             }
             Err(e) => return Err(TemperamentErr::FromLinalgErr(e)),
@@ -116,8 +120,9 @@ where
 
         let (det, adj) = tempered_lu.inverse()?;
 
-        let mut e = adj.dot(&b);
-        for i in 0..D {
+        let d = adj.raw_dim()[0];
+        let mut e = adj.dot(pure.get_array2());
+        for i in 0..d {
             e[[i, i]] -= det;
         }
 
@@ -134,8 +139,8 @@ where
 
         Ok(Temperament {
             name,
-            commas: tempered,
-            denominators: pure[0],
+            commas: Matrix::new(e).unwrap(),
+            denominators: Vector::new(k).unwrap(),
         })
     }
 }

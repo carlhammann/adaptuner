@@ -12,17 +12,19 @@ use adaptuner::{
         self,
         grid::{Cell, CellState, DisplayConfig, Grid},
     },
+    util::{fixed_sizes::*, matrix, vector},
 };
 
 fn init_displayconfig() -> DisplayConfig {
     DisplayConfig {
-        notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
-        color_range: 0.2,
+        notenamestyle: NoteNameStyle::JohnstonClass,
+        color_range: 0.5,
         gradient: colorous::SPECTRAL,
     }
 }
 
-fn init_intervals() -> [Interval; 3] {
+/// some base intervals: octaves, fifths, thirds.
+pub fn init_intervals() -> [Interval; 3] {
     [
         Interval {
             name: "octave".into(),
@@ -39,55 +41,57 @@ fn init_intervals() -> [Interval; 3] {
     ]
 }
 
-fn init_temperaments() -> [Temperament<3, StackCoeff>; 3] {
+/// some example temperaments: quarter-comma meantone, and 12-EDO
+pub fn init_temperaments() -> [Temperament<Size3, StackCoeff>; 2] {
     [
         Temperament::new(
             "1/4-comma meantone".into(),
-            [[0, 4, 0], [1, 0, 0], [0, 0, 1]],
-            [[2, 0, 1], [1, 0, 0], [0, 0, 1]],
-        )
-        .unwrap(),
-        Temperament::new(
-            "1/3-comma meantone".into(),
-            [[0, 3, 0], [1, 0, 0], [0, 0, 1]],
-            [[2, -1, 1], [1, 0, 0], [0, 0, 1]],
+            matrix(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]).unwrap(),
+            &matrix(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]).unwrap(),
         )
         .unwrap(),
         Temperament::new(
             "12edo".into(),
-            [[0, 12, 0], [0, 0, 3], [1, 0, 0]],
-            [[7, 0, 0], [1, 0, 0], [1, 0, 0]],
+            matrix(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]).unwrap(),
+            &matrix(&[[7, 0, 0], [1, 0, 0], [1, 0, 0]]).unwrap(),
         )
         .unwrap(),
     ]
 }
 
-fn init_stacktype() -> StackType<3, 3> {
-    StackType::new(init_intervals(), init_temperaments())
+/// an example [StackType].
+pub fn init_stacktype() -> StackType<Size3, Size2> {
+    StackType::new(
+        vector(&init_intervals()).unwrap(),
+        vector(&init_temperaments()).unwrap(),
+    )
+    .unwrap()
 }
 
-fn init_grid<'a, const T: usize>(
-    stacktype: &'a StackType<3, T>,
+fn init_grid<'a>(
+    stacktype: &'a StackType<Size3, Size2>,
     config: &'a DisplayConfig,
     active_temperings: &[bool; T],
     minfifth: StackCoeff,
     minthird: StackCoeff,
     cols: usize,
     rows: usize,
-) -> Grid<'a, T> {
+) -> Grid<'a, Size2> {
     let mut res = Grid {
         cells: Array2::from_shape_fn((rows, cols), |(i, j)| Cell {
             config,
             stack: Stack::new(
                 stacktype,
-                active_temperings,
-                [
+                &vector(active_temperings).unwrap(),
+                vector(&[
                     0,
                     minfifth + j as StackCoeff,
                     minthird + (rows - i - 1) as StackCoeff,
-                ],
-            ),
-            state: CellState::Considered,
+                ])
+                .unwrap(),
+            )
+            .unwrap(),
+            state: CellState::Off,
         }),
     };
 
@@ -126,7 +130,7 @@ pub fn main() -> io::Result<()> {
     let st = init_stacktype();
     let dc = init_displayconfig();
 
-    let notes = init_grid(&st, &dc, &[true, false, false], -6, -3, 12, 7);
+    let notes = init_grid(&st, &dc, &[true, true], -6, -3, 12, 7);
 
     let mut terminal = tui::init()?;
     terminal.draw(|frame| frame.render_widget(notes, frame.size()))?;

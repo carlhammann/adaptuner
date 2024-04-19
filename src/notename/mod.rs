@@ -1,18 +1,18 @@
 use crate::interval::Stack;
+use crate::util::{fixed_sizes::Size3, Dimension};
 
 mod johnston;
 
 pub enum NoteNameStyle {
-    JohnstonFiveLimitClass,
-    JohnstonFiveLimitFull,
+    JohnstonFull,
+    JohnstonClass,
 }
 
-impl<'a, const T: usize> Stack<'a, 3, T> {
-  pub fn notename(&self, style: &NoteNameStyle) -> String {
-      match style {
-          NoteNameStyle::JohnstonFiveLimitFull =>  johnston::fivelimit::NoteName::new(&self).str_full(),
-          NoteNameStyle::JohnstonFiveLimitClass => johnston::fivelimit::NoteName::new(&self).str_class(),
-      }
-
-  }
+impl<'a, T: Dimension + Copy> Stack<'a, Size3, T> {
+    pub fn notename(&self, style: &NoteNameStyle) -> String {
+        match style {
+            NoteNameStyle::JohnstonFull => johnston::fivelimit::NoteName::new(&self).str_full(),
+            NoteNameStyle::JohnstonClass => johnston::fivelimit::NoteName::new(&self).str_class(),
+        }
+    }
 }

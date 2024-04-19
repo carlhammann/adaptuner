@@ -1,6 +1,7 @@
 use crate::{
     interval::{Semitones, Stack},
     notename::*,
+    util::{fixed_sizes::Size3, Dimension},
 };
 use colorous;
 use ndarray::Array2;
@@ -18,9 +19,9 @@ pub enum CellState {
     On,
 }
 
-pub struct Cell<'a, const T: usize> {
+pub struct Cell<'a, T: Dimension> {
     pub config: &'a DisplayConfig,
-    pub stack: Stack<'a, 3, T>,
+    pub stack: Stack<'a, Size3, T>,
     pub state: CellState,
 }
 
@@ -43,7 +44,7 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
     }
 }
 
-impl<'a, const T: usize> WidgetRef for Cell<'a, T> {
+impl<'a, T: Dimension + Copy> WidgetRef for Cell<'a, T> {
     /// Rendering grid cells expects that we have two rows.
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         buf.set_string(
@@ -91,17 +92,17 @@ impl<'a, const T: usize> WidgetRef for Cell<'a, T> {
     }
 }
 
-pub struct Grid<'a, const T: usize> {
+pub struct Grid<'a, T: Dimension> {
     pub cells: Array2<Cell<'a, T>>,
 }
 
-impl<'a, const T: usize> Widget for Grid<'a, T> {
+impl<'a, T: Dimension + Copy> Widget for Grid<'a, T> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.render_ref(area, buf)
     }
 }
 
-impl<'a, const T: usize> WidgetRef for Grid<'a, T> {
+impl<'a, T: Dimension + Copy> WidgetRef for Grid<'a, T> {
     /// rendering of Grids expects there to be 2n rows of characters for an n-row grid, because
     /// Cells are two rows high
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
