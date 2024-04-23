@@ -12,12 +12,12 @@ use adaptuner::{
         self,
         grid::{Cell, CellState, DisplayConfig, Grid},
     },
-    util::{fixed_sizes::*, matrix, vector},
+    util::{fixed_sizes::*, matrix, vector, Dimension},
 };
 
 fn init_displayconfig() -> DisplayConfig {
     DisplayConfig {
-        notenamestyle: NoteNameStyle::JohnstonClass,
+        notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
         color_range: 0.5,
         gradient: colorous::SPECTRAL,
     }
@@ -95,47 +95,65 @@ fn init_grid<'a>(
         }),
     };
 
-    let on = [(0, 0), (2, 0), (3, 0), (3, -1), (0, 1), (0, -1)];
-    let consider = [
-        (2, 1),
-        (-1, 0),
-        (-1, 1),
-        (0, 0),
-        (0, 1),
-        (1, 0),
-        (1, 1),
-        (2, 0),
-    ];
-
-    for (i, j) in consider.iter() {
-        res.cells[(
-            (rows as StackCoeff + minthird - 1 - j) as usize,
-            (-minfifth + i) as usize,
-        )]
-            .state = CellState::Considered;
-    }
-
-    for (i, j) in on.iter() {
-        res.cells[(
-            (rows as StackCoeff + minthird - 1 - j) as usize,
-            (-minfifth + i) as usize,
-        )]
-            .state = CellState::On;
-    }
+    highlight(&mut res, 4, 7, 3);
 
     res
+}
+
+pub fn highlight<'a, T: Dimension>(
+    grid: &mut Grid<'a, T>,
+    width: StackCoeff,
+    index: StackCoeff,
+    offset: StackCoeff,
+) {
+    let rows = grid.cells.raw_dim()[0];
+    let cols = grid.cells.raw_dim()[1];
+    for cell in &mut grid.cells {
+        cell.state = CellState::Off;
+    }
+    for k in (width - 1 - index - offset)..(12 + width - 1 - index - offset) {
+        let i = k.div_euclid(width);
+
+        let mut j = width - 1 - k.rem_euclid(width);
+        j -= offset;
+        j = (4 - width) * i + j;
+        if ((i + 3) as usize) < rows && ((j + 6) as usize) < cols {
+            grid.cells[((i + 3) as usize, (j + 6) as usize)].state = CellState::Considered;
+        }
+    }
 }
 
 pub fn main() -> io::Result<()> {
     let st = init_stacktype();
     let dc = init_displayconfig();
 
-    let notes = init_grid(&st, &dc, &[true, true], -6, -3, 12, 7);
+    let mut width = 4; //1,2,3...12 //fifths thirds
+    let mut index = 7; // 0,1,2,3...,11 //sharps/flats
+    let mut offset = 1; // 0,1,...,width-1 //pluses/minuses
+    let mut notes = init_grid(&st, &dc, &[false, false], -6, -3, 12, 7);
 
     let mut terminal = tui::init()?;
-    terminal.draw(|frame| frame.render_widget(notes, frame.size()))?;
-    match event::read()? {
-        _ => {}
+    loop {
+        highlight(&mut notes, width, index, offset);
+        terminal.draw(|frame| frame.render_widget(&notes, frame.size()))?;
+        if let event::Event::Key(k) = event::read()? {
+            if k.kind == event::KeyEventKind::Press {
+                match k.code {
+                    event::KeyCode::Char('z') => {
+                        width = (width - 1).max(1);
+                        offset = offset.min(width - 1);
+                    }
+                    event::KeyCode::Char('u') => width = (width + 1).min(12),
+                    event::KeyCode::Char('h') => index = (index - 1).max(0),
+                    event::KeyCode::Char('j') => index = (index + 1).min(11),
+                    event::KeyCode::Char('n') => offset = (offset - 1).max(0),
+                    event::KeyCode::Char('m') => offset = (offset + 1).min(width - 1),
+                    event::KeyCode::Char('q') => break,
+                    _ => {},
+                }
+            }
+        } else {
+        }
     }
     tui::restore()?;
     Ok(())
