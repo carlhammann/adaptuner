@@ -169,6 +169,12 @@ impl<D: Dimension, I> ops::Index<Bounded<D>> for Vector<D, I> {
     }
 }
 
+impl<D: Dimension, I> ops::IndexMut<Bounded<D>> for Vector<D, I> {
+    fn index_mut(&mut self, i: Bounded<D>) -> &mut I {
+        &mut self.inner[i.inner]
+    }
+}
+
 impl<'a, D: Dimension, I> ops::Index<Bounded<D>> for VectorView<'a, D, I> {
     type Output = I;
     fn index(&self, i: Bounded<D>) -> &I {

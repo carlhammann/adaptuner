@@ -6,4 +6,4 @@ pub mod tui;
 pub mod tuning;
 pub mod util;
 pub mod pattern;
-
+pub mod process;
