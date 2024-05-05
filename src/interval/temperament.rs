@@ -112,8 +112,6 @@ where
         pure: &Matrix<D, D, I>,
     ) -> Result<Temperament<D, I>, TemperamentErr> {
         let tempered_lu = match fractionfree::lu(tempered.into_array2()) {
-                return Err(TemperamentErr::Indeterminate)
-            }
             Err(e) => return Err(TemperamentErr::FromLinalgErr(e)),
             Ok(x) => x,
         };
@@ -126,16 +124,8 @@ where
             e[[i, i]] -= det;
         }
 
-        let mut k = Array1::from_elem(D, det);
+        let mut k = Array1::from_elem(D::value(), det);
         fractionfree::normalise(&mut k.view_mut(), &mut e.view_mut())?;
-
-        // overwrite `tempered` and the first row of `pure` with the new values:
-        for i in 0..D {
-            pure[0][i] = k[i];
-            for j in 0..D {
-                tempered[i][j] = e[[i, j]];
-            }
-        }
 
         Ok(Temperament {
             name,

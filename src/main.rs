@@ -13,7 +13,7 @@ use adaptuner::{
         self,
         grid::{Cell, CellState, DisplayConfig, Grid},
     },
-    util::dimension::{fixed_sizes::*, matrix, vector, Dimension},
+    util::dimension::{fixed_sizes::*, matrix, vector, Dimension, Vector},
 };
 
 fn init_displayconfig() -> DisplayConfig {
@@ -71,7 +71,7 @@ pub fn init_stacktype() -> StackType<Size3, Size2> {
 fn init_grid<'a>(
     stacktype: &'a StackType<Size3, Size2>,
     config: &'a DisplayConfig,
-    active_temperings: &[bool; T],
+    active_temperings: &'a Vector<Size2, bool>,
     minfifth: StackCoeff,
     minthird: StackCoeff,
     cols: usize,
@@ -82,7 +82,7 @@ fn init_grid<'a>(
             config,
             stack: Stack::new(
                 stacktype,
-                &vector(active_temperings).unwrap(),
+                active_temperings,
                 vector(&[0, minfifth + j as StackCoeff, minthird + i as StackCoeff]).unwrap(),
             ),
             state: CellState::Off,
@@ -127,7 +127,8 @@ pub fn main() -> io::Result<()> {
     let mut width = 4; //1,2,3...12 //fifths thirds
     let mut index = 4; // 0,1,2,3...,11 //sharps/flats
     let mut offset = 1; // 0,1,...,width-1 //pluses/minuses
-    let mut notes = init_grid(&st, &dc, &[false, false], -6, -3, 12, 7);
+    let active_temperings = vector(&[false, false]).unwrap();
+    let mut notes = init_grid(&st, &dc, &active_temperings, -6, -3, 12, 7);
 
     let mut terminal = tui::init()?;
     loop {

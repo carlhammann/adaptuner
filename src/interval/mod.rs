@@ -110,7 +110,7 @@ impl<'a, D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> Stack<'a, D, T> 
 
     /// See the documentation comment of [Stack].
     pub fn semitones(&self) -> Semitones {
-        pure_stack_semitones(&self.coefficients, &self.stacktype.intervals)
+        pure_stack_semitones(self.coefficients.view(), &self.stacktype.intervals)
             + self.correction_semitones()
     }
 
