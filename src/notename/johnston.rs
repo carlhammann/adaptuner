@@ -1,6 +1,6 @@
 pub mod fivelimit {
     use crate::interval::{Stack, StackCoeff};
-    use crate::util::{AtLeast3, Bounded, Dimension};
+    use crate::util::dimension::{AtLeast3, Bounded, Dimension};
     use std::fmt;
 
     pub struct NoteName {
@@ -94,6 +94,7 @@ pub mod fivelimit {
     mod test {
         use super::*;
         use crate::interval::stack_test_setup::init_stacktype;
+        use crate::util::dimension::vector;
 
         #[test]
         fn test_str_name() {

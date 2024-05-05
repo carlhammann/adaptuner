@@ -8,7 +8,7 @@ use num_integer::Integer;
 use num_traits::Signed;
 use std::{error::Error, fmt, ops};
 
-use crate::util::{Bounded, Dimension, Matrix, Vector, VectorView};
+use crate::util::dimension::{Bounded, Dimension, Matrix, Vector, VectorView};
 
 /// A description of a temperament, i.e. "how much you detune" some intervals.
 ///
@@ -18,7 +18,7 @@ use crate::util::{Bounded, Dimension, Matrix, Vector, VectorView};
 /// linear combinations of the base intervals, is what an element of this type encodes.
 #[derive(Debug, Clone)]
 pub struct Temperament<D: Dimension, I> {
-    pub name: String, 
+    pub name: String,
     commas: Matrix<D, D, I>,
     denominators: Vector<D, I>,
 }
@@ -74,8 +74,8 @@ where
     /// ```
     /// # use ndarray::{arr1, arr2};
     /// # use adaptuner::interval::*;
-    /// # use adaptuner::util::*;
-    /// # use adaptuner::util::fixed_sizes::*;
+    /// # use adaptuner::util::dimension::*;
+    /// # use adaptuner::util::dimension::fixed_sizes::*;
     /// # fn main () {
     /// let tempered = matrix(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]).unwrap();
     /// let pure     = matrix(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]).unwrap();

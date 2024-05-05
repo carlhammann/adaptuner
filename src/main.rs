@@ -13,7 +13,7 @@ use adaptuner::{
         self,
         grid::{Cell, CellState, DisplayConfig, Grid},
     },
-    util::{fixed_sizes::*, matrix, vector, Dimension},
+    util::dimension::{fixed_sizes::*, matrix, vector, Dimension},
 };
 
 fn init_displayconfig() -> DisplayConfig {

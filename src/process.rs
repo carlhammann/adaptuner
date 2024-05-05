@@ -3,8 +3,11 @@ use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 use std::{fmt, sync::mpsc};
 
 use crate::{
-    util::{Dimension, Vector},
     interval::{Stack, StackCoeff},
+    util::{
+        dimension::{Dimension, Vector},
+        mod12::sub_mod12,
+    },
 };
 
 #[derive(Clone)]
@@ -17,7 +20,7 @@ pub mod msg {
 
     use crate::{
         interval::Semitones,
-        util::{Bounded, Dimension},
+        util::dimension::{Bounded, Dimension},
     };
 
     use super::Neighbourhood;

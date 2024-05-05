@@ -1,9 +1,9 @@
 //! Everything that has to do with (stacks of) intervals, pure or tempered.
 
 use serde_derive::{Deserialize, Serialize};
-use std::{error::Error, fmt, ops};
+use std::{fmt, ops};
 
-use crate::util::{Dimension, Matrix, Vector, VectorView};
+use crate::util::dimension::{Dimension, Matrix, Vector, VectorView};
 
 mod temperament;
 pub use temperament::*;
@@ -326,7 +326,7 @@ pub mod stack_test_setup {
 #[cfg(test)]
 mod test {
     use super::{stack_test_setup::init_stacktype, *};
-    use crate::util::{matrix, vector};
+    use crate::util::dimension::{matrix, vector};
     use approx::*;
 
     #[test]

@@ -1,7 +1,7 @@
 use crate::{
     interval::{Semitones, Stack},
     notename::*,
-    util::{fixed_sizes::Size3, Dimension},
+    util::dimension::{fixed_sizes::Size3, Dimension},
 };
 use colorous;
 use ndarray::Array2;

@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::interval::Stack;
-use crate::util::{AtLeast3, Dimension};
+use crate::util::dimension::{AtLeast3, Dimension};
 
 mod johnston;
 
