@@ -3,12 +3,14 @@ use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 use std::{fmt, sync::mpsc};
 
 use crate::{
-    interval::Stack,
     util::{Dimension, Vector},
+    interval::{Stack, StackCoeff},
 };
 
 #[derive(Clone)]
-pub enum Neighbourhood {}
+pub struct Neighbourhood<D: Dimension> {
+    neighbourhood: [Vector<D, StackCoeff>; 12],
+}
 
 pub mod msg {
     use midi_msg::{MidiMsg, ParseError};
@@ -29,8 +31,8 @@ pub mod msg {
         Retune { note: u8, target: Semitones },
     }
 
-    pub enum ToProcess<T: Dimension> {
-        SetNeighboughood(Neighbourhood),
+    pub enum ToProcess<D: Dimension, T: Dimension> {
+        SetNeighboughood(Neighbourhood<D>),
         ToggleTemperament(Bounded<T>),
     }
 }
@@ -39,7 +41,7 @@ pub mod msg {
 pub struct TuningFrame<'a, D: Dimension, T: Dimension> {
     reference_stack: Stack<'a, D, T>,
     reference_key: u8,
-    neighbourhood: Neighbourhood,
+    neighbourhood: Neighbourhood<D>,
     active_temperaments: Vector<T, bool>,
 }
 
@@ -70,11 +72,11 @@ pub struct State<'a, D: Dimension, T: Dimension> {
     // to_backend: mpsc::Sender<msg::ToBackend>,
 }
 
-pub trait ProcessState<T: Dimension> {
+pub trait ProcessState<D: Dimension, T: Dimension> {
     fn handle_msg(
         &mut self,
         time: u64,
-        msg: msg::ToProcess<T>,
+        msg: msg::ToProcess<D, T>,
         to_backend: &mpsc::Sender<msg::ToBackend>,
         to_ui: &mpsc::Sender<msg::ToUI>,
     );
@@ -87,12 +89,12 @@ pub trait ProcessState<T: Dimension> {
     );
 }
 
-pub fn process<X: ProcessState<T>, T: Dimension>(
+pub fn process<X: ProcessState<D, T>, T: Dimension, D: Dimension>(
     time: u64,
     msg: &[u8],
     state: (
         &mut X,
-        mpsc::Receiver<msg::ToProcess<T>>,
+        mpsc::Receiver<msg::ToProcess<D, T>>,
         mpsc::Sender<msg::ToBackend>,
         mpsc::Sender<msg::ToUI>,
     ),
@@ -131,7 +133,7 @@ where
     }
 }
 
-impl<'a, D, T> ProcessState<T> for State<'a, D, T>
+impl<'a, D, T> ProcessState<D, T> for State<'a, D, T>
 where
     D: Dimension + Clone + Copy + fmt::Debug,
     T: Dimension + Clone + Copy,
@@ -139,7 +141,7 @@ where
     fn handle_msg(
         &mut self,
         _time: u64,
-        msg: msg::ToProcess<T>,
+        msg: msg::ToProcess<D, T>,
         to_backend: &mpsc::Sender<msg::ToBackend>,
         _to_ui: &mpsc::Sender<msg::ToUI>,
     ) {
@@ -218,9 +220,16 @@ where
     }
 }
 
-fn stack_from_tuning_frame<'a, D: Dimension, T: Dimension>(
-    frame: &TuningFrame<'a, D, T>,
-    key: u8,
-) -> Stack<'a, D, T> {
-    todo!()
+fn stack_from_tuning_frame<'a, D, T>(frame: &TuningFrame<'a, D, T>, key: u8) -> Stack<'a, D, T>
+where
+    D: Dimension + Copy + fmt::Debug,
+    T: Dimension + Copy,
+{
+    let d = sub_mod12(key, frame.reference_key);
+    let (q, r) = (d.div_euclid(12), d.rem_euclid(12));
+    Stack::new(
+        frame.reference_stack.stacktype(),
+        &frame.active_temperaments,
+        frame.neighbourhood.neighbourhood[r as usize].clone(), // plus q octaves
+    ) + &frame.reference_stack
 }

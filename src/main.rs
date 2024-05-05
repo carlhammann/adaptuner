@@ -7,6 +7,7 @@ use ndarray::Array2;
 
 use adaptuner::{
     interval::{Interval, Semitones, Stack, StackCoeff, StackType, Temperament},
+    neighbourhood::fivelimit_neighbours,
     notename::NoteNameStyle,
     tui::{
         self,
@@ -83,19 +84,13 @@ fn init_grid<'a>(
             stack: Stack::new(
                 stacktype,
                 &vector(active_temperings).unwrap(),
-                vector(&[
-                    0,
-                    minfifth + j as StackCoeff,
-                    minthird + (rows - i - 1) as StackCoeff,
-                ])
-                .unwrap(),
-            )
-            .unwrap(),
+                vector(&[0, minfifth + j as StackCoeff, minthird + i as StackCoeff]).unwrap(),
+            ),
             state: CellState::Off,
         }),
     };
 
-    highlight(&mut res, 4, 7, 3);
+    highlight(&mut res, 4, 0, 0);
 
     res
 }
@@ -108,18 +103,21 @@ pub fn highlight<'a, T: Dimension>(
 ) {
     let rows = grid.cells.raw_dim()[0];
     let cols = grid.cells.raw_dim()[1];
+    let mut chosen = [(0, 0); 12];
     for cell in &mut grid.cells {
         cell.state = CellState::Off;
     }
-    for k in (width - 1 - index - offset)..(12 + width - 1 - index - offset) {
-        let i = k.div_euclid(width);
+    fivelimit_neighbours(&mut chosen, width, index, offset);
 
-        let mut j = width - 1 - k.rem_euclid(width);
-        j -= offset;
-        j = (4 - width) * i + j;
+    for k in 0..12 {
+        let (i, j) = chosen[k];
         if ((i + 3) as usize) < rows && ((j + 6) as usize) < cols {
             grid.cells[((i + 3) as usize, (j + 6) as usize)].state = CellState::Considered;
         }
+    }
+    let (i, j) = chosen[0];
+    if ((i + 3) as usize) < rows && ((j + 6) as usize) < cols {
+        grid.cells[((i + 3) as usize, (j + 6) as usize)].state = CellState::On;
     }
 }
 
@@ -128,7 +126,7 @@ pub fn main() -> io::Result<()> {
     let dc = init_displayconfig();
 
     let mut width = 4; //1,2,3...12 //fifths thirds
-    let mut index = 7; // 0,1,2,3...,11 //sharps/flats
+    let mut index = 4; // 0,1,2,3...,11 //sharps/flats
     let mut offset = 1; // 0,1,...,width-1 //pluses/minuses
     let mut notes = init_grid(&st, &dc, &[false, false], -6, -3, 12, 7);
 
@@ -146,10 +144,10 @@ pub fn main() -> io::Result<()> {
                     event::KeyCode::Char('u') => width = (width + 1).min(12),
                     event::KeyCode::Char('h') => index = (index - 1).max(0),
                     event::KeyCode::Char('j') => index = (index + 1).min(11),
-                    event::KeyCode::Char('n') => offset = (offset - 1).max(0),
-                    event::KeyCode::Char('m') => offset = (offset + 1).min(width - 1),
+                    event::KeyCode::Char('m') => offset = (offset - 1).max(0),
+                    event::KeyCode::Char('n') => offset = (offset + 1).min(width - 1),
                     event::KeyCode::Char('q') => break,
-                    _ => {},
+                    _ => {}
                 }
             }
         } else {

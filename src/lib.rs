@@ -6,3 +6,4 @@ pub mod tui;
 pub mod util;
 pub mod pattern;
 pub mod process;
+pub mod neighbourhood;

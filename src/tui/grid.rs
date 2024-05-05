@@ -112,7 +112,7 @@ impl<'a, T: Dimension + Copy> WidgetRef for Grid<'a, T> {
 
         for i in 0..rows {
             for j in 0..cols {
-                self.cells[[i, j]].render_ref(
+                self.cells[[rows-1-i, j]].render_ref(
                     Rect {
                         x: area.x + cellwidth * j as u16,
                         y: area.y + 2 * i as u16,
