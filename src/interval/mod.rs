@@ -50,7 +50,7 @@ impl<D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> StackType<D, T> {
     pub fn new(
         intervals: Vector<D, Interval>,
         temperaments: Vector<T, Temperament<D, StackCoeff>>,
-    ) -> Result<Self, StackErr> {
+    ) -> Self {
         let precomputed_temperings = Matrix::from_fn(|(i, t)| {
             pure_stack_semitones(temperaments[t].comma(i), &intervals)
                 / temperaments[t].denominator(i) as Semitones
@@ -186,7 +186,7 @@ impl<'a, D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> Stack<'a, D, T> 
         &mut self,
         active_temperaments: &Vector<T, bool>,
         coefficients: &Vector<D, StackCoeff>,
-    ) -> Result<(), StackErr> {
+    ) {
         for (i, coeff) in &mut self.coefficients {
             *coeff += coefficients[i];
         }
@@ -207,7 +207,7 @@ impl<'a, D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> Stack<'a, D, T> 
         stacktype: &'a StackType<D, T>,
         active_temperaments: &Vector<T, bool>,
         coefficients: Vector<D, StackCoeff>,
-    ) -> Result<Stack<'a, D, T>, StackErr> {
+    ) -> Stack<'a, D, T> {
         let corrections = Matrix::from_fn(|(i, t)| {
             if active_temperaments[t] {
                 coefficients[i]
@@ -276,7 +276,7 @@ where
 #[cfg(test)]
 pub mod stack_test_setup {
     use super::*;
-    use crate::util::{fixed_sizes::*, matrix, vector};
+    use crate::util::dimension::{fixed_sizes::*, matrix, vector};
 
     /// some base intervals: octaves, fifths, thirds.
     pub fn init_intervals() -> [Interval; 3] {
@@ -318,9 +318,8 @@ pub mod stack_test_setup {
     pub fn init_stacktype() -> StackType<Size3, Size2> {
         StackType::new(
             vector(&init_intervals()).unwrap(),
-            vector(&init_temperaments()).unwrap(),
+            vector(&init_temperaments()).unwrap()
         )
-        .unwrap()
     }
 }
 
@@ -349,8 +348,7 @@ mod test {
             &st,
             &vector(&[false, true]).unwrap(),
             vector(&[0, 0, 1]).unwrap(),
-        )
-        .unwrap();
+        );
         assert_relative_eq!(
             s.correction_semitones(),
             edo12_third_error,
@@ -362,8 +360,7 @@ mod test {
             &st,
             &vector(&[true, false]).unwrap(),
             vector(&[0, 4, 0]).unwrap(),
-        )
-        .unwrap();
+        );
         assert_relative_eq!(s.correction_semitones(), 0.0, max_relative = eps);
         assert_relative_eq!(s.semitones(), third + 2.0 * octave, max_relative = eps);
 
@@ -371,8 +368,7 @@ mod test {
             &st,
             &vector(&[true, false]).unwrap(),
             vector(&[0, 6, 0]).unwrap(),
-        )
-        .unwrap();
+        );
         assert_relative_eq!(
             s.correction_semitones(),
             2.0 * quarter_comma,
@@ -388,8 +384,7 @@ mod test {
             &st,
             &vector(&[false, true]).unwrap(),
             vector(&[0, 0, 7]).unwrap(),
-        )
-        .unwrap();
+        );
         assert_relative_eq!(
             s.correction_semitones(),
             edo12_third_error,
@@ -405,8 +400,7 @@ mod test {
             &st,
             &vector(&[true, true]).unwrap(),
             vector(&[0, 5, 7]).unwrap(),
-        )
-        .unwrap();
+        );
         assert_relative_eq!(
             s.correction_semitones(),
             quarter_comma + 5.0 * edo12_fifth_error + edo12_third_error,
@@ -434,14 +428,12 @@ mod test {
             &st,
             &vector(&[false, false]).unwrap(),
             vector(&[0, 4, 3]).unwrap(),
-        )
-        .unwrap();
+        );
         let s2 = Stack::new(
             &st,
             &vector(&[false, false]).unwrap(),
             vector(&[0, 2, 5]).unwrap(),
-        )
-        .unwrap();
+        );
         let s = s1 + &s2;
         assert_eq!(s.coefficients, vector(&[0 + 0, 4 + 2, 3 + 5]).unwrap());
         assert_eq!(s.corrections, matrix(&[[0, 0], [0, 0], [0, 0]]).unwrap());
@@ -450,14 +442,12 @@ mod test {
             &st,
             &vector(&[true, false]).unwrap(),
             vector(&[0, 4, 3]).unwrap(),
-        )
-        .unwrap();
+        );
         let s2 = Stack::new(
             &st,
             &vector(&[false, false]).unwrap(),
             vector(&[0, 2, 5]).unwrap(),
-        )
-        .unwrap();
+        );
         let s = s1 + &s2;
         assert_eq!(s.coefficients, vector(&[2 + 0, 0 + 2, 4 + 5]).unwrap());
         assert_eq!(s.corrections, matrix(&[[0, 0], [0, 0], [0, 0]]).unwrap());
@@ -466,14 +456,12 @@ mod test {
             &st,
             &vector(&[true, false]).unwrap(),
             vector(&[0, 4, 3]).unwrap(),
-        )
-        .unwrap();
+        );
         let s2 = Stack::new(
             &st,
             &vector(&[true, false]).unwrap(),
             vector(&[0, 2, 5]).unwrap(),
-        )
-        .unwrap();
+        );
         let s = s1 + &s2;
         assert_eq!(s.coefficients, vector(&[2 + 0, 0 + 2, 4 + 5]).unwrap());
         assert_eq!(s.corrections, matrix(&[[0, 0], [2, 0], [0, 0]]).unwrap());
@@ -482,14 +470,12 @@ mod test {
             &st,
             &vector(&[true, true]).unwrap(),
             vector(&[0, 4, 3]).unwrap(),
-        )
-        .unwrap();
+        );
         let s2 = Stack::new(
             &st,
             &vector(&[true, false]).unwrap(),
             vector(&[0, 2, 5]).unwrap(),
-        )
-        .unwrap();
+        );
         let s = s1 + &s2;
         assert_eq!(s.coefficients, vector(&[3 + 0, 0 + 2, 1 + 5]).unwrap());
         assert_eq!(s.corrections, matrix(&[[0, 0], [2, 4], [0, 0]]).unwrap());
@@ -498,14 +484,12 @@ mod test {
             &st,
             &vector(&[true, true]).unwrap(),
             vector(&[0, 4, 3]).unwrap(),
-        )
-        .unwrap();
+        );
         let s2 = Stack::new(
             &st,
             &vector(&[true, true]).unwrap(),
             vector(&[0, 2, 5]).unwrap(),
-        )
-        .unwrap();
+        );
         let s = s1 + &s2;
         assert_eq!(s.coefficients, vector(&[3 + 1, 0 + 2, 1 + 2]).unwrap());
         assert_eq!(s.corrections, matrix(&[[0, 0], [2, 6], [0, 2]]).unwrap());

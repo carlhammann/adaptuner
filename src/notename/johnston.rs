@@ -94,7 +94,6 @@ pub mod fivelimit {
     mod test {
         use super::*;
         use crate::interval::stack_test_setup::init_stacktype;
-        use crate::util::vector;
 
         #[test]
         fn test_str_name() {
@@ -128,14 +127,11 @@ pub mod fivelimit {
 
             for (coeffs, name) in examples.iter() {
                 assert_eq!(
-                    NoteName::new(
-                        &Stack::new(
-                            &st,
-                            &vector(&[false, false]).unwrap(),
-                            vector(coeffs).unwrap()
-                        )
-                        .unwrap()
-                    )
+                    NoteName::new(&Stack::new(
+                        &st,
+                        &vector(&[false, false]).unwrap(),
+                        vector(coeffs).unwrap()
+                    ))
                     .str_full(),
                     String::from(*name)
                 );

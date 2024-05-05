@@ -66,7 +66,6 @@ pub fn init_stacktype() -> StackType<Size3, Size2> {
         vector(&init_intervals()).unwrap(),
         vector(&init_temperaments()).unwrap(),
     )
-    .unwrap()
 }
 
 fn init_grid<'a>(
