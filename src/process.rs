@@ -4,10 +4,8 @@ use std::{fmt, sync::mpsc};
 
 use crate::{
     interval::{Stack, StackCoeff},
-    util::{
-        dimension::{Dimension, Vector},
-        mod12::sub_mod12,
-    },
+    pattern::{Fit, Pattern},
+    util::dimension::{AtLeast, Bounded, Dimension, Vector},
 };
 
 #[derive(Clone)]
@@ -48,16 +46,8 @@ pub struct TuningFrame<'a, D: Dimension, T: Dimension> {
     active_temperaments: Vector<T, bool>,
 }
 
-pub struct Pattern {}
-
-impl Pattern {
-    fn fit(&self, active_notes: &[bool; 128]) -> Option<u8> {
-        todo!()
-    }
-}
-
 pub struct Config<'a> {
-    patterns: &'a [Pattern],
+    patterns: &'a [Pattern<'a>],
     minimum_age: u64, // microseconds
 }
 
@@ -115,7 +105,7 @@ pub fn process<X: ProcessState<D, T>, T: Dimension, D: Dimension>(
 
 impl<'a, D, T> State<'a, D, T>
 where
-    D: Dimension + Copy + fmt::Debug,
+    D: AtLeast<1> + Copy + fmt::Debug,
     T: Dimension + Copy,
 {
     /// Go through all currently active notes and send [Retune][msg::ToBackend::Retune] messages to
@@ -138,7 +128,7 @@ where
 
 impl<'a, D, T> ProcessState<D, T> for State<'a, D, T>
 where
-    D: Dimension + Clone + Copy + fmt::Debug,
+    D: AtLeast<1> + Clone + Copy + fmt::Debug,
     T: Dimension + Clone + Copy,
 {
     fn handle_msg(
@@ -178,16 +168,17 @@ where
                 if !self.active_notes[note as usize] {
                     self.active_notes[note as usize] = true;
                     for p in self.config.patterns {
-                        match p.fit(&self.active_notes) {
-                            None => {}
-                            Some(key) => {
-                                if key != self.current.reference_key {
-                                    self.current.reference_key = key;
-                                    self.current.reference_stack =
-                                        stack_from_tuning_frame(&self.old, key);
-                                    self.send_retunes(to_backend);
+                        match p.fit(&self.active_notes, 0) {
+                            Fit { reference, next } => {
+                                if next == 128 {
+                                    if reference != self.current.reference_key {
+                                        self.current.reference_key = reference;
+                                        self.current.reference_stack =
+                                            stack_from_tuning_frame(&self.old, reference);
+                                        self.send_retunes(to_backend);
+                                    }
+                                    break;
                                 }
-                                break;
                             }
                         }
                     }
@@ -225,14 +216,17 @@ where
 
 fn stack_from_tuning_frame<'a, D, T>(frame: &TuningFrame<'a, D, T>, key: u8) -> Stack<'a, D, T>
 where
-    D: Dimension + Copy + fmt::Debug,
+    D: AtLeast<1> + Copy + fmt::Debug,
     T: Dimension + Copy,
 {
-    let d = sub_mod12(key, frame.reference_key);
+    let d = key as StackCoeff - frame.reference_key as StackCoeff;
     let (q, r) = (d.div_euclid(12), d.rem_euclid(12));
+    let mut coefficients = frame.neighbourhood.neighbourhood[r as usize].clone();
+    coefficients[Bounded::new(0).unwrap()] += q; // unwrap cannot fail here, because of the
+                                                 // `AtLeast<1>` bound on `D`
     Stack::new(
         frame.reference_stack.stacktype(),
         &frame.active_temperaments,
-        frame.neighbourhood.neighbourhood[r as usize].clone(), // plus q octaves
+        coefficients,
     ) + &frame.reference_stack
 }
