@@ -1,16 +1,26 @@
-use crate::util::mod12::*;
+use crate::util::mod12::{PitchClass, PitchClass::*};
 
 #[derive(Debug)]
 pub enum Pattern<'a> {
-    ClassesFixed { classes: &'a [u8], zero: u8 },
-    ClassesRelative { classes: &'a [u8] },
-    VoicingFixed { blocks: &'a [Vec<u8>], zero: u8 },
-    VoicingRelative { blocks: &'a [Vec<u8>] },
+    ClassesFixed {
+        classes: &'a [PitchClass],
+        zero: PitchClass,
+    },
+    ClassesRelative {
+        classes: &'a [PitchClass],
+    },
+    VoicingFixed {
+        blocks: &'a [Vec<PitchClass>],
+        zero: PitchClass,
+    },
+    VoicingRelative {
+        blocks: &'a [Vec<PitchClass>],
+    },
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Fit {
-    pub reference: u8,
+    pub reference: PitchClass,
     pub next: usize,
 }
 
@@ -30,7 +40,7 @@ impl<'a> Pattern<'a> {
                     }
                     match classes
                         .iter()
-                        .position(|&x| add_mod12(x, *zero) == i as u8 % 12)
+                        .position(|&x| (x + *zero) as u8 == i as u8 % 12)
                     {
                         Some(j) => {
                             i += 1;
@@ -53,7 +63,11 @@ impl<'a> Pattern<'a> {
             }
             Self::ClassesRelative { classes } => {
                 for zero in 0..12 {
-                    let res = (Self::ClassesFixed { classes, zero }).fit(active_notes, start);
+                    let res = (Self::ClassesFixed {
+                        classes,
+                        zero: PitchClass::from(zero),
+                    })
+                    .fit(active_notes, start);
                     match res {
                         Fit { next, .. } => {
                             if next > start {
@@ -63,7 +77,7 @@ impl<'a> Pattern<'a> {
                     }
                 }
                 Fit {
-                    reference: 0,
+                    reference: PC0,
                     next: 0,
                 }
             }
@@ -103,7 +117,11 @@ impl<'a> Pattern<'a> {
             }
             Self::VoicingRelative { blocks } => {
                 for zero in 0..12 {
-                    let res = (Self::VoicingFixed { blocks, zero }).fit(active_notes, start);
+                    let res = (Self::VoicingFixed {
+                        blocks,
+                        zero: PitchClass::from(zero),
+                    })
+                    .fit(active_notes, start);
                     match res {
                         Fit { next, .. } => {
                             if next > start {
@@ -113,7 +131,7 @@ impl<'a> Pattern<'a> {
                     }
                 }
                 Fit {
-                    reference: 0,
+                    reference: PC0,
                     next: 0,
                 }
             }
@@ -134,7 +152,13 @@ mod test {
         assert!(actual == expect, "for\npattern: {pat:?}\nactive: {active:?}\n\nexpected: {expect:?}\n     got: {actual:?}");
     }
 
-    fn one_classes_fixed(active: &[u8], classes: &[u8], zero: u8, reference: u8, next: usize) {
+    fn one_classes_fixed(
+        active: &[u8],
+        classes: &[PitchClass],
+        zero: PitchClass,
+        reference: PitchClass,
+        next: usize,
+    ) {
         one_case(
             active,
             Pattern::ClassesFixed { classes, zero },
@@ -145,46 +169,57 @@ mod test {
     #[test]
     fn test_classes_fixed() {
         let examples = [
-            (vec![0], vec![0], 0, 0, 128),
-            (vec![0, 1], vec![0], 0, 0, 1),
-            (vec![1], vec![1], 0, 0, 128),
-            (vec![1], vec![0], 1, 1, 128),
-            (vec![1], vec![0], 0, 0, 0),
-            (vec![0], vec![0], 1, 1, 0),
-            (vec![0, 5], vec![0, 5], 0, 0, 128),
-            (vec![0, 4], vec![0, 5], 0, 0, 0),
-            (vec![0, 5], vec![0, 4], 0, 0, 0),
-            (vec![1, 5], vec![0, 4], 1, 1, 128),
-            (vec![0, 4], vec![1, 5], 11, 11, 128),
-            (vec![0, 5, 6], vec![0, 5], 0, 0, 6),
+            (vec![0], vec![PC0], 0, 0, 128),
+            (vec![0, 1], vec![PC0], 0, 0, 1),
+            (vec![1], vec![PC1], 0, 0, 128),
+            (vec![1], vec![PC0], 1, 1, 128),
+            (vec![1], vec![PC0], 0, 0, 0),
+            (vec![0], vec![PC0], 1, 1, 0),
+            (vec![0, 5], vec![PC0, PC5], 0, 0, 128),
+            (vec![0, 4], vec![PC0, PC5], 0, 0, 0),
+            (vec![0, 5], vec![PC0, PC4], 0, 0, 0),
+            (vec![1, 5], vec![PC0, PC4], 1, 1, 128),
+            (vec![0, 4], vec![PC1, PC5], 11, 11, 128),
+            (vec![0, 5, 6], vec![PC0, PC5], 0, 0, 6),
             // the order doesn't matter, as long as the "matching" keys come first:
-            (vec![8, 3, 11], vec![0, 5], 3, 3, 11),
-            (vec![8, 3, 4], vec![0, 5], 3, 3, 0),
+            (vec![8, 3, 11], vec![PC0, PC5], 3, 3, 11),
+            (vec![8, 3, 4], vec![PC0, PC5], 3, 3, 0),
             // permutations (active notes)
-            (vec![1, 2, 3], vec![1, 2, 3], 0, 0, 128),
-            (vec![1, 3, 2], vec![1, 2, 3], 0, 0, 128),
-            (vec![2, 1, 3], vec![1, 2, 3], 0, 0, 128),
-            (vec![2, 3, 1], vec![1, 2, 3], 0, 0, 128),
-            (vec![3, 1, 2], vec![1, 2, 3], 0, 0, 128),
-            (vec![3, 2, 1], vec![1, 2, 3], 0, 0, 128),
+            (vec![1, 2, 3], vec![PC1, PC2, PC3], 0, 0, 128),
+            (vec![1, 3, 2], vec![PC1, PC2, PC3], 0, 0, 128),
+            (vec![2, 1, 3], vec![PC1, PC2, PC3], 0, 0, 128),
+            (vec![2, 3, 1], vec![PC1, PC2, PC3], 0, 0, 128),
+            (vec![3, 1, 2], vec![PC1, PC2, PC3], 0, 0, 128),
+            (vec![3, 2, 1], vec![PC1, PC2, PC3], 0, 0, 128),
             // permutations (pattern)
-            (vec![1, 2, 3], vec![1, 2, 3], 0, 0, 128),
-            (vec![1, 2, 3], vec![1, 3, 2], 0, 0, 128),
-            (vec![1, 2, 3], vec![2, 1, 3], 0, 0, 128),
-            (vec![1, 2, 3], vec![2, 3, 1], 0, 0, 128),
-            (vec![1, 2, 3], vec![3, 1, 2], 0, 0, 128),
-            (vec![1, 2, 3], vec![3, 2, 1], 0, 0, 128),
+            (vec![1, 2, 3], vec![PC1, PC2, PC3], 0, 0, 128),
+            (vec![1, 2, 3], vec![PC1, PC3, PC2], 0, 0, 128),
+            (vec![1, 2, 3], vec![PC2, PC1, PC3], 0, 0, 128),
+            (vec![1, 2, 3], vec![PC2, PC3, PC1], 0, 0, 128),
+            (vec![1, 2, 3], vec![PC3, PC1, PC2], 0, 0, 128),
+            (vec![1, 2, 3], vec![PC3, PC2, PC1], 0, 0, 128),
             // longer than one octave
-            (vec![0, 13], vec![0, 1], 0, 0, 128),
-            (vec![20, 7], vec![0, 1], 7, 7, 128),
+            (vec![0, 13], vec![PC0, PC1], 0, 0, 128),
+            (vec![20, 7], vec![PC0, PC1], 7, 7, 128),
         ];
 
         for (active, classes, zero, reference, next) in examples {
-            one_classes_fixed(&active, &classes, zero, reference, next);
+            one_classes_fixed(
+                &active,
+                &classes,
+                PitchClass::from(zero),
+                PitchClass::from(reference),
+                next,
+            );
         }
     }
 
-    fn one_classes_relative(active: &[u8], classes: &[u8], reference: u8, next: usize) {
+    fn one_classes_relative(
+        active: &[u8],
+        classes: &[PitchClass],
+        reference: PitchClass,
+        next: usize,
+    ) {
         one_case(
             active,
             Pattern::ClassesRelative { classes },
@@ -195,25 +230,31 @@ mod test {
     #[test]
     fn test_classes_relative() {
         let examples = [
-            (vec![0], vec![0], 0, 128),
-            (vec![1], vec![0], 1, 128),
-            (vec![0], vec![1], 11, 128),
-            (vec![1, 5], vec![0, 4], 1, 128),
-            (vec![0, 4], vec![1, 5], 11, 128),
-            (vec![0, 5, 6], vec![0, 5], 0, 6),
+            (vec![0], vec![PC0], 0, 128),
+            (vec![1], vec![PC0], 1, 128),
+            (vec![0], vec![PC1], 11, 128),
+            (vec![1, 5], vec![PC0, PC4], 1, 128),
+            (vec![0, 4], vec![PC1, PC5], 11, 128),
+            (vec![0, 5, 6], vec![PC0, PC5], 0, 6),
             // the order doesn't matter, as long as the "matching" keys come first:
-            (vec![8, 3, 11], vec![0, 5], 3, 11),
-            (vec![8, 3, 4], vec![0, 5], 0, 0),
+            (vec![8, 3, 11], vec![PC0, PC5], 3, 11),
+            (vec![8, 3, 4], vec![PC0, PC5], 0, 0),
             // big major chord with octave doublings
-            (vec![1, 13, 18, 22, 34], vec![0, 4, 7], 6, 128),
+            (vec![1, 13, 18, 22, 34], vec![PC0, PC4, PC7], 6, 128),
         ];
 
         for (active, classes, reference, next) in examples {
-            one_classes_relative(&active, &classes, reference, next);
+            one_classes_relative(&active, &classes, PitchClass::from(reference), next);
         }
     }
 
-    fn one_voicing_fixed(active: &[u8], blocks: &[Vec<u8>], zero: u8, reference: u8, next: usize) {
+    fn one_voicing_fixed(
+        active: &[u8],
+        blocks: &[Vec<PitchClass>],
+        zero: PitchClass,
+        reference: PitchClass,
+        next: usize,
+    ) {
         one_case(
             active,
             Pattern::VoicingFixed { blocks, zero },
@@ -224,20 +265,26 @@ mod test {
     #[test]
     fn test_voicing_fixed() {
         let examples = [
-            (vec![1, 2, 3, 4], vec![vec![1, 2], vec![4, 3]], 0, 0, 128),
-            (vec![1, 2, 3, 4], vec![vec![1], vec![3, 2]], 0, 0, 4),
-            (vec![1, 2, 3], vec![vec![1, 3], vec![2]], 0, 0, 0),
+            (
+                vec![1, 2, 3, 4],
+                vec![vec![PC1, PC2], vec![PC4, PC3]],
+                0,
+                0,
+                128,
+            ),
+            (vec![1, 2, 3, 4], vec![vec![PC1], vec![PC3, PC2]], 0, 0, 4),
+            (vec![1, 2, 3], vec![vec![PC1, PC3], vec![PC2]], 0, 0, 0),
             // [zero]s can be offset by multiples of 12
             (
                 vec![25 + 1, 25 + 2, 25 + 3],
-                vec![vec![1, 2], vec![3]],
+                vec![vec![PC1, PC2], vec![PC3]],
                 25,
                 25,
                 128,
             ),
             (
                 vec![25 + 1, 25 + 2, 25 + 3],
-                vec![vec![1, 2], vec![3]],
+                vec![vec![PC1, PC2], vec![PC3]],
                 1,
                 1,
                 128,
@@ -245,11 +292,22 @@ mod test {
         ];
 
         for (active, blocks, zero, reference, next) in examples {
-            one_voicing_fixed(&active, &blocks, zero, reference, next);
+            one_voicing_fixed(
+                &active,
+                &blocks,
+                PitchClass::from(zero),
+                PitchClass::from(reference),
+                next,
+            );
         }
     }
 
-    fn one_voicing_relative(active: &[u8], blocks: &[Vec<u8>], reference: u8, next: usize) {
+    fn one_voicing_relative(
+        active: &[u8],
+        blocks: &[Vec<PitchClass>],
+        reference: PitchClass,
+        next: usize,
+    ) {
         one_case(
             active,
             Pattern::VoicingRelative { blocks },
@@ -260,20 +318,25 @@ mod test {
     #[test]
     fn test_voicing_relative() {
         let examples = [
-            (vec![4, 5, 6, 7], vec![vec![1, 2], vec![4, 3]], 3, 128),
-            (vec![0, 1, 2, 3], vec![vec![1], vec![3, 2]], 11, 3),
-            (vec![1, 2, 3], vec![vec![1, 3], vec![2]], 0, 0),
+            (
+                vec![4, 5, 6, 7],
+                vec![vec![PC1, PC2], vec![PC4, PC3]],
+                3,
+                128,
+            ),
+            (vec![0, 1, 2, 3], vec![vec![PC1], vec![PC3, PC2]], 11, 3),
+            (vec![1, 2, 3], vec![vec![PC1, PC3], vec![PC2]], 0, 0),
             // the [zero] in the range 0..12 is chosen:
             (
                 vec![25 + 1, 25 + 2, 25 + 3],
-                vec![vec![1, 2], vec![3]],
+                vec![vec![PC1, PC2], vec![PC3]],
                 1,
                 128,
             ),
         ];
 
         for (active, blocks, reference, next) in examples {
-            one_voicing_relative(&active, &blocks, reference, next);
+            one_voicing_relative(&active, &blocks, PitchClass::from(reference), next);
         }
     }
 }

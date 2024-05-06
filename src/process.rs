@@ -171,10 +171,10 @@ where
                         match p.fit(&self.active_notes, 0) {
                             Fit { reference, next } => {
                                 if next == 128 {
-                                    if reference != self.current.reference_key {
-                                        self.current.reference_key = reference;
+                                    if reference as u8 != self.current.reference_key {
+                                        self.current.reference_key = reference as u8;
                                         self.current.reference_stack =
-                                            stack_from_tuning_frame(&self.old, reference);
+                                            stack_from_tuning_frame(&self.old, reference as u8);
                                         self.send_retunes(to_backend);
                                     }
                                     break;
