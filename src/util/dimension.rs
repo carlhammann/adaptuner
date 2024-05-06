@@ -13,7 +13,7 @@ pub trait Dimension {
     fn value() -> usize;
 }
 
-pub trait AtLeast3: Dimension {}
+pub trait AtLeast<const N: usize>: Dimension {}
 
 pub struct RuntimeDimension<T> {
     _phantom: PhantomData<T>,
@@ -31,10 +31,7 @@ pub fn initialise_runtime_dimension<T: 'static>(value: usize) -> RuntimeDimensio
             _phantom: PhantomData,
         }
     } else {
-        panic!(
-            "attempt to initialise RuntimeDimension for \"{:?}\" twice!",
-            id,
-        )
+        panic!("attempt to initialise RuntimeDimension twice!",)
     }
 }
 
@@ -43,56 +40,48 @@ impl<T: 'static> Dimension for RuntimeDimension<T> {
         let id = TypeId::of::<T>();
         let l = LazyLock::force(&RUNTIME_DIMENSIONS_INITIALISED);
         match l.read().unwrap().get(&id) {
-            None => panic!(
-                "attempt to use RuntimeDimension or RuntimeAtLeast3 for \"{:?}\" without initialisation",
-                id
-            ),
+            None => {
+                panic!("attempt to use RuntimeDimension without initialisation")
+            }
             Some(n) => *n,
         }
     }
 }
 
-pub struct RuntimeAtLeast3<T> {
+pub struct RuntimeAtLeast<const N: usize, T> {
     _phantom: PhantomData<T>,
 }
 
-pub fn initialise_runtime_at_least_3<T: 'static>(value: usize) -> RuntimeAtLeast3<T> {
+pub fn initialise_runtime_at_least<const N: usize, T: 'static>(
+    value: usize,
+) -> RuntimeAtLeast<N, T> {
     let id = TypeId::of::<T>();
     let l = LazyLock::force(&RUNTIME_DIMENSIONS_INITIALISED);
     if !l.read().unwrap().contains_key(&id) {
-        if value < 3 {
-            panic!(
-                "attempt to initialise RuntimeAtLeast3 for \"{:?}\" with a value less than 3",
-                id,
-            )
+        if value < N {
+            panic!("attempt to initialise RuntimeAtLeast<{N}, T> with a value less than {N}")
         }
         l.write().unwrap().insert(id, value);
-        RuntimeAtLeast3 {
+        RuntimeAtLeast {
             _phantom: PhantomData,
         }
     } else {
-        panic!(
-            "attempt to initialise RuntimeDimension or RuntimeAtLeast3 for \"{:?}\" twice!",
-            id,
-        )
+        panic!("attempt to initialise RuntimeDimension or RuntimeAtLeast twice!",)
     }
 }
 
-impl<T: 'static> Dimension for RuntimeAtLeast3<T> {
+impl<const N: usize, T: 'static> Dimension for RuntimeAtLeast<N, T> {
     fn value() -> usize {
         let id = TypeId::of::<T>();
         let l = LazyLock::force(&RUNTIME_DIMENSIONS_INITIALISED);
         match l.read().unwrap().get(&id) {
-            None => panic!(
-                "attempt to use RuntimeAtLeast3 for \"{:?}\" without initialisation",
-                id
-            ),
+            None => panic!("attempt to use RuntimeAtLeast without initialisation"),
             Some(n) => *n,
         }
     }
 }
 
-impl<T: 'static> AtLeast3 for RuntimeAtLeast3<T> {}
+impl<const N: usize, T: 'static> AtLeast<N> for RuntimeAtLeast<N, T> {}
 
 #[derive(Clone, Copy)]
 pub struct Bounded<D> {
@@ -427,7 +416,7 @@ impl fmt::Display for DimensionErr {
 impl Error for DimensionErr {}
 
 pub mod fixed_sizes {
-    use super::{AtLeast3, Dimension};
+    use super::{AtLeast, Dimension};
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Size2 {}
@@ -436,6 +425,8 @@ pub mod fixed_sizes {
             2
         }
     }
+    impl AtLeast<2> for Size2 {}
+    impl AtLeast<1> for Size2 {}
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Size3 {}
@@ -444,5 +435,7 @@ pub mod fixed_sizes {
             3
         }
     }
-    impl AtLeast3 for Size3 {}
+    impl AtLeast<3> for Size3 {}
+    impl AtLeast<2> for Size3 {}
+    impl AtLeast<1> for Size3 {}
 }

@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::interval::Stack;
-use crate::util::dimension::{AtLeast3, Dimension};
+use crate::util::dimension::{AtLeast, Dimension};
 
 mod johnston;
 
@@ -10,7 +10,7 @@ pub enum NoteNameStyle {
     JohnstonFiveLimitClass,
 }
 
-impl<'a, D: AtLeast3 + Copy + fmt::Debug, T: Dimension + Copy> Stack<'a, D, T> {
+impl<'a, D: AtLeast<3> + Copy + fmt::Debug, T: Dimension + Copy> Stack<'a, D, T> {
     pub fn notename(&self, style: &NoteNameStyle) -> String {
         match style {
             NoteNameStyle::JohnstonFiveLimitFull => {

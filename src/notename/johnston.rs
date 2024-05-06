@@ -1,6 +1,6 @@
 pub mod fivelimit {
     use crate::interval::{Stack, StackCoeff};
-    use crate::util::dimension::{AtLeast3, Bounded, Dimension};
+    use crate::util::dimension::{AtLeast, Bounded, Dimension};
     use std::fmt;
 
     pub struct NoteName {
@@ -17,7 +17,9 @@ pub mod fivelimit {
         /// It is assumed that the first three entries in the [coefficients][Stack::coefficients]
         /// of the argument denote the numbers of octaves, fifths, and thirds, in that order. (In
         /// particular, there must be at least three base intervals.)
-        pub fn new<D: AtLeast3 + Copy + fmt::Debug, T: Dimension + Copy>(s: &Stack<D, T>) -> Self {
+        pub fn new<D: AtLeast<3> + Copy + fmt::Debug, T: Dimension + Copy>(
+            s: &Stack<D, T>,
+        ) -> Self {
             let octaves = s.coefficients()[Bounded::new(0).unwrap()];
             let fifths = s.coefficients()[Bounded::new(1).unwrap()];
             let thirds = s.coefficients()[Bounded::new(2).unwrap()];
