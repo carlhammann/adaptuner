@@ -1,17 +1,37 @@
-use crate::interval::StackCoeff;
+use std::mem::MaybeUninit;
 
-// x x x
-//   x x x
-//     x x x
-//
-// x x x x
-// x x x x
-// x x x x
-//
-//     x x x x x
-//   x x x x x
-// x x x x x
-//
+use crate::{
+    interval::StackCoeff,
+    util::dimension::{vector_from_elem, AtLeast, Bounded, Dimension, Vector},
+};
+
+/// A description of the positions of representatives of all 12 pitch classes, relative to the
+/// position of a reference note.
+///
+/// invariants:
+/// - the first entry of `coefficients` is a constant zero vector.
+/// - the positions described by the other entries all correspond to intervals less than an octave.
+#[derive(Debug, PartialEq, Clone)]
+pub struct Neighbourhood<D: Dimension> {
+    pub coefficients: [Vector<D, StackCoeff>; 12],
+}
+
+impl<D: Dimension + AtLeast<3>> Neighbourhood<D> {
+    pub fn fivelimit_new(width: StackCoeff, index: StackCoeff, offset: StackCoeff) -> Self {
+        let mut uninitialised: [MaybeUninit<Vector<D, StackCoeff>>; 12] =
+            MaybeUninit::uninit_array();
+        for i in 0..12 {
+            uninitialised[i].write(vector_from_elem(0));
+        }
+        let mut coefficients = unsafe { MaybeUninit::array_assume_init(uninitialised) };
+        fivelimit_neighbours(&mut coefficients, width, index, offset);
+        Neighbourhood { coefficients }
+    }
+
+    pub fn fivelimit_udpate(&mut self, width: StackCoeff, index: StackCoeff, offset: StackCoeff) {
+        fivelimit_neighbours(&mut self.coefficients, width, index, offset);
+    }
+}
 
 ///
 /// - `width` must be in `1..=12`
@@ -22,244 +42,259 @@ fn fivelimit_corridor(
     width: StackCoeff,
     offset: StackCoeff,
     index: StackCoeff,
-) -> (StackCoeff, StackCoeff) {
-    let (thirds, fifths) = fivelimit_corridor_no_offset(width, index + offset);
-    (thirds, fifths - offset)
+) -> (StackCoeff, StackCoeff, StackCoeff) {
+    let (mut fifths, thirds) = fivelimit_corridor_no_offset(width, index + offset);
+    fifths -= offset;
+    let octaves = -(2 * thirds + 4 * fifths).div_euclid(7);
+    (octaves, fifths, thirds)
 }
 
 fn fivelimit_corridor_no_offset(width: StackCoeff, index: StackCoeff) -> (StackCoeff, StackCoeff) {
     let thirds = index.div_euclid(width);
     let fifths = (width - 4) * thirds + index.rem_euclid(width);
-    (thirds, fifths)
+    (fifths, thirds)
 }
 
-pub fn fivelimit_neighbours(
-    grid: &mut [(StackCoeff, StackCoeff); 12],
+fn fivelimit_neighbours<D: Dimension + AtLeast<3>>(
+    grid: &mut [Vector<D, StackCoeff>; 12],
     width: StackCoeff,  // 1..=12
     index: StackCoeff,  // 0..=11
     offset: StackCoeff, // 0..=(width-1)
 ) {
-    for i in (-index)..(12-index) {
-        grid[(7 * i).rem_euclid(12) as usize] = fivelimit_corridor(width, offset, i);
+    for i in (-index)..(12 - index) {
+        let (octaves, fifths, thirds) = fivelimit_corridor(width, offset, i);
+        grid[(7 * i).rem_euclid(12) as usize][Bounded::new(0).unwrap()] = octaves;
+        grid[(7 * i).rem_euclid(12) as usize][Bounded::new(1).unwrap()] = fifths;
+        grid[(7 * i).rem_euclid(12) as usize][Bounded::new(2).unwrap()] = thirds;
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::util::dimension::{fixed_sizes::Size3, vector};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_neighbours() {
-        let mut grid = [(0, 0); 12];
-
-        fivelimit_neighbours(&mut grid, 12, 0, 0);
         assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (0, 7),
-                (0, 2),
-                (0, 9),
-                (0, 4),
-                (0, 11),
-                (0, 6),
-                (0, 1),
-                (0, 8),
-                (0, 3),
-                (0, 10),
-                (0, 5),
-            ],
+            Neighbourhood::<Size3>::fivelimit_new(12, 0, 0),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[-4, 7, 0]).unwrap(),
+                    vector(&[-1, 2, 0]).unwrap(),
+                    vector(&[-5, 9, 0]).unwrap(),
+                    vector(&[-2, 4, 0]).unwrap(),
+                    vector(&[-6, 11, 0]).unwrap(),
+                    vector(&[-3, 6, 0]).unwrap(),
+                    vector(&[0, 1, 0]).unwrap(),
+                    vector(&[-4, 8, 0]).unwrap(),
+                    vector(&[-1, 3, 0]).unwrap(),
+                    vector(&[-5, 10, 0]).unwrap(),
+                    vector(&[-2, 5, 0]).unwrap(),
+                ],
+            }
         );
 
-        fivelimit_neighbours(&mut grid, 3, 0, 0);
         assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (2, -1),
-                (0, 2),
-                (3, -3),
-                (1, 0),
-                (3, -1),
-                (2, -2),
-                (0, 1),
-                (2, 0),
-                (1, -1),
-                (3, -2),
-                (1, 1),
-            ],
+            Neighbourhood::<Size3>::fivelimit_new(3, 0, 0),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[0, -1, 2]).unwrap(),
+                    vector(&[-1, 2, 0]).unwrap(),
+                    vector(&[1, -3, 3]).unwrap(),
+                    vector(&[0, 0, 1]).unwrap(),
+                    vector(&[0, -1, 3]).unwrap(),
+                    vector(&[1, -2, 2]).unwrap(),
+                    vector(&[0, 1, 0]).unwrap(),
+                    vector(&[0, 0, 2]).unwrap(),
+                    vector(&[1, -1, 1]).unwrap(),
+                    vector(&[1, -2, 3]).unwrap(),
+                    vector(&[0, 1, 1]).unwrap(),
+                ],
+            }
         );
 
-        fivelimit_neighbours(&mut grid, 5, 0, 0);
         assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (1, 3),
-                (0, 2),
-                (1, 5),
-                (0, 4),
-                (2, 3),
-                (1, 2),
-                (0, 1),
-                (1, 4),
-                (0, 3),
-                (2, 2),
-                (1, 1),
-            ],
+            Neighbourhood::<Size3>::fivelimit_new(5, 0, 0),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[-2, 3, 1]).unwrap(),
+                    vector(&[-1, 2, 0]).unwrap(),
+                    vector(&[-3, 5, 1]).unwrap(),
+                    vector(&[-2, 4, 0]).unwrap(),
+                    vector(&[-2, 3, 2]).unwrap(),
+                    vector(&[-1, 2, 1]).unwrap(),
+                    vector(&[0, 1, 0]).unwrap(),
+                    vector(&[-2, 4, 1]).unwrap(),
+                    vector(&[-1, 3, 0]).unwrap(),
+                    vector(&[-1, 2, 2]).unwrap(),
+                    vector(&[0, 1, 1]).unwrap(),
+                ],
+            }
         );
 
-        fivelimit_neighbours(&mut grid, 4, 0, 0);
         assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (1, 3),
-                (0, 2),
-                (2, 1),
-                (1, 0),
-                (2, 3),
-                (1, 2),
-                (0, 1),
-                (2, 0),
-                (0, 3),
-                (2, 2),
-                (1, 1),
-            ],
+            Neighbourhood::<Size3>::fivelimit_new(4, 0, 0),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[-2, 3, 1]).unwrap(),
+                    vector(&[-1, 2, 0]).unwrap(),
+                    vector(&[-1, 1, 2]).unwrap(),
+                    vector(&[0, 0, 1]).unwrap(),
+                    vector(&[-2, 3, 2]).unwrap(),
+                    vector(&[-1, 2, 1]).unwrap(),
+                    vector(&[0, 1, 0]).unwrap(),
+                    vector(&[0, 0, 2]).unwrap(),
+                    vector(&[-1, 3, 0]).unwrap(),
+                    vector(&[-1, 2, 2]).unwrap(),
+                    vector(&[0, 1, 1]).unwrap(),
+                ],
+            }
         );
 
-        fivelimit_neighbours(&mut grid, 4, 1, 0);
         assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (1, 3),
-                (0, 2),
-                (2, 1),
-                (1, 0),
-                (-1, 3),
-                (1, 2),
-                (0, 1),
-                (2, 0),
-                (0, 3),
-                (2, 2),
-                (1, 1),
-            ],
+            Neighbourhood::<Size3>::fivelimit_new(4, 1, 0),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[-2, 3, 1]).unwrap(),
+                    vector(&[-1, 2, 0]).unwrap(),
+                    vector(&[-1, 1, 2]).unwrap(),
+                    vector(&[0, 0, 1]).unwrap(),
+                    vector(&[-1, 3, -1]).unwrap(),
+                    vector(&[-1, 2, 1]).unwrap(),
+                    vector(&[0, 1, 0]).unwrap(),
+                    vector(&[0, 0, 2]).unwrap(),
+                    vector(&[-1, 3, 0]).unwrap(),
+                    vector(&[-1, 2, 2]).unwrap(),
+                    vector(&[0, 1, 1]).unwrap(),
+                ],
+            }
         );
 
-        fivelimit_neighbours(&mut grid, 4, 2, 0);
         assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (1, 3),
-                (0, 2),
-                (2, 1),
-                (1, 0),
-                (-1, 3),
-                (1, 2),
-                (0, 1),
-                (2, 0),
-                (0, 3),
-                (-1, 2),
-                (1, 1),
-            ],
+            Neighbourhood::<Size3>::fivelimit_new(4, 2, 0),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[-2, 3, 1]).unwrap(),
+                    vector(&[-1, 2, 0]).unwrap(),
+                    vector(&[-1, 1, 2]).unwrap(),
+                    vector(&[0, 0, 1]).unwrap(),
+                    vector(&[-1, 3, -1]).unwrap(),
+                    vector(&[-1, 2, 1]).unwrap(),
+                    vector(&[0, 1, 0]).unwrap(),
+                    vector(&[0, 0, 2]).unwrap(),
+                    vector(&[-1, 3, 0]).unwrap(),
+                    vector(&[0, 2, -1]).unwrap(),
+                    vector(&[0, 1, 1]).unwrap(),
+                ],
+            }
         );
 
-        fivelimit_neighbours(&mut grid, 4, 3, 0);
         assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (1, 3),
-                (0, 2),
-                (-1, 1),
-                (1, 0),
-                (-1, 3),
-                (1, 2),
-                (0, 1),
-                (2, 0),
-                (0, 3),
-                (-1, 2),
-                (1, 1),
-            ],
+            Neighbourhood::<Size3>::fivelimit_new(4, 3, 0),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[-2, 3, 1]).unwrap(),
+                    vector(&[-1, 2, 0]).unwrap(),
+                    vector(&[0, 1, -1]).unwrap(),
+                    vector(&[0, 0, 1]).unwrap(),
+                    vector(&[-1, 3, -1]).unwrap(),
+                    vector(&[-1, 2, 1]).unwrap(),
+                    vector(&[0, 1, 0]).unwrap(),
+                    vector(&[0, 0, 2]).unwrap(),
+                    vector(&[-1, 3, 0]).unwrap(),
+                    vector(&[0, 2, -1]).unwrap(),
+                    vector(&[0, 1, 1]).unwrap(),
+                ],
+            }
         );
 
-        fivelimit_neighbours(&mut grid, 4, 4, 0);
         assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (1, 3),
-                (0, 2),
-                (-1, 1),
-                (1, 0),
-                (-1, 3),
-                (1, 2),
-                (0, 1),
-                (-1, 0),
-                (0, 3),
-                (-1, 2),
-                (1, 1),
-            ],
+            Neighbourhood::<Size3>::fivelimit_new(4, 4, 0),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[-2, 3, 1]).unwrap(),
+                    vector(&[-1, 2, 0]).unwrap(),
+                    vector(&[0, 1, -1]).unwrap(),
+                    vector(&[0, 0, 1]).unwrap(),
+                    vector(&[-1, 3, -1]).unwrap(),
+                    vector(&[-1, 2, 1]).unwrap(),
+                    vector(&[0, 1, 0]).unwrap(),
+                    vector(&[1, 0, -1]).unwrap(),
+                    vector(&[-1, 3, 0]).unwrap(),
+                    vector(&[0, 2, -1]).unwrap(),
+                    vector(&[0, 1, 1]).unwrap(),
+                ],
+            }
         );
 
-        fivelimit_neighbours(&mut grid, 4, 0, 1);
         assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (2, -1),
-                (0, 2),
-                (2, 1),
-                (1, 0),
-                (3, -1),
-                (1, 2),
-                (0, 1),
-                (2, 0),
-                (1, -1),
-                (2, 2),
-                (1, 1),
-            ],
-        );
-        
-        fivelimit_neighbours(&mut grid, 4, 0, 2);
-        assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (2, -1),
-                (1, -2),
-                (2, 1),
-                (1, 0),
-                (3, -1),
-                (2, -2),
-                (0, 1),
-                (2, 0),
-                (1, -1),
-                (3, -2),
-                (1, 1),
-            ],
-        );
-        
-        fivelimit_neighbours(&mut grid, 4, 0, 3);
-        assert_eq!(
-            grid,
-            [
-                (0, 0),
-                (2, -1),
-                (1, -2),
-                (3, -3),
-                (1, 0),
-                (3, -1),
-                (2, -2),
-                (1, -3),
-                (2, 0),
-                (1, -1),
-                (3, -2),
-                (2, -3),
-            ],
+            Neighbourhood::<Size3>::fivelimit_new(4, 0, 1),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[0, -1, 2]).unwrap(),
+                    vector(&[-1, 2, 0]).unwrap(),
+                    vector(&[-1, 1, 2]).unwrap(),
+                    vector(&[0, 0, 1]).unwrap(),
+                    vector(&[0, -1, 3]).unwrap(),
+                    vector(&[-1, 2, 1]).unwrap(),
+                    vector(&[0, 1, 0]).unwrap(),
+                    vector(&[0, 0, 2]).unwrap(),
+                    vector(&[1, -1, 1]).unwrap(),
+                    vector(&[-1, 2, 2]).unwrap(),
+                    vector(&[0, 1, 1]).unwrap(),
+                ],
+            }
         );
 
+        assert_eq!(
+            Neighbourhood::<Size3>::fivelimit_new(4, 0, 2),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[0, -1, 2]).unwrap(),
+                    vector(&[1, -2, 1]).unwrap(),
+                    vector(&[-1, 1, 2]).unwrap(),
+                    vector(&[0, 0, 1]).unwrap(),
+                    vector(&[0, -1, 3]).unwrap(),
+                    vector(&[1, -2, 2]).unwrap(),
+                    vector(&[0, 1, 0]).unwrap(),
+                    vector(&[0, 0, 2]).unwrap(),
+                    vector(&[1, -1, 1]).unwrap(),
+                    vector(&[1, -2, 3]).unwrap(),
+                    vector(&[0, 1, 1]).unwrap(),
+                ],
+            }
+        );
+
+        assert_eq!(
+            Neighbourhood::<Size3>::fivelimit_new(4, 0, 3),
+            Neighbourhood {
+                coefficients: [
+                    vector(&[0, 0, 0]).unwrap(),
+                    vector(&[0, -1, 2]).unwrap(),
+                    vector(&[1, -2, 1]).unwrap(),
+                    vector(&[1, -3, 3]).unwrap(),
+                    vector(&[0, 0, 1]).unwrap(),
+                    vector(&[0, -1, 3]).unwrap(),
+                    vector(&[1, -2, 2]).unwrap(),
+                    vector(&[2, -3, 1]).unwrap(),
+                    vector(&[0, 0, 2]).unwrap(),
+                    vector(&[1, -1, 1]).unwrap(),
+                    vector(&[1, -2, 3]).unwrap(),
+                    vector(&[2, -3, 2]).unwrap(),
+                ],
+            }
+        );
     }
 }

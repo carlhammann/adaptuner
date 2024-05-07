@@ -6,12 +6,8 @@ use crate::{
     interval::{Stack, StackCoeff},
     pattern::{Fit, Pattern},
     util::dimension::{AtLeast, Bounded, Dimension, Vector},
+    neighbourhood::Neighbourhood,
 };
-
-#[derive(Clone)]
-pub struct Neighbourhood<D: Dimension> {
-    neighbourhood: [Vector<D, StackCoeff>; 12],
-}
 
 pub mod msg {
     use midi_msg::{MidiMsg, ParseError};
@@ -221,7 +217,7 @@ where
 {
     let d = key as StackCoeff - frame.reference_key as StackCoeff;
     let (q, r) = (d.div_euclid(12), d.rem_euclid(12));
-    let mut coefficients = frame.neighbourhood.neighbourhood[r as usize].clone();
+    let mut coefficients = frame.neighbourhood.coefficients[r as usize].clone();
     coefficients[Bounded::new(0).unwrap()] += q; // unwrap cannot fail here, because of the
                                                  // `AtLeast<1>` bound on `D`
     Stack::new(

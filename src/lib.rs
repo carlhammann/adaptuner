@@ -1,9 +1,11 @@
 #![feature(lazy_cell)]
+#![feature(maybe_uninit_uninit_array)]
+#![feature(maybe_uninit_array_assume_init)]
 pub mod config;
 pub mod interval;
+pub mod neighbourhood;
 pub mod notename;
-pub mod tui;
-pub mod util;
 pub mod pattern;
 pub mod process;
-pub mod neighbourhood;
+pub mod tui;
+pub mod util;

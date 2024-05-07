@@ -7,13 +7,13 @@ use ndarray::Array2;
 
 use adaptuner::{
     interval::{Interval, Semitones, Stack, StackCoeff, StackType, Temperament},
-    neighbourhood::fivelimit_neighbours,
+    neighbourhood::Neighbourhood,
     notename::NoteNameStyle,
     tui::{
         self,
         grid::{Cell, CellState, DisplayConfig, Grid},
     },
-    util::dimension::{fixed_sizes::*, matrix, vector, Dimension, Vector},
+    util::dimension::{fixed_sizes::*, matrix, vector, AtLeast, Bounded, Dimension, Vector},
 };
 
 fn init_displayconfig() -> DisplayConfig {
@@ -89,12 +89,12 @@ fn init_grid<'a>(
         }),
     };
 
-    highlight(&mut res, 4, 0, 0);
+    highlight::<Size3, Size2>(&mut res, 4, 0, 0);
 
     res
 }
 
-pub fn highlight<'a, T: Dimension>(
+pub fn highlight<'a, D: Dimension + AtLeast<3>, T: Dimension>(
     grid: &mut Grid<'a, T>,
     width: StackCoeff,
     index: StackCoeff,
@@ -102,19 +102,20 @@ pub fn highlight<'a, T: Dimension>(
 ) {
     let rows = grid.cells.raw_dim()[0];
     let cols = grid.cells.raw_dim()[1];
-    let mut chosen = [(0, 0); 12];
     for cell in &mut grid.cells {
         cell.state = CellState::Off;
     }
-    fivelimit_neighbours(&mut chosen, width, index, offset);
+    let chosen = Neighbourhood::<D>::fivelimit_new(width, index, offset);
 
     for k in 0..12 {
-        let (i, j) = chosen[k];
+        let i = chosen.coefficients[k][Bounded::new(2).unwrap()];
+        let j = chosen.coefficients[k][Bounded::new(1).unwrap()];
         if ((i + 3) as usize) < rows && ((j + 6) as usize) < cols {
             grid.cells[((i + 3) as usize, (j + 6) as usize)].state = CellState::Considered;
         }
     }
-    let (i, j) = chosen[0];
+    let i = chosen.coefficients[0][Bounded::new(2).unwrap()];
+    let j = chosen.coefficients[0][Bounded::new(1).unwrap()];
     if ((i + 3) as usize) < rows && ((j + 6) as usize) < cols {
         grid.cells[((i + 3) as usize, (j + 6) as usize)].state = CellState::On;
     }
@@ -132,7 +133,7 @@ pub fn main() -> io::Result<()> {
 
     let mut terminal = tui::init()?;
     loop {
-        highlight(&mut notes, width, index, offset);
+        highlight::<Size3,Size2>(&mut notes, width, index, offset);
         terminal.draw(|frame| frame.render_widget(&notes, frame.size()))?;
         if let event::Event::Key(k) = event::read()? {
             if k.kind == event::KeyEventKind::Press {

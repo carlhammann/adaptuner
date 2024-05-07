@@ -126,6 +126,10 @@ pub fn vector<D: Dimension, I: Clone>(values: &[I]) -> Result<Vector<D, I>, Dime
     Vector::new(inner)
 }
 
+pub fn vector_from_elem<D: Dimension, I: Clone>(elem: I) -> Vector<D, I> {
+    Vector::new(Array1::from_elem(D::value(), elem)).unwrap()
+}
+
 impl<D: Dimension, I> Vector<D, I> {
     pub fn new(inner: Array1<I>) -> Result<Self, DimensionErr> {
         let d = D::value();
