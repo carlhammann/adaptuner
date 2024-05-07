@@ -43,19 +43,19 @@ pub struct TuningFrame<'a, D: Dimension, T: Dimension> {
 }
 
 pub struct Config<'a> {
-    patterns: &'a [Pattern<'a>],
-    minimum_age: u64, // microseconds
+    pub patterns: &'a [Pattern],
+    pub minimum_age: u64, // microseconds
 }
 
 pub struct State<'a, D: Dimension, T: Dimension> {
-    current: TuningFrame<'a, D, T>,
-    old: TuningFrame<'a, D, T>,
-    birthday: u64, // microseconds
-    active_notes: [bool; 128],
+    pub current: TuningFrame<'a, D, T>,
+    pub old: TuningFrame<'a, D, T>,
+    pub birthday: u64, // microseconds
+    pub active_notes: [bool; 128],
 
-    sustain: bool,
+    pub sustain: bool,
 
-    config: Config<'a>,
+    pub config: Config<'a>,
     // incoming: mpsc::Receiver<msg::ToProcess<T>>,
     // to_ui: mpsc::Sender<msg::ToUI>,
     // to_backend: mpsc::Sender<msg::ToBackend>,
@@ -153,7 +153,7 @@ where
         _to_ui: &mpsc::Sender<msg::ToUI>,
     ) {
         if time - self.birthday >= self.config.minimum_age {
-            self.old.clone_from(&self.current);
+            self.old.clone_from(&self.current); // TODO: clone-free option?
         }
 
         match msg {
@@ -196,11 +196,7 @@ where
                     ChannelVoiceMsg::ControlChange {
                         control: ControlChange::Hold(value),
                     },
-            } => {
-                if value == 0 {
-                    self.sustain = false;
-                }
-            }
+            } => self.sustain = value != 0,
 
             _ => {}
         }

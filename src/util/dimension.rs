@@ -15,6 +15,7 @@ pub trait Dimension {
 
 pub trait AtLeast<const N: usize>: Dimension {}
 
+#[derive(Debug, Clone, Copy)]
 pub struct RuntimeDimension<T> {
     _phantom: PhantomData<T>,
 }
@@ -150,6 +151,16 @@ impl<D: Dimension, I> Vector<D, I> {
     pub fn view(&self) -> VectorView<D, I> {
         VectorView {
             inner: self.inner.view(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn from_fn<F>(mut f: F) -> Self
+    where
+        F: FnMut(Bounded<D>) -> I,
+    {
+        Vector {
+            inner: Array1::from_shape_fn(D::value(), |i| f(Bounded::new(i).unwrap())),
             _phantom: PhantomData,
         }
     }

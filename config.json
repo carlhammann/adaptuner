@@ -1,0 +1,30 @@
+{
+  "patterns": [
+    {
+      "name": "one note",
+      "keys": { "ClassesRelative": { "classes": [ 0 ] } }
+    },
+    {
+      "name": "fifth",
+      "keys": { "ClassesRelative": { "classes": [ 0, 7 ] } }
+    },
+    {
+      "name": "third",
+      "keys": { "ClassesRelative": { "classes": [ 0, 4 ] } }
+    },
+    {
+      "name": "major triad",
+      "keys": { "ClassesRelative": { "classes": [ 0, 4, 7 ] } }
+    }
+  ],
+  "temperaments": [
+    {
+      "name": "12edo",
+      "equations": [
+        [ [ 1, 0, 0 ], [ 1, 0, 0 ] ],
+        [ [ 0, 12, 0 ], [ 7, 0, 0 ] ],
+        [ [ 0, 0, 3 ], [ 1, 0, 0 ] ]
+      ]
+    }
+  ]
+}

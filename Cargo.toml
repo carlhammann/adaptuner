@@ -19,6 +19,8 @@ serde_derive = "1.0.198"
 serde = "1.0.198"
 typenum = "1.17.0"
 nalgebra = "0.32.5"
+serde_json = "1.0.116"
+serde_repr = "0.1.19"
 
 [dev-dependencies]
 approx = "0.5.1"

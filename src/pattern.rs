@@ -1,20 +1,27 @@
 use crate::util::mod12::{PitchClass, PitchClass::*};
+use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug)]
-pub enum Pattern<'a> {
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Pattern {
+    pub name: String,
+    pub keys: KeyShape,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum KeyShape {
     ClassesFixed {
-        classes: &'a [PitchClass],
+        classes: Vec<PitchClass>,
         zero: PitchClass,
     },
     ClassesRelative {
-        classes: &'a [PitchClass],
+        classes: Vec<PitchClass>,
     },
     VoicingFixed {
-        blocks: &'a [Vec<PitchClass>],
+        blocks: Vec<Vec<PitchClass>>,
         zero: PitchClass,
     },
     VoicingRelative {
-        blocks: &'a [Vec<PitchClass>],
+        blocks: Vec<Vec<PitchClass>>,
     },
 }
 
@@ -24,118 +31,132 @@ pub struct Fit {
     pub next: usize,
 }
 
-impl<'a> Pattern<'a> {
-    /// assumption: `active_notes` contains at least one `true` entry
-    ///
-    /// TODO: write a `normalise` function for [Pattern]s.
+impl Pattern {
     pub fn fit(&self, active_notes: &[bool; 128], start: usize) -> Fit {
+        self.keys.fit(active_notes, start)
+    }
+}
+
+impl KeyShape {
+    fn fit(&self, active_notes: &[bool; 128], start: usize) -> Fit {
         match self {
             Self::ClassesFixed { classes, zero } => {
-                let mut used = vec![false; classes.len()];
-                let mut i = start;
-                while i < 128 {
-                    if !active_notes[i] {
-                        i += 1;
-                        continue;
-                    }
-                    match classes
-                        .iter()
-                        .position(|&x| (x + *zero) as u8 == i as u8 % 12)
-                    {
-                        Some(j) => {
-                            i += 1;
-                            used[j] = true
-                        }
-                        None => break,
-                    }
-                }
-                if used.iter().any(|&u| !u) {
-                    Fit {
-                        reference: *zero,
-                        next: start,
-                    }
-                } else {
-                    Fit {
-                        reference: *zero,
-                        next: i,
-                    }
-                }
+                fit_classes_fixed(classes, *zero, active_notes, start)
             }
-            Self::ClassesRelative { classes } => {
-                for zero in 0..12 {
-                    let res = (Self::ClassesFixed {
-                        classes,
-                        zero: PitchClass::from(zero),
-                    })
-                    .fit(active_notes, start);
-                    match res {
-                        Fit { next, .. } => {
-                            if next > start {
-                                return res;
-                            }
-                        }
-                    }
-                }
-                Fit {
-                    reference: PC0,
-                    next: 0,
-                }
-            }
+            Self::ClassesRelative { classes } => fit_classes_relative(classes, active_notes, start),
             Self::VoicingFixed { blocks, zero } => {
-                let mut next = start;
-                let mut i = 0;
-                while i < blocks.len() {
-                    // println!("i={i}, next={next}, classes={:?}", blocks[i]);
-                    match (Self::ClassesFixed {
-                        classes: &blocks[i],
-                        zero: *zero,
-                    })
-                    .fit(active_notes, next)
-                    {
-                        Fit { next: new_next, .. } => {
-                            // println!("new_next={new_next}, next={next}");
-                            if new_next > next {
-                                next = new_next;
-                                i += 1;
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                }
-                if i == blocks.len() {
-                    Fit {
-                        reference: *zero,
-                        next,
-                    }
-                } else {
-                    Fit {
-                        reference: *zero,
-                        next: start,
-                    }
-                }
+                fit_voicing_fixed(blocks, *zero, active_notes, start)
             }
-            Self::VoicingRelative { blocks } => {
-                for zero in 0..12 {
-                    let res = (Self::VoicingFixed {
-                        blocks,
-                        zero: PitchClass::from(zero),
-                    })
-                    .fit(active_notes, start);
-                    match res {
-                        Fit { next, .. } => {
-                            if next > start {
-                                return res;
-                            }
-                        }
-                    }
-                }
-                Fit {
-                    reference: PC0,
-                    next: 0,
+            Self::VoicingRelative { blocks } => fit_voicing_relative(blocks, active_notes, start),
+        }
+    }
+}
+
+fn fit_classes_fixed(
+    classes: &[PitchClass],
+    zero: PitchClass,
+    active_notes: &[bool; 128],
+    start: usize,
+) -> Fit {
+    let mut used = vec![false; classes.len()];
+    let mut i = start;
+    while i < 128 {
+        if !active_notes[i] {
+            i += 1;
+            continue;
+        }
+        match classes
+            .iter()
+            .position(|&x| (x + zero) as u8 == i as u8 % 12)
+        {
+            Some(j) => {
+                i += 1;
+                used[j] = true
+            }
+            None => break,
+        }
+    }
+    if used.iter().any(|&u| !u) {
+        Fit {
+            reference: zero,
+            next: start,
+        }
+    } else {
+        Fit {
+            reference: zero,
+            next: i,
+        }
+    }
+}
+
+fn fit_classes_relative(classes: &[PitchClass], active_notes: &[bool; 128], start: usize) -> Fit {
+    for zero in 0..12 {
+        let res = fit_classes_fixed(classes, PitchClass::from(zero), active_notes, start);
+        match res {
+            Fit { next, .. } => {
+                if next > start {
+                    return res;
                 }
             }
         }
+    }
+    Fit {
+        reference: PC0,
+        next: 0,
+    }
+}
+
+fn fit_voicing_fixed(
+    blocks: &[Vec<PitchClass>],
+    zero: PitchClass,
+    active_notes: &[bool; 128],
+    start: usize,
+) -> Fit {
+    let mut next = start;
+    let mut i = 0;
+    while i < blocks.len() {
+        match fit_classes_fixed(&blocks[i], zero, active_notes, next) {
+            Fit { next: new_next, .. } => {
+                if new_next > next {
+                    next = new_next;
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    if i == blocks.len() {
+        Fit {
+            reference: zero,
+            next,
+        }
+    } else {
+        Fit {
+            reference: zero,
+            next: start,
+        }
+    }
+}
+
+fn fit_voicing_relative(
+    blocks: &[Vec<PitchClass>],
+    active_notes: &[bool; 128],
+    start: usize,
+) -> Fit {
+    for zero in 0..12 {
+        let res = fit_voicing_fixed(blocks, PitchClass::from(zero), active_notes, start);
+        match res {
+            Fit { next, .. } => {
+                if next > start {
+                    return res;
+                }
+            }
+        }
+    }
+    Fit {
+        reference: PC0,
+        next: 0,
     }
 }
 
@@ -143,7 +164,7 @@ impl<'a> Pattern<'a> {
 mod test {
     use super::*;
 
-    fn one_case(active: &[u8], pat: Pattern, expect: Fit) {
+    fn one_case(active: &[u8], pat: KeyShape, expect: Fit) {
         let mut active_notes = [false; 128];
         for i in active {
             active_notes[*i as usize] = true;
@@ -154,14 +175,14 @@ mod test {
 
     fn one_classes_fixed(
         active: &[u8],
-        classes: &[PitchClass],
+        classes: Vec<PitchClass>,
         zero: PitchClass,
         reference: PitchClass,
         next: usize,
     ) {
         one_case(
             active,
-            Pattern::ClassesFixed { classes, zero },
+            KeyShape::ClassesFixed { classes, zero },
             Fit { reference, next },
         );
     }
@@ -206,7 +227,7 @@ mod test {
         for (active, classes, zero, reference, next) in examples {
             one_classes_fixed(
                 &active,
-                &classes,
+                classes,
                 PitchClass::from(zero),
                 PitchClass::from(reference),
                 next,
@@ -216,13 +237,13 @@ mod test {
 
     fn one_classes_relative(
         active: &[u8],
-        classes: &[PitchClass],
+        classes: Vec<PitchClass>,
         reference: PitchClass,
         next: usize,
     ) {
         one_case(
             active,
-            Pattern::ClassesRelative { classes },
+            KeyShape::ClassesRelative { classes },
             Fit { reference, next },
         );
     }
@@ -244,20 +265,20 @@ mod test {
         ];
 
         for (active, classes, reference, next) in examples {
-            one_classes_relative(&active, &classes, PitchClass::from(reference), next);
+            one_classes_relative(&active, classes, PitchClass::from(reference), next);
         }
     }
 
     fn one_voicing_fixed(
         active: &[u8],
-        blocks: &[Vec<PitchClass>],
+        blocks: Vec<Vec<PitchClass>>,
         zero: PitchClass,
         reference: PitchClass,
         next: usize,
     ) {
         one_case(
             active,
-            Pattern::VoicingFixed { blocks, zero },
+            KeyShape::VoicingFixed { blocks, zero },
             Fit { reference, next },
         );
     }
@@ -294,7 +315,7 @@ mod test {
         for (active, blocks, zero, reference, next) in examples {
             one_voicing_fixed(
                 &active,
-                &blocks,
+                blocks,
                 PitchClass::from(zero),
                 PitchClass::from(reference),
                 next,
@@ -304,13 +325,13 @@ mod test {
 
     fn one_voicing_relative(
         active: &[u8],
-        blocks: &[Vec<PitchClass>],
+        blocks: Vec<Vec<PitchClass>>,
         reference: PitchClass,
         next: usize,
     ) {
         one_case(
             active,
-            Pattern::VoicingRelative { blocks },
+            KeyShape::VoicingRelative { blocks },
             Fit { reference, next },
         );
     }
@@ -336,7 +357,7 @@ mod test {
         ];
 
         for (active, blocks, reference, next) in examples {
-            one_voicing_relative(&active, &blocks, PitchClass::from(reference), next);
+            one_voicing_relative(&active, blocks, PitchClass::from(reference), next);
         }
     }
 }

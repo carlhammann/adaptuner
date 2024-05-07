@@ -72,7 +72,7 @@
         # MY_CUSTOM_DEVELOPMENT_VAR = "something else";
 
         # Extra inputs can be added here; cargo and rustc are provided by default.
-        packages = [];
+        packages = [pkgs.valgrind pkgs.jq];
       };
     });
 }

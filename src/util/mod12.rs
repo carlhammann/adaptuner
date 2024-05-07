@@ -3,8 +3,10 @@ use std::{
     ops::{Add, Rem, Sub},
 };
 
+use serde_repr::{Deserialize_repr, Serialize_repr};
+
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Serialize_repr, Deserialize_repr, Copy, Clone, Debug, PartialEq)]
 pub enum PitchClass {
     PC0 = 0,
     PC1 = 1,

@@ -1,94 +1,69 @@
 use serde_derive::{Deserialize, Serialize};
-use serde_with::serde_as;
-use std::marker::PhantomData;
 
-use crate::interval::{Interval, StackCoeff, Temperament};
+use crate::{
+    interval::{Interval, Semitones, StackCoeff, Temperament},
+    pattern::Pattern,
+    util::dimension::{
+        fixed_sizes::Size3, initialise_runtime_dimension, vector, Dimension, Matrix,
+        RuntimeDimension, Vector,
+    },
+};
 
-#[serde_as]
-#[derive(Serialize, Deserialize)]
-pub struct Config<const D: usize, const T: usize> {
-    #[serde_as(as = "[_; D]")]
-    intervals: [Interval; D],
-    #[serde_as(as = "[_; T]")]
-    temperaments: [TemperamentConfig<D>; T],
-    // tui: TuiConfig,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RawConfig {
+    //pub intervals: Vec<Interval>,
+    pub temperaments: Vec<TemperamentConfig>,
+    pub patterns: Vec<Pattern>,
 }
 
-#[serde_as]
-#[derive(Serialize, Deserialize)]
-pub struct TemperamentConfig<const D: usize> {
-    name: String,
-    #[serde_as(as = "[[_; D]; D]")]
-    pure_stacks: [[StackCoeff; D]; D],
-    #[serde_as(as = "[[_; D]; D]")]
-    tempered_stacks: [[StackCoeff; D]; D],
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TemperamentConfig {
+    pub name: String,
+    pub equations: [([StackCoeff; 3], [StackCoeff; 3]); 3],
 }
 
-// use typenum::{consts::*, Unsigned};
-//
-// pub struct StackType<D: Unsigned, T: Unsigned> {
-//     _x: PhantomData<(D, T)>,
-// }
-//
-// fn foo(d:usize, n:usize) -> StackType<dyn Unsigned, dyn Unsigned> {
-//     StackType::<U0, U2> { _x: PhantomData }
-// }
+#[derive(Debug)]
+pub struct Config<D: Dimension, T: 'static> {
+    pub intervals: Vector<D, Interval>,
+    pub temperaments: Vector<RuntimeDimension<T>, Temperament<D, StackCoeff>>,
+    pub patterns: Vec<Pattern>,
+}
 
-// pub trait Size {
-//     fn check(n: usize) -> bool
-//     where
-//         Self: Sized;
-// }
-//
-// pub struct Foo<D: Size + ?Sized> {
-//     x: PhantomData<D>,
-// }
-//
-// impl<D: Size + ?Sized> Foo<D> {
-//     pub fn new(x: PhantomData<D>) -> Self {
-//         Self { x }
-//     }
-// }
-//
-// pub struct Size0 {}
-// pub struct Size1 {}
-//
-// impl Size for Size0 {
-//     fn check(n: usize) -> bool {
-//         0 == n
-//     }
-// }
-//
-// impl Size for Size1 {
-//     fn check(n: usize) -> bool {
-//         1 == n
-//     }
-// }
-//
-// pub fn foo_from(_: usize) -> Box<Foo<dyn Size>> {
-//     let f = Foo::<Size0>::new(PhantomData);
-//     if 3 * 4 == 13 {
-//         Box::new(f)
-//     } else {
-//     }
-//     //   Box::new(Foo::<Size0> { x: PhantomData })
-// }
-//
-// // pub fn temperament_from_config<
-// // const D: usize>(
-// //     conf: TemperamentConfig<D>,
-// // ) -> Temperament<D, StackCoeff> {
-// //     Temperament::new(Box::from(conf.name), conf.pure_stacks, conf.tempered_stacks).unwrap()
-// // }
-//
-// //
-// // #[derive(Serialize, Deserialize)]
-// // pub struct TuiConfig {
-// //     grid: GridConfig,
-// // }
-// //
-// // #[derive(Serialize, Deserialize)]
-// // pub struct GridConfig {
-// //     left_right: usize,
-// //     up_down: usize,
-// // }
+pub fn validate<T: 'static>(raw: RawConfig) -> Config<Size3, T> {
+    let intervals = vector(&[
+        Interval {
+            name: "octave".to_string(),
+            semitones: 12.0,
+            key_distance: 12,
+        },
+        Interval {
+            name: "fifth".to_string(),
+            semitones: 12.0 * (3.0 / 2.0 as Semitones).log2(),
+            key_distance: 7,
+        },
+        Interval {
+            name: "third".to_string(),
+            semitones: 12.0 * (5.0 / 4.0 as Semitones).log2(),
+            key_distance: 4,
+        },
+    ])
+    .unwrap();
+
+    initialise_runtime_dimension::<T>(raw.temperaments.len());
+    let temperaments = Vector::from_fn(|row| {
+        let pure = Matrix::from_fn(|(i, j)| {
+            raw.temperaments[row.get() as usize].equations[i.get()].0[j.get()]
+        });
+        let tempered = Matrix::from_fn(|(i, j)| {
+            raw.temperaments[row.get() as usize].equations[i.get()].1[j.get()]
+        });
+        let name = &raw.temperaments[row.get() as usize].name;
+        Temperament::new(name.to_string(), pure, &tempered).unwrap()
+    });
+
+    Config {
+        intervals,
+        patterns: raw.patterns,
+        temperaments,
+    }
+}
