@@ -18,7 +18,7 @@ use adaptuner::{
 
 fn init_displayconfig() -> DisplayConfig {
     DisplayConfig {
-        notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
+        notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
         color_range: 0.5,
         gradient: colorous::SPECTRAL,
     }
@@ -30,15 +30,18 @@ pub fn init_intervals() -> [Interval; 3] {
         Interval {
             name: "octave".into(),
             semitones: 12.0,
+            key_distance: 12,
         },
         Interval {
             name: "fifth".into(),
             semitones: 12.0 * (3.0 / 2.0 as Semitones).log2(),
+            key_distance: 7,
         },
         Interval {
             name: "third".into(),
             semitones: 12.0 * (5.0 / 4.0 as Semitones).log2(),
-        },
+            key_distance: 4,
+       },
     ]
 }
 
@@ -133,7 +136,7 @@ pub fn main() -> io::Result<()> {
 
     let mut terminal = tui::init()?;
     loop {
-        highlight::<Size3,Size2>(&mut notes, width, index, offset);
+        highlight::<Size3, Size2>(&mut notes, width, index, offset);
         terminal.draw(|frame| frame.render_widget(&notes, frame.size()))?;
         if let event::Event::Key(k) = event::read()? {
             if k.kind == event::KeyEventKind::Press {
