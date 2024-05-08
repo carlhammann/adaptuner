@@ -1,11 +1,19 @@
-use crate::{
-    interval::{Semitones, Stack},
-    notename::*,
-    util::dimension::{fixed_sizes::Size3, Dimension},
-};
+use std::fmt;
+
 use colorous;
 use ndarray::Array2;
-use ratatui::{prelude::*, widgets::WidgetRef};
+use ratatui::{
+    prelude::{Buffer, Color, Rect, Style, Widget},
+    widgets::WidgetRef,
+};
+
+use crate::{
+    interval::{Semitones, Stack},
+    msg,
+    notename::NoteNameStyle,
+    tui::r#trait::{Tui, UIState},
+    util::dimension::{AtLeast, Dimension},
+};
 
 pub struct DisplayConfig {
     pub notenamestyle: NoteNameStyle,
@@ -19,9 +27,9 @@ pub enum CellState {
     On,
 }
 
-pub struct Cell<'a, T: Dimension> {
+pub struct Cell<'a, D: Dimension + AtLeast<3>, T: Dimension> {
     pub config: &'a DisplayConfig,
-    pub stack: Stack<Size3, T>,
+    pub stack: Stack<D, T>,
     pub state: CellState,
 }
 
@@ -44,7 +52,11 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
     }
 }
 
-impl<'a, T: Dimension + Copy> WidgetRef for Cell<'a, T> {
+impl<'a, D, T> WidgetRef for Cell<'a, D, T>
+where
+    D: Dimension + AtLeast<3> + Clone + Copy + fmt::Debug,
+    T: Dimension + Copy,
+{
     /// Rendering grid cells expects that we have two rows.
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         buf.set_string(
@@ -92,17 +104,25 @@ impl<'a, T: Dimension + Copy> WidgetRef for Cell<'a, T> {
     }
 }
 
-pub struct Grid<'a, T: Dimension> {
-    pub cells: Array2<Cell<'a, T>>,
+pub struct Grid<'a, D: Dimension + AtLeast<3>, T: Dimension> {
+    pub cells: Array2<Cell<'a, D, T>>,
 }
 
-impl<'a, T: Dimension + Copy> Widget for Grid<'a, T> {
+impl<'a, D, T> Widget for Grid<'a, D, T>
+where
+    D: Dimension + AtLeast<3> + Clone + Copy + fmt::Debug,
+    T: Dimension + Copy,
+{
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.render_ref(area, buf)
     }
 }
 
-impl<'a, T: Dimension + Copy> WidgetRef for Grid<'a, T> {
+impl<'a, D, T> WidgetRef for Grid<'a, D, T>
+where
+    D: Dimension + AtLeast<3> + Clone + Copy + fmt::Debug,
+    T: Dimension + Copy,
+{
     /// rendering of Grids expects there to be 2n rows of characters for an n-row grid, because
     /// Cells are two rows high
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
@@ -123,5 +143,18 @@ impl<'a, T: Dimension + Copy> WidgetRef for Grid<'a, T> {
                 );
             }
         }
+    }
+}
+
+impl<'a, D: Dimension + AtLeast<3>, T: Dimension> UIState for Grid<'a, D, T> {
+    fn handle_msg(
+        &mut self,
+        time: u64,
+        msg: msg::ToUI,
+        terminal: &mut Tui,
+        // to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
+        // midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
+    ) {
+        todo!()
     }
 }

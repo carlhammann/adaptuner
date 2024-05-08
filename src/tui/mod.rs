@@ -1,12 +1,15 @@
 pub mod grid;
+pub mod r#trait;
 
-use std::io::{self, stdout, Stdout};
+pub use r#trait::{Tui, UIState};
 
-use crossterm::{execute, terminal::*};
-use ratatui::prelude::*;
+use std::io::{self, stdout};
 
-/// A type alias for the terminal type used in this application
-pub type Tui = Terminal<CrosstermBackend<Stdout>>;
+use crossterm::{
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::prelude::{CrosstermBackend, Terminal};
 
 /// Initialize the terminal
 pub fn init() -> io::Result<Tui> {

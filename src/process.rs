@@ -34,9 +34,6 @@ pub struct State<'a, D: Dimension, T: Dimension> {
     pub sustain: bool,
 
     pub config: Config<'a>,
-    // incoming: mpsc::Receiver<msg::ToProcess<T>>,
-    // to_ui: mpsc::Sender<msg::ToUI>,
-    // to_backend: mpsc::Sender<msg::ToBackend>,
 }
 
 pub trait ProcessState<D: Dimension, T: Dimension> {
@@ -44,57 +41,31 @@ pub trait ProcessState<D: Dimension, T: Dimension> {
         &mut self,
         time: u64,
         msg: msg::ToProcess<D, T>,
-        to_backend: mpsc::Sender<msg::ToBackend>,
-        to_ui: mpsc::Sender<msg::ToUI>,
-    );
-    fn handle_midi_msg(
-        &mut self,
-        time: u64,
-        msg: &Vec<u8>,
-        to_backend: &mpsc::Sender<msg::ToBackend>,
-        to_ui: &mpsc::Sender<msg::ToUI>,
+        to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
+        to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
     );
 }
-
-// pub fn process<X: ProcessState<D, T>, T: Dimension, D: Dimension>(
-//     time: u64,
-//     msg: &[u8],
-//     state: (
-//         &mut X,
-//         mpsc::Receiver<msg::ToProcess<D, T>>,
-//         mpsc::Sender<msg::ToBackend>,
-//         mpsc::Sender<msg::ToUI>,
-//     ),
-// ) {
-//     let (state, incoming, to_backend, to_ui) = state;
-//     for m in incoming.try_iter() {
-//         state.handle_msg(time, m, &to_backend, &to_ui);
-//     }
-//     // TODO use [MidiMsg::from_midi_with_context] here.
-//     match MidiMsg::from_midi(msg) {
-//         Err(e) => to_ui.send(msg::ToUI::MidiParseErr(e)).unwrap_or(()),
-//         Ok((mm, _number_of_bytes_parsed)) => state.handle_midi_msg(time, mm, &to_backend, &to_ui),
-//     }
-// }
 
 impl<'a, D, T> State<'a, D, T>
 where
     D: AtLeast<1> + Copy + fmt::Debug,
     T: Dimension + Copy,
 {
-    /// Go through all currently active notes and send [Retune][msg::ToBackend::Retune] messages to
+    /// Go through all currently active notes and send [RetuneNote][msg::ToBackend::RetuneNote] messages to
     /// to the backend, describing their current tunings.
-    fn send_retunes(&self, to_backend: &mpsc::Sender<msg::ToBackend>) {
+    fn send_retunes(&self, to_backend: &mpsc::Sender<(u64, msg::ToBackend)>, time: u64) {
         for i in 0..128 {
             if self.active_notes[i] {
                 let target = stack_from_tuning_frame(&self.current, i as u8).semitones();
                 to_backend
-                    .send(msg::ToBackend::Retune {
-                        target,
-                        note: i as u8,
-                    })
-                    .unwrap()
-                //[send] only fails when backend is disconnected. That'd be bad anyway...
+                    .send((
+                        time,
+                        msg::ToBackend::RetuneNote {
+                            target,
+                            note: i as u8,
+                        },
+                    ))
+                    .unwrap_or(())
             }
         }
     }
@@ -107,35 +78,45 @@ where
 {
     fn handle_msg(
         &mut self,
-        _time: u64,
+        time: u64,
         msg: msg::ToProcess<D, T>,
-        to_backend: mpsc::Sender<msg::ToBackend>,
-        _to_ui: mpsc::Sender<msg::ToUI>,
+        to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
+        to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
     ) {
         match msg {
-            msg::ToProcess::SetNeighboughood(n) => {
+            msg::ToProcess::SetNeighboughood { neighbourhood: n } => {
                 self.current.neighbourhood = n;
+                self.send_retunes(&to_backend, time);
             }
-            msg::ToProcess::ToggleTemperament(t) => {
+            msg::ToProcess::ToggleTemperament { index: t } => {
                 self.current.active_temperaments[t] = !self.current.active_temperaments[t];
+                self.send_retunes(&to_backend, time);
+            }
+            msg::ToProcess::IncomingMidi { bytes } => {
+                self.handle_midi_msg(time, &bytes, to_backend, to_ui);
             }
         }
-        self.send_retunes(&to_backend);
     }
+}
 
+impl<'a, D, T> State<'a, D, T>
+where
+    D: Dimension + AtLeast<1> + fmt::Debug + Copy,
+    T: Dimension + Copy,
+{
     fn handle_midi_msg(
         &mut self,
         time: u64,
         bytes: &Vec<u8>,
-        to_backend: &mpsc::Sender<msg::ToBackend>,
-        to_ui: &mpsc::Sender<msg::ToUI>,
+        to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
+        to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
     ) {
         if time - self.birthday >= self.config.minimum_age {
             self.old.clone_from(&self.current); // TODO: clone-free option?
         }
 
         match MidiMsg::from_midi(&bytes) {
-            Err(e) => to_ui.send(msg::ToUI::MidiParseErr(e)).unwrap_or(()),
+            Err(e) => to_ui.send((time, msg::ToUI::MidiParseErr(e))).unwrap_or(()),
             Ok((msg, _number_of_bytes_parsed)) => {
                 match msg {
                     MidiMsg::ChannelVoice {
@@ -155,7 +136,7 @@ where
                                                         &self.old,
                                                         reference as u8,
                                                     );
-                                                self.send_retunes(to_backend);
+                                                self.send_retunes(to_backend, time);
                                             }
                                             break;
                                         }
@@ -185,7 +166,7 @@ where
                     _ => {}
                 }
                 to_backend
-                    .send(msg::ToBackend::ForwardMidi { msg, time })
+                    .send((time, msg::ToBackend::ForwardMidi { msg }))
                     .unwrap_or(());
             }
         }

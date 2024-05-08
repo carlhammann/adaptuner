@@ -6,25 +6,33 @@ use std::{
     thread,
 };
 
+use midi_msg::Channel::*;
+
 use serde_json;
 
 use midir::{Ignore, MidiIO, MidiInput, MidiOutput};
+
+use crossterm::event;
 
 use adaptuner::{
     backend,
     backend::BackendState,
     config::{validate, Config, RawConfig},
     interval::{Stack, StackType},
+    msg,
     neighbourhood::Neighbourhood,
     process,
     process::ProcessState,
+    tui,
+    tui::grid::Grid,
+    tui::UIState,
     util::dimension::{fixed_sizes::Size3, vector_from_elem},
 };
 
 #[derive(Debug, Copy, Clone)]
 struct TTag {}
 
-pub fn main() {
+pub fn main() -> Result<(), Box<dyn Error>> {
     let raw_config: RawConfig =
         serde_json::from_str(&fs::read_to_string("config.json").unwrap()).unwrap();
     let config: Config<Size3, TTag> = validate(raw_config);
@@ -33,8 +41,7 @@ pub fn main() {
         config.intervals.clone(),
         config.temperaments.clone(),
     ));
-    let stype_backend = stype_process.clone();
-
+    //    let stype_backend = stype_process.clone();
 
     let (midi_in_tx, midi_in_rx) = mpsc::channel();
     let (midi_out_tx, midi_out_rx) = mpsc::channel();
@@ -47,7 +54,11 @@ pub fn main() {
     thread::spawn(move || {
         let initial_tuning_frame = process::TuningFrame {
             reference_key: 0,
-            reference_stack: Stack::new(stype_process, &vector_from_elem(false), vector_from_elem(0)),
+            reference_stack: Stack::new(
+                stype_process,
+                &vector_from_elem(false),
+                vector_from_elem(0),
+            ),
             neighbourhood: Neighbourhood::fivelimit_new(4, 7, 1),
             active_temperaments: vector_from_elem(false),
         };
@@ -68,10 +79,10 @@ pub fn main() {
 
         loop {
             match midi_in_rx.recv() {
-                Ok((time, msg)) => {
-                    state.handle_midi_msg(
+                Ok((time, bytes)) => {
+                    state.handle_msg(
                         time,
-                        &msg,
+                        msg::ToProcess::IncomingMidi { bytes },
                         &to_backend_tx_from_process,
                         &to_ui_tx_from_process,
                     );
@@ -82,26 +93,22 @@ pub fn main() {
     });
 
     thread::spawn(move || {
-        let mut state = backend::OnlyForward { st: stype_backend };
+        let mut state = backend::PitchbendClasses {
+            bends: [8192; 12],
+            bend_range: 2.0,
+            channels: [
+                Ch1, Ch2, Ch3, Ch4, Ch5, Ch6, Ch7, Ch8, Ch9, Ch11, Ch12, Ch13,
+            ],
+        };
         loop {
             match to_backend_rx.recv() {
-                Ok(msg) => state.handle_msg(msg, &to_ui_tx, &midi_out_tx),
+                Ok((time, msg)) => state.handle_msg(time, msg, &to_ui_tx, &midi_out_tx),
                 Err(_) => break,
             }
         }
     });
 
-    // println!("{state:?}");
-    match run(midi_in_tx, midi_out_rx) {
-        Ok(_) => {}
-        Err(err) => println!("{err}"),
-    }
-}
-
-fn run(
-    sender: mpsc::Sender<(u64, Vec<u8>)>,
-    receiver: mpsc::Receiver<(u64, Vec<u8>)>,
-) -> Result<(), Box<dyn Error>> {
+    // initialise MIDI connections
     let mut midi_in = MidiInput::new("midir forwarding input")?;
     midi_in.ignore(Ignore::None);
     let midi_out = MidiOutput::new("midir forwarding output")?;
@@ -110,9 +117,9 @@ fn run(
     println!();
     let out_port = select_port(&midi_out, "output")?;
 
-    println!("\nOpening connections");
-    let in_port_name = midi_in.port_name(&in_port)?;
-    let out_port_name = midi_out.port_name(&out_port)?;
+    // println!("\nOpening connections");
+    // let in_port_name = midi_in.port_name(&in_port)?;
+    // let out_port_name = midi_out.port_name(&out_port)?;
 
     let mut conn_out = midi_out.connect(&out_port, "midir-forward")?;
 
@@ -124,31 +131,70 @@ fn run(
             // send will only fail if the receiver has disconnected. In that case, there's nothing
             // we can do from inside this thread, so we ignore the error. Likely, this will only
             // happen close to the termination of a regular run of the program.
-            sender.send((time, msg.to_vec())).unwrap_or(());
+            midi_in_tx.send((time, msg.to_vec())).unwrap_or(());
         },
         (),
     )?;
 
     thread::spawn(move || loop {
-        match receiver.recv() {
-            Ok((time, msg)) => {
+        match midi_out_rx.recv() {
+            Ok((_time, msg)) => {
                 // no error checking here, we assume that the messages are corect.
                 conn_out.send(&msg).unwrap_or(());
-                println!("{}: {:?} (len = {})", time, msg, msg.len());
+
+                //println!("{time}: {:?}", MidiMsg::from_midi(&msg));
             }
             Err(_) => break,
         }
     });
 
-    println!(
-        "Connections open, forwarding from '{}' to '{}' (press enter to exit) ...",
-        in_port_name, out_port_name
-    );
+    // println!(
+    //     "Connections open, forwarding from '{}' to '{}' (press enter to exit) ...",
+    //     in_port_name, out_port_name
+    // );
 
-    let mut input = String::new();
-    stdin().read_line(&mut input)?; // wait for next enter key press
+    let mut terminal = tui::init().unwrap();
+    thread::spawn(move || {
+        let mut grid = Grid {};
 
-    println!("Closing connections");
+        loop {
+            match to_ui_rx.recv() {
+                Ok((time, msg)) => {
+                    grid.handle_msg(time, msg, &mut terminal);
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    loop {
+        if let event::Event::Key(k) = event::read()? {
+            if k.kind == event::KeyEventKind::Press {
+                match k.code {
+                    event::KeyCode::Char('z') => {
+                        width = (width - 1).max(1);
+                        offset = offset.min(width - 1);
+                    }
+                    event::KeyCode::Char('u') => width = (width + 1).min(12),
+                    event::KeyCode::Char('h') => index = (index - 1).max(0),
+                    event::KeyCode::Char('j') => index = (index + 1).min(11),
+                    event::KeyCode::Char('m') => offset = (offset - 1).max(0),
+                    event::KeyCode::Char('n') => offset = (offset + 1).min(width - 1),
+                    event::KeyCode::Char('q') => break,
+                    _ => {}
+                }
+            }
+        } else {
+        }
+    }
+
+    // let mut input = String::new();
+    // stdin().read_line(&mut input)?; // wait for next enter key press
+
+    // println!("Closing connections");
+    
+    tui::restore().unwrap();
+
     Ok(())
 }
 

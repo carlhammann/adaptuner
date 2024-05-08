@@ -15,6 +15,10 @@
     {
       "name": "major triad",
       "keys": { "ClassesRelative": { "classes": [ 0, 4, 7 ] } }
+    },
+    {
+      "name": "minor triad",
+      "keys": { "ClassesRelative": { "classes": [ 0, 3, 7 ] } }
     }
   ],
   "temperaments": [
