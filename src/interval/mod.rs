@@ -1,7 +1,7 @@
 //! Everything that has to do with (stacks of) intervals, pure or tempered.
 
 use serde_derive::{Deserialize, Serialize};
-use std::{fmt, ops};
+use std::{fmt, ops, sync::Arc};
 
 use crate::util::dimension::{Dimension, Matrix, Vector, VectorView};
 
@@ -93,16 +93,16 @@ impl<D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> StackType<D, T> {
 /// pure intervals. See the documentation comment of [increment][Stack::increment] for a discussion
 /// of this phenomenon.
 #[derive(Clone, Debug)]
-pub struct Stack<'a, D: Dimension, T: Dimension> {
-    stacktype: &'a StackType<D, T>,
+pub struct Stack<D: Dimension, T: Dimension> {
+    stacktype: Arc<StackType<D, T>>,
     coefficients: Vector<D, StackCoeff>,
     corrections: Matrix<D, T, StackCoeff>,
 }
 
-impl<'a, D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> Stack<'a, D, T> {
+impl<D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> Stack<D, T> {
     /// See the documentation comment of [Stack].
-    pub fn stacktype(&self) -> &'a StackType<D, T> {
-        self.stacktype
+    pub fn stacktype(&self) -> Arc<StackType<D, T>> {
+        self.stacktype.clone()
     }
 
     /// See the documentation comment of [Stack].
@@ -206,10 +206,10 @@ impl<'a, D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> Stack<'a, D, T> 
     /// Build a stack for a given [StackType]. The logic around `active_temperaments` and
     /// `coefficients` is the same as for [increment][Stack::increment].
     pub fn new(
-        stacktype: &'a StackType<D, T>,
+        stacktype: Arc<StackType<D, T>>,
         active_temperaments: &Vector<T, bool>,
         coefficients: Vector<D, StackCoeff>,
-    ) -> Stack<'a, D, T> {
+    ) -> Stack<D, T> {
         let corrections = Matrix::from_fn(|(i, t)| {
             if active_temperaments[t] {
                 coefficients[i]
@@ -242,7 +242,7 @@ fn pure_stack_semitones<D: Dimension>(
     acc
 }
 
-impl<'a, D, T> ops::Add<&Stack<'a, D, T>> for Stack<'a, D, T>
+impl<D, T> ops::Add<&Stack<D, T>> for Stack<D, T>
 where
     D: Dimension + Copy + fmt::Debug,
     T: Dimension + Copy,
@@ -259,7 +259,7 @@ where
     /// Also, in many applications, [increment][Stack::increment]ing might be the cheaper option,
     /// because it doesn't require you to construct a second [Stack].
     fn add(mut self, x: &Self) -> Self {
-        if !std::ptr::eq(self.stacktype, x.stacktype) {
+        if !std::sync::Arc::ptr_eq(&self.stacktype, &x.stacktype) {
             panic!("tried to add two `Stack`s of different `StackType`s")
         }
 
@@ -286,14 +286,17 @@ pub mod stack_test_setup {
             Interval {
                 name: "octave".into(),
                 semitones: 12.0,
+                key_distance: 12,
             },
             Interval {
                 name: "fifth".into(),
                 semitones: 12.0 * (3.0 / 2.0 as Semitones).log2(),
+                key_distance: 7,
             },
             Interval {
                 name: "third".into(),
                 semitones: 12.0 * (5.0 / 4.0 as Semitones).log2(),
+                key_distance: 4,
             },
         ]
     }
@@ -320,7 +323,7 @@ pub mod stack_test_setup {
     pub fn init_stacktype() -> StackType<Size3, Size2> {
         StackType::new(
             vector(&init_intervals()).unwrap(),
-            vector(&init_temperaments()).unwrap()
+            vector(&init_temperaments()).unwrap(),
         )
     }
 }
@@ -333,7 +336,7 @@ mod test {
 
     #[test]
     fn test_stack_semitones() {
-        let st = init_stacktype();
+        let st = Arc::new(init_stacktype());
 
         let octave = 12.0;
         let fifth = 12.0 * (3.0 / 2.0 as Semitones).log2();
@@ -347,7 +350,7 @@ mod test {
                                  // extreme numerical stbility.
 
         let s = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[false, true]).unwrap(),
             vector(&[0, 0, 1]).unwrap(),
         );
@@ -359,7 +362,7 @@ mod test {
         assert_relative_eq!(s.semitones(), third + edo12_third_error, max_relative = eps);
 
         let s = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[true, false]).unwrap(),
             vector(&[0, 4, 0]).unwrap(),
         );
@@ -367,7 +370,7 @@ mod test {
         assert_relative_eq!(s.semitones(), third + 2.0 * octave, max_relative = eps);
 
         let s = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[true, false]).unwrap(),
             vector(&[0, 6, 0]).unwrap(),
         );
@@ -383,7 +386,7 @@ mod test {
         );
 
         let s = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[false, true]).unwrap(),
             vector(&[0, 0, 7]).unwrap(),
         );
@@ -399,7 +402,7 @@ mod test {
         );
 
         let s = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[true, true]).unwrap(),
             vector(&[0, 5, 7]).unwrap(),
         );
@@ -424,15 +427,15 @@ mod test {
     /// helped me understand the implementation.
     #[test]
     fn test_stack_add() {
-        let st = init_stacktype();
+        let st = Arc::new(init_stacktype());
 
         let s1 = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[false, false]).unwrap(),
             vector(&[0, 4, 3]).unwrap(),
         );
         let s2 = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[false, false]).unwrap(),
             vector(&[0, 2, 5]).unwrap(),
         );
@@ -441,12 +444,12 @@ mod test {
         assert_eq!(s.corrections, matrix(&[[0, 0], [0, 0], [0, 0]]).unwrap());
 
         let s1 = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[true, false]).unwrap(),
             vector(&[0, 4, 3]).unwrap(),
         );
         let s2 = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[false, false]).unwrap(),
             vector(&[0, 2, 5]).unwrap(),
         );
@@ -455,12 +458,12 @@ mod test {
         assert_eq!(s.corrections, matrix(&[[0, 0], [0, 0], [0, 0]]).unwrap());
 
         let s1 = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[true, false]).unwrap(),
             vector(&[0, 4, 3]).unwrap(),
         );
         let s2 = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[true, false]).unwrap(),
             vector(&[0, 2, 5]).unwrap(),
         );
@@ -469,12 +472,12 @@ mod test {
         assert_eq!(s.corrections, matrix(&[[0, 0], [2, 0], [0, 0]]).unwrap());
 
         let s1 = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[true, true]).unwrap(),
             vector(&[0, 4, 3]).unwrap(),
         );
         let s2 = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[true, false]).unwrap(),
             vector(&[0, 2, 5]).unwrap(),
         );
@@ -483,12 +486,12 @@ mod test {
         assert_eq!(s.corrections, matrix(&[[0, 0], [2, 4], [0, 0]]).unwrap());
 
         let s1 = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[true, true]).unwrap(),
             vector(&[0, 4, 3]).unwrap(),
         );
         let s2 = Stack::new(
-            &st,
+            st.clone(),
             &vector(&[true, true]).unwrap(),
             vector(&[0, 2, 5]).unwrap(),
         );

@@ -10,7 +10,7 @@ pub enum NoteNameStyle {
     JohnstonFiveLimitClass,
 }
 
-impl<'a, D: AtLeast<3> + Copy + fmt::Debug, T: Dimension + Copy> Stack<'a, D, T> {
+impl<D: AtLeast<3> + Copy + fmt::Debug, T: Dimension + Copy> Stack<D, T> {
     pub fn notename(&self, style: &NoteNameStyle) -> String {
         match style {
             NoteNameStyle::JohnstonFiveLimitFull => {

@@ -11,8 +11,8 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-pub struct TuningFrame<'a, D: Dimension, T: Dimension> {
-    pub reference_stack: Stack<'a, D, T>,
+pub struct TuningFrame<D: Dimension, T: Dimension> {
+    pub reference_stack: Stack<D, T>,
     pub reference_key: u8,
     pub neighbourhood: Neighbourhood<D>,
     pub active_temperaments: Vector<T, bool>,
@@ -26,8 +26,8 @@ pub struct Config<'a> {
 
 #[derive(Debug)]
 pub struct State<'a, D: Dimension, T: Dimension> {
-    pub current: TuningFrame<'a, D, T>,
-    pub old: TuningFrame<'a, D, T>,
+    pub current: TuningFrame<D, T>,
+    pub old: TuningFrame<D, T>,
     pub birthday: u64, // microseconds
     pub active_notes: [bool; 128],
 
@@ -192,7 +192,7 @@ where
     }
 }
 
-fn stack_from_tuning_frame<'a, D, T>(frame: &TuningFrame<'a, D, T>, key: u8) -> Stack<'a, D, T>
+fn stack_from_tuning_frame<D, T>(frame: &TuningFrame<D, T>, key: u8) -> Stack<D, T>
 where
     D: AtLeast<1> + Copy + fmt::Debug,
     T: Dimension + Copy,

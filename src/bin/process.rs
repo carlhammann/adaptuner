@@ -1,7 +1,10 @@
 use std::error::Error;
 use std::fs;
 use std::io::{stdin, stdout, Write};
-use std::{sync::mpsc, thread};
+use std::{
+    sync::{mpsc, Arc},
+    thread,
+};
 
 use serde_json;
 
@@ -26,13 +29,17 @@ pub fn main() {
         serde_json::from_str(&fs::read_to_string("config.json").unwrap()).unwrap();
     let config: Config<Size3, TTag> = validate(raw_config);
 
-    let stype = StackType::new(config.intervals.clone(), config.temperaments.clone());
+    let stype_process = Arc::new(StackType::new(
+        config.intervals.clone(),
+        config.temperaments.clone(),
+    ));
+    let stype_backend = stype_process.clone();
+
 
     let (midi_in_tx, midi_in_rx) = mpsc::channel();
     let (midi_out_tx, midi_out_rx) = mpsc::channel();
     let (to_backend_tx, to_backend_rx) = mpsc::channel();
     let (to_ui_tx, to_ui_rx) = mpsc::channel();
-
 
     let to_ui_tx_from_process = to_ui_tx.clone();
     let to_backend_tx_from_process = to_backend_tx.clone();
@@ -40,7 +47,7 @@ pub fn main() {
     thread::spawn(move || {
         let initial_tuning_frame = process::TuningFrame {
             reference_key: 0,
-            reference_stack: Stack::new(&stype, &vector_from_elem(false), vector_from_elem(0)),
+            reference_stack: Stack::new(stype_process, &vector_from_elem(false), vector_from_elem(0)),
             neighbourhood: Neighbourhood::fivelimit_new(4, 7, 1),
             active_temperaments: vector_from_elem(false),
         };
@@ -62,7 +69,12 @@ pub fn main() {
         loop {
             match midi_in_rx.recv() {
                 Ok((time, msg)) => {
-                    state.handle_midi_msg(time, &msg, &to_backend_tx_from_process, &to_ui_tx_from_process);
+                    state.handle_midi_msg(
+                        time,
+                        &msg,
+                        &to_backend_tx_from_process,
+                        &to_ui_tx_from_process,
+                    );
                 }
                 Err(_) => break,
             }
@@ -70,7 +82,7 @@ pub fn main() {
     });
 
     thread::spawn(move || {
-        let mut state = backend::OnlyForward {};
+        let mut state = backend::OnlyForward { st: stype_backend };
         loop {
             match to_backend_rx.recv() {
                 Ok(msg) => state.handle_msg(msg, &to_ui_tx, &midi_out_tx),

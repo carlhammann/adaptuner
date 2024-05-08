@@ -1,6 +1,6 @@
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
-use crate::msg;
+use crate::{interval::StackType, msg, util::dimension::Dimension};
 
 pub trait BackendState {
     fn handle_msg(
@@ -11,9 +11,11 @@ pub trait BackendState {
     );
 }
 
-pub struct OnlyForward {}
+pub struct OnlyForward<D: Dimension, T: Dimension> {
+    pub st: Arc<StackType<D, T>>,
+}
 
-impl BackendState for OnlyForward {
+impl<D: Dimension, T: Dimension> BackendState for OnlyForward<D, T> {
     fn handle_msg(
         &mut self,
         msg: msg::ToBackend,
