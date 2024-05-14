@@ -42,7 +42,7 @@ pub trait ProcessState<D: Dimension, T: Dimension> {
         time: u64,
         msg: msg::ToProcess<D, T>,
         to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
+        to_ui: &mpsc::Sender<msg::ToUI>,
     );
 }
 
@@ -81,7 +81,7 @@ where
         time: u64,
         msg: msg::ToProcess<D, T>,
         to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
+        to_ui: &mpsc::Sender<msg::ToUI>,
     ) {
         match msg {
             msg::ToProcess::SetNeighboughood { neighbourhood: n } => {
@@ -109,14 +109,14 @@ where
         time: u64,
         bytes: &Vec<u8>,
         to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
+        to_ui: &mpsc::Sender<msg::ToUI>,
     ) {
         if time - self.birthday >= self.config.minimum_age {
             self.old.clone_from(&self.current); // TODO: clone-free option?
         }
 
         match MidiMsg::from_midi(&bytes) {
-            Err(e) => to_ui.send((time, msg::ToUI::MidiParseErr(e))).unwrap_or(()),
+            Err(e) => to_ui.send(msg::ToUI::MidiParseErr(e)).unwrap_or(()),
             Ok((msg, _number_of_bytes_parsed)) => {
                 match msg {
                     MidiMsg::ChannelVoice {

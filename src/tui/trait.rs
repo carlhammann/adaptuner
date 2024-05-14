@@ -8,5 +8,7 @@ use crate::msg;
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
 pub trait UIState {
-    fn handle_msg(&mut self, time: u64, msg: msg::ToUI, terminal: &mut Tui);
+    type Config;
+    fn initialise(config: &Self::Config) -> Self;
+    fn handle_msg(&mut self, msg: msg::ToUI, terminal: &mut Tui);
 }

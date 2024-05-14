@@ -26,7 +26,7 @@ use adaptuner::{
     tui,
     tui::grid::Grid,
     tui::UIState,
-    util::dimension::{fixed_sizes::Size3, vector_from_elem},
+    util::dimension::{fixed_sizes::Size3, vector_from_elem, Dimension, RuntimeDimension},
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -37,10 +37,13 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         serde_json::from_str(&fs::read_to_string("config.json").unwrap()).unwrap();
     let config: Config<Size3, TTag> = validate(raw_config);
 
+    println!("t={}", RuntimeDimension::<TTag>::value());
+
     let stype_process = Arc::new(StackType::new(
         config.intervals.clone(),
         config.temperaments.clone(),
     ));
+    let stype_ui = stype_process.clone();
     //    let stype_backend = stype_process.clone();
 
     let (midi_in_tx, midi_in_rx) = mpsc::channel();
@@ -50,6 +53,8 @@ pub fn main() -> Result<(), Box<dyn Error>> {
 
     let to_ui_tx_from_process = to_ui_tx.clone();
     let to_backend_tx_from_process = to_backend_tx.clone();
+
+    let to_ui_tx_from_backend = to_ui_tx.clone();
 
     thread::spawn(move || {
         let initial_tuning_frame = process::TuningFrame {
@@ -102,7 +107,9 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         };
         loop {
             match to_backend_rx.recv() {
-                Ok((time, msg)) => state.handle_msg(time, msg, &to_ui_tx, &midi_out_tx),
+                Ok((time, msg)) => {
+                    state.handle_msg(time, msg, &to_ui_tx_from_backend, &midi_out_tx)
+                }
                 Err(_) => break,
             }
         }
@@ -154,13 +161,34 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     // );
 
     let mut terminal = tui::init().unwrap();
+
     thread::spawn(move || {
-        let mut grid = Grid {};
+        let mut grid = Grid {
+            min_fifth: -4,
+            max_fifth: 3,
+            min_third: -2,
+            max_third: 3,
+
+            reference: Stack::new(stype_ui, &vector_from_elem(true), vector_from_elem(0)),
+
+            active_temperaments: vector_from_elem(true),
+            active_classes: [false; 12],
+            neighbourhood: Neighbourhood::fivelimit_new(5, 4, 1),
+
+            config: tui::grid::DisplayConfig {
+                notenamestyle: adaptuner::notename::NoteNameStyle::JohnstonFiveLimitFull,
+                color_range: 0.2,
+                gradient: colorous::RED_BLUE,
+            },
+        };
+
+        let _ = terminal.draw(|frame| frame.render_widget(&grid, frame.size()));
 
         loop {
             match to_ui_rx.recv() {
-                Ok((time, msg)) => {
-                    grid.handle_msg(time, msg, &mut terminal);
+                Ok(msg) => {
+                    grid.handle_msg(msg, &mut terminal);
+                    let _ = terminal.draw(|frame| frame.render_widget(&grid, frame.size()));
                 }
                 Err(_) => break,
             }
@@ -168,31 +196,26 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     });
 
     loop {
-        if let event::Event::Key(k) = event::read()? {
+        let ev = event::read().unwrap();
+
+        if let event::Event::Key(k) = ev {
             if k.kind == event::KeyEventKind::Press {
                 match k.code {
-                    event::KeyCode::Char('z') => {
-                        width = (width - 1).max(1);
-                        offset = offset.min(width - 1);
-                    }
-                    event::KeyCode::Char('u') => width = (width + 1).min(12),
-                    event::KeyCode::Char('h') => index = (index - 1).max(0),
-                    event::KeyCode::Char('j') => index = (index + 1).min(11),
-                    event::KeyCode::Char('m') => offset = (offset - 1).max(0),
-                    event::KeyCode::Char('n') => offset = (offset + 1).min(width - 1),
                     event::KeyCode::Char('q') => break,
                     _ => {}
                 }
             }
         } else {
         }
+
+        to_ui_tx.send(msg::ToUI::Event(ev)).unwrap_or(());
     }
 
     // let mut input = String::new();
     // stdin().read_line(&mut input)?; // wait for next enter key press
 
     // println!("Closing connections");
-    
+
     tui::restore().unwrap();
 
     Ok(())

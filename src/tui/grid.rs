@@ -1,18 +1,18 @@
 use std::fmt;
 
 use colorous;
-use ndarray::Array2;
 use ratatui::{
-    prelude::{Buffer, Color, Rect, Style, Widget},
+    prelude::{Buffer, Color, Modifier, Rect, Style, Widget},
     widgets::WidgetRef,
 };
 
 use crate::{
-    interval::{Semitones, Stack},
+    interval::{Semitones, Stack, StackCoeff},
     msg,
+    neighbourhood::Neighbourhood,
     notename::NoteNameStyle,
     tui::r#trait::{Tui, UIState},
-    util::dimension::{AtLeast, Dimension},
+    util::dimension::{vector_from_elem, AtLeast, Bounded, Dimension, Vector},
 };
 
 pub struct DisplayConfig {
@@ -21,94 +21,38 @@ pub struct DisplayConfig {
     pub gradient: colorous::Gradient,
 }
 
-pub enum CellState {
+enum CellState {
     Off,
     Considered,
     On,
 }
 
-pub struct Cell<'a, D: Dimension + AtLeast<3>, T: Dimension> {
-    pub config: &'a DisplayConfig,
-    pub stack: Stack<D, T>,
-    pub state: CellState,
-}
-
-// fn intermediate_color(weight: Semitones, rgb1: (u8, u8, u8), rgb2: (u8, u8, u8)) -> (u8, u8, u8) {
-//     let (r1, g1, b1) = rgb1;
-//     let (r2, g2, b2) = rgb2;
-//     let t = (weight.min(1.0)).max(0.0);
-//     let conv = |t, x, y| (t * y as Semitones + (1.0 - t) * x as Semitones) as u8;
-//     (conv(t, r1, r2), conv(t, g1, g2), conv(t, b1, b2))
-// }
-//
 fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
     // Counting the perceptive luminance - human eye favors green color...
     let luminance = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) / 255.0;
 
     if luminance > 0.5 {
-        return 0; // bright colors - black font
+        return 50; // 0; // bright colors - black font
     } else {
-        return 255; // dark colors - white font
+        return 200; // 255; // dark colors - white font
     }
 }
 
-impl<'a, D, T> WidgetRef for Cell<'a, D, T>
-where
-    D: Dimension + AtLeast<3> + Clone + Copy + fmt::Debug,
-    T: Dimension + Copy,
-{
-    /// Rendering grid cells expects that we have two rows.
-    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
-        buf.set_string(
-            area.x,
-            area.y,
-            self.stack.notename(&self.config.notenamestyle),
-            Style::default(),
-        );
-        let deviation = self.stack.correction_semitones();
-        if !self.stack.is_pure() {
-            buf.set_string(
-                area.x,
-                area.y + 1,
-                format!("{d:+.0}", d = deviation * 100.0),
-                Style::default(),
-            );
-        }
-        // let upwards = deviation > 0.0;
-        let (f, r, g, b) = {
-            let t = ((deviation / self.config.color_range).max(-1.0).min(1.0) + 1.0) / 2.0; // in range 0..1
-            let colorous::Color { r, g, b } = self.config.gradient.eval_continuous(t);
+pub struct Grid<D: Dimension + AtLeast<3>, T: Dimension> {
+    pub min_fifth: StackCoeff,
+    pub min_third: StackCoeff,
+    pub max_fifth: StackCoeff,
+    pub max_third: StackCoeff,
+    pub reference: Stack<D, T>,
+    pub active_temperaments: Vector<T, bool>,
 
-            match self.state {
-                CellState::On => {
-                    let f = foreground_for_background(r, g, b);
-                    (f, r, g, b)
-                }
-                CellState::Considered => {
-                    let f = foreground_for_background(r / 2, g / 2, b / 2);
+    pub neighbourhood: Neighbourhood<D>,
+    pub active_classes: [bool; 12],
 
-                    (f, r / 2, g / 2, b / 2)
-                }
-                CellState::Off => {
-                    let f = foreground_for_background(r / 4, g / 4, b / 4);
-
-                    (f / 2, r / 4, g / 4, b / 4)
-                }
-            }
-        };
-
-        buf.set_style(
-            area,
-            Style::from((Color::Rgb(f, f, f), Color::Rgb(r, g, b))),
-        );
-    }
+    pub config: DisplayConfig,
 }
 
-pub struct Grid<'a, D: Dimension + AtLeast<3>, T: Dimension> {
-    pub cells: Array2<Cell<'a, D, T>>,
-}
-
-impl<'a, D, T> Widget for Grid<'a, D, T>
+impl<D, T> Widget for Grid<D, T>
 where
     D: Dimension + AtLeast<3> + Clone + Copy + fmt::Debug,
     T: Dimension + Copy,
@@ -118,7 +62,7 @@ where
     }
 }
 
-impl<'a, D, T> WidgetRef for Grid<'a, D, T>
+impl<D, T> WidgetRef for Grid<D, T>
 where
     D: Dimension + AtLeast<3> + Clone + Copy + fmt::Debug,
     T: Dimension + Copy,
@@ -126,35 +70,116 @@ where
     /// rendering of Grids expects there to be 2n rows of characters for an n-row grid, because
     /// Cells are two rows high
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
-        let rows = self.cells.raw_dim()[0];
-        let cols = self.cells.raw_dim()[1];
+        let cols = 1 + self.max_fifth - self.min_fifth;
         let cellwidth = area.width / cols as u16;
 
-        for i in 0..rows {
-            for j in 0..cols {
-                self.cells[[rows - 1 - i, j]].render_ref(
+        let mut fifth_coeffs = vector_from_elem(0);
+        fifth_coeffs[Bounded::new(1).unwrap()] =
+            self.min_fifth - self.reference.coefficients()[Bounded::new(1).unwrap()];
+
+        let mut third_coeffs = vector_from_elem(0);
+        third_coeffs[Bounded::new(2).unwrap()] =
+            self.min_third - self.reference.coefficients()[Bounded::new(2).unwrap()];
+
+        let mut the_stack = self.reference.clone();
+        the_stack.increment(&self.active_temperaments, &third_coeffs);
+        the_stack.increment(&self.active_temperaments, &fifth_coeffs);
+        third_coeffs[Bounded::new(2).unwrap()] = 1;
+
+        for i in self.min_third..=self.max_third {
+            fifth_coeffs[Bounded::new(1).unwrap()] = 1;
+            for j in self.min_fifth..=self.max_fifth {
+                let mut state = CellState::Off;
+                for k in 0..12 {
+                    if self.neighbourhood.coefficients[k][Bounded::new(1).unwrap()] == j
+                        && self.neighbourhood.coefficients[k][Bounded::new(2).unwrap()] == i
+                    {
+                        if self.active_classes[k] {
+                            state = CellState::On;
+                        } else {
+                            state = CellState::Considered;
+                        }
+                    }
+                }
+                render_stack(
+                    &the_stack,
+                    state,
+                    &self.config,
                     Rect {
-                        x: area.x + cellwidth * j as u16,
-                        y: area.y + 2 * i as u16,
+                        x: area.x + cellwidth * (j - self.min_fifth) as u16,
+                        y: area.y + 2 * (self.max_third - i) as u16,
                         width: cellwidth,
                         height: 2,
                     },
                     buf,
                 );
+                the_stack.increment(&self.active_temperaments, &fifth_coeffs);
             }
+            the_stack.increment(&self.active_temperaments, &third_coeffs);
+            fifth_coeffs[Bounded::new(1).unwrap()] = self.min_fifth - self.max_fifth - 1;
+            the_stack.increment(&self.active_temperaments, &fifth_coeffs);
         }
     }
 }
 
-impl<'a, D: Dimension + AtLeast<3>, T: Dimension> UIState for Grid<'a, D, T> {
+fn render_stack<D, T>(
+    stack: &Stack<D, T>,
+    state: CellState,
+    config: &DisplayConfig,
+    area: Rect,
+    buf: &mut Buffer,
+) where
+    D: Dimension + AtLeast<3> + fmt::Debug + Copy,
+    T: Dimension + Copy,
+{
+    // Rendering grid cells expects that we have two rows.
+    buf.set_string(
+        area.x,
+        area.y,
+        stack.notename(&config.notenamestyle),
+        Style::default(),
+    );
+    let deviation = stack.correction_semitones();
+    if !stack.is_pure() {
+        buf.set_string(
+            area.x,
+            area.y + 1,
+            format!("{d:+.0}", d = deviation * 100.0),
+            Style::default(),
+        );
+    }
+    let t = ((deviation / config.color_range).max(-1.0).min(1.0) + 1.0) / 2.0; // in range 0..1
+    let colorous::Color { r, g, b } = config.gradient.eval_continuous(t);
+    let style = match state {
+        CellState::Off => {
+            let f = foreground_for_background(r / 4, g / 4, b / 4) / 2;
+            Style::from((Color::Rgb(f, f, f), Color::Rgb(r / 4, g / 4, b / 4)))
+        }
+        CellState::Considered => {
+            let f = foreground_for_background(r / 2, g / 2, b / 2);
+            Style::from((Color::Rgb(f, f, f), Color::Rgb(r / 2, g / 2, b / 2)))
+        }
+        CellState::On => {
+            let f = foreground_for_background(r, g, b);
+            Style::from((Color::Rgb(f, f, f), Color::Rgb(r, g, b)))
+        }
+    };
+    buf.set_style(area, style);
+}
+
+impl<'a, D: Dimension + AtLeast<3>, T: Dimension> UIState for Grid<D, T> {
     fn handle_msg(
         &mut self,
-        time: u64,
         msg: msg::ToUI,
         terminal: &mut Tui,
         // to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
         // midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     ) {
+    }
+
+    type Config = DisplayConfig;
+
+    fn initialise(config: &Self::Config) -> Self {
         todo!()
     }
 }

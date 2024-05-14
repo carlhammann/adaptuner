@@ -11,6 +11,7 @@ use crate::{
 
 pub enum ToUI {
     MidiParseErr(midi_msg::ParseError),
+    Event(crossterm::event::Event),
 }
 
 pub enum ToBackend {

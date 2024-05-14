@@ -9,7 +9,7 @@ pub trait BackendState {
         &mut self,
         time: u64,
         msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
+        to_ui: &mpsc::Sender<msg::ToUI>,
         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     );
 }
@@ -21,7 +21,7 @@ impl BackendState for OnlyForward {
         &mut self,
         time: u64,
         msg: msg::ToBackend,
-        _to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
+        _to_ui: &mpsc::Sender<msg::ToUI>,
         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     ) {
         match msg {
@@ -45,7 +45,7 @@ impl BackendState for PitchbendClasses {
         &mut self,
         time: u64,
         msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
+        to_ui: &mpsc::Sender<msg::ToUI>,
         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     ) {
         let send = |msg: MidiMsg, time: u64| midi_out.send((time, msg.to_midi())).unwrap_or(());
