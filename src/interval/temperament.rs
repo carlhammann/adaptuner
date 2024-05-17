@@ -16,7 +16,7 @@ use crate::util::dimension::{Bounded, Dimension, Matrix, Vector, VectorView};
 /// sevenths...) which we conceive of as "pure". Sometimes, we want to describe a slightly detuned
 /// version of this set of intervals. How much we detune the intervals, in terms of fractions of
 /// linear combinations of the base intervals, is what an element of this type encodes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Temperament<D: Dimension, I> {
     pub name: String,
     commas: Matrix<D, D, I>,

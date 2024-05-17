@@ -15,7 +15,7 @@ pub trait Dimension {
 
 pub trait AtLeast<const N: usize>: Dimension {}
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RuntimeDimension<T> {
     _phantom: PhantomData<T>,
 }
@@ -84,7 +84,7 @@ impl<const N: usize, T: 'static> Dimension for RuntimeAtLeast<N, T> {
 
 impl<const N: usize, T: 'static> AtLeast<N> for RuntimeAtLeast<N, T> {}
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bounded<D> {
     inner: usize,
     _phantom: PhantomData<D>,

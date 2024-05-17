@@ -31,7 +31,7 @@ pub struct State<'a, D: Dimension, T: Dimension> {
     pub birthday: u64, // microseconds
     pub active_notes: [bool; 128],
 
-    pub sustain: bool,
+    pub sustain: u8,
 
     pub config: Config<'a>,
 }
@@ -42,7 +42,7 @@ pub trait ProcessState<D: Dimension, T: Dimension> {
         time: u64,
         msg: msg::ToProcess<D, T>,
         to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<msg::ToUI>,
+        to_ui: &mpsc::Sender<msg::ToUI<D, T>>,
     );
 }
 
@@ -51,17 +51,17 @@ where
     D: AtLeast<1> + Copy + fmt::Debug,
     T: Dimension + Copy,
 {
-    /// Go through all currently active notes and send [RetuneNote][msg::ToBackend::RetuneNote] messages to
+    /// Go through all currently active notes and send [Retune][msg::ToBackend::Retune] messages to
     /// to the backend, describing their current tunings.
     fn send_retunes(&self, to_backend: &mpsc::Sender<(u64, msg::ToBackend)>, time: u64) {
         for i in 0..128 {
             if self.active_notes[i] {
-                let target = stack_from_tuning_frame(&self.current, i as u8).semitones();
+                let tuning = stack_from_tuning_frame(&self.current, i as u8).semitones();
                 to_backend
                     .send((
                         time,
-                        msg::ToBackend::RetuneNote {
-                            target,
+                        msg::ToBackend::Retune {
+                            tuning,
                             note: i as u8,
                         },
                     ))
@@ -73,15 +73,15 @@ where
 
 impl<'a, D, T> ProcessState<D, T> for State<'a, D, T>
 where
-    D: AtLeast<1> + Clone + Copy + fmt::Debug,
-    T: Dimension + Clone + Copy,
+    D: AtLeast<1> + Clone + Copy + fmt::Debug + PartialEq,
+    T: Dimension + Clone + Copy + PartialEq,
 {
     fn handle_msg(
         &mut self,
         time: u64,
         msg: msg::ToProcess<D, T>,
         to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<msg::ToUI>,
+        to_ui: &mpsc::Sender<msg::ToUI<D, T>>,
     ) {
         match msg {
             msg::ToProcess::SetNeighboughood { neighbourhood: n } => {
@@ -101,74 +101,110 @@ where
 
 impl<'a, D, T> State<'a, D, T>
 where
-    D: Dimension + AtLeast<1> + fmt::Debug + Copy,
-    T: Dimension + Copy,
+    D: Dimension + AtLeast<1> + fmt::Debug + Copy + PartialEq,
+    T: Dimension + Copy + PartialEq,
 {
     fn handle_midi_msg(
         &mut self,
         time: u64,
         bytes: &Vec<u8>,
         to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<msg::ToUI>,
+        to_ui: &mpsc::Sender<msg::ToUI<D, T>>,
     ) {
+        let send_to_backend =
+            |msg: msg::ToBackend, time: u64| to_backend.send((time, msg)).unwrap_or(());
+
+        let send_to_ui = |msg: msg::ToUI<D, T>| to_ui.send(msg).unwrap_or(());
+
         if time - self.birthday >= self.config.minimum_age {
             self.old.clone_from(&self.current); // TODO: clone-free option?
         }
 
         match MidiMsg::from_midi(&bytes) {
             Err(e) => to_ui.send(msg::ToUI::MidiParseErr(e)).unwrap_or(()),
-            Ok((msg, _number_of_bytes_parsed)) => {
-                match msg {
-                    MidiMsg::ChannelVoice {
-                        channel: _,
-                        msg: ChannelVoiceMsg::NoteOn { note, velocity: _ },
-                    } => {
-                        if !self.active_notes[note as usize] {
-                            self.active_notes[note as usize] = true;
-                            for p in self.config.patterns {
-                                match p.fit(&self.active_notes, 0) {
-                                    Fit { reference, next } => {
-                                        if next == 128 {
-                                            if reference as u8 != self.current.reference_key {
-                                                self.current.reference_key = reference as u8;
-                                                self.current.reference_stack =
-                                                    stack_from_tuning_frame(
-                                                        &self.old,
-                                                        reference as u8,
-                                                    );
-                                                self.send_retunes(to_backend, time);
-                                            }
-                                            break;
-                                        }
+            Ok((msg, _number_of_bytes_parsed)) => match msg {
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: ChannelVoiceMsg::NoteOn { note, velocity },
+                } => {
+                    send_to_backend(
+                        msg::ToBackend::TunedNoteOn {
+                            channel,
+                            note,
+                            velocity,
+                            tuning: stack_from_tuning_frame(&self.current, note).semitones(),
+                        },
+                        time,
+                    );
+                    send_to_ui(msg::ToUI::NoteOn { note });
+
+                    if !self.active_notes[note as usize] {
+                        self.active_notes[note as usize] = true;
+                        for p in self.config.patterns {
+                            match p.fit(&self.active_notes, 0) {
+                                Fit { reference, next } => {
+                                    if next == 128 && self.current.reference_key != reference as u8
+                                    {
+                                        self.birthday = time;
+                                        self.current.reference_key = reference as u8;
+                                        self.current.reference_stack =
+                                            stack_from_tuning_frame(&self.old, reference as u8);
                                     }
+                                    break;
                                 }
                             }
                         }
+                        self.send_retunes(to_backend, time);
                     }
+                    send_to_ui(msg::ToUI::SetReference {
+                        key: self.current.reference_key,
+                        stack: self.current.reference_stack.clone(),
+                    });
+                }
 
-                    MidiMsg::ChannelVoice {
-                        channel: _,
-                        msg: ChannelVoiceMsg::NoteOff { note, velocity: _ },
-                    } => {
-                        if !self.sustain {
-                            self.active_notes[note as usize] = false;
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: ChannelVoiceMsg::NoteOff { note, velocity },
+                } => {
+                    if self.sustain == 0 {
+                        self.active_notes[note as usize] = false;
+                        send_to_ui(msg::ToUI::NoteOff { note });
+                    }
+                    send_to_backend(
+                        msg::ToBackend::NoteOff {
+                            channel,
+                            note,
+                            velocity,
+                        },
+                        time,
+                    );
+                }
+
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg:
+                        ChannelVoiceMsg::ControlChange {
+                            control: ControlChange::Hold(value),
+                        },
+                } => {
+                    self.sustain = value;
+                    send_to_backend(msg::ToBackend::Sustain { channel, value }, time);
+                    for i in 0..128 {
+                        if !self.active_notes[i as usize] {
+                            send_to_ui(msg::ToUI::NoteOff { note: i });
                         }
                     }
-
-                    MidiMsg::ChannelVoice {
-                        channel: _,
-                        msg:
-                            ChannelVoiceMsg::ControlChange {
-                                control: ControlChange::Hold(value),
-                            },
-                    } => self.sustain = value != 0,
-
-                    _ => {}
                 }
-                to_backend
+
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: ChannelVoiceMsg::ProgramChange { program },
+                } => send_to_backend(msg::ToBackend::ProgramChange { channel, program }, time),
+
+                _ => to_backend
                     .send((time, msg::ToBackend::ForwardMidi { msg }))
-                    .unwrap_or(());
-            }
+                    .unwrap_or(()),
+            },
         }
     }
 }
@@ -180,12 +216,12 @@ where
 {
     let d = key as StackCoeff - frame.reference_key as StackCoeff;
     let (q, r) = (d.div_euclid(12), d.rem_euclid(12));
-    let mut coefficients = frame.neighbourhood.coefficients[r as usize].clone();
-    coefficients[Bounded::new(0).unwrap()] += q; // unwrap cannot fail here, because of the
-                                                 // `AtLeast<1>` bound on `D`
-    Stack::new(
-        frame.reference_stack.stacktype(),
+    let mut res = frame.reference_stack.clone();
+    res.increment(
         &frame.active_temperaments,
-        coefficients,
-    ) + &frame.reference_stack
+        &frame.neighbourhood.coefficients[r as usize],
+    );
+    res.increment_at_index(&frame.active_temperaments, Bounded::new(0).unwrap(), q);
+
+    res
 }

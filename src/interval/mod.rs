@@ -3,7 +3,7 @@
 use serde_derive::{Deserialize, Serialize};
 use std::{fmt, ops, sync::Arc};
 
-use crate::util::dimension::{Dimension, Matrix, Vector, VectorView};
+use crate::util::dimension::{Bounded, Dimension, Matrix, Vector, VectorView};
 
 mod temperament;
 pub use temperament::*;
@@ -15,7 +15,7 @@ pub type StackCoeff = i32;
 pub type Semitones = f64;
 
 /// A "base" interval.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Interval {
     /// the human-facing name of the interval.
     pub name: String,
@@ -29,7 +29,7 @@ pub struct Interval {
 /// A description which [Interval]s and [Temperament]s are to be used in a [Stack].
 ///
 /// The numbers `D` of different intervals and `T` of temperaments are statically known.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct StackType<D: Dimension, T: Dimension> {
     intervals: Vector<D, Interval>,
     temperaments: Vector<T, Temperament<D, StackCoeff>>,
@@ -92,7 +92,7 @@ impl<D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> StackType<D, T> {
 /// representation for the "rollovers" that happen when a number of tempered intervals add up to
 /// pure intervals. See the documentation comment of [increment][Stack::increment] for a discussion
 /// of this phenomenon.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Stack<D: Dimension, T: Dimension> {
     stacktype: Arc<StackType<D, T>>,
     coefficients: Vector<D, StackCoeff>,
@@ -198,6 +198,24 @@ impl<D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> Stack<D, T> {
                 for (i, coeff) in coefficients {
                     self.corrections[(i, t)] += coeff;
                 }
+            }
+        }
+        self.normalise();
+    }
+
+
+    /// Like [increment][Stack::increment], but only changes the coefficient at the given index.
+    pub fn increment_at_index(
+        &mut self,
+        active_temperaments: &Vector<T, bool>,
+        index: Bounded<D>,
+        coefficient: StackCoeff,
+    ) {
+        self.coefficients[index] += coefficient;
+
+        for (t, active) in active_temperaments {
+            if *active {
+                self.corrections[(index, t)] += coefficient;
             }
         }
         self.normalise();

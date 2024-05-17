@@ -73,21 +73,19 @@ where
         let cols = 1 + self.max_fifth - self.min_fifth;
         let cellwidth = area.width / cols as u16;
 
-        let mut fifth_coeffs = vector_from_elem(0);
-        fifth_coeffs[Bounded::new(1).unwrap()] =
-            self.min_fifth - self.reference.coefficients()[Bounded::new(1).unwrap()];
-
-        let mut third_coeffs = vector_from_elem(0);
-        third_coeffs[Bounded::new(2).unwrap()] =
-            self.min_third - self.reference.coefficients()[Bounded::new(2).unwrap()];
-
         let mut the_stack = self.reference.clone();
-        the_stack.increment(&self.active_temperaments, &third_coeffs);
-        the_stack.increment(&self.active_temperaments, &fifth_coeffs);
-        third_coeffs[Bounded::new(2).unwrap()] = 1;
+        the_stack.increment_at_index(
+            &self.active_temperaments,
+            Bounded::new(2).unwrap(),
+            self.min_third - self.reference.coefficients()[Bounded::new(2).unwrap()],
+        );
+        the_stack.increment_at_index(
+            &self.active_temperaments,
+            Bounded::new(1).unwrap(),
+            self.min_third - self.reference.coefficients()[Bounded::new(1).unwrap()],
+        );
 
         for i in self.min_third..=self.max_third {
-            fifth_coeffs[Bounded::new(1).unwrap()] = 1;
             for j in self.min_fifth..=self.max_fifth {
                 let mut state = CellState::Off;
                 for k in 0..12 {
@@ -113,11 +111,10 @@ where
                     },
                     buf,
                 );
-                the_stack.increment(&self.active_temperaments, &fifth_coeffs);
+                the_stack.increment_at_index(&self.active_temperaments, Bounded::new(1).unwrap(), 1);
             }
-            the_stack.increment(&self.active_temperaments, &third_coeffs);
-            fifth_coeffs[Bounded::new(1).unwrap()] = self.min_fifth - self.max_fifth - 1;
-            the_stack.increment(&self.active_temperaments, &fifth_coeffs);
+            the_stack.increment_at_index(&self.active_temperaments, Bounded::new(2).unwrap(), 1);
+            the_stack.increment_at_index(&self.active_temperaments, Bounded::new(1).unwrap(), self.min_fifth - self.max_fifth -1);
         }
     }
 }
@@ -167,16 +164,28 @@ fn render_stack<D, T>(
     buf.set_style(area, style);
 }
 
-impl<'a, D: Dimension + AtLeast<3>, T: Dimension> UIState for Grid<D, T> {
-    fn handle_msg(
-        &mut self,
-        msg: msg::ToUI,
-        terminal: &mut Tui,
-        // to_ui: &mpsc::Sender<(u64, msg::ToUI)>,
-        // midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
-    ) {
+impl<'a, D: Dimension + AtLeast<3> + PartialEq, T: Dimension + PartialEq + Copy> UIState<D, T>
+    for Grid<D, T>
+{
+    fn handle_msg(&mut self, msg: msg::ToUI<D, T>) {
+        match msg {
+            msg::ToUI::MidiParseErr(_) => {}
+            msg::ToUI::DetunedNote {
+                note,
+                should_be,
+                actual,
+                explanation,
+            } => {}
+            msg::ToUI::Event(_) => {}
+            msg::ToUI::SetNeighboughood { neighbourhood } => self.neighbourhood = neighbourhood,
+            msg::ToUI::ToggleTemperament { index } => {
+                self.active_temperaments[index] = !self.active_temperaments[index]
+            }
+            msg::ToUI::SetReference { key: _, stack } => self.reference = stack,
+            msg::ToUI::NoteOn { note } => self.active_classes[(note % 12) as usize] = true,
+            msg::ToUI::NoteOff { note } => self.active_classes[(note % 12) as usize] = false,
+        }
     }
-
     type Config = DisplayConfig;
 
     fn initialise(config: &Self::Config) -> Self {

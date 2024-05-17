@@ -29,7 +29,7 @@ use adaptuner::{
     util::dimension::{fixed_sizes::Size3, vector_from_elem, Dimension, RuntimeDimension},
 };
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct TTag {}
 
 pub fn main() -> Result<(), Box<dyn Error>> {
@@ -64,7 +64,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                 &vector_from_elem(false),
                 vector_from_elem(0),
             ),
-            neighbourhood: Neighbourhood::fivelimit_new(4, 7, 1),
+            neighbourhood: Neighbourhood::fivelimit_new(4, 5, 1),
             active_temperaments: vector_from_elem(false),
         };
 
@@ -74,11 +74,11 @@ pub fn main() -> Result<(), Box<dyn Error>> {
             birthday: 0,
 
             active_notes: [false; 128],
-            sustain: false,
+            sustain: 0,
 
             config: process::Config {
                 patterns: &config.patterns,
-                minimum_age: 10000,
+                minimum_age: 100000,
             },
         };
 
@@ -98,13 +98,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     });
 
     thread::spawn(move || {
-        let mut state = backend::PitchbendClasses {
-            bends: [8192; 12],
-            bend_range: 2.0,
-            channels: [
-                Ch1, Ch2, Ch3, Ch4, Ch5, Ch6, Ch7, Ch8, Ch9, Ch11, Ch12, Ch13,
-            ],
-        };
+        let mut state = backend::SixteenPitchbendClasses::init();
         loop {
             match to_backend_rx.recv() {
                 Ok((time, msg)) => {
@@ -171,9 +165,9 @@ pub fn main() -> Result<(), Box<dyn Error>> {
 
             reference: Stack::new(stype_ui, &vector_from_elem(true), vector_from_elem(0)),
 
-            active_temperaments: vector_from_elem(true),
+            active_temperaments: vector_from_elem(false),
             active_classes: [false; 12],
-            neighbourhood: Neighbourhood::fivelimit_new(5, 4, 1),
+            neighbourhood: Neighbourhood::fivelimit_new(4, 5, 1),
 
             config: tui::grid::DisplayConfig {
                 notenamestyle: adaptuner::notename::NoteNameStyle::JohnstonFiveLimitFull,
@@ -187,7 +181,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         loop {
             match to_ui_rx.recv() {
                 Ok(msg) => {
-                    grid.handle_msg(msg, &mut terminal);
+                    grid.handle_msg(msg);
                     let _ = terminal.draw(|frame| frame.render_widget(&grid, frame.size()));
                 }
                 Err(_) => break,
@@ -211,12 +205,12 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         to_ui_tx.send(msg::ToUI::Event(ev)).unwrap_or(());
     }
 
+    tui::restore().unwrap();
+    
+
     // let mut input = String::new();
     // stdin().read_line(&mut input)?; // wait for next enter key press
-
     // println!("Closing connections");
-
-    tui::restore().unwrap();
 
     Ok(())
 }

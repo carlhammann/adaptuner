@@ -1,7 +1,7 @@
 use midi_msg::{Channel, MidiMsg};
 
 use crate::{
-    interval::Semitones,
+    interval::{Semitones, Stack},
     neighbourhood::Neighbourhood,
     util::{
         dimension::{Bounded, Dimension},
@@ -10,14 +10,32 @@ use crate::{
 };
 
 #[derive(Debug, PartialEq)]
-pub enum ToUI {
+pub enum ToUI<D: Dimension, T: Dimension> {
     MidiParseErr(midi_msg::ParseError),
-    Event(crossterm::event::Event),
     DetunedNote {
         note: u8,
         should_be: Semitones,
         actual: Semitones,
         explanation: &'static str,
+    },
+
+    Event(crossterm::event::Event),
+
+    SetNeighboughood {
+        neighbourhood: Neighbourhood<D>,
+    },
+    ToggleTemperament {
+        index: Bounded<T>,
+    },
+    SetReference {
+        key: u8,
+        stack: Stack<D, T>,
+    },
+    NoteOn {
+        note: u8,
+    },
+    NoteOff {
+        note: u8,
     },
 }
 
@@ -37,7 +55,7 @@ pub enum ToBackend {
     Sustain {
         channel: Channel,
         value: u8,
-   },
+    },
     ProgramChange {
         channel: Channel,
         program: u8,

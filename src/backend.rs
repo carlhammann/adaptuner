@@ -1,27 +1,27 @@
-use std::sync::mpsc;
+use std::{fmt, sync::mpsc};
 
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 
-use crate::{interval::Semitones, msg};
+use crate::{util::dimension::Dimension, interval::Semitones, msg};
 
-pub trait BackendState {
+pub trait BackendState<D:Dimension, T:Dimension> {
     fn handle_msg(
         &mut self,
         time: u64,
         msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<msg::ToUI>,
+        to_ui: &mpsc::Sender<msg::ToUI<D,T>>,
         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     );
 }
 
 pub struct OnlyForward {}
 
-impl BackendState for OnlyForward {
+impl<D:Dimension, T:Dimension> BackendState<D,T> for OnlyForward {
     fn handle_msg(
         &mut self,
         time: u64,
         msg: msg::ToBackend,
-        _to_ui: &mpsc::Sender<msg::ToUI>,
+        _to_ui: &mpsc::Sender<msg::ToUI<D,T>>,
         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     ) {
         let send = |msg: MidiMsg, time: u64| midi_out.send((time, msg.to_midi())).unwrap_or(());
@@ -244,22 +244,22 @@ impl SixteenPitchbendClasses {
     }
 }
 
-impl BackendState for SixteenPitchbendClasses {
+impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for SixteenPitchbendClasses {
     fn handle_msg(
         &mut self,
         time: u64,
         msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<msg::ToUI>,
+        to_ui: &mpsc::Sender<msg::ToUI<D,T>>,
         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     ) {
-        println!("\n{msg:?}");
+        // println!("\n{msg:?}");
 
         let send = |msg: MidiMsg, time: u64| {
-            println!("{msg:?}");
+            // println!("{msg:?}");
             midi_out.send((time, msg.to_midi())).unwrap_or(());
         };
 
-        let send_to_ui = |msg: msg::ToUI| to_ui.send(msg);
+        let send_to_ui = |msg: msg::ToUI<D,T>| to_ui.send(msg);
 
         let mapped_to_and_bend = |tuning: Semitones| {
             let mapped_to = tuning.round() as u8;
@@ -390,7 +390,7 @@ impl BackendState for SixteenPitchbendClasses {
                         ),
                         explanation: "No more available channels on NoteOn",
                     };
-                    println!("{m:?}");
+                    // println!("{m:?}");
                     send_to_ui(m).unwrap_or(());
                 }
             }
@@ -489,6 +489,11 @@ impl BackendState for SixteenPitchbendClasses {
                 }) => {
                     let bend =
                         bend_from_semitones(self.bend_range, tuning - mapped_to as Semitones);
+
+                    if bend == self.bends[channel as usize] {
+                        return;
+                    }
+
                     send(
                         MidiMsg::ChannelVoice {
                             channel,
@@ -511,7 +516,7 @@ impl BackendState for SixteenPitchbendClasses {
                                 },
                             explanation: "Could not re-tune farther than the pitchbend range",
                         };
-                        println!("{m:?}");
+                        // println!("{m:?}");
                         send_to_ui(m).unwrap_or(());
                     }
 
@@ -532,8 +537,14 @@ impl BackendState for SixteenPitchbendClasses {
                                         );
 
                                         if bend != other_bend {
-                                            let m = msg::ToUI::DetunedNote { note: other_note as u8, should_be: desired_tuning, actual: other_mapped_to as Semitones + semitones_from_bend( self.bend_range, bend,), explanation: "Detuned because another note on the same channel was re-tuned", };
-                                            println!("{m:?}");
+                                            let m = msg::ToUI::DetunedNote {
+                                                note: other_note as u8,
+                                                should_be: desired_tuning,
+                                                actual: other_mapped_to as Semitones 
+                                                    + semitones_from_bend( self.bend_range, bend),
+                                                explanation: "Detuned because another note on the same channel was re-tuned",
+                                            };
+                                            // println!("{m:?}");
                                             send_to_ui(m).unwrap_or(());
                                         }
                                     }
@@ -552,14 +563,18 @@ impl BackendState for SixteenPitchbendClasses {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::util::dimension::fixed_sizes::Size2;
 
-    fn one_case<S: BackendState>(
+    fn one_case<S>(
         state: &mut S,
         time: u64,
         msg: msg::ToBackend,
         output_to_midi: Vec<(u64, MidiMsg)>,
-        output_to_ui: Vec<msg::ToUI>,
-    ) {
+        output_to_ui: Vec<msg::ToUI<Size2,Size2>>,
+    ) 
+        where 
+            S: BackendState<Size2, Size2>
+    {
         let (to_ui_tx, to_ui_rx) = mpsc::channel();
         let (midi_out_tx, midi_out_rx) = mpsc::channel(); //: &mpsc::Sender<(u64, Vec<u8>)>,
 
