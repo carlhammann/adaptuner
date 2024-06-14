@@ -79,6 +79,10 @@
 
           # dev-y
           jq
+
+	  # tex
+	  texlive.combined.scheme-full
+	  latexrun
         ];
       };
     });

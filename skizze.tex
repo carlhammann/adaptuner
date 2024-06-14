@@ -1,0 +1,321 @@
+\documentclass{scrartcl}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+
+\usepackage[ngerman]{babel}
+\usepackage[german=quotes]{csquotes}
+
+\usepackage[titletoc]{appendix}
+
+\usepackage{hyperref}
+
+\title{Projektskizzen für das adaptiv gestimmte Klavier}
+\author{Carl Hammann}
+\date{Version vom 11. Juni 2024}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+
+\vspace{1cm} 
+
+\noindent Der folgende Text gibt einen Überblick über den momentanen Stand
+meiner Überlegungen und über aus meiner Sicht interessante
+Forschungsprojekte. Ich sehe die Projektideen nicht als
+vollständig festgelegt oder klar voneinander getrennt; es geht mir eher
+darum, ein Spektrum zur Diskussionsgrundlage zu öffnen.
+
+Für diese informelle Diskussion verzichte ich auf
+eine wissenschaftliche Zitierweise, auch, weil ich zum Teil nicht genug
+Überblick über die Literatur habe.
+
+\section{Motivation: Kontrollierte Abweichungen von der reinen Stimmung}
+
+In den für \enquote{die} westliche Kunstmusik relevanten Systemen der reinen
+Stimmung gibt es -- mindestens konzeptuell -- unendlich viele
+verschiedene Intervalle innerhalb einer Oktave. Das ist einerseits für
+aufführende Musiker:innen und Instrumentenbauer:innen unpraktisch und
+andererseits eine theoretische Herausforderung: Die meiste Musik
+ist nicht explizit in reiner Stimmung konzipiert. Selbst in
+Stilen, in denen das Ideal der reinen Stimmung große Relevanz hat, gibt
+es oft keine offensichtlich korrekte Intonation. Das Repertoire ist
+voller Spannungen zwischen \enquote{Kommafallen} und ungewohnten melodischen
+Intervallen sowie voller Akkorde, die notwendigerweise mindestens ein
+\enquote{verstimmtes}
+Intervall enthalten. 
+
+Temperierte Stimmungen umgehen die theoretische und praktische
+Unhandlichkeit der reinen Stimmung(en), indem sie endlich viele Tonhöhen
+pro Oktave fixieren. Freilich zahlen sie damit den Preis, dass sie nur
+mehr oder weniger gute Vertreter der reinen Intervalle beinhalten.
+Historisch führte der Weg immer besserer Approximationen zu Systemen mit
+19, 31, 55... Tönen pro Oktave, die progressiv immer bessere Quinten und
+Terzen erlauben.
+
+Demgegenüber steht die Praxis eines Chores oder Streicherensembles:
+Intonation bedeutet hier nicht, fixierte Tonhöhen zu reproduzieren,
+sondern besteht in einer Verhandlung zwischen den harmonischen und
+melodischen Intervallen, die sich beide an der reinen Stimmung
+orientieren, aber situativ von ihr abweichen. Diese Perspektive
+legt die Idee eines adaptiv gestimmten, mehrstimmig spielbaren
+Instruments nahe, das einen Experimentiergrund zur Erforschung eben
+dieser Abweichungen bietet.
+
+Welche Strategien beispielweise ein moderner Chor
+anwendet, kann man untersuchen, indem man alle Sänger:innen
+mikrofoniert und genaue Tonhöhen misst. Soweit ich weiß, gibt es ein
+kleine Anzahl solcher Studien, die allerdings keine
+abschließenden Aussagen machen. Diesem analytischen Ansatz ist ein
+Instrument, wie ich es vorschlage, das synthetische Gegenstück.
+
+In den letzten Monaten habe ich Prototypen von Computerprogrammen
+entwickelt, die diesen Pfad betreten: Ein e-Piano wird in wenigen
+Millisekunden nach vorprogrammierten oder von dem:der Spieler:in zu
+beeinflussenden Heuristiken umgestimmt. (In den Anhängen gehe ich auf
+den momentanen Stand des Prototypen ein sowie auf die zwei mir bekannten
+ähnlichen Projekte.) Jetzt ist aus meiner Sicht der Punkt erreicht, an
+dem ich in der Lage bin, interessante Fragen zu formulieren, von denen
+jede ein musikpratisches oder -theoretisches Forschungsprojekt variablen
+Umfangs werden kann.
+
+Meine Zielgruppe sind alle Musiker:innen, die sich für reine Intonation
+interessieren und ein e-Piano haben, aber insbesondere Chorsänger:innen
+und -leiter:innen.
+
+\section{\enquote{nulltes} Projekt: Weiterentwicklung des Instruments an sich}
+
+Jede Weiterarbeit setzt eine entsprechende Weiterentwicklung des
+Computerprogramms voraus. Dafür ist aber aus Sicht der
+Programmierung keine neuartige Arbeit notwendig, daher sehe ich diesen
+Teil auch nicht als einen Forschungsgegenstand. Weitere
+Programmierarbeit wird notwendig sein, aber habe ich das Gefühl, die
+rein technischen Probleme im Prinzip gelöst zu haben.
+
+Interessanter sind Fragen dazu, welche Metaphern, Visualisierungen und
+Bedienelemente das Programm verwenden soll, um für Musiker:innen ein
+sinnvolles Werkzeug zu werden. Was \enquote{sinnvoll} ist, hängt von dem
+weiter zu beschreitenden Pfad ab. Die Anhänge enthalten Bemerkungen zu
+meinem momentanen Stand.
+
+Ich sehe ein musikalisch sinnvoll benutzbares Instrument als eines der
+Hauptziele jedes der weiteren Projekte an; nur der Fokus wird jeweils
+ein anderer sein.
+
+\section{erstes Projekt: Probenwerkzeug für Chöre}
+
+Wie erhält man ein effektives Probenwerkzeug für Chöre? Dies ist eine
+Frage dazu, wie das Programm weiter zu entwickeln wäre, um es leichter
+spiel- und verstehbar zu machen, aber auch eine probenmethodische
+Untersuchung. Meine Idee ist, dass man singen kann, was man sich
+vorstellen kann, und sich vorstellen kann, was man gehört hat. Kann man
+vielleicht sogar einmal \enquote{absichtlich} in eine Kommafalle tappen
+und erfahren, wie sich das anfühlt? 
+
+Hat solches Wissen um Intonation außerhalb von (spezialisierten)
+(Profi-) Ensembles praktische Relevanz? Wie (und wem?) lehrt man es
+mithilfe des zu entwickelnden Instruments?
+
+\section{zweites Projekt: Was sagen die alten Quellen?}
+
+Das Ideal der reinen Stimmung ist in der Renaissance- und
+Frühbarockmusik relevanter, als es zum Beispiel heute ist. Was sagen
+Theoretiker (der Renaissance) zu dem Thema der Abweichungen von diesem
+Ideal und ist das, was sie sagen, explizit genug, um Regeln abzuleiten,
+die sich in das Instrument programmieren lassen? Falls ja: Klingt das
+Ergebnis plausibel, wenn man es spielt? Kann man es mit einem Ensemble
+umsetzen?
+
+\section{drittes Projekt: Neue Musik}
+
+Welche Möglichkeiten bieten adaptive Stimmungen für neue Musik? Das ist
+einerseits eine weitere Frage zur Probenmethodik: Gibt es eine
+Anwendung für Proben von Musik, die explizit in reiner Stimmung
+geschrieben wurde? Was bräuchte es zum Beispiel um die Streichquartette
+von Ben Jonhston auf dem e-Piano zu spielen, und ist das ein hilfreiches
+Werkzeug in Proben dieser Musik?
+
+Andererseits gibt es hier auch eine Frage nach neuen kompositorischen
+Möglichkeiten, die explizit die Abweichungen von der reinen Stimmung in
+den Blick nehmen. Zu diesem Aspekt habe ich zwei Ideen, die insbesondere
+auch der Auslöser meiner Beschäftigung mit adaptiver Stimmung waren:
+
+\begin{itemize}
+\item In nicht-oktavperiodischen Stimmungen
+  gibt es auch Kommaprobleme. Ich vermute, dass einer der Gründe, warum
+  Musik in solchen Systemen schwierig zu singen ist, darin liegt, dass
+  wir nicht wissen, wie eine natürliche Intonation
+  klingt. So kommen zusätzlich zu den ungewohnten Harmonien auch noch
+  die Probleme, die man sich einhandelt, wenn man entweder in reiner
+  Stimmung arbeitet (dann hat man schwierige melodische Intervalle) oder
+  in einer schlechten temperierten Stimmung (dann hat man keine echten
+  Konsonanzen und die Musik, die sowieso schon wegen ihrer
+  Ungewohntheit \enquote{verstimmt} klingt, ist tatsächlich verstimmt).
+\item Auch in \enquote{normal gestimmter} Musik intonieren wir nicht alle Akkorde
+  rein (das ist schließlich der Ausgangspunkt dieser Beschäftigung),
+sondern rasten nur zu \enquote{wichtigen} Akkorden in die --
+  durch das Phänomen der Obertöne leicht zu findende -- reine Stimmung
+  ein. Könnte ein Verständnis, wie dieses Einrasten funktioniert, es
+  ermöglichen, ein live singbares Stück zu schreiben, das
+  in einen ungewöhnlichen -- aber ebenfalls physikalisch
+  \enquote{legitimierten}  -- Akkord einrastet, zum Beispiel den eines Gongs?
+\end{itemize}
+
+\section{viertes Projekt: \enquote{beste} Annäherungen an die reine Stimmung}
+
+Alle bislang beschriebenen Projekte gehen davon aus, dass der:die Spieler:in weiß, was
+er:sie tut. Insbesondere lassen die \enquote{Orgelregister für
+Intonation}
+(siehe Anhang \ref{sec:register}) die Kontrolle bei dem:der Spieler:in. Meine bislang
+unausgesprochene Vermutung ist, dass ein sich selbstständig
+verstimmendes Klavier noch verwirrender ist als eines, das sich
+wenigstens nach von mir gewählten, einfachen Regeln verstimmt.
+
+Ein anderer Ansatz, der ein Forschungsprojekt mit größerem
+Mathematikanteil nach sich
+zöge,
+wäre zu versuchen, rigorose Definitionen zu formulieren, die (bestimmte
+Aspekte davon) einfangen, was es intuitiv heißt, dass ein Akkord/eine
+Akkordverbindung/eine polyphone Struktur rein gestimmt ist. Davon ausgehend könnten Optima dieser Zielfunktionen auf verschiedenen Korpora
+von Musik gesucht werden. Lassen sich daraus Regeln ableiten,
+welche die Möglichkeiten der adaptiven Stimmung nutzen, um Musik
+\enquote{reiner} zu stimmen als mit herkömmlichen Verfahren? Können solche Regeln
+Inspiration für neue \enquote{Intonationsregister} werden? Es gibt eine
+ganze Menge Literatur zu diesem Thema, über die ich aber noch keinen
+Überblick habe. Oft scheint die Zielsetzung zu sein,
+Toningenieuren ein Werkzeug zu geben, schlechte Intonation im Nachhinein zu reparieren.
+
+Der Vollständigkeit halber möchte ich erwähnen, dass es bestimmt
+ein förderbares Projekt wäre, KI-Systeme darauf zu trainieren, die
+Entscheidungen zu fällen, die sonst der:die Spieler:in zu machen hat.
+So könnte beispielsweise eine \enquote{Intonations-KI} trainiert werden, die das Gesamtwerk von Schütz
+\enquote{besser} intoniert als jeder menschliche Chor. Ich erwähne diese
+Forschungsrichtung vor dem Hintergrund des momentanen KI-Hypes; mein persönliches
+Interesse liegt eher darin, mehr über Intonation zu lernen, und
+Musiker:innen ein neues, absichtsvoll nutzbares Instrument zu bauen.
+
+\clearpage
+\centerline{\textsf{\textbf{Anhang}}}
+
+\begin{appendices}
+
+\section{\enquote{Orgelregister für Intonation}}\label{sec:register}
+
+Die meiner Meinung nach fruchtbarste Metapher, die ich gerade verwende,
+ist die eines Orgelregisters für Intonation. Je nach Situation
+entscheidet man, wie zu intonieren ist, indem man Register an- und
+abwählt.
+
+Momentan teste ich zwei Typen von Registern: Solche zur Auswahl
+des als \enquote{rein} betrachteten Tonvorrats und solche, die bestimmte
+\enquote{Basisintervalle} gezielt verstimmen. 
+
+In der folgenden Erklärung beschränke ich mich auf den Fall, in dem es
+zwölf Töne pro Oktave gibt und in dem die Basisintervalle die Oktaven,
+Quinten und großen Terzen sind. (Beide Einschränkungen sind nicht
+designbedingt. Im Prinzip erlaube ich auch Stimmungssysteme, die eine
+andere Periodizität als die Oktave -- oder gar keine -- haben und die
+beliebig viele Basisintervalle, zum Beispiel für höhere Naturtöne,
+beinhalten.)
+
+Die Register des ersten Typs, zur Auswahl des reinen Tonvorrats, haben
+zwei Aufgaben:
+
+\begin{itemize}
+\item Sie legen die die harmonischen Intervalle fest. (Beispiel: Welches A
+  gehört über einen C-Dur Akkord? -- Das einen großen Ganzton über G,
+  oder das einen kleinen Ganzton über G?)
+\item Sie wählen die Kandidaten für den \enquote{nächsten Referenzton}. (Beispiel:
+  Gerade spiele ich C-Dur, will ich danach Fis-Dur oder Ges-Dur?)
+\end{itemize}
+
+Die Register vom zweiten Typ, welche die Basisintervalle verstimmen,
+können eingesetzt werden, um Kommafallen auszuweichen: Beispielsweise
+wird in einer Quintfallsequenz A-D-G-C-F aus reinen Quinten die Terz des
+finalen F-Dur um ein syntonisches Komma tiefer als der Grundton des
+A-Dur am Anfang werden. Das ist unter Umständen nicht erwünscht. Einen
+möglichen Ausweg bietet ein Register, das Quinten um ein Viertelkomma zu
+klein macht (d.h. mitteltönige Quinten für eine begrenzte Zeit und
+ab einem bestimmten Bezugston). Die Register dieses Typs können entweder
+nur auf die Folge der Referenztöne angewendet werden oder auch auf die
+harmonischen Intervalle. Im Beispiel der Quintfallsequenz könnte man
+also entweder nur die Bassmelodie mit mitteltönigen Quinten spielen,
+während alle anderen Stimmen darüber rein intonieren, oder den ganzen
+\enquote{Chor} für ein paar Akkorde mitteltönige Quinten auch als harmonische
+Intervalle benutzen lassen.
+
+\section{Visualisierungen}
+
+Ein Klavier, das sich andauernd selbst verstimmt, ist sehr verwirrend
+und braucht gute Visualisierungen.
+
+Der aktuelle Prototyp zeigt ein Quinten-Terzen-Gitter, auf dem klingende
+Noten und Kandidaten für nächste Referenztöne hervorgehoben werden. Wenn
+ein \enquote{Verstimmungs}-Register (siehe vorheriger Abschnitt) benutzt wird, wird der Grad der Verstimmung
+farblich veranschaulicht, zusätzlich zu einer Angabe in Cent.
+
+Für die Notennamen finde ich die Notation von Ben Johnston
+praktisch, denn sie kommt mit wenigen zusätzlichen Vorzeichen aus. Hier wird auch der pädagogische Aspekt berührt:
+Mir ist wichtig, dass das Programm nicht nur undurchsichtig arbeitet, sondern auch
+etwas lehrt. Durch die Benutzung eines Systems, in dem das syntonische Komma ein
+Vorzeichen ist und in dem es keine enharmonischen Verwechselungen gibt,
+werden Konzepte sichtbar.
+
+Das Quinten-Terzen-Gitter hat mindestens seit Euler Tradition.
+Visualisierungen, die auch noch auf höherdimensionale Systeme
+(mehr Basisintervalle) verallgemeinert werden können, sind ein offenes
+Forschungsfeld. So macht Robin Hayward sich mit seinem
+\href{https://robinhayward.com/hayward-tuning-vine/}{\emph{Tuning
+Vine}} zur
+Visualisierung der Intervalle der reinen Stimmung tiefgreifende
+Gedanken.
+
+Zwei Forschungsfragen sind für mich besonders ersichtlich:
+
+\begin{itemize}
+\item Es gibt gute Notationen und Visualisierungen für die reine Stimmung.
+  Wie veranschaulicht man die notwendigen Abweichungen?
+\item Welche Informationen für ein spielbares Instrument hilfreich und mit
+  wenig zusätzlichem Hardware-Aufwand realisierbar?
+\end{itemize}
+
+\section{Bereits bestehende, ähnliche Softwaresysteme}
+
+Ich bin nicht der Erste, der die Idee für ein solches oder ähnliches
+Computerprogramm hat. Mir sind zwei Projekte bekannt: 
+
+\begin{itemize}
+\item \href{https://mutabor.sourceforge.io/index.html.en}{\emph{Mutabor}} ist ein an der TU Dresden entwickeltes Programm, das auch
+  Gegenstand einer kleinen Anzahl von Publikationen ist. Das Programm
+  ist recht alt und in den letzten Jahren kaum gepflegt worden. (Das
+  äußert sich insbesondere darin, dass es mir nicht gelingt, mit den mir
+  zur Verfügung stehenden e-Pianos ein funktionierendes System zu
+  starten.) Mutabor nähert sich dem Problemfeld adaptiver Stimmungen mit
+  einer speziell für diesen Zweck entwickelten Programmiersprache. Diese
+  Sprache ist auch der Fokus der Forschung zu Mutabor: Welche
+  temporallogischen Konstrukte sind für das Problem relevant und wie
+  operationalisiert man sie in einem Softwaresystem? Im Fokus steht die
+  Forschung in der Logik und Informatik, adaptive Stimmungen dienen
+  dabei als ein nicht-triviales Anwendungsgebiet. Mutabor stellt
+  insbesondere nicht das Bedürfnis von Musiker:innen nach einem einfach
+  spielbaren Instrument in den Vordergrund. Damit unterscheidet es sich
+  von meinem Forschungsvorhaben.
+\item \href{https://www.tallkite.com/alt-tuner.html}{\emph{alt-tuner}} ist ein offenbar ziemlich weit entwickeltes Hobbyprojekt,
+  das aber weitgehend verlassen zu sein scheint. Es gibt keinen
+  quelloffenen Code, den man inspizieren oder
+  weiterentwickeln könnte. Ferner legt das Projekt das Augenmerk auf
+  die Idee einer adaptiven reinen Stimmung, während mich eben die oben
+  beschriebenen adaptiven \emph{Abweichungen} interessieren. Daher ist dieses
+  Projekt für mein Forschungsvorhaben nicht relevant.
+\end{itemize}
+
+\end{appendices}
+
+\end{document}
+
+<!-- vi: spell spelllang=de textwidth=72
+  -->
