@@ -9,7 +9,7 @@ pub trait BackendState<D:Dimension, T:Dimension> {
         &mut self,
         time: u64,
         msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<msg::ToUI<D,T>>,
+        to_ui: &mpsc::Sender<(u64, msg::ToUI<D,T>)>,
         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     );
 }
@@ -21,7 +21,7 @@ impl<D:Dimension, T:Dimension> BackendState<D,T> for OnlyForward {
         &mut self,
         time: u64,
         msg: msg::ToBackend,
-        _to_ui: &mpsc::Sender<msg::ToUI<D,T>>,
+        _to_ui: &mpsc::Sender<(u64, msg::ToUI<D,T>)>,
         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     ) {
         let send = |msg: MidiMsg, time: u64| midi_out.send((time, msg.to_midi())).unwrap_or(());
@@ -232,24 +232,13 @@ fn semitones_from_bend(bend_range: Semitones, bend: u16) -> Semitones {
     (bend as Semitones - 8192.0) / 8191.0 * bend_range
 }
 
-impl SixteenPitchbendClasses {
-    pub fn init() -> Self {
-        SixteenPitchbendClasses {
-            bends: [8192; 16],
-            usage: [0; 16],
-            active_notes: [None; 128],
-            sustained: false,
-            bend_range: 2.0,
-        }
-    }
-}
-
 impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for SixteenPitchbendClasses {
+
     fn handle_msg(
         &mut self,
         time: u64,
         msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<msg::ToUI<D,T>>,
+        to_ui: &mpsc::Sender<(u64, msg::ToUI<D,T>)>,
         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     ) {
         // println!("\n{msg:?}");
@@ -259,7 +248,7 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for S
             midi_out.send((time, msg.to_midi())).unwrap_or(());
         };
 
-        let send_to_ui = |msg: msg::ToUI<D,T>| to_ui.send(msg);
+        let send_to_ui = |msg: msg::ToUI<D,T>, time: u64| to_ui.send((time, msg));
 
         let mapped_to_and_bend = |tuning: Semitones| {
             let mapped_to = tuning.round() as u8;
@@ -391,7 +380,7 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for S
                         explanation: "No more available channels on NoteOn",
                     };
                     // println!("{m:?}");
-                    send_to_ui(m).unwrap_or(());
+                    send_to_ui(m, time).unwrap_or(());
                 }
             }
 
@@ -517,7 +506,7 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for S
                             explanation: "Could not re-tune farther than the pitchbend range",
                         };
                         // println!("{m:?}");
-                        send_to_ui(m).unwrap_or(());
+                        send_to_ui(m, time).unwrap_or(());
                     }
 
                     if self.usage[channel as usize] > 1 {
@@ -545,7 +534,7 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for S
                                                 explanation: "Detuned because another note on the same channel was re-tuned",
                                             };
                                             // println!("{m:?}");
-                                            send_to_ui(m).unwrap_or(());
+                                            send_to_ui(m, time).unwrap_or(());
                                         }
                                     }
                                 }
@@ -592,7 +581,7 @@ mod test {
 
     #[test]
     fn test_sixteen_classes() {
-        let mut s = SixteenPitchbendClasses::init();
+        let mut s = SixteenPitchbendClasses::initialise(&());
 
         one_case(
             &mut s,

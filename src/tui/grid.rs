@@ -1,8 +1,8 @@
-use std::fmt;
+use std::{sync::mpsc, fmt};
 
 use colorous;
 use ratatui::{
-    prelude::{Buffer, Color, Modifier, Rect, Style, Widget},
+    prelude::{Buffer, Color, Rect, Style, Widget},
     widgets::WidgetRef,
 };
 
@@ -11,8 +11,8 @@ use crate::{
     msg,
     neighbourhood::Neighbourhood,
     notename::NoteNameStyle,
-    tui::r#trait::{Tui, UIState},
-    util::dimension::{vector_from_elem, AtLeast, Bounded, Dimension, Vector},
+    tui::r#trait::UIState,
+    util::dimension::{AtLeast, Bounded, Dimension, Vector},
 };
 
 pub struct DisplayConfig {
@@ -111,10 +111,18 @@ where
                     },
                     buf,
                 );
-                the_stack.increment_at_index(&self.active_temperaments, Bounded::new(1).unwrap(), 1);
+                the_stack.increment_at_index(
+                    &self.active_temperaments,
+                    Bounded::new(1).unwrap(),
+                    1,
+                );
             }
             the_stack.increment_at_index(&self.active_temperaments, Bounded::new(2).unwrap(), 1);
-            the_stack.increment_at_index(&self.active_temperaments, Bounded::new(1).unwrap(), self.min_fifth - self.max_fifth -1);
+            the_stack.increment_at_index(
+                &self.active_temperaments,
+                Bounded::new(1).unwrap(),
+                self.min_fifth - self.max_fifth - 1,
+            );
         }
     }
 }
@@ -167,7 +175,7 @@ fn render_stack<D, T>(
 impl<'a, D: Dimension + AtLeast<3> + PartialEq, T: Dimension + PartialEq + Copy> UIState<D, T>
     for Grid<D, T>
 {
-    fn handle_msg(&mut self, msg: msg::ToUI<D, T>) {
+    fn handle_msg(&mut self, time: u64, msg: msg::ToUI<D, T>, _: &mpsc::Sender<(u64, msg::ToProcess<D, T>)>) {
         match msg {
             msg::ToUI::MidiParseErr(_) => {}
             msg::ToUI::DetunedNote {
@@ -176,7 +184,7 @@ impl<'a, D: Dimension + AtLeast<3> + PartialEq, T: Dimension + PartialEq + Copy>
                 actual,
                 explanation,
             } => {}
-            msg::ToUI::Event(_) => {}
+            msg::ToUI::CrosstermEvent(_) => {}
             msg::ToUI::SetNeighboughood { neighbourhood } => self.neighbourhood = neighbourhood,
             msg::ToUI::ToggleTemperament { index } => {
                 self.active_temperaments[index] = !self.active_temperaments[index]
@@ -185,10 +193,5 @@ impl<'a, D: Dimension + AtLeast<3> + PartialEq, T: Dimension + PartialEq + Copy>
             msg::ToUI::NoteOn { note } => self.active_classes[(note % 12) as usize] = true,
             msg::ToUI::NoteOff { note } => self.active_classes[(note % 12) as usize] = false,
         }
-    }
-    type Config = DisplayConfig;
-
-    fn initialise(config: &Self::Config) -> Self {
-        todo!()
     }
 }

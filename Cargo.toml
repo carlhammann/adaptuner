@@ -21,6 +21,7 @@ typenum = "1.17.0"
 nalgebra = "0.32.5"
 serde_json = "1.0.116"
 serde_repr = "0.1.19"
+rhai = "1.18.0"
 
 [dev-dependencies]
 approx = "0.5.1"

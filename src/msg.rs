@@ -3,10 +3,10 @@ use midi_msg::{Channel, MidiMsg};
 use crate::{
     interval::{Semitones, Stack},
     neighbourhood::Neighbourhood,
-    util::{
-        dimension::{Bounded, Dimension},
-        mod12::PitchClass,
-    },
+    util::dimension::{Bounded, Dimension},
+    // util::{
+    //     mod12::PitchClass,
+    // },
 };
 
 #[derive(Debug, PartialEq)]
@@ -19,7 +19,7 @@ pub enum ToUI<D: Dimension, T: Dimension> {
         explanation: &'static str,
     },
 
-    Event(crossterm::event::Event),
+    CrosstermEvent(crossterm::event::Event),
 
     SetNeighboughood {
         neighbourhood: Neighbourhood<D>,

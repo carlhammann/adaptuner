@@ -2,11 +2,15 @@ use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use std::{fmt, sync::mpsc};
 
+pub mod rhai;
+pub mod r#trait;
+
 use crate::{
     interval::{Stack, StackCoeff},
     msg,
     neighbourhood::Neighbourhood,
     pattern::{Fit, Pattern},
+    process::r#trait::ProcessState,
     util::dimension::{AtLeast, Bounded, Dimension, Vector},
 };
 
@@ -34,16 +38,6 @@ pub struct State<'a, D: Dimension, T: Dimension> {
     pub sustain: u8,
 
     pub config: Config<'a>,
-}
-
-pub trait ProcessState<D: Dimension, T: Dimension> {
-    fn handle_msg(
-        &mut self,
-        time: u64,
-        msg: msg::ToProcess<D, T>,
-        to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<msg::ToUI<D, T>>,
-    );
 }
 
 impl<'a, D, T> State<'a, D, T>
@@ -81,7 +75,7 @@ where
         time: u64,
         msg: msg::ToProcess<D, T>,
         to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<msg::ToUI<D, T>>,
+        to_ui: &mpsc::Sender<(u64, msg::ToUI<D, T>)>,
     ) {
         match msg {
             msg::ToProcess::SetNeighboughood { neighbourhood: n } => {
@@ -109,19 +103,19 @@ where
         time: u64,
         bytes: &Vec<u8>,
         to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<msg::ToUI<D, T>>,
+        to_ui: &mpsc::Sender<(u64, msg::ToUI<D, T>)>,
     ) {
         let send_to_backend =
             |msg: msg::ToBackend, time: u64| to_backend.send((time, msg)).unwrap_or(());
 
-        let send_to_ui = |msg: msg::ToUI<D, T>| to_ui.send(msg).unwrap_or(());
+        let send_to_ui = |msg: msg::ToUI<D, T>, time: u64| to_ui.send((time, msg)).unwrap_or(());
 
         if time - self.birthday >= self.config.minimum_age {
             self.old.clone_from(&self.current); // TODO: clone-free option?
         }
 
         match MidiMsg::from_midi(&bytes) {
-            Err(e) => to_ui.send(msg::ToUI::MidiParseErr(e)).unwrap_or(()),
+            Err(e) => send_to_ui(msg::ToUI::MidiParseErr(e), time),
             Ok((msg, _number_of_bytes_parsed)) => match msg {
                 MidiMsg::ChannelVoice {
                     channel,
@@ -136,7 +130,7 @@ where
                         },
                         time,
                     );
-                    send_to_ui(msg::ToUI::NoteOn { note });
+                    send_to_ui(msg::ToUI::NoteOn { note }, time);
 
                     if !self.active_notes[note as usize] {
                         self.active_notes[note as usize] = true;
@@ -156,10 +150,13 @@ where
                         }
                         self.send_retunes(to_backend, time);
                     }
-                    send_to_ui(msg::ToUI::SetReference {
-                        key: self.current.reference_key,
-                        stack: self.current.reference_stack.clone(),
-                    });
+                    send_to_ui(
+                        msg::ToUI::SetReference {
+                            key: self.current.reference_key,
+                            stack: self.current.reference_stack.clone(),
+                        },
+                        time,
+                    );
                 }
 
                 MidiMsg::ChannelVoice {
@@ -168,7 +165,7 @@ where
                 } => {
                     if self.sustain == 0 {
                         self.active_notes[note as usize] = false;
-                        send_to_ui(msg::ToUI::NoteOff { note });
+                        send_to_ui(msg::ToUI::NoteOff { note }, time);
                     }
                     send_to_backend(
                         msg::ToBackend::NoteOff {
@@ -191,7 +188,7 @@ where
                     send_to_backend(msg::ToBackend::Sustain { channel, value }, time);
                     for i in 0..128 {
                         if !self.active_notes[i as usize] {
-                            send_to_ui(msg::ToUI::NoteOff { note: i });
+                            send_to_ui(msg::ToUI::NoteOff { note: i }, time);
                         }
                     }
                 }
