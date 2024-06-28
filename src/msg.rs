@@ -4,13 +4,14 @@ use crate::{
     interval::{Semitones, Stack},
     neighbourhood::Neighbourhood,
     util::dimension::{Bounded, Dimension},
-    // util::{
-    //     mod12::PitchClass,
-    // },
 };
 
 #[derive(Debug, PartialEq)]
 pub enum ToUI<D: Dimension, T: Dimension> {
+    Notify {
+        line: String,
+    },
+
     MidiParseErr(midi_msg::ParseError),
     DetunedNote {
         note: u8,
@@ -66,6 +67,9 @@ pub enum ToBackend {
     },
     ForwardMidi {
         msg: MidiMsg,
+    },
+    ForwardBytes {
+        bytes: Vec<u8>,
     },
 }
 

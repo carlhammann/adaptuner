@@ -1,191 +1,8 @@
-use std::{fmt, sync::mpsc};
+use std::{fmt,sync::mpsc};
 
-use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
+use midi_msg::{ControlChange, ChannelVoiceMsg, MidiMsg, Channel};
 
-use crate::{util::dimension::Dimension, interval::Semitones, msg};
-
-pub trait BackendState<D:Dimension, T:Dimension> {
-    fn handle_msg(
-        &mut self,
-        time: u64,
-        msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<(u64, msg::ToUI<D,T>)>,
-        midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
-    );
-}
-
-pub struct OnlyForward {}
-
-impl<D:Dimension, T:Dimension> BackendState<D,T> for OnlyForward {
-    fn handle_msg(
-        &mut self,
-        time: u64,
-        msg: msg::ToBackend,
-        _to_ui: &mpsc::Sender<(u64, msg::ToUI<D,T>)>,
-        midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
-    ) {
-        let send = |msg: MidiMsg, time: u64| midi_out.send((time, msg.to_midi())).unwrap_or(());
-
-        match msg {
-            msg::ToBackend::TunedNoteOn {
-                channel,
-                note,
-                velocity,
-                tuning: _,
-            } => send(
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::NoteOn { note, velocity },
-                },
-                time,
-            ),
-
-            msg::ToBackend::NoteOff {
-                channel,
-                note,
-                velocity,
-            } => send(
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::NoteOff { note, velocity },
-                },
-                time,
-            ),
-
-            msg::ToBackend::Sustain { channel, value } => send(
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::ControlChange {
-                        control: ControlChange::Hold(value),
-                    },
-                },
-                time,
-            ),
-
-            msg::ToBackend::ProgramChange { channel, program } => send(
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::ProgramChange { program },
-                },
-                time,
-            ),
-
-            msg::ToBackend::Retune { .. } => {}
-
-            msg::ToBackend::ForwardMidi { msg } => send(msg, time),
-        }
-    }
-}
-
-// pub struct PitchbendClasses {
-//     pub bends: [u16; 12],
-//     pub channels: [Channel; 12],
-//     pub bend_range: Semitones,
-// }
-//
-// impl BackendState for PitchbendClasses {
-//     fn handle_msg(
-//         &mut self,
-//         time: u64,
-//         msg: msg::ToBackend,
-//         to_ui: &mpsc::Sender<msg::ToUI>,
-//         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
-//     ) {
-//         let send = |msg: MidiMsg, time: u64| midi_out.send((time, msg.to_midi())).unwrap_or(());
-//         match msg {
-//             msg::ToBackend::ForwardMidi { msg } => {
-//                 self.send_channelshifted(msg, time, midi_out);
-//             }
-//
-//             msg::ToBackend::RetuneClass { class, target } => {
-//                 let bend = (8191.0 * (target - class as u8 as Semitones) / self.bend_range + 8192.0)
-//                     as u16;
-//                 // if bend == self.bends[class as usize] {
-//                 //     return;
-//                 // }
-//                 self.bends[class as usize] = bend;
-//                 send(
-//                     MidiMsg::ChannelVoice {
-//                         channel: self.channels[class as usize],
-//                         msg: ChannelVoiceMsg::PitchBend { bend },
-//                     },
-//                     time,
-//                 );
-//             }
-//
-//             msg::ToBackend::RetuneNote { note, target } => {
-//                 self.handle_msg(
-//                     time,
-//                     msg::ToBackend::RetuneClass {
-//                         class: PitchClass::from(note),
-//                         target: target % 12.0,
-//                     },
-//                     to_ui,
-//                     midi_out,
-//                 );
-//             }
-//         }
-//     }
-// }
-//
-// impl PitchbendClasses {
-//     fn send_channelshifted(
-//         &self,
-//         msg: MidiMsg,
-//         time: u64,
-//         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
-//     ) {
-//         let send = |msg: MidiMsg| midi_out.send((time, msg.to_midi())).unwrap_or(());
-//         match msg {
-//             MidiMsg::ChannelVoice {
-//                 channel: _,
-//                 msg: ChannelVoiceMsg::NoteOn { note, velocity },
-//             } => send(MidiMsg::ChannelVoice {
-//                 channel: self.channels[note as usize % 12],
-//                 msg: ChannelVoiceMsg::NoteOn { note, velocity },
-//             }),
-//
-//             MidiMsg::ChannelVoice {
-//                 channel: _,
-//                 msg: ChannelVoiceMsg::NoteOff { note, velocity },
-//             } => send(MidiMsg::ChannelVoice {
-//                 channel: self.channels[note as usize % 12],
-//                 msg: ChannelVoiceMsg::NoteOff { note, velocity },
-//             }),
-//
-//             MidiMsg::ChannelVoice {
-//                 channel: _,
-//                 msg:
-//                     ChannelVoiceMsg::ControlChange {
-//                         control: ControlChange::Hold(value),
-//                     },
-//             } => {
-//                 for channel in self.channels {
-//                     send(MidiMsg::ChannelVoice {
-//                         channel,
-//                         msg: ChannelVoiceMsg::ControlChange {
-//                             control: ControlChange::Hold(value),
-//                         },
-//                     })
-//                 }
-//             }
-//
-//             MidiMsg::ChannelVoice {
-//                 channel: _,
-//                 msg: ChannelVoiceMsg::ProgramChange { program },
-//             } => {
-//                 for channel in self.channels {
-//                     send(MidiMsg::ChannelVoice {
-//                         channel,
-//                         msg: ChannelVoiceMsg::ProgramChange { program },
-//                     })
-//                 }
-//             }
-//
-//             _ => {}
-//         }
-//     }
-// }
+use crate::{msg, util::dimension::Dimension, config::r#trait::Config, backend::r#trait::BackendState, interval::Semitones};
 
 #[derive(Clone, Copy)]
 struct NoteInfo {
@@ -204,7 +21,7 @@ struct NoteInfo {
     sustained: bool,
 }
 
-pub struct SixteenPitchbendClasses {
+pub struct Pitchbend16 {
     /// the pitch bend value of every channel
     bends: [u16; 16],
 
@@ -232,7 +49,7 @@ fn semitones_from_bend(bend_range: Semitones, bend: u16) -> Semitones {
     (bend as Semitones - 8192.0) / 8191.0 * bend_range
 }
 
-impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for SixteenPitchbendClasses {
+impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for Pitchbend16 {
 
     fn handle_msg(
         &mut self,
@@ -241,10 +58,8 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for S
         to_ui: &mpsc::Sender<(u64, msg::ToUI<D,T>)>,
         midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
     ) {
-        // println!("\n{msg:?}");
 
         let send = |msg: MidiMsg, time: u64| {
-            // println!("{msg:?}");
             midi_out.send((time, msg.to_midi())).unwrap_or(());
         };
 
@@ -545,201 +360,220 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for S
             },
 
             msg::ToBackend::ForwardMidi { msg } => send(msg, time),
+            msg::ToBackend::ForwardBytes { bytes } => midi_out.send((time, bytes)).unwrap_or(()),
         }
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::util::dimension::fixed_sizes::Size2;
+pub struct Pitchbend16Config {
+    bend_range: Semitones
+}
 
-    fn one_case<S>(
-        state: &mut S,
-        time: u64,
-        msg: msg::ToBackend,
-        output_to_midi: Vec<(u64, MidiMsg)>,
-        output_to_ui: Vec<msg::ToUI<Size2,Size2>>,
-    ) 
-        where 
-            S: BackendState<Size2, Size2>
-    {
-        let (to_ui_tx, to_ui_rx) = mpsc::channel();
-        let (midi_out_tx, midi_out_rx) = mpsc::channel(); //: &mpsc::Sender<(u64, Vec<u8>)>,
-
-        state.handle_msg(time, msg, &to_ui_tx, &midi_out_tx);
-
-        assert_eq!(output_to_ui, to_ui_rx.try_iter().collect::<Vec<_>>());
-        assert_eq!(
-            output_to_midi,
-            midi_out_rx
-                .try_iter()
-                .map(|(t, bytes)| (t, MidiMsg::from_midi(&bytes).unwrap().0))
-                .collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn test_sixteen_classes() {
-        let mut s = SixteenPitchbendClasses::initialise(&());
-
-        one_case(
-            &mut s,
-            1234,
-            msg::ToBackend::TunedNoteOn {
-                channel: Channel::Ch1,
-                note: 3,
-                velocity: 100,
-                tuning: 3.2,
-            },
-            vec![
-                (
-                    1234,
-                    MidiMsg::ChannelVoice {
-                        channel: Channel::Ch1,
-                        msg: ChannelVoiceMsg::PitchBend {
-                            bend: bend_from_semitones(2.0, 0.2),
-                        },
-                    },
-                ),
-                (
-                    1234,
-                    MidiMsg::ChannelVoice {
-                        channel: Channel::Ch1,
-                        msg: ChannelVoiceMsg::NoteOn {
-                            note: 3,
-                            velocity: 100,
-                        },
-                    },
-                ),
-            ],
-            vec![],
-        );
-
-        one_case(
-            &mut s,
-            2345,
-            msg::ToBackend::TunedNoteOn {
-                channel: Channel::Ch1,
-                note: 17,
-                velocity: 101,
-                tuning: 113.2,
-            },
-            vec![(
-                2345,
-                MidiMsg::ChannelVoice {
-                    channel: Channel::Ch1,
-                    msg: ChannelVoiceMsg::NoteOn {
-                        note: 113,
-                        velocity: 101,
-                    },
-                },
-            )],
-            vec![],
-        );
-
-        one_case(
-            &mut s,
-            3456,
-            msg::ToBackend::TunedNoteOn {
-                channel: Channel::Ch1,
-                note: 4,
-                velocity: 13,
-                tuning: 3.7,
-            },
-            vec![
-                (
-                    3456,
-                    MidiMsg::ChannelVoice {
-                        channel: Channel::Ch2,
-                        msg: ChannelVoiceMsg::PitchBend {
-                            bend: bend_from_semitones(2.0, -0.3),
-                        },
-                    },
-                ),
-                (
-                    3456,
-                    MidiMsg::ChannelVoice {
-                        channel: Channel::Ch2,
-                        msg: ChannelVoiceMsg::NoteOn {
-                            note: 4,
-                            velocity: 13,
-                        },
-                    },
-                ),
-            ],
-            vec![],
-        );
-
-        one_case(
-            &mut s,
-            4567,
-            msg::ToBackend::Sustain {
-                channel: Channel::Ch1,
-                value: 123,
-            },
-            {
-                let mut many_sustains = Vec::new();
-                for i in 0..16 {
-                    many_sustains.push((
-                        4567,
-                        MidiMsg::ChannelVoice {
-                            channel: Channel::from_u8(i),
-                            msg: ChannelVoiceMsg::ControlChange {
-                                control: ControlChange::Hold(123),
-                            },
-                        },
-                    ));
-                }
-                many_sustains
-            },
-            vec![],
-        );
-
-        one_case(
-            &mut s,
-            5678,
-            msg::ToBackend::Retune {
-                note: 3,
-                tuning: 3.1,
-            },
-            vec![(
-                5678,
-                MidiMsg::ChannelVoice {
-                    channel: Channel::Ch1,
-                    msg: ChannelVoiceMsg::PitchBend {
-                        bend: bend_from_semitones(2.0, 0.1),
-                    },
-                },
-            )],
-            vec![msg::ToUI::DetunedNote {
-                note: 17,
-                should_be: 113.2,
-                actual: 113.0 + semitones_from_bend(2.0, bend_from_semitones(2.0, 0.1)),
-                explanation: "Detuned because another note on the same channel was re-tuned",
-            }],
-        );
-
-        one_case(
-            &mut s,
-            6789,
-            msg::ToBackend::Retune {
-                note: 4,
-                tuning: 6.1,
-            },
-            vec![(
-                6789,
-                MidiMsg::ChannelVoice {
-                    channel: Channel::Ch2,
-                    msg: ChannelVoiceMsg::PitchBend { bend: 16383 },
-                },
-            )],
-            vec![msg::ToUI::DetunedNote {
-                note: 4,
-                should_be: 6.1,
-                actual: 6.0,
-                explanation: "Could not re-tune farther than the pitchbend range",
-            }],
-        );
+impl Config<Pitchbend16> for Pitchbend16Config {
+    fn initialise(config: &Self) -> Pitchbend16 {
+        Pitchbend16 {
+            bends: [8192;16],
+            usage: [0;16],
+            active_notes: [None; 128],
+            sustained: false,
+            bend_range: config.bend_range
+        }
     }
 }
+
+
+//
+// #[cfg(test)]
+// mod test {
+//     use super::*;
+//     use crate::util::dimension::fixed_sizes::Size2;
+//
+//     fn one_case<S>(
+//         state: &mut S,
+//         time: u64,
+//         msg: msg::ToBackend,
+//         output_to_midi: Vec<(u64, MidiMsg)>,
+//         output_to_ui: Vec<msg::ToUI<Size2,Size2>>,
+//     ) 
+//         where 
+//             S: BackendState<Size2, Size2>
+//     {
+//         let (to_ui_tx, to_ui_rx) = mpsc::channel();
+//         let (midi_out_tx, midi_out_rx) = mpsc::channel(); //: &mpsc::Sender<(u64, Vec<u8>)>,
+//
+//         state.handle_msg(time, msg, &to_ui_tx, &midi_out_tx);
+//
+//         assert_eq!(output_to_ui, to_ui_rx.try_iter().collect::<Vec<_>>());
+//         assert_eq!(
+//             output_to_midi,
+//             midi_out_rx
+//                 .try_iter()
+//                 .map(|(t, bytes)| (t, MidiMsg::from_midi(&bytes).unwrap().0))
+//                 .collect::<Vec<_>>()
+//         );
+//     }
+//
+//     #[test]
+//     fn test_sixteen_classes() {
+//         let mut s = Pitchbend16::initialise(&());
+//
+//         one_case(
+//             &mut s,
+//             1234,
+//             msg::ToBackend::TunedNoteOn {
+//                 channel: Channel::Ch1,
+//                 note: 3,
+//                 velocity: 100,
+//                 tuning: 3.2,
+//             },
+//             vec![
+//                 (
+//                     1234,
+//                     MidiMsg::ChannelVoice {
+//                         channel: Channel::Ch1,
+//                         msg: ChannelVoiceMsg::PitchBend {
+//                             bend: bend_from_semitones(2.0, 0.2),
+//                         },
+//                     },
+//                 ),
+//                 (
+//                     1234,
+//                     MidiMsg::ChannelVoice {
+//                         channel: Channel::Ch1,
+//                         msg: ChannelVoiceMsg::NoteOn {
+//                             note: 3,
+//                             velocity: 100,
+//                         },
+//                     },
+//                 ),
+//             ],
+//             vec![],
+//         );
+//
+//         one_case(
+//             &mut s,
+//             2345,
+//             msg::ToBackend::TunedNoteOn {
+//                 channel: Channel::Ch1,
+//                 note: 17,
+//                 velocity: 101,
+//                 tuning: 113.2,
+//             },
+//             vec![(
+//                 2345,
+//                 MidiMsg::ChannelVoice {
+//                     channel: Channel::Ch1,
+//                     msg: ChannelVoiceMsg::NoteOn {
+//                         note: 113,
+//                         velocity: 101,
+//                     },
+//                 },
+//             )],
+//             vec![],
+//         );
+//
+//         one_case(
+//             &mut s,
+//             3456,
+//             msg::ToBackend::TunedNoteOn {
+//                 channel: Channel::Ch1,
+//                 note: 4,
+//                 velocity: 13,
+//                 tuning: 3.7,
+//             },
+//             vec![
+//                 (
+//                     3456,
+//                     MidiMsg::ChannelVoice {
+//                         channel: Channel::Ch2,
+//                         msg: ChannelVoiceMsg::PitchBend {
+//                             bend: bend_from_semitones(2.0, -0.3),
+//                         },
+//                     },
+//                 ),
+//                 (
+//                     3456,
+//                     MidiMsg::ChannelVoice {
+//                         channel: Channel::Ch2,
+//                         msg: ChannelVoiceMsg::NoteOn {
+//                             note: 4,
+//                             velocity: 13,
+//                         },
+//                     },
+//                 ),
+//             ],
+//             vec![],
+//         );
+//
+//         one_case(
+//             &mut s,
+//             4567,
+//             msg::ToBackend::Sustain {
+//                 channel: Channel::Ch1,
+//                 value: 123,
+//             },
+//             {
+//                 let mut many_sustains = Vec::new();
+//                 for i in 0..16 {
+//                     many_sustains.push((
+//                         4567,
+//                         MidiMsg::ChannelVoice {
+//                             channel: Channel::from_u8(i),
+//                             msg: ChannelVoiceMsg::ControlChange {
+//                                 control: ControlChange::Hold(123),
+//                             },
+//                         },
+//                     ));
+//                 }
+//                 many_sustains
+//             },
+//             vec![],
+//         );
+//
+//         one_case(
+//             &mut s,
+//             5678,
+//             msg::ToBackend::Retune {
+//                 note: 3,
+//                 tuning: 3.1,
+//             },
+//             vec![(
+//                 5678,
+//                 MidiMsg::ChannelVoice {
+//                     channel: Channel::Ch1,
+//                     msg: ChannelVoiceMsg::PitchBend {
+//                         bend: bend_from_semitones(2.0, 0.1),
+//                     },
+//                 },
+//             )],
+//             vec![msg::ToUI::DetunedNote {
+//                 note: 17,
+//                 should_be: 113.2,
+//                 actual: 113.0 + semitones_from_bend(2.0, bend_from_semitones(2.0, 0.1)),
+//                 explanation: "Detuned because another note on the same channel was re-tuned",
+//             }],
+//         );
+//
+//         one_case(
+//             &mut s,
+//             6789,
+//             msg::ToBackend::Retune {
+//                 note: 4,
+//                 tuning: 6.1,
+//             },
+//             vec![(
+//                 6789,
+//                 MidiMsg::ChannelVoice {
+//                     channel: Channel::Ch2,
+//                     msg: ChannelVoiceMsg::PitchBend { bend: 16383 },
+//                 },
+//             )],
+//             vec![msg::ToUI::DetunedNote {
+//                 note: 4,
+//                 should_be: 6.1,
+//                 actual: 6.0,
+//                 explanation: "Could not re-tune farther than the pitchbend range",
+//             }],
+//         );
+//     }
+// }

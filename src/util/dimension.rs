@@ -434,6 +434,15 @@ pub mod fixed_sizes {
     use super::{AtLeast, Dimension};
 
     #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Size0 {}
+    impl Dimension for Size0 {
+        fn value() -> usize {
+            0
+        }
+    }
+    impl AtLeast<0> for Size0 {}
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Size2 {}
     impl Dimension for Size2 {
         fn value() -> usize {
@@ -442,6 +451,7 @@ pub mod fixed_sizes {
     }
     impl AtLeast<2> for Size2 {}
     impl AtLeast<1> for Size2 {}
+    impl AtLeast<0> for Size2 {}
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Size3 {}
@@ -453,4 +463,5 @@ pub mod fixed_sizes {
     impl AtLeast<3> for Size3 {}
     impl AtLeast<2> for Size3 {}
     impl AtLeast<1> for Size3 {}
+    impl AtLeast<0> for Size3 {}
 }
