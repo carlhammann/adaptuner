@@ -1,162 +1,203 @@
-// use std::io;
-//
-// use colorous;
-// use crossterm::event;
-//
-// use ndarray::Array2;
-//
-// use adaptuner::{
-//     interval::{Interval, Semitones, Stack, StackCoeff, StackType, Temperament},
-//     neighbourhood::Neighbourhood,
-//     notename::NoteNameStyle,
-//     tui::{
-//         self,
-//         grid::{Cell, CellState, DisplayConfig, Grid},
-//     },
-//     util::dimension::{fixed_sizes::*, matrix, vector, AtLeast, Bounded, Dimension, Vector},
-// };
-//
-// fn init_displayconfig() -> DisplayConfig {
-//     DisplayConfig {
-//         notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
-//         color_range: 0.5,
-//         gradient: colorous::SPECTRAL,
-//     }
-// }
-//
-// /// some base intervals: octaves, fifths, thirds.
-// pub fn init_intervals() -> [Interval; 3] {
-//     [
-//         Interval {
-//             name: "octave".into(),
-//             semitones: 12.0,
-//             key_distance: 12,
-//         },
-//         Interval {
-//             name: "fifth".into(),
-//             semitones: 12.0 * (3.0 / 2.0 as Semitones).log2(),
-//             key_distance: 7,
-//         },
-//         Interval {
-//             name: "third".into(),
-//             semitones: 12.0 * (5.0 / 4.0 as Semitones).log2(),
-//             key_distance: 4,
-//        },
-//     ]
-// }
-//
-// /// some example temperaments: quarter-comma meantone, and 12-EDO
-// pub fn init_temperaments() -> [Temperament<Size3, StackCoeff>; 2] {
-//     [
-//         Temperament::new(
-//             "1/4-comma meantone".into(),
-//             matrix(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]).unwrap(),
-//             &matrix(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]).unwrap(),
-//         )
-//         .unwrap(),
-//         Temperament::new(
-//             "12edo".into(),
-//             matrix(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]).unwrap(),
-//             &matrix(&[[7, 0, 0], [1, 0, 0], [1, 0, 0]]).unwrap(),
-//         )
-//         .unwrap(),
-//     ]
-// }
-//
-// /// an example [StackType].
-// pub fn init_stacktype() -> StackType<Size3, Size2> {
-//     StackType::new(
-//         vector(&init_intervals()).unwrap(),
-//         vector(&init_temperaments()).unwrap(),
-//     )
-// }
-//
-// fn init_grid<'a>(
-//     stacktype: &'a StackType<Size3, Size2>,
-//     config: &'a DisplayConfig,
-//     active_temperings: &'a Vector<Size2, bool>,
-//     minfifth: StackCoeff,
-//     minthird: StackCoeff,
-//     cols: usize,
-//     rows: usize,
-// ) -> Grid<'a, Size2> {
-//     let mut res = Grid {
-//         cells: Array2::from_shape_fn((rows, cols), |(i, j)| Cell {
-//             config,
-//             stack: Stack::new(
-//                 stacktype,
-//                 active_temperings,
-//                 vector(&[0, minfifth + j as StackCoeff, minthird + i as StackCoeff]).unwrap(),
-//             ),
-//             state: CellState::Off,
-//         }),
-//     };
-//
-//     highlight::<Size3, Size2>(&mut res, 4, 0, 0);
-//
-//     res
-// }
-//
-// pub fn highlight<'a, D: Dimension + AtLeast<3>, T: Dimension>(
-//     grid: &mut Grid<'a, T>,
-//     width: StackCoeff,
-//     index: StackCoeff,
-//     offset: StackCoeff,
-// ) {
-//     let rows = grid.cells.raw_dim()[0];
-//     let cols = grid.cells.raw_dim()[1];
-//     for cell in &mut grid.cells {
-//         cell.state = CellState::Off;
-//     }
-//     let chosen = Neighbourhood::<D>::fivelimit_new(width, index, offset);
-//
-//     for k in 0..12 {
-//         let i = chosen.coefficients[k][Bounded::new(2).unwrap()];
-//         let j = chosen.coefficients[k][Bounded::new(1).unwrap()];
-//         if ((i + 3) as usize) < rows && ((j + 6) as usize) < cols {
-//             grid.cells[((i + 3) as usize, (j + 6) as usize)].state = CellState::Considered;
-//         }
-//     }
-//     let i = chosen.coefficients[0][Bounded::new(2).unwrap()];
-//     let j = chosen.coefficients[0][Bounded::new(1).unwrap()];
-//     if ((i + 3) as usize) < rows && ((j + 6) as usize) < cols {
-//         grid.cells[((i + 3) as usize, (j + 6) as usize)].state = CellState::On;
-//     }
-// }
-//
-// pub fn main() -> io::Result<()> {
-//     let st = init_stacktype();
-//     let dc = init_displayconfig();
-//
-//     let mut width = 4; //1,2,3...12 //fifths thirds
-//     let mut index = 4; // 0,1,2,3...,11 //sharps/flats
-//     let mut offset = 1; // 0,1,...,width-1 //pluses/minuses
-//     let active_temperings = vector(&[false, false]).unwrap();
-//     let mut notes = init_grid(&st, &dc, &active_temperings, -6, -3, 12, 7);
-//
-//     let mut terminal = tui::init()?;
-//     loop {
-//         highlight::<Size3, Size2>(&mut notes, width, index, offset);
-//         terminal.draw(|frame| frame.render_widget(&notes, frame.size()))?;
-//         if let event::Event::Key(k) = event::read()? {
-//             if k.kind == event::KeyEventKind::Press {
-//                 match k.code {
-//                     event::KeyCode::Char('z') => {
-//                         width = (width - 1).max(1);
-//                         offset = offset.min(width - 1);
-//                     }
-//                     event::KeyCode::Char('u') => width = (width + 1).min(12),
-//                     event::KeyCode::Char('h') => index = (index - 1).max(0),
-//                     event::KeyCode::Char('j') => index = (index + 1).min(11),
-//                     event::KeyCode::Char('m') => offset = (offset - 1).max(0),
-//                     event::KeyCode::Char('n') => offset = (offset + 1).min(width - 1),
-//                     event::KeyCode::Char('q') => break,
-//                     _ => {}
-//                 }
-//             }
-//         } else {
-//         }
-//     }
-//     tui::restore()?;
-//     Ok(())
-// }
+use std::error::Error;
+use std::io::{stdin, stdout, Write};
+use std::{sync::mpsc, thread};
+
+use midir::{MidiIO, MidiInput, MidiInputPort, MidiOutput, MidiOutputPort};
+
+use adaptuner::{
+    backend::r#trait::BackendState,
+    config::{r#trait::Config, MidiPortConfig, TRIVIAL_CONFIG},
+    msg,
+    process::r#trait::ProcessState,
+    tui::UIState,
+    util::dimension::Dimension,
+};
+
+fn start_process<D, T, STATE, CONFIG>(
+    config: CONFIG,
+    msg_rx: mpsc::Receiver<(u64, msg::ToProcess<D, T>)>,
+    backend_tx: mpsc::Sender<(u64, msg::ToBackend)>,
+    ui_tx: mpsc::Sender<(u64, msg::ToUI<D, T>)>,
+) -> thread::JoinHandle<()>
+where
+    D: Dimension + Send + Sync + 'static,
+    T: Dimension + Send + Sync + 'static,
+    STATE: ProcessState<D, T>,
+    CONFIG: Config<STATE> + Send + Sync + 'static,
+{
+    thread::spawn(move || {
+        let mut state: STATE = <CONFIG as Config<STATE>>::initialise(&config);
+        loop {
+            match msg_rx.recv() {
+                Ok((time, msg)) => state.handle_msg(time, msg, &backend_tx, &ui_tx),
+                Err(_) => break,
+            }
+        }
+    })
+}
+
+fn start_ui<D, T, STATE, CONFIG>(
+    config: CONFIG,
+    msg_rx: mpsc::Receiver<(u64, msg::ToUI<D, T>)>,
+    process_tx: mpsc::Sender<(u64, msg::ToProcess<D, T>)>,
+) -> thread::JoinHandle<()>
+where
+    D: Dimension + Send + Sync + 'static,
+    T: Dimension + Send + Sync + 'static,
+    STATE: UIState<D, T>,
+    CONFIG: Config<STATE> + Send + Sync + 'static,
+{
+    thread::spawn(move || {
+        let mut state: STATE = <CONFIG as Config<STATE>>::initialise(&config);
+        loop {
+            match msg_rx.recv() {
+                Ok((time, msg)) => state.handle_msg(time, msg, &process_tx),
+                Err(_) => break,
+            }
+        }
+    })
+}
+
+fn start_backend<D, T, STATE, CONFIG>(
+    config: CONFIG,
+    msg_rx: mpsc::Receiver<(u64, msg::ToBackend)>,
+    ui_tx: mpsc::Sender<(u64, msg::ToUI<D, T>)>,
+    midi_tx: mpsc::Sender<(u64, Vec<u8>)>,
+) -> thread::JoinHandle<()>
+where
+    D: Dimension + Send + Sync + 'static,
+    T: Dimension + Send + Sync + 'static,
+    STATE: BackendState<D, T>,
+    CONFIG: Config<STATE> + Send + Sync + 'static,
+{
+    thread::spawn(move || {
+        let mut state: STATE = <CONFIG as Config<STATE>>::initialise(&config);
+        loop {
+            match msg_rx.recv() {
+                Ok((time, msg)) => state.handle_msg(time, msg, &ui_tx, &midi_tx),
+                Err(_) => break,
+            }
+        }
+    })
+}
+
+fn select_port<T: MidiIO>(midi_io: &T, descr: &str) -> Result<T::Port, Box<dyn Error>> {
+    println!("Available {} ports:", descr);
+    let midi_ports = midi_io.ports();
+    for (i, p) in midi_ports.iter().enumerate() {
+        println!("{}: {}", i, midi_io.port_name(p)?);
+    }
+    print!("Please select {} port: ", descr);
+    stdout().flush()?;
+    let mut input = String::new();
+    stdin().read_line(&mut input)?;
+    let port = midi_ports
+        .get(input.trim().parse::<usize>()?)
+        .ok_or("Invalid port number")?;
+    Ok(port.clone())
+}
+
+fn run<D, T, P, PCONFIG, B, BCONFIG, U, UCONFIG>(
+    process_config: PCONFIG,
+    backend_config: BCONFIG,
+    ui_config: UCONFIG,
+    _port_config: MidiPortConfig,
+) -> Result<(), Box<dyn Error>>
+where
+    D: Dimension + Send + Sync + 'static,
+    T: Dimension + Send + Sync + 'static,
+    P: ProcessState<D, T>,
+    PCONFIG: Config<P> + Send + Sync + 'static,
+    B: BackendState<D, T>,
+    BCONFIG: Config<B> + Send + Sync + 'static,
+    U: UIState<D, T>,
+    UCONFIG: Config<U> + Send + Sync + 'static,
+{
+    let (to_backend_tx, to_backend_rx) = mpsc::channel();
+    let (to_ui_tx_from_process, to_ui_rx) = mpsc::channel();
+    let to_ui_tx_from_backend = to_ui_tx_from_process.clone();
+    let (to_process_tx, to_process_rx) = mpsc::channel();
+    let to_process_tx_from_ui = to_process_tx.clone();
+    let (midi_out_tx, midi_out_rx) = mpsc::channel();
+
+    let _backend = start_backend(
+        backend_config,
+        to_backend_rx,
+        to_ui_tx_from_backend,
+        midi_out_tx,
+    );
+    let _ui = start_ui(ui_config, to_ui_rx, to_process_tx_from_ui);
+    let _process = start_process(
+        process_config,
+        to_process_rx,
+        to_backend_tx,
+        to_ui_tx_from_process,
+    );
+
+    // initialise MIDI connections
+    let midi_in = MidiInput::new("midir forwarding input")?;
+    let midi_out = MidiOutput::new("midir forwarding output")?;
+
+    // match port_config {
+    //     MidiPortConfig::AskAtStartup => {
+    let midi_in_port = select_port(&midi_in, "input")?;
+    println!();
+    let midi_out_port = select_port(&midi_out, "output")?;
+    //     }
+    // }
+
+    // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
+    let _conn_in = midi_in.connect(
+        &midi_in_port,
+        "midir-forward",
+        move |time, bytes, _| {
+            // send will only fail if the receiver has disconnected. In that case, there's nothing
+            // we can do from inside this thread, so we ignore the error. Likely, this will only
+            // happen close to the termination of a regular run of the program.
+            to_process_tx
+                .send((
+                    time,
+                    msg::ToProcess::IncomingMidi {
+                        bytes: bytes.to_vec(),
+                    },
+                ))
+                .unwrap_or(());
+        },
+        (),
+    )?;
+
+    let mut conn_out = midi_out.connect(&midi_out_port, "midir-forward")?;
+    thread::spawn(move || loop {
+        match midi_out_rx.recv() {
+            Ok((_time, msg)) => {
+                // no error checking here, we assume that the messages are corect.
+                conn_out.send(&msg).unwrap_or(());
+
+                //println!("{time}: {:?}", MidiMsg::from_midi(&msg));
+            }
+            Err(_) => break,
+        }
+    });
+
+    loop {}
+
+    Ok(())
+}
+
+pub fn main() -> Result<(), Box<dyn Error>> {
+    run::<
+        adaptuner::util::dimension::fixed_sizes::Size0,
+        adaptuner::util::dimension::fixed_sizes::Size0,
+        adaptuner::process::onlyforward::OnlyForward,
+        adaptuner::process::onlyforward::OnlyForwardConfig,
+        adaptuner::backend::onlyforward::OnlyForward,
+        adaptuner::backend::onlyforward::OnlyForwardConfig,
+        adaptuner::tui::onlynotify::OnlyNotify,
+        adaptuner::tui::onlynotify::OnlyNotifyConfig,
+    >(
+        TRIVIAL_CONFIG.process_config.clone(),
+        TRIVIAL_CONFIG.backend_config.clone(),
+        TRIVIAL_CONFIG.ui_config.clone(),
+        TRIVIAL_CONFIG.midi_port_config.clone(),
+    )
+}
