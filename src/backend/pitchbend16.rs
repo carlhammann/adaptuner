@@ -383,199 +383,204 @@ impl Config<Pitchbend16> for Pitchbend16Config {
     }
 }
 
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::util::dimension::fixed_sizes::Size2;
 
-//
-// #[cfg(test)]
-// mod test {
-//     use super::*;
-//     use crate::util::dimension::fixed_sizes::Size2;
-//
-//     fn one_case<S>(
-//         state: &mut S,
-//         time: Instant,
-//         msg: msg::ToBackend,
-//         output_to_midi: Vec<(Instant, MidiMsg)>,
-//         output_to_ui: Vec<msg::ToUI<Size2,Size2>>,
-//     ) 
-//         where 
-//             S: BackendState<Size2, Size2>
-//     {
-//         let (to_ui_tx, to_ui_rx) = mpsc::channel();
-//         let (midi_out_tx, midi_out_rx) = mpsc::channel(); //: &mpsc::Sender<(Instant, Vec<u8>)>,
-//
-//         state.handle_msg(time, msg, &to_ui_tx, &midi_out_tx);
-//
-//         assert_eq!(output_to_ui, to_ui_rx.try_iter().collect::<Vec<_>>());
-//         assert_eq!(
-//             output_to_midi,
-//             midi_out_rx
-//                 .try_iter()
-//                 .map(|(t, bytes)| (t, MidiMsg::from_midi(&bytes).unwrap().0))
-//                 .collect::<Vec<_>>()
-//         );
-//     }
-//
-//     #[test]
-//     fn test_sixteen_classes() {
-//         let mut s = Pitchbend16::initialise(&());
-//
-//         one_case(
-//             &mut s,
-//             1234,
-//             msg::ToBackend::TunedNoteOn {
-//                 channel: Channel::Ch1,
-//                 note: 3,
-//                 velocity: 100,
-//                 tuning: 3.2,
-//             },
-//             vec![
-//                 (
-//                     1234,
-//                     MidiMsg::ChannelVoice {
-//                         channel: Channel::Ch1,
-//                         msg: ChannelVoiceMsg::PitchBend {
-//                             bend: bend_from_semitones(2.0, 0.2),
-//                         },
-//                     },
-//                 ),
-//                 (
-//                     1234,
-//                     MidiMsg::ChannelVoice {
-//                         channel: Channel::Ch1,
-//                         msg: ChannelVoiceMsg::NoteOn {
-//                             note: 3,
-//                             velocity: 100,
-//                         },
-//                     },
-//                 ),
-//             ],
-//             vec![],
-//         );
-//
-//         one_case(
-//             &mut s,
-//             2345,
-//             msg::ToBackend::TunedNoteOn {
-//                 channel: Channel::Ch1,
-//                 note: 17,
-//                 velocity: 101,
-//                 tuning: 113.2,
-//             },
-//             vec![(
-//                 2345,
-//                 MidiMsg::ChannelVoice {
-//                     channel: Channel::Ch1,
-//                     msg: ChannelVoiceMsg::NoteOn {
-//                         note: 113,
-//                         velocity: 101,
-//                     },
-//                 },
-//             )],
-//             vec![],
-//         );
-//
-//         one_case(
-//             &mut s,
-//             3456,
-//             msg::ToBackend::TunedNoteOn {
-//                 channel: Channel::Ch1,
-//                 note: 4,
-//                 velocity: 13,
-//                 tuning: 3.7,
-//             },
-//             vec![
-//                 (
-//                     3456,
-//                     MidiMsg::ChannelVoice {
-//                         channel: Channel::Ch2,
-//                         msg: ChannelVoiceMsg::PitchBend {
-//                             bend: bend_from_semitones(2.0, -0.3),
-//                         },
-//                     },
-//                 ),
-//                 (
-//                     3456,
-//                     MidiMsg::ChannelVoice {
-//                         channel: Channel::Ch2,
-//                         msg: ChannelVoiceMsg::NoteOn {
-//                             note: 4,
-//                             velocity: 13,
-//                         },
-//                     },
-//                 ),
-//             ],
-//             vec![],
-//         );
-//
-//         one_case(
-//             &mut s,
-//             4567,
-//             msg::ToBackend::Sustain {
-//                 channel: Channel::Ch1,
-//                 value: 123,
-//             },
-//             {
-//                 let mut many_sustains = Vec::new();
-//                 for i in 0..16 {
-//                     many_sustains.push((
-//                         4567,
-//                         MidiMsg::ChannelVoice {
-//                             channel: Channel::from_u8(i),
-//                             msg: ChannelVoiceMsg::ControlChange {
-//                                 control: ControlChange::Hold(123),
-//                             },
-//                         },
-//                     ));
-//                 }
-//                 many_sustains
-//             },
-//             vec![],
-//         );
-//
-//         one_case(
-//             &mut s,
-//             5678,
-//             msg::ToBackend::Retune {
-//                 note: 3,
-//                 tuning: 3.1,
-//             },
-//             vec![(
-//                 5678,
-//                 MidiMsg::ChannelVoice {
-//                     channel: Channel::Ch1,
-//                     msg: ChannelVoiceMsg::PitchBend {
-//                         bend: bend_from_semitones(2.0, 0.1),
-//                     },
-//                 },
-//             )],
-//             vec![msg::ToUI::DetunedNote {
-//                 note: 17,
-//                 should_be: 113.2,
-//                 actual: 113.0 + semitones_from_bend(2.0, bend_from_semitones(2.0, 0.1)),
-//                 explanation: "Detuned because another note on the same channel was re-tuned",
-//             }],
-//         );
-//
-//         one_case(
-//             &mut s,
-//             6789,
-//             msg::ToBackend::Retune {
-//                 note: 4,
-//                 tuning: 6.1,
-//             },
-//             vec![(
-//                 6789,
-//                 MidiMsg::ChannelVoice {
-//                     channel: Channel::Ch2,
-//                     msg: ChannelVoiceMsg::PitchBend { bend: 16383 },
-//                 },
-//             )],
-//             vec![msg::ToUI::DetunedNote {
-//                 note: 4,
-//                 should_be: 6.1,
-//                 actual: 6.0,
-//                 explanation: "Could not re-tune farther than the pitchbend range",
-//             }],
-//         );
-//     }
-// }
+    fn one_case<S>(
+        state: &mut S,
+        time: Instant,
+        msg: msg::ToBackend,
+        output_to_midi: Vec<(Instant, MidiMsg)>,
+        output_to_ui: Vec<(Instant, msg::ToUI<Size2,Size2>)>,
+    ) 
+        where 
+            S: BackendState<Size2, Size2>
+    {
+        let (to_ui_tx, to_ui_rx) = mpsc::channel();
+        let (midi_out_tx, midi_out_rx) = mpsc::channel();
+
+        state.handle_msg(time, msg, &to_ui_tx, &midi_out_tx);
+
+        assert_eq!(output_to_ui, to_ui_rx.try_iter().collect::<Vec<_>>());
+        assert_eq!(
+            output_to_midi,
+            midi_out_rx
+                .try_iter()
+                .map(|(t, bytes)| (t, MidiMsg::from_midi(&bytes).unwrap().0))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_sixteen_classes() {
+        let mut s = Pitchbend16Config::initialise(&(Pitchbend16Config{ bend_range:2.0}));
+
+        let mut now = Instant::now();
+        one_case(
+            &mut s,
+            now,
+            msg::ToBackend::TunedNoteOn {
+                channel: Channel::Ch1,
+                note: 3,
+                velocity: 100,
+                tuning: 3.2,
+            },
+            vec![
+                (
+                    now,
+                    MidiMsg::ChannelVoice {
+                        channel: Channel::Ch1,
+                        msg: ChannelVoiceMsg::PitchBend {
+                            bend: bend_from_semitones(2.0, 0.2),
+                        },
+                    },
+                ),
+                (
+                    now,
+                    MidiMsg::ChannelVoice {
+                        channel: Channel::Ch1,
+                        msg: ChannelVoiceMsg::NoteOn {
+                            note: 3,
+                            velocity: 100,
+                        },
+                    },
+                ),
+            ],
+            vec![],
+        );
+
+        now = Instant::now();
+        one_case(
+            &mut s,
+            now,
+            msg::ToBackend::TunedNoteOn {
+                channel: Channel::Ch1,
+                note: 17,
+                velocity: 101,
+                tuning: 113.2,
+            },
+            vec![(
+                now,
+                MidiMsg::ChannelVoice {
+                    channel: Channel::Ch1,
+                    msg: ChannelVoiceMsg::NoteOn {
+                        note: 113,
+                        velocity: 101,
+                    },
+                },
+            )],
+            vec![],
+        );
+
+        now = Instant::now();
+        one_case(
+            &mut s,
+            now,
+            msg::ToBackend::TunedNoteOn {
+                channel: Channel::Ch1,
+                note: 4,
+                velocity: 13,
+                tuning: 3.7,
+            },
+            vec![
+                (
+                    now,
+                    MidiMsg::ChannelVoice {
+                        channel: Channel::Ch2,
+                        msg: ChannelVoiceMsg::PitchBend {
+                            bend: bend_from_semitones(2.0, -0.3),
+                        },
+                    },
+                ),
+                (
+                    now,
+                    MidiMsg::ChannelVoice {
+                        channel: Channel::Ch2,
+                        msg: ChannelVoiceMsg::NoteOn {
+                            note: 4,
+                            velocity: 13,
+                        },
+                    },
+                ),
+            ],
+            vec![],
+        );
+
+        now = Instant::now();
+        one_case(
+            &mut s,
+            now,
+            msg::ToBackend::Sustain {
+                channel: Channel::Ch1,
+                value: 123,
+            },
+            {
+                let mut many_sustains = Vec::new();
+                for i in 0..16 {
+                    many_sustains.push((
+                        now,
+                        MidiMsg::ChannelVoice {
+                            channel: Channel::from_u8(i),
+                            msg: ChannelVoiceMsg::ControlChange {
+                                control: ControlChange::Hold(123),
+                            },
+                        },
+                    ));
+                }
+                many_sustains
+            },
+            vec![],
+        );
+
+
+        now = Instant::now();
+        one_case(
+            &mut s,
+            now,
+            msg::ToBackend::Retune {
+                note: 3,
+                tuning: 3.1,
+            },
+            vec![(
+                now,
+                MidiMsg::ChannelVoice {
+                    channel: Channel::Ch1,
+                    msg: ChannelVoiceMsg::PitchBend {
+                        bend: bend_from_semitones(2.0, 0.1),
+                    },
+                },
+            )],
+            vec![(now,msg::ToUI::DetunedNote {
+                note: 17,
+                should_be: 113.2,
+                actual: 113.0 + semitones_from_bend(2.0, bend_from_semitones(2.0, 0.1)),
+                explanation: "Detuned because another note on the same channel was re-tuned",
+            })],
+        );
+
+        now = Instant::now();
+        one_case(
+            &mut s,
+            now,
+            msg::ToBackend::Retune {
+                note: 4,
+                tuning: 6.1,
+            },
+            vec![(
+                now,
+                MidiMsg::ChannelVoice {
+                    channel: Channel::Ch2,
+                    msg: ChannelVoiceMsg::PitchBend { bend: 16383 },
+                },
+            )],
+            vec![(now, msg::ToUI::DetunedNote {
+                note: 4,
+                should_be: 6.1,
+                actual: 6.0,
+                explanation: "Could not re-tune farther than the pitchbend range",
+            })],
+        );
+    }
+}
