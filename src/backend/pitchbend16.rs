@@ -1,4 +1,4 @@
-use std::{fmt,sync::mpsc};
+use std::{time::Instant, fmt,sync::mpsc};
 
 use midi_msg::{ControlChange, ChannelVoiceMsg, MidiMsg, Channel};
 
@@ -53,17 +53,17 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for P
 
     fn handle_msg(
         &mut self,
-        time: u64,
+        time: Instant,
         msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<(u64, msg::ToUI<D,T>)>,
-        midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<D,T>)>,
+        midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
     ) {
 
-        let send = |msg: MidiMsg, time: u64| {
+        let send = |msg: MidiMsg, time: Instant| {
             midi_out.send((time, msg.to_midi())).unwrap_or(());
         };
 
-        let send_to_ui = |msg: msg::ToUI<D,T>, time: u64| to_ui.send((time, msg));
+        let send_to_ui = |msg: msg::ToUI<D,T>, time: Instant| to_ui.send((time, msg));
 
         let mapped_to_and_bend = |tuning: Semitones| {
             let mapped_to = tuning.round() as u8;
@@ -392,16 +392,16 @@ impl Config<Pitchbend16> for Pitchbend16Config {
 //
 //     fn one_case<S>(
 //         state: &mut S,
-//         time: u64,
+//         time: Instant,
 //         msg: msg::ToBackend,
-//         output_to_midi: Vec<(u64, MidiMsg)>,
+//         output_to_midi: Vec<(Instant, MidiMsg)>,
 //         output_to_ui: Vec<msg::ToUI<Size2,Size2>>,
 //     ) 
 //         where 
 //             S: BackendState<Size2, Size2>
 //     {
 //         let (to_ui_tx, to_ui_rx) = mpsc::channel();
-//         let (midi_out_tx, midi_out_rx) = mpsc::channel(); //: &mpsc::Sender<(u64, Vec<u8>)>,
+//         let (midi_out_tx, midi_out_rx) = mpsc::channel(); //: &mpsc::Sender<(Instant, Vec<u8>)>,
 //
 //         state.handle_msg(time, msg, &to_ui_tx, &midi_out_tx);
 //

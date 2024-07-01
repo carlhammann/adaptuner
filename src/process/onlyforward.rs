@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::{time::Instant, sync::mpsc};
 
 use midi_msg::MidiMsg;
 
@@ -11,15 +11,15 @@ pub struct OnlyForward {}
 impl<D: Dimension, T: Dimension> ProcessState<D, T> for OnlyForward {
     fn handle_msg(
         &mut self,
-        time: u64,
+        time: Instant,
         msg: crate::msg::ToProcess<D, T>,
-        to_backend: &mpsc::Sender<(u64, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(u64, msg::ToUI<D, T>)>,
+        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
     ) {
         let send_to_backend =
-            |msg: msg::ToBackend, time: u64| to_backend.send((time, msg)).unwrap_or(());
+            |msg: msg::ToBackend, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
-        let send_to_ui = |msg: msg::ToUI<D, T>, time: u64| to_ui.send((time, msg)).unwrap_or(());
+        let send_to_ui = |msg: msg::ToUI<D, T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
 
         match msg {
             msg::ToProcess::IncomingMidi { bytes } => {

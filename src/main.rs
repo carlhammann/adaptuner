@@ -6,6 +6,7 @@ use std::{
         mpsc, Arc,
     },
     thread,
+    time::Instant,
 };
 
 use midir::{MidiIO, MidiInput, MidiOutput};
@@ -21,9 +22,9 @@ use adaptuner::{
 
 fn start_process<D, T, STATE, CONFIG>(
     config: CONFIG,
-    msg_rx: mpsc::Receiver<(u64, msg::ToProcess<D, T>)>,
-    backend_tx: mpsc::Sender<(u64, msg::ToBackend)>,
-    ui_tx: mpsc::Sender<(u64, msg::ToUI<D, T>)>,
+    msg_rx: mpsc::Receiver<(Instant, msg::ToProcess<D, T>)>,
+    backend_tx: mpsc::Sender<(Instant, msg::ToBackend)>,
+    ui_tx: mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
 ) -> thread::JoinHandle<()>
 where
     D: Dimension + Send + Sync + 'static,
@@ -48,8 +49,8 @@ where
 
 fn start_ui<D, T, STATE, CONFIG>(
     config: CONFIG,
-    msg_rx: mpsc::Receiver<(u64, msg::ToUI<D, T>)>,
-    process_tx: mpsc::Sender<(u64, msg::ToProcess<D, T>)>,
+    msg_rx: mpsc::Receiver<(Instant, msg::ToUI<D, T>)>,
+    process_tx: mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
 ) -> thread::JoinHandle<()>
 where
     D: Dimension + Send + Sync + 'static,
@@ -74,9 +75,9 @@ where
 
 fn start_backend<D, T, STATE, CONFIG>(
     config: CONFIG,
-    msg_rx: mpsc::Receiver<(u64, msg::ToBackend)>,
-    ui_tx: mpsc::Sender<(u64, msg::ToUI<D, T>)>,
-    midi_tx: mpsc::Sender<(u64, Vec<u8>)>,
+    msg_rx: mpsc::Receiver<(Instant, msg::ToBackend)>,
+    ui_tx: mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
+    midi_tx: mpsc::Sender<(Instant, Vec<u8>)>,
 ) -> thread::JoinHandle<()>
 where
     D: Dimension + Send + Sync + 'static,
@@ -136,7 +137,7 @@ where
     let to_ui_tx_from_backend = to_ui_tx_from_process.clone();
     let (to_process_tx, to_process_rx) = mpsc::channel();
     let to_process_tx_from_ui = to_process_tx.clone();
-    let (midi_out_tx, midi_out_rx) = mpsc::channel::<(u64, Vec<u8>)>();
+    let (midi_out_tx, midi_out_rx) = mpsc::channel::<(Instant, Vec<u8>)>();
 
     // these three are for the initial "Start" messages and the "Stop" messages from the Ctrl-C
     // handler:
@@ -158,7 +159,8 @@ where
     let _conn_in = midi_in.connect(
         &midi_in_port,
         "midir-forward",
-        move |time, bytes, _| {
+        move |_time, bytes, _| {
+            let time = Instant::now();
             to_process_tx
                 .send((
                     time,
@@ -195,29 +197,32 @@ where
         to_ui_tx_from_process,
     );
 
+    let now = Instant::now();
+
     to_backend_tx_start_and_stop
-        .send((0, msg::ToBackend::Start))
+        .send((now, msg::ToBackend::Start))
         .unwrap_or(());
     to_ui_tx_start_and_stop
-        .send((0, msg::ToUI::Start))
+        .send((now, msg::ToUI::Start))
         .unwrap_or(());
     to_process_tx_start_and_stop
-        .send((0, msg::ToProcess::Start))
+        .send((now, msg::ToProcess::Start))
         .unwrap_or(());
 
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
     ctrlc::set_handler(move || {
+        let now = Instant::now();
         r.store(false, Ordering::SeqCst);
         to_backend_tx_start_and_stop
-            .send((0, msg::ToBackend::Stop))
+            .send((now, msg::ToBackend::Stop))
             .unwrap_or(());
         to_ui_tx_start_and_stop
-            .send((0, msg::ToUI::Stop))
+            .send((now, msg::ToUI::Stop))
             .unwrap_or(());
         to_process_tx_start_and_stop
-            .send((0, msg::ToProcess::Stop))
+            .send((now, msg::ToProcess::Stop))
             .unwrap_or(());
     })
     .expect("Error setting Ctrl-C handler");

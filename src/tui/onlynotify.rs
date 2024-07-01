@@ -1,4 +1,4 @@
-use std::{fmt, sync::mpsc};
+use std::{fmt, sync::mpsc, time::Instant};
 
 use crate::{config::r#trait::Config, msg, tui::r#trait::UIState, util::dimension::Dimension};
 
@@ -11,9 +11,9 @@ where
 {
     fn handle_msg(
         &mut self,
-        _time: u64,
+        _time: Instant,
         msg: msg::ToUI<D, T>,
-        _to_process: &mpsc::Sender<(u64, msg::ToProcess<D, T>)>,
+        _to_process: &mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
     ) {
         match msg {
             crate::msg::ToUI::Notify { line } => println!("{}", line),

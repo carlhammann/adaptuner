@@ -1,4 +1,4 @@
-use std::{sync::mpsc, io::Stdout};
+use std::{io::Stdout, sync::mpsc, time::Instant};
 
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
@@ -8,5 +8,10 @@ use crate::{msg, util::dimension::Dimension};
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
 pub trait UIState<D: Dimension, T: Dimension> {
-    fn handle_msg(&mut self, time: u64, msg: msg::ToUI<D, T>, to_process: &mpsc::Sender<(u64, msg::ToProcess<D,T>)>);
+    fn handle_msg(
+        &mut self,
+        time: Instant,
+        msg: msg::ToUI<D, T>,
+        to_process: &mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+    );
 }

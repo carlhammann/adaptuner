@@ -1,4 +1,4 @@
-use std::{sync::mpsc, fmt};
+use std::{fmt, sync::mpsc, time::Instant};
 
 use colorous;
 use ratatui::{
@@ -175,7 +175,12 @@ fn render_stack<D, T>(
 impl<'a, D: Dimension + AtLeast<3> + PartialEq, T: Dimension + PartialEq + Copy> UIState<D, T>
     for Grid<D, T>
 {
-    fn handle_msg(&mut self, time: u64, msg: msg::ToUI<D, T>, _: &mpsc::Sender<(u64, msg::ToProcess<D, T>)>) {
+    fn handle_msg(
+        &mut self,
+        time: Instant,
+        msg: msg::ToUI<D, T>,
+        _: &mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+    ) {
         match msg {
             msg::ToUI::Start => {}
             msg::ToUI::Stop => {}

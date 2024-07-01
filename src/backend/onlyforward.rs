@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::{sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -11,12 +11,12 @@ pub struct OnlyForward {}
 impl<D: Dimension, T: Dimension> BackendState<D, T> for OnlyForward {
     fn handle_msg(
         &mut self,
-        time: u64,
+        time: Instant,
         msg: msg::ToBackend,
-        _to_ui: &mpsc::Sender<(u64, msg::ToUI<D, T>)>,
-        midi_out: &mpsc::Sender<(u64, Vec<u8>)>,
+        _to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
+        midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
     ) {
-        let send = |msg: MidiMsg, time: u64| midi_out.send((time, msg.to_midi())).unwrap_or(());
+        let send = |msg: MidiMsg, time: Instant| midi_out.send((time, msg.to_midi())).unwrap_or(());
 
         match msg {
             msg::ToBackend::Start => {}
