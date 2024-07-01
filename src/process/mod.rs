@@ -79,6 +79,8 @@ where
         to_ui: &mpsc::Sender<(u64, msg::ToUI<D, T>)>,
     ) {
         match msg {
+            msg::ToProcess::Start => {}
+            msg::ToProcess::Stop => {}
             msg::ToProcess::SetNeighboughood { neighbourhood: n } => {
                 self.current.neighbourhood = n;
                 self.send_retunes(&to_backend, time);

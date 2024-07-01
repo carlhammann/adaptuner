@@ -72,6 +72,8 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for P
         };
 
         match msg {
+            msg::ToBackend::Start => {}
+            msg::ToBackend::Stop => {}
             msg::ToBackend::TunedNoteOn {
                 channel: _,
                 note,

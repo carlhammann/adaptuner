@@ -177,6 +177,8 @@ impl<'a, D: Dimension + AtLeast<3> + PartialEq, T: Dimension + PartialEq + Copy>
 {
     fn handle_msg(&mut self, time: u64, msg: msg::ToUI<D, T>, _: &mpsc::Sender<(u64, msg::ToProcess<D, T>)>) {
         match msg {
+            msg::ToUI::Start => {}
+            msg::ToUI::Stop => {}
             msg::ToUI::Notify { .. } => {}
             msg::ToUI::MidiParseErr(_) => {}
             msg::ToUI::DetunedNote {

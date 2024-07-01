@@ -8,6 +8,9 @@ use crate::{
 
 #[derive(Debug, PartialEq)]
 pub enum ToUI<D: Dimension, T: Dimension> {
+    Start,
+    Stop,
+
     Notify {
         line: String,
     },
@@ -42,6 +45,9 @@ pub enum ToUI<D: Dimension, T: Dimension> {
 
 #[derive(Debug)]
 pub enum ToBackend {
+    Start,
+    Stop,
+
     TunedNoteOn {
         channel: Channel,
         note: u8,
@@ -74,6 +80,8 @@ pub enum ToBackend {
 }
 
 pub enum ToProcess<D: Dimension, T: Dimension> {
+    Start,
+    Stop,
     SetNeighboughood { neighbourhood: Neighbourhood<D> },
     ToggleTemperament { index: Bounded<T> },
     IncomingMidi { bytes: Vec<u8> },

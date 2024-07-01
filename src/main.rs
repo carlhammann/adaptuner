@@ -1,8 +1,14 @@
-use std::error::Error;
-use std::io::{stdin, stdout, Write};
-use std::{sync::mpsc, thread};
+use std::{
+    error::Error,
+    io::{stdin, stdout, Write},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc,
+    },
+    thread,
+};
 
-use midir::{MidiIO, MidiInput, MidiInputPort, MidiOutput, MidiOutputPort};
+use midir::{MidiIO, MidiInput, MidiOutput};
 
 use adaptuner::{
     backend::r#trait::BackendState,
@@ -29,6 +35,10 @@ where
         let mut state: STATE = <CONFIG as Config<STATE>>::initialise(&config);
         loop {
             match msg_rx.recv() {
+                Ok((time, msg::ToProcess::Stop)) => {
+                    state.handle_msg(time, msg::ToProcess::Stop, &backend_tx, &ui_tx);
+                    break;
+                }
                 Ok((time, msg)) => state.handle_msg(time, msg, &backend_tx, &ui_tx),
                 Err(_) => break,
             }
@@ -51,6 +61,10 @@ where
         let mut state: STATE = <CONFIG as Config<STATE>>::initialise(&config);
         loop {
             match msg_rx.recv() {
+                Ok((time, msg::ToUI::Stop)) => {
+                    state.handle_msg(time, msg::ToUI::Stop, &process_tx);
+                    break;
+                }
                 Ok((time, msg)) => state.handle_msg(time, msg, &process_tx),
                 Err(_) => break,
             }
@@ -74,6 +88,10 @@ where
         let mut state: STATE = <CONFIG as Config<STATE>>::initialise(&config);
         loop {
             match msg_rx.recv() {
+                Ok((time, msg::ToBackend::Stop)) => {
+                    state.handle_msg(time, msg::ToBackend::Stop, &ui_tx, &midi_tx);
+                    break;
+                }
                 Ok((time, msg)) => state.handle_msg(time, msg, &ui_tx, &midi_tx),
                 Err(_) => break,
             }
@@ -118,23 +136,14 @@ where
     let to_ui_tx_from_backend = to_ui_tx_from_process.clone();
     let (to_process_tx, to_process_rx) = mpsc::channel();
     let to_process_tx_from_ui = to_process_tx.clone();
-    let (midi_out_tx, midi_out_rx) = mpsc::channel();
+    let (midi_out_tx, midi_out_rx) = mpsc::channel::<(u64, Vec<u8>)>();
 
-    let _backend = start_backend(
-        backend_config,
-        to_backend_rx,
-        to_ui_tx_from_backend,
-        midi_out_tx,
-    );
-    let _ui = start_ui(ui_config, to_ui_rx, to_process_tx_from_ui);
-    let _process = start_process(
-        process_config,
-        to_process_rx,
-        to_backend_tx,
-        to_ui_tx_from_process,
-    );
+    // these three are for the initial "Start" messages and the "Stop" messages from the Ctrl-C
+    // handler:
+    let to_process_tx_start_and_stop = to_process_tx.clone();
+    let to_ui_tx_start_and_stop = to_ui_tx_from_backend.clone();
+    let to_backend_tx_start_and_stop = to_backend_tx.clone();
 
-    // initialise MIDI connections
     let midi_in = MidiInput::new("midir forwarding input")?;
     let midi_out = MidiOutput::new("midir forwarding output")?;
 
@@ -146,14 +155,10 @@ where
     //     }
     // }
 
-    // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
     let _conn_in = midi_in.connect(
         &midi_in_port,
         "midir-forward",
         move |time, bytes, _| {
-            // send will only fail if the receiver has disconnected. In that case, there's nothing
-            // we can do from inside this thread, so we ignore the error. Likely, this will only
-            // happen close to the termination of a regular run of the program.
             to_process_tx
                 .send((
                     time,
@@ -170,16 +175,54 @@ where
     thread::spawn(move || loop {
         match midi_out_rx.recv() {
             Ok((_time, msg)) => {
-                // no error checking here, we assume that the messages are corect.
                 conn_out.send(&msg).unwrap_or(());
-
-                //println!("{time}: {:?}", MidiMsg::from_midi(&msg));
             }
             Err(_) => break,
         }
     });
 
-    loop {}
+    let _backend = start_backend(
+        backend_config,
+        to_backend_rx,
+        to_ui_tx_from_backend,
+        midi_out_tx,
+    );
+    let _ui = start_ui(ui_config, to_ui_rx, to_process_tx_from_ui);
+    let _process = start_process(
+        process_config,
+        to_process_rx,
+        to_backend_tx,
+        to_ui_tx_from_process,
+    );
+
+    to_backend_tx_start_and_stop
+        .send((0, msg::ToBackend::Start))
+        .unwrap_or(());
+    to_ui_tx_start_and_stop
+        .send((0, msg::ToUI::Start))
+        .unwrap_or(());
+    to_process_tx_start_and_stop
+        .send((0, msg::ToProcess::Start))
+        .unwrap_or(());
+
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+        to_backend_tx_start_and_stop
+            .send((0, msg::ToBackend::Stop))
+            .unwrap_or(());
+        to_ui_tx_start_and_stop
+            .send((0, msg::ToUI::Stop))
+            .unwrap_or(());
+        to_process_tx_start_and_stop
+            .send((0, msg::ToProcess::Stop))
+            .unwrap_or(());
+    })
+    .expect("Error setting Ctrl-C handler");
+
+    while running.load(Ordering::SeqCst) {}
 
     Ok(())
 }

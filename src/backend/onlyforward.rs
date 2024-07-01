@@ -19,6 +19,8 @@ impl<D: Dimension, T: Dimension> BackendState<D, T> for OnlyForward {
         let send = |msg: MidiMsg, time: u64| midi_out.send((time, msg.to_midi())).unwrap_or(());
 
         match msg {
+            msg::ToBackend::Start => {}
+            msg::ToBackend::Stop => {}
             msg::ToBackend::TunedNoteOn {
                 channel,
                 note,
