@@ -3,7 +3,6 @@ use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 use std::{fmt, sync::mpsc};
 
 pub mod onlyforward;
-pub mod rhai;
 pub mod r#trait;
 
 use crate::{
