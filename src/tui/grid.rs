@@ -1,20 +1,20 @@
 use std::{fmt, sync::mpsc, time::Instant};
 
 use colorous;
-use ratatui::{
-    prelude::{Buffer, Color, Rect, Style, Widget},
-    widgets::WidgetRef,
-};
+use crossterm::event::{KeyCode, KeyEventKind};
+use ratatui::{prelude::*, widgets::WidgetRef};
 
 use crate::{
+    config::r#trait::Config,
     interval::{Semitones, Stack, StackCoeff},
     msg,
     neighbourhood::Neighbourhood,
     notename::NoteNameStyle,
-    tui::r#trait::UIState,
-    util::dimension::{AtLeast, Bounded, Dimension, Vector},
+    tui::r#trait::{Tui, UIState},
+    util::dimension::{vector_from_elem, AtLeast, Bounded, Dimension, Vector},
 };
 
+#[derive(Clone)]
 pub struct DisplayConfig {
     pub notenamestyle: NoteNameStyle,
     pub color_range: Semitones,
@@ -172,34 +172,106 @@ fn render_stack<D, T>(
     buf.set_style(area, style);
 }
 
-impl<'a, D: Dimension + AtLeast<3> + PartialEq, T: Dimension + PartialEq + Copy> UIState<D, T>
-    for Grid<D, T>
+impl<D, T> UIState<D, T> for Grid<D, T>
+where
+    D: Dimension + AtLeast<3> + PartialEq + fmt::Debug + Copy,
+    T: Dimension + PartialEq + Copy,
 {
     fn handle_msg(
         &mut self,
         time: Instant,
         msg: msg::ToUI<D, T>,
-        _: &mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+        to_process: &mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+        tui: &mut Tui,
     ) {
+        let draw_frame = |t: &mut Tui, g: &Self| {
+            t.draw(|frame| frame.render_widget(g, frame.size()))
+                .expect("");
+            0
+        };
+
+        let send_to_process =
+            |msg: msg::ToProcess<D, T>, time: Instant| to_process.send((time, msg)).unwrap_or(());
+
+        // let send_to_ui =
+        //     |msg: msg::ToUI<D, T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
         match msg {
-            msg::ToUI::Start => {}
-            msg::ToUI::Stop => {}
+            msg::ToUI::Start => {
+                draw_frame(tui, self);
+            }
+            msg::ToUI::Stop => {
+                send_to_process(msg::ToProcess::Stop, time);
+            }
             msg::ToUI::Notify { .. } => {}
             msg::ToUI::MidiParseErr(_) => {}
-            msg::ToUI::DetunedNote {
-                note,
-                should_be,
-                actual,
-                explanation,
+            msg::ToUI::DetunedNote { ..
+                // note,
+                // should_be,
+                // actual,
+                // explanation,
             } => {}
-            msg::ToUI::CrosstermEvent(_) => {}
-            msg::ToUI::SetNeighboughood { neighbourhood } => self.neighbourhood = neighbourhood,
-            msg::ToUI::ToggleTemperament { index } => {
-                self.active_temperaments[index] = !self.active_temperaments[index]
+            msg::ToUI::CrosstermEvent(e) => {
+                match e {
+                    crossterm::event::Event::Key(k) => if k.kind == KeyEventKind::Press {
+                        match k.code {
+                            KeyCode::Char('q') => send_to_process(msg::ToProcess::Stop, time),
+                            _ => {}
+                        }
+}
+                    _ =>{},
+                }
             }
-            msg::ToUI::SetReference { key: _, stack } => self.reference = stack,
-            msg::ToUI::NoteOn { note } => self.active_classes[(note % 12) as usize] = true,
-            msg::ToUI::NoteOff { note } => self.active_classes[(note % 12) as usize] = false,
+            msg::ToUI::SetNeighboughood { neighbourhood } => {
+                self.neighbourhood = neighbourhood;
+                draw_frame(tui, self);
+            }
+            msg::ToUI::ToggleTemperament { index } => {
+                self.active_temperaments[index] = !self.active_temperaments[index];
+                draw_frame(tui, self);
+            }
+            msg::ToUI::SetReference { key: _, stack } => {
+                self.reference = stack;
+                draw_frame(tui, self);
+            }
+            msg::ToUI::NoteOn { note } => {
+                self.active_classes[(note % 12) as usize] = true;
+                draw_frame(tui, self);
+            }
+            msg::ToUI::NoteOff { note } => {
+                self.active_classes[(note % 12) as usize] = false;
+                draw_frame(tui, self);
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct GridConfig<D: Dimension + AtLeast<3>, T: Dimension> {
+    pub display_config: DisplayConfig,
+    pub min_fifth: StackCoeff,
+    pub min_third: StackCoeff,
+    pub max_fifth: StackCoeff,
+    pub max_third: StackCoeff,
+    pub reference: Stack<D, T>,
+    pub neighbourhood: Neighbourhood<D>,
+}
+
+impl<D, T> Config<Grid<D, T>> for GridConfig<D, T>
+where
+    D: Dimension + AtLeast<3> + Copy,
+    T: Dimension + Copy,
+{
+    fn initialise(config: &Self) -> Grid<D, T> {
+        Grid {
+            min_fifth: config.min_fifth,
+            min_third: config.min_third,
+            max_fifth: config.max_fifth,
+            max_third: config.max_third,
+            reference: config.reference.clone(),
+            active_temperaments: vector_from_elem(false),
+            neighbourhood: config.neighbourhood.clone(),
+            active_classes: [false; 12],
+            config: config.display_config.clone(),
         }
     }
 }

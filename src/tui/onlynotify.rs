@@ -1,6 +1,13 @@
-use std::{fmt, sync::mpsc, time::Instant};
+use std::{fmt, io::stdout, sync::mpsc, time::Instant};
 
-use crate::{config::r#trait::Config, msg, tui::r#trait::UIState, util::dimension::Dimension};
+use crossterm::{execute, terminal::*};
+
+use crate::{
+    config::r#trait::Config,
+    msg,
+    tui::r#trait::{Tui, UIState},
+    util::dimension::Dimension,
+};
 
 pub struct OnlyNotify {}
 
@@ -14,9 +21,14 @@ where
         _time: Instant,
         msg: msg::ToUI<D, T>,
         _to_process: &mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+        _tui: &mut Tui,
     ) {
         match msg {
-            crate::msg::ToUI::Notify { line } => println!("{}", line),
+            msg::ToUI::Start => {
+                execute!(stdout(), LeaveAlternateScreen).expect("Could not leave alternate screen");
+                disable_raw_mode().expect("Could not disable raw mode");
+            }
+            msg::ToUI::Notify { line } => println!("{}", line),
             _ => println!("raw message received by UI: {:?}", msg),
         }
     }

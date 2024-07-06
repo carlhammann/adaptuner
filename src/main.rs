@@ -1,23 +1,36 @@
 use std::{
     error::Error,
     io::{stdin, stdout, Write},
+    marker::PhantomData,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc,
     },
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
+use crossterm::{
+    event, execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use midir::{MidiIO, MidiInput, MidiOutput};
+use ratatui::{prelude::CrosstermBackend, Terminal};
 
 use adaptuner::{
+    backend,
     backend::r#trait::BackendState,
-    config::{r#trait::Config, MidiPortConfig, TRIVIAL_CONFIG},
-    msg,
+    config::{r#trait::Config, CompleteConfig, MidiPortConfig, TRIVIAL_CONFIG},
+    interval,
+    interval::Semitones,
+    msg, neighbourhood, notename, process,
     process::r#trait::ProcessState,
-    tui::UIState,
-    util::dimension::Dimension,
+    tui,
+    tui::{Tui, UIState},
+    util::dimension::{
+        fixed_sizes::{Size0, Size3},
+        vector, vector_from_elem, Dimension,
+    },
 };
 
 fn start_process<D, T, STATE, CONFIG>(
@@ -51,6 +64,7 @@ fn start_ui<D, T, STATE, CONFIG>(
     config: CONFIG,
     msg_rx: mpsc::Receiver<(Instant, msg::ToUI<D, T>)>,
     process_tx: mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+    mut tui: Tui,
 ) -> thread::JoinHandle<()>
 where
     D: Dimension + Send + Sync + 'static,
@@ -63,10 +77,10 @@ where
         loop {
             match msg_rx.recv() {
                 Ok((time, msg::ToUI::Stop)) => {
-                    state.handle_msg(time, msg::ToUI::Stop, &process_tx);
+                    state.handle_msg(time, msg::ToUI::Stop, &process_tx, &mut tui);
                     break;
                 }
-                Ok((time, msg)) => state.handle_msg(time, msg, &process_tx),
+                Ok((time, msg)) => state.handle_msg(time, msg, &process_tx, &mut tui),
                 Err(_) => break,
             }
         }
@@ -135,6 +149,7 @@ where
     let (to_backend_tx, to_backend_rx) = mpsc::channel();
     let (to_ui_tx_from_process, to_ui_rx) = mpsc::channel();
     let to_ui_tx_from_backend = to_ui_tx_from_process.clone();
+    let to_ui_tx = to_ui_tx_from_backend.clone();
     let (to_process_tx, to_process_rx) = mpsc::channel();
     let to_process_tx_from_ui = to_process_tx.clone();
     let (midi_out_tx, midi_out_rx) = mpsc::channel::<(Instant, Vec<u8>)>();
@@ -183,14 +198,31 @@ where
         }
     });
 
-    let _backend = start_backend(
+    execute!(stdout(), EnterAlternateScreen).expect("Could not enter alternate screen");
+    enable_raw_mode().expect("Could not enable raw mode");
+    let tui = Terminal::new(CrosstermBackend::new(stdout()))
+        .expect("Could not start a new Terminal with the crossterm backend");
+
+    thread::spawn(move || loop {
+        match event::read() {
+            Err(_) => {}
+            Ok(e) => {
+                let time = Instant::now();
+                to_ui_tx
+                    .send((time, msg::ToUI::CrosstermEvent(e)))
+                    .unwrap_or(());
+            }
+        }
+    });
+
+    let backend = start_backend(
         backend_config,
         to_backend_rx,
         to_ui_tx_from_backend,
         midi_out_tx,
     );
-    let _ui = start_ui(ui_config, to_ui_rx, to_process_tx_from_ui);
-    let _process = start_process(
+    let ui = start_ui(ui_config, to_ui_rx, to_process_tx_from_ui, tui);
+    let process = start_process(
         process_config,
         to_process_rx,
         to_backend_tx,
@@ -224,28 +256,107 @@ where
         to_process_tx_start_and_stop
             .send((now, msg::ToProcess::Stop))
             .unwrap_or(());
+        execute!(stdout(), LeaveAlternateScreen).expect("Could not leave alternate screen");
+        disable_raw_mode().expect("Could not disable raw mode");
     })
     .expect("Error setting Ctrl-C handler");
 
-    while running.load(Ordering::SeqCst) {}
+    while running.load(Ordering::SeqCst) & !backend.is_finished() & !process.is_finished() & !ui.is_finished() {
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    execute!(stdout(), LeaveAlternateScreen).expect("Could not leave alternate screen");
+    disable_raw_mode().expect("Could not disable raw mode");
 
     Ok(())
 }
 
 pub fn main() -> Result<(), Box<dyn Error>> {
-    run::<
-        adaptuner::util::dimension::fixed_sizes::Size0,
-        adaptuner::util::dimension::fixed_sizes::Size0,
-        adaptuner::process::onlyforward::OnlyForward,
-        adaptuner::process::onlyforward::OnlyForwardConfig,
-        adaptuner::backend::onlyforward::OnlyForward,
-        adaptuner::backend::onlyforward::OnlyForwardConfig,
-        adaptuner::tui::onlynotify::OnlyNotify,
-        adaptuner::tui::onlynotify::OnlyNotifyConfig,
-    >(
-        TRIVIAL_CONFIG.process_config.clone(),
-        TRIVIAL_CONFIG.backend_config.clone(),
-        TRIVIAL_CONFIG.ui_config.clone(),
-        TRIVIAL_CONFIG.midi_port_config.clone(),
+    let not_so_trivial_config: CompleteConfig<
+        Size3,
+        Size0,
+        process::onlyforward::OnlyForward,
+        process::onlyforward::OnlyForwardConfig,
+        backend::onlyforward::OnlyForward,
+        backend::onlyforward::OnlyForwardConfig,
+        tui::grid::Grid<Size3, Size0>,
+        tui::grid::GridConfig<Size3, Size0>,
+    > = CompleteConfig {
+        midi_port_config: MidiPortConfig::AskAtStartup,
+        process_config: process::onlyforward::OnlyForwardConfig {},
+        backend_config: backend::onlyforward::OnlyForwardConfig {},
+        ui_config: tui::grid::GridConfig {
+            display_config: tui::grid::DisplayConfig {
+                notenamestyle: notename::NoteNameStyle::JohnstonFiveLimitFull,
+                color_range: 0.2,
+                gradient: colorous::VIRIDIS,
+            },
+            min_fifth: -4,
+            min_third: -2,
+            max_fifth: 4,
+            max_third: 2,
+            reference: interval::Stack::new(
+                (interval::StackType::new(
+                    vector(&[
+                        interval::Interval {
+                            name: "octave".to_string(),
+                            semitones: 12.0,
+                            key_distance: 12,
+                        },
+                        interval::Interval {
+                            name: "fifth".to_string(),
+                            semitones: 12.0 * (1.5 as Semitones).log2(),
+                            key_distance: 7,
+                        },
+                        interval::Interval {
+                            name: "third".to_string(),
+                            semitones: 12.0 * (1.25 as Semitones).log2(),
+                            key_distance: 4,
+                        },
+                    ])
+                    .unwrap(),
+                    vector(&[]).unwrap(),
+                ))
+                .into(),
+                &vector_from_elem(false),
+                vector_from_elem(0),
+            ),
+            neighbourhood: neighbourhood::Neighbourhood::fivelimit_new(4, 7, 1),
+        },
+        _phantom: PhantomData,
+    };
+
+    // run::<
+    //     adaptuner::util::dimension::fixed_sizes::Size0,
+    //     adaptuner::util::dimension::fixed_sizes::Size0,
+    //     adaptuner::process::onlyforward::OnlyForward,
+    //     adaptuner::process::onlyforward::OnlyForwardConfig,
+    //     adaptuner::backend::onlyforward::OnlyForward,
+    //     adaptuner::backend::onlyforward::OnlyForwardConfig,
+    //     adaptuner::tui::onlynotify::OnlyNotify,
+    //     adaptuner::tui::onlynotify::OnlyNotifyConfig,
+    // >(
+    //     TRIVIAL_CONFIG.process_config.clone(),
+    //     TRIVIAL_CONFIG.backend_config.clone(),
+    //     TRIVIAL_CONFIG.ui_config.clone(),
+    //     TRIVIAL_CONFIG.midi_port_config.clone(),
+    // )
+
+    run
+    //     ::<
+    //     adaptuner::util::dimension::fixed_sizes::Size0,
+    //     adaptuner::util::dimension::fixed_sizes::Size0,
+    //     adaptuner::process::onlyforward::OnlyForward,
+    //     adaptuner::process::onlyforward::OnlyForwardConfig,
+    //     adaptuner::backend::onlyforward::OnlyForward,
+    //     adaptuner::backend::onlyforward::OnlyForwardConfig,
+    //     adaptuner::tui::onlynotify::OnlyNotify,
+    //     adaptuner::tui::onlynotify::OnlyNotifyConfig,
+    // >
+        (
+        not_so_trivial_config.process_config.clone(),
+        not_so_trivial_config.backend_config.clone(),
+        not_so_trivial_config.ui_config.clone(),
+        not_so_trivial_config.midi_port_config.clone(),
     )
 }

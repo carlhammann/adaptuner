@@ -5,6 +5,7 @@ use crate::util::dimension::{AtLeast, Dimension};
 
 mod johnston;
 
+#[derive(Clone)]
 pub enum NoteNameStyle {
     JohnstonFiveLimitFull,
     JohnstonFiveLimitClass,

@@ -13,5 +13,6 @@ pub trait UIState<D: Dimension, T: Dimension> {
         time: Instant,
         msg: msg::ToUI<D, T>,
         to_process: &mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+        tui: &mut Tui,
     );
 }
