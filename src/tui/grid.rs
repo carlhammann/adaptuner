@@ -39,10 +39,8 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
 }
 
 pub struct Grid<D: Dimension + AtLeast<3>, T: Dimension> {
-    pub min_fifth: StackCoeff,
-    pub min_third: StackCoeff,
-    pub max_fifth: StackCoeff,
-    pub max_third: StackCoeff,
+    pub width: StackCoeff,
+    pub height: StackCoeff,
     pub reference: Stack<D, T>,
     pub active_temperaments: Vector<T, bool>,
 
@@ -70,27 +68,44 @@ where
     /// rendering of Grids expects there to be 2n rows of characters for an n-row grid, because
     /// Cells are two rows high
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
-        let cols = 1 + self.max_fifth - self.min_fifth;
+        let mut the_stack = self.reference.clone();
+
+        let origin_fifth = the_stack.coefficients()[Bounded::new(1).unwrap()];
+        let origin_third = the_stack.coefficients()[Bounded::new(2).unwrap()];
+
+        let (mut min_fifth, mut max_fifth) = self.neighbourhood.bounds(Bounded::new(1).unwrap());
+        let (mut min_third, mut max_third) = self.neighbourhood.bounds(Bounded::new(2).unwrap());
+
+        if max_fifth - min_fifth != self.width {
+            min_fifth = origin_fifth - self.width / 2;
+            max_fifth = min_fifth + self.width - 1;
+        }
+        
+        if max_third - min_third != self.height {
+            min_third = origin_third - self.height / 2;
+            max_third = min_third + self.height - 1;
+        }
+
+        let cols = 1 + max_fifth - min_fifth;
         let cellwidth = area.width / cols as u16;
 
-        let mut the_stack = self.reference.clone();
         the_stack.increment_at_index(
             &self.active_temperaments,
             Bounded::new(2).unwrap(),
-            self.min_third - self.reference.coefficients()[Bounded::new(2).unwrap()],
+            min_third - self.reference.coefficients()[Bounded::new(2).unwrap()],
         );
         the_stack.increment_at_index(
             &self.active_temperaments,
             Bounded::new(1).unwrap(),
-            self.min_third - self.reference.coefficients()[Bounded::new(1).unwrap()],
+            min_fifth - self.reference.coefficients()[Bounded::new(1).unwrap()],
         );
 
-        for i in self.min_third..=self.max_third {
-            for j in self.min_fifth..=self.max_fifth {
+        for i in min_third..=max_third {
+            for j in min_fifth..=max_fifth {
                 let mut state = CellState::Off;
                 for k in 0..12 {
-                    if self.neighbourhood.coefficients[k][Bounded::new(1).unwrap()] == j
-                        && self.neighbourhood.coefficients[k][Bounded::new(2).unwrap()] == i
+                    if self.neighbourhood.coefficients[k][Bounded::new(1).unwrap()] + origin_fifth == j
+                        && self.neighbourhood.coefficients[k][Bounded::new(2).unwrap()] + origin_third == i
                     {
                         if self.active_classes[k] {
                             state = CellState::On;
@@ -104,8 +119,8 @@ where
                     state,
                     &self.config,
                     Rect {
-                        x: area.x + cellwidth * (j - self.min_fifth) as u16,
-                        y: area.y + 2 * (self.max_third - i) as u16,
+                        x: area.x + cellwidth * (j - min_fifth) as u16,
+                        y: area.y + 2 * (max_third - i) as u16,
                         width: cellwidth,
                         height: 2,
                     },
@@ -121,7 +136,7 @@ where
             the_stack.increment_at_index(
                 &self.active_temperaments,
                 Bounded::new(1).unwrap(),
-                self.min_fifth - self.max_fifth - 1,
+                min_fifth - max_fifth - 1,
             );
         }
     }
@@ -193,8 +208,6 @@ where
         let send_to_process =
             |msg: msg::ToProcess<D, T>, time: Instant| to_process.send((time, msg)).unwrap_or(());
 
-        // let send_to_ui =
-        //     |msg: msg::ToUI<D, T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
         match msg {
             msg::ToUI::Start => {
                 draw_frame(tui, self);
@@ -220,6 +233,7 @@ where
 }
                     _ =>{},
                 }
+                draw_frame(tui, self);
             }
             msg::ToUI::SetNeighboughood { neighbourhood } => {
                 self.neighbourhood = neighbourhood;
@@ -248,10 +262,8 @@ where
 #[derive(Clone)]
 pub struct GridConfig<D: Dimension + AtLeast<3>, T: Dimension> {
     pub display_config: DisplayConfig,
-    pub min_fifth: StackCoeff,
-    pub min_third: StackCoeff,
-    pub max_fifth: StackCoeff,
-    pub max_third: StackCoeff,
+    pub width: StackCoeff,
+    pub height: StackCoeff,
     pub reference: Stack<D, T>,
     pub neighbourhood: Neighbourhood<D>,
 }
@@ -263,10 +275,8 @@ where
 {
     fn initialise(config: &Self) -> Grid<D, T> {
         Grid {
-            min_fifth: config.min_fifth,
-            min_third: config.min_third,
-            max_fifth: config.max_fifth,
-            max_third: config.max_third,
+            width: config.width,
+            height: config.height,
             reference: config.reference.clone(),
             active_temperaments: vector_from_elem(false),
             neighbourhood: config.neighbourhood.clone(),

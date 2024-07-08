@@ -291,10 +291,8 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                 color_range: 0.2,
                 gradient: colorous::VIRIDIS,
             },
-            min_fifth: -4,
-            min_third: -2,
-            max_fifth: 4,
-            max_third: 2,
+            width: 7,
+            height: 5,
             reference: interval::Stack::new(
                 (interval::StackType::new(
                     vector(&[
@@ -321,7 +319,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                 &vector_from_elem(false),
                 vector_from_elem(0),
             ),
-            neighbourhood: neighbourhood::Neighbourhood::fivelimit_new(4, 7, 1),
+            neighbourhood: neighbourhood::Neighbourhood::fivelimit_new(4, 6, 1),
         },
         _phantom: PhantomData,
     };

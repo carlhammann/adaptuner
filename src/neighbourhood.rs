@@ -16,7 +16,7 @@ pub struct Neighbourhood<D: Dimension> {
     pub coefficients: [Vector<D, StackCoeff>; 12],
 }
 
-impl<D: Dimension + AtLeast<3>> Neighbourhood<D> {
+impl<D: Dimension + AtLeast<3> + Copy> Neighbourhood<D> {
     pub fn fivelimit_new(width: StackCoeff, index: StackCoeff, offset: StackCoeff) -> Self {
         let mut uninitialised: [MaybeUninit<Vector<D, StackCoeff>>; 12] =
             MaybeUninit::uninit_array();
@@ -30,6 +30,24 @@ impl<D: Dimension + AtLeast<3>> Neighbourhood<D> {
 
     pub fn fivelimit_udpate(&mut self, width: StackCoeff, index: StackCoeff, offset: StackCoeff) {
         fivelimit_neighbours(&mut self.coefficients, width, index, offset);
+    }
+
+    /// the lowest and highest entry in the given dimension
+    pub fn bounds(&self, axis: Bounded<D>) -> (StackCoeff, StackCoeff) {
+        // this initialisation is correct, because the first entry of `coefficients` is always a zero
+        // vector
+        let mut min = 0;
+        let mut max = 0;
+        for i in 1..12 {
+            let curr = self.coefficients[i][axis];
+            if curr < min {
+                min = curr;
+            }
+            if curr > max {
+                max = curr;
+            }
+        }
+        (min, max)
     }
 }
 
