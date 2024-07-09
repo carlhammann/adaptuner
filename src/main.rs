@@ -261,7 +261,11 @@ where
     })
     .expect("Error setting Ctrl-C handler");
 
-    while running.load(Ordering::SeqCst) & !backend.is_finished() & !process.is_finished() & !ui.is_finished() {
+    while running.load(Ordering::SeqCst)
+        & !backend.is_finished()
+        & !process.is_finished()
+        & !ui.is_finished()
+    {
         thread::sleep(Duration::from_millis(100));
     }
 
@@ -272,19 +276,54 @@ where
 }
 
 pub fn main() -> Result<(), Box<dyn Error>> {
+    let initial_reference_key = 60;
+    let stack_type = Arc::new(interval::StackType::new(
+        vector(&[
+            interval::Interval {
+                name: "octave".to_string(),
+                semitones: 12.0,
+                key_distance: 12,
+            },
+            interval::Interval {
+                name: "fifth".to_string(),
+                semitones: 12.0 * (1.5 as Semitones).log2(),
+                key_distance: 7,
+            },
+            interval::Interval {
+                name: "third".to_string(),
+                semitones: 12.0 * (1.25 as Semitones).log2(),
+                key_distance: 4,
+            },
+        ])
+        .unwrap(),
+        vector(&[]).unwrap(),
+    ));
+    let initial_reference_stack = interval::Stack::new(
+        stack_type.clone(),
+        &vector_from_elem(false),
+        vector_from_elem(0),
+    );
+    let initial_neighbourhood = neighbourhood::Neighbourhood::fivelimit_new(4, 6, 1);
+
     let not_so_trivial_config: CompleteConfig<
         Size3,
         Size0,
-        process::onlyforward::OnlyForward,
-        process::onlyforward::OnlyForwardConfig,
-        backend::onlyforward::OnlyForward,
-        backend::onlyforward::OnlyForwardConfig,
+        process::static12::Static12<Size3, Size0>,
+        process::static12::Static12Config<Size3, Size0>,
+        backend::pitchbend16::Pitchbend16,
+        backend::pitchbend16::Pitchbend16Config,
+        // tui::onlynotify::OnlyNotify,
+        // tui::onlynotify::OnlyNotifyConfig,
         tui::grid::Grid<Size3, Size0>,
         tui::grid::GridConfig<Size3, Size0>,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
-        process_config: process::onlyforward::OnlyForwardConfig {},
-        backend_config: backend::onlyforward::OnlyForwardConfig {},
+        process_config: process::static12::Static12Config {
+            stack_type: stack_type.clone(),
+            initial_reference_key,
+            initial_neighbourhood: initial_neighbourhood.clone(),
+        },
+        backend_config: backend::pitchbend16::Pitchbend16Config { bend_range: 2.0 },
         ui_config: tui::grid::GridConfig {
             display_config: tui::grid::DisplayConfig {
                 notenamestyle: notename::NoteNameStyle::JohnstonFiveLimitFull,
@@ -293,34 +332,10 @@ pub fn main() -> Result<(), Box<dyn Error>> {
             },
             width: 7,
             height: 5,
-            reference: interval::Stack::new(
-                (interval::StackType::new(
-                    vector(&[
-                        interval::Interval {
-                            name: "octave".to_string(),
-                            semitones: 12.0,
-                            key_distance: 12,
-                        },
-                        interval::Interval {
-                            name: "fifth".to_string(),
-                            semitones: 12.0 * (1.5 as Semitones).log2(),
-                            key_distance: 7,
-                        },
-                        interval::Interval {
-                            name: "third".to_string(),
-                            semitones: 12.0 * (1.25 as Semitones).log2(),
-                            key_distance: 4,
-                        },
-                    ])
-                    .unwrap(),
-                    vector(&[]).unwrap(),
-                ))
-                .into(),
-                &vector_from_elem(false),
-                vector_from_elem(0),
-            ),
-            neighbourhood: neighbourhood::Neighbourhood::fivelimit_new(4, 6, 1),
+            reference: initial_reference_stack.clone(),
+            neighbourhood: initial_neighbourhood.clone(),
         },
+        //ui_config: tui::onlynotify::OnlyNotifyConfig {},
         _phantom: PhantomData,
     };
 

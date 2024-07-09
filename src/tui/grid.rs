@@ -247,7 +247,7 @@ where
                 self.reference = stack;
                 draw_frame(tui, self);
             }
-            msg::ToUI::NoteOn { note } => {
+            msg::ToUI::TunedNoteOn { note, .. } => { // TODO use the tuning data!
                 self.active_classes[(note % 12) as usize] = true;
                 draw_frame(tui, self);
             }

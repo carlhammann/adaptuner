@@ -35,8 +35,9 @@ pub enum ToUI<D: Dimension, T: Dimension> {
         key: u8,
         stack: Stack<D, T>,
     },
-    NoteOn {
+    TunedNoteOn {
         note: u8,
+        tuning: Semitones,
     },
     NoteOff {
         note: u8,
@@ -73,9 +74,6 @@ pub enum ToBackend {
     },
     ForwardMidi {
         msg: MidiMsg,
-    },
-    ForwardBytes {
-        bytes: Vec<u8>,
     },
 }
 

@@ -6,7 +6,11 @@ use crate::{msg, util::dimension::Dimension, config::r#trait::Config, backend::r
 
 #[derive(Clone, Copy)]
 struct NoteInfo {
-    /// how this note should be tuned, in the best of all possible worlds.
+    /// how this note should be tuned, in the best of all possible worlds. It will be tuned to the
+    /// closest approximation possible using pitch bends, as long as it's not on a channel with
+    /// another note that has to be tuned differently. This latter scenario will only happen when
+    /// you have more than 16 sounding notes which require different pitch bends. (In "normal"
+    /// music, with octave equivalence, this will never happen.)
     desired_tuning: Semitones,
 
     /// the channel this note is being played on, currently
@@ -362,13 +366,13 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for P
             },
 
             msg::ToBackend::ForwardMidi { msg } => send(msg, time),
-            msg::ToBackend::ForwardBytes { bytes } => midi_out.send((time, bytes)).unwrap_or(()),
         }
     }
 }
 
+#[derive(Clone)]
 pub struct Pitchbend16Config {
-    bend_range: Semitones
+    pub bend_range: Semitones
 }
 
 impl Config<Pitchbend16> for Pitchbend16Config {

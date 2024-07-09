@@ -39,7 +39,13 @@ impl OnlyForward {
                         },
                         time,
                     );
-                    send_to_ui(msg::ToUI::NoteOn { note }, time);
+                    send_to_ui(
+                        msg::ToUI::TunedNoteOn {
+                            note,
+                            tuning: note as Semitones,
+                        },
+                        time,
+                    );
                 }
 
                 MidiMsg::ChannelVoice {
@@ -57,23 +63,23 @@ impl OnlyForward {
                     send_to_ui(msg::ToUI::NoteOff { note }, time);
                 }
 
-                _ => {
-                    send_to_ui(
-                        msg::ToUI::Notify {
-                            line: match MidiMsg::from_midi(&bytes) {
-                                Ok((m, _)) => format!("{:?}", m),
-                                _ => format!("raw midi bytes sent to backend: {:?}", &bytes),
+                _ => match MidiMsg::from_midi(&bytes) {
+                    Ok((msg, _)) => {
+                        send_to_ui(
+                            msg::ToUI::Notify {
+                                line: format!("{:?}", msg),
                             },
+                            time,
+                        );
+                        send_to_backend(msg::ToBackend::ForwardMidi { msg }, time);
+                    }
+                    _ => send_to_ui(
+                        msg::ToUI::Notify {
+                            line: format!("raw midi bytes sent to backend: {:?}", &bytes),
                         },
                         time,
-                    );
-                    send_to_backend(
-                        msg::ToBackend::ForwardBytes {
-                            bytes: bytes.to_vec(),
-                        },
-                        time,
-                    );
-                }
+                    ),
+                },
             },
         }
     }

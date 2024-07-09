@@ -67,8 +67,6 @@ impl<D: Dimension, T: Dimension> BackendState<D, T> for OnlyForward {
             msg::ToBackend::Retune { .. } => {}
 
             msg::ToBackend::ForwardMidi { msg } => send(msg, time),
-
-            msg::ToBackend::ForwardBytes { bytes } => midi_out.send((time, bytes)).unwrap_or(()),
         }
     }
 }

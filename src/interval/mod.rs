@@ -29,7 +29,7 @@ pub struct Interval {
 /// A description which [Interval]s and [Temperament]s are to be used in a [Stack].
 ///
 /// The numbers `D` of different intervals and `T` of temperaments are statically known.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StackType<D: Dimension, T: Dimension> {
     intervals: Vector<D, Interval>,
     temperaments: Vector<T, Temperament<D, StackCoeff>>,
@@ -202,7 +202,6 @@ impl<D: Dimension + fmt::Debug + Copy, T: Dimension + Copy> Stack<D, T> {
         }
         self.normalise();
     }
-
 
     /// Like [increment][Stack::increment], but only changes the coefficient at the given index.
     pub fn increment_at_index(
