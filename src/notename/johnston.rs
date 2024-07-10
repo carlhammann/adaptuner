@@ -94,10 +94,10 @@ pub mod fivelimit {
 
     #[cfg(test)]
     mod test {
-        use std::sync::Arc;
         use super::*;
         use crate::interval::stack_test_setup::init_stacktype;
         use crate::util::dimension::vector;
+        use std::sync::Arc;
 
         #[test]
         fn test_str_name() {

@@ -20,7 +20,7 @@ use ratatui::{prelude::CrosstermBackend, Terminal};
 use adaptuner::{
     backend,
     backend::r#trait::BackendState,
-    config::{r#trait::Config, CompleteConfig, MidiPortConfig, TRIVIAL_CONFIG},
+    config::{r#trait::Config, CompleteConfig, MidiPortConfig},
     interval,
     interval::Semitones,
     msg, neighbourhood, notename, process,
@@ -29,7 +29,7 @@ use adaptuner::{
     tui::{Tui, UIState},
     util::dimension::{
         fixed_sizes::{Size0, Size3},
-        vector, vector_from_elem, Dimension,
+        vector, Dimension,
     },
 };
 
@@ -160,8 +160,8 @@ where
     let to_ui_tx_start_and_stop = to_ui_tx_from_backend.clone();
     let to_backend_tx_start_and_stop = to_backend_tx.clone();
 
-    let midi_in = MidiInput::new("midir forwarding input")?;
-    let midi_out = MidiOutput::new("midir forwarding output")?;
+    let midi_in = MidiInput::new("adaptuner input")?;
+    let midi_out = MidiOutput::new("adaptuner output")?;
 
     // match port_config {
     //     MidiPortConfig::AskAtStartup => {
@@ -173,7 +173,7 @@ where
 
     let _conn_in = midi_in.connect(
         &midi_in_port,
-        "midir-forward",
+        "adaptuner-forward",
         move |_time, bytes, _| {
             let time = Instant::now();
             to_process_tx
@@ -188,7 +188,7 @@ where
         (),
     )?;
 
-    let mut conn_out = midi_out.connect(&midi_out_port, "midir-forward")?;
+    let mut conn_out = midi_out.connect(&midi_out_port, "adaptuner-forward")?;
     thread::spawn(move || loop {
         match midi_out_rx.recv() {
             Ok((_time, msg)) => {
@@ -276,6 +276,9 @@ where
 }
 
 pub fn main() -> Result<(), Box<dyn Error>> {
+    let initial_neighbourhood_width = 4;
+    let initial_neighbourhood_index = 5;
+    let initial_neighbourhood_offset = 1;
     let initial_reference_key = 60;
     let stack_type = Arc::new(interval::StackType::new(
         vector(&[
@@ -298,12 +301,11 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         .unwrap(),
         vector(&[]).unwrap(),
     ));
-    let initial_reference_stack = interval::Stack::new(
-        stack_type.clone(),
-        &vector_from_elem(false),
-        vector_from_elem(0),
-    );
-    let initial_neighbourhood = neighbourhood::Neighbourhood::fivelimit_new(4, 6, 1);
+    // let initial_reference_stack = interval::Stack::new(
+    //     stack_type.clone(),
+    //     &vector_from_elem(false),
+    //     vector_from_elem(0),
+    // );
 
     let not_so_trivial_config: CompleteConfig<
         Size3,
@@ -321,7 +323,9 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         process_config: process::static12::Static12Config {
             stack_type: stack_type.clone(),
             initial_reference_key,
-            initial_neighbourhood: initial_neighbourhood.clone(),
+            initial_neighbourhood_width,
+            initial_neighbourhood_index,
+            initial_neighbourhood_offset,
         },
         backend_config: backend::pitchbend16::Pitchbend16Config { bend_range: 2.0 },
         ui_config: tui::grid::GridConfig {
@@ -330,10 +334,11 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                 color_range: 0.2,
                 gradient: colorous::VIRIDIS,
             },
-            width: 7,
-            height: 5,
-            reference: initial_reference_stack.clone(),
-            neighbourhood: initial_neighbourhood.clone(),
+            stack_type: stack_type.clone(),
+            initial_reference_key,
+            initial_neighbourhood_offset,
+            initial_neighbourhood_index,
+            initial_neighbourhood_width,
         },
         //ui_config: tui::onlynotify::OnlyNotifyConfig {},
         _phantom: PhantomData,

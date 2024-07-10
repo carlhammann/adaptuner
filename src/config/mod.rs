@@ -3,13 +3,12 @@ use std::marker::PhantomData;
 use crate::{
     backend,
     backend::r#trait::BackendState,
-    config::r#trait::Config, process,
+    config::r#trait::Config,
+    process,
     process::r#trait::ProcessState,
     tui,
     tui::r#trait::UIState,
-    util::dimension::{
-        fixed_sizes::{Size0}, Dimension,
-    },
+    util::dimension::{fixed_sizes::Size0, Dimension},
 };
 
 pub mod r#trait;
@@ -53,4 +52,3 @@ pub static TRIVIAL_CONFIG: CompleteConfig<
     ui_config: tui::onlynotify::OnlyNotifyConfig {},
     _phantom: PhantomData,
 };
-

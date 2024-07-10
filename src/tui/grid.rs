@@ -1,4 +1,8 @@
-use std::{fmt, sync::mpsc, time::Instant};
+use std::{
+    fmt,
+    sync::{mpsc, Arc},
+    time::Instant,
+};
 
 use colorous;
 use crossterm::event::{KeyCode, KeyEventKind};
@@ -6,7 +10,7 @@ use ratatui::{prelude::*, widgets::WidgetRef};
 
 use crate::{
     config::r#trait::Config,
-    interval::{Semitones, Stack, StackCoeff},
+    interval::{Semitones, Stack, StackCoeff, StackType},
     msg,
     neighbourhood::Neighbourhood,
     notename::NoteNameStyle,
@@ -39,15 +43,17 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
 }
 
 pub struct Grid<D: Dimension + AtLeast<3>, T: Dimension> {
-    pub width: StackCoeff,
-    pub height: StackCoeff,
-    pub reference: Stack<D, T>,
+    pub reference_key: i8,
+    pub reference_stack: Stack<D, T>,
     pub active_temperaments: Vector<T, bool>,
 
     pub neighbourhood: Neighbourhood<D>,
-    pub active_classes: [bool; 12],
 
-    pub config: DisplayConfig,
+    /// these are "absolute pitch classes", i.e. not relative tot he reference. The number counts
+    /// how many keys of that pich class are currently pressed
+    pub active_classes: [u8; 12],
+
+    pub config: GridConfig<D, T>,
 }
 
 impl<D, T> Widget for Grid<D, T>
@@ -68,22 +74,27 @@ where
     /// rendering of Grids expects there to be 2n rows of characters for an n-row grid, because
     /// Cells are two rows high
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
-        let mut the_stack = self.reference.clone();
+        let mut the_stack = self.reference_stack.clone();
 
         let origin_fifth = the_stack.coefficients()[Bounded::new(1).unwrap()];
         let origin_third = the_stack.coefficients()[Bounded::new(2).unwrap()];
 
         let (mut min_fifth, mut max_fifth) = self.neighbourhood.bounds(Bounded::new(1).unwrap());
         let (mut min_third, mut max_third) = self.neighbourhood.bounds(Bounded::new(2).unwrap());
+        min_fifth += origin_fifth;
+        max_fifth += origin_fifth;
+        min_third += origin_third;
+        max_third += origin_third;
 
-        if max_fifth - min_fifth != self.width {
-            min_fifth = origin_fifth - self.width / 2;
-            max_fifth = min_fifth + self.width - 1;
-        }
-        
-        if max_third - min_third != self.height {
-            min_third = origin_third - self.height / 2;
-            max_third = min_third + self.height - 1;
+        // if max_fifth - min_fifth < self.width {
+        //     min_fifth = origin_fifth - self.width / 2;
+        //     max_fifth = min_fifth + self.width - 1;
+        // }
+
+        let max_lines = area.height as StackCoeff / 2;
+        if max_third - min_third > max_lines {
+            min_third = origin_third - max_lines / 2;
+            max_third = min_third + max_lines - 1;
         }
 
         let cols = 1 + max_fifth - min_fifth;
@@ -92,22 +103,26 @@ where
         the_stack.increment_at_index(
             &self.active_temperaments,
             Bounded::new(2).unwrap(),
-            min_third - self.reference.coefficients()[Bounded::new(2).unwrap()],
+            min_third - self.reference_stack.coefficients()[Bounded::new(2).unwrap()],
         );
         the_stack.increment_at_index(
             &self.active_temperaments,
             Bounded::new(1).unwrap(),
-            min_fifth - self.reference.coefficients()[Bounded::new(1).unwrap()],
+            min_fifth - self.reference_stack.coefficients()[Bounded::new(1).unwrap()],
         );
 
         for i in min_third..=max_third {
             for j in min_fifth..=max_fifth {
                 let mut state = CellState::Off;
                 for k in 0..12 {
-                    if self.neighbourhood.coefficients[k][Bounded::new(1).unwrap()] + origin_fifth == j
-                        && self.neighbourhood.coefficients[k][Bounded::new(2).unwrap()] + origin_third == i
+                    if self.neighbourhood.coefficients[k][Bounded::new(1).unwrap()] + origin_fifth
+                        == j
+                        && self.neighbourhood.coefficients[k][Bounded::new(2).unwrap()]
+                            + origin_third
+                            == i
                     {
-                        if self.active_classes[k] {
+                        if self.active_classes[(k as usize + self.reference_key as usize) % 12] > 0
+                        {
                             state = CellState::On;
                         } else {
                             state = CellState::Considered;
@@ -117,7 +132,7 @@ where
                 render_stack(
                     &the_stack,
                     state,
-                    &self.config,
+                    &self.config.display_config,
                     Rect {
                         x: area.x + cellwidth * (j - min_fifth) as u16,
                         y: area.y + 2 * (max_third - i) as u16,
@@ -228,31 +243,57 @@ where
                     crossterm::event::Event::Key(k) => if k.kind == KeyEventKind::Press {
                         match k.code {
                             KeyCode::Char('q') => send_to_process(msg::ToProcess::Stop, time),
+                            KeyCode::Esc => {
+                                *self = GridConfig::<D, T>::initialise(&self.config);
+                                send_to_process(msg::ToProcess::Reset, time);
+                            }
+                            KeyCode::Down => {
+                                self.neighbourhood.fivelimit_inc_index();
+                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+                            }
+                            KeyCode::Up => {
+                                self.neighbourhood.fivelimit_dec_index();
+                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+
+                            }
+                            KeyCode::Left => {
+                                self.neighbourhood.fivelimit_inc_offset();
+                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+
+                            }
+                            KeyCode::Right => {
+                                self.neighbourhood.fivelimit_dec_offset();
+                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+
+                            }
+                            KeyCode::Char('+') => {
+                                self.neighbourhood.fivelimit_inc_width();
+                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+
+                            }
+                            KeyCode::Char('-') => {
+                                self.neighbourhood.fivelimit_dec_width();
+                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+
+                            }
                             _ => {}
                         }
-}
+                    }
                     _ =>{},
                 }
                 draw_frame(tui, self);
             }
-            msg::ToUI::SetNeighboughood { neighbourhood } => {
-                self.neighbourhood = neighbourhood;
-                draw_frame(tui, self);
-            }
-            msg::ToUI::ToggleTemperament { index } => {
-                self.active_temperaments[index] = !self.active_temperaments[index];
-                draw_frame(tui, self);
-            }
-            msg::ToUI::SetReference { key: _, stack } => {
-                self.reference = stack;
+            msg::ToUI::SetReference { key, stack } => {
+                self.reference_key = key as i8;
+                self.reference_stack.clone_from(&stack);
                 draw_frame(tui, self);
             }
             msg::ToUI::TunedNoteOn { note, .. } => { // TODO use the tuning data!
-                self.active_classes[(note % 12) as usize] = true;
+                self.active_classes[(note % 12) as usize] = self.active_classes[(note % 12) as usize].saturating_add(1);
                 draw_frame(tui, self);
             }
             msg::ToUI::NoteOff { note } => {
-                self.active_classes[(note % 12) as usize] = false;
+                self.active_classes[(note % 12) as usize] = self.active_classes[(note % 12) as usize].saturating_sub(1);
                 draw_frame(tui, self);
             }
         }
@@ -262,26 +303,34 @@ where
 #[derive(Clone)]
 pub struct GridConfig<D: Dimension + AtLeast<3>, T: Dimension> {
     pub display_config: DisplayConfig,
-    pub width: StackCoeff,
-    pub height: StackCoeff,
-    pub reference: Stack<D, T>,
-    pub neighbourhood: Neighbourhood<D>,
+    pub initial_reference_key: i8,
+    pub stack_type: Arc<StackType<D, T>>,
+    pub initial_neighbourhood_width: StackCoeff,
+    pub initial_neighbourhood_index: StackCoeff,
+    pub initial_neighbourhood_offset: StackCoeff,
 }
 
 impl<D, T> Config<Grid<D, T>> for GridConfig<D, T>
 where
-    D: Dimension + AtLeast<3> + Copy,
+    D: Dimension + AtLeast<3> + Copy + fmt::Debug,
     T: Dimension + Copy,
 {
     fn initialise(config: &Self) -> Grid<D, T> {
         Grid {
-            width: config.width,
-            height: config.height,
-            reference: config.reference.clone(),
+            reference_key: config.initial_reference_key,
+            reference_stack: Stack::new(
+                config.stack_type.clone(),
+                &vector_from_elem(false),
+                vector_from_elem(0),
+            ),
             active_temperaments: vector_from_elem(false),
-            neighbourhood: config.neighbourhood.clone(),
-            active_classes: [false; 12],
-            config: config.display_config.clone(),
+            neighbourhood: Neighbourhood::fivelimit_new(
+                config.initial_neighbourhood_width,
+                config.initial_neighbourhood_index,
+                config.initial_neighbourhood_offset,
+            ),
+            active_classes: [0; 12],
+            config: config.clone(),
         }
     }
 }

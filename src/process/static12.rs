@@ -23,6 +23,7 @@ enum NoteStatus {
 }
 
 pub struct Static12<D: Dimension, T: Dimension> {
+    config: Static12Config<D, T>,
     initial_reference_key: i8,
     reference_stack: Stack<D, T>,
     reference_key: i8,
@@ -53,7 +54,7 @@ impl<D: Dimension + Copy + fmt::Debug + AtLeast<1>, T: Dimension + Copy> Static1
         the_stack
     }
 
-    fn calculate_tuning(&self, key: i8) -> Semitones {
+    fn calculate_tuning(&mut self, key: i8) -> Semitones {
         let the_stack = self.calculate_tuning_stack(key);
         the_stack.semitones() + self.initial_reference_key as Semitones
     }
@@ -66,17 +67,16 @@ impl<D: Dimension + Copy + fmt::Debug + AtLeast<1>, T: Dimension + Copy> Static1
         let send_to_backend =
             |msg: msg::ToBackend, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
-        let mut note_statuses = self.note_statuses;
-        for (note, (status, old_tuning)) in note_statuses.iter_mut().enumerate() {
-            match status {
+        for i in 0..128 {
+            match self.note_statuses[i].0 {
                 NoteStatus::Off => {}
                 _ => {
-                    let tuning = self.calculate_tuning(note as i8);
-                    if *old_tuning != tuning {
-                        *old_tuning = tuning;
+                    let tuning = self.calculate_tuning(i as i8);
+                    if self.note_statuses[i].1 != tuning {
+                        self.note_statuses[i].1 = tuning;
                         send_to_backend(
                             msg::ToBackend::Retune {
-                                note: note as u8,
+                                note: i as u8,
                                 tuning,
                             },
                             time,
@@ -92,19 +92,9 @@ impl<D: Dimension + Copy + fmt::Debug + AtLeast<1>, T: Dimension + Copy> Static1
         time: Instant,
         new_neighbourhood: Neighbourhood<D>,
         to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
     ) {
-        self.neighbourhood.clone_from(&new_neighbourhood);
+        self.neighbourhood = new_neighbourhood;
         self.recompute_and_send_tunings_to_backend(time, to_backend);
-
-        let send_to_ui =
-            |msg: msg::ToUI<D, T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
-        send_to_ui(
-            msg::ToUI::SetNeighboughood {
-                neighbourhood: new_neighbourhood,
-            },
-            time,
-        );
     }
 
     fn toggle_temperament(
@@ -112,14 +102,9 @@ impl<D: Dimension + Copy + fmt::Debug + AtLeast<1>, T: Dimension + Copy> Static1
         time: Instant,
         index: Bounded<T>,
         to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
     ) {
         self.active_temperaments[index] = !self.active_temperaments[index];
         self.recompute_and_send_tunings_to_backend(time, to_backend);
-
-        let send_to_ui =
-            |msg: msg::ToUI<D, T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
-        send_to_ui(msg::ToUI::ToggleTemperament { index }, time);
     }
 
     fn incoming_midi(
@@ -160,6 +145,13 @@ impl<D: Dimension + Copy + fmt::Debug + AtLeast<1>, T: Dimension + Copy> Static1
                         let new_reference_stack = self.calculate_tuning_stack(note as i8);
                         self.reference_stack.clone_from(&new_reference_stack); // TODO: do this without cloning
                         self.reference_key = note as i8;
+                        send_to_ui(
+                            msg::ToUI::SetReference {
+                                key: note,
+                                stack: new_reference_stack,
+                            },
+                            time,
+                        );
                     }
                 }
 
@@ -219,7 +211,7 @@ impl<D: Dimension + Copy + fmt::Debug + AtLeast<1>, T: Dimension + Copy> Static1
 
 impl<D, T> ProcessState<D, T> for Static12<D, T>
 where
-    D: Dimension + Copy + fmt::Debug + AtLeast<1>,
+    D: Dimension + Copy + fmt::Debug + AtLeast<3> + AtLeast<1>, // TODO this should not be like nhat
     T: Dimension + Copy,
 {
     fn handle_msg(
@@ -229,14 +221,21 @@ where
         to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
         to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
     ) {
+        let send_to_backend =
+            |msg: msg::ToBackend, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+
         match msg {
             msg::ToProcess::Start => {}
             msg::ToProcess::Stop => {}
+            msg::ToProcess::Reset => {
+                send_to_backend(msg::ToBackend::Reset, time);
+                *self = Static12Config::<D, T>::initialise(&self.config);
+            }
             msg::ToProcess::SetNeighboughood { neighbourhood } => {
-                self.set_neighborhood(time, neighbourhood, to_backend, to_ui)
+                self.set_neighborhood(time, neighbourhood, to_backend)
             }
             msg::ToProcess::ToggleTemperament { index } => {
-                self.toggle_temperament(time, index, to_backend, to_ui);
+                self.toggle_temperament(time, index, to_backend)
             }
             msg::ToProcess::IncomingMidi { bytes } => {
                 self.incoming_midi(time, &bytes, to_backend, to_ui)
@@ -249,12 +248,14 @@ where
 pub struct Static12Config<D: Dimension, T: Dimension> {
     pub stack_type: Arc<StackType<D, T>>,
     pub initial_reference_key: i8,
-    pub initial_neighbourhood: Neighbourhood<D>,
+    pub initial_neighbourhood_width: StackCoeff,
+    pub initial_neighbourhood_index: StackCoeff,
+    pub initial_neighbourhood_offset: StackCoeff,
 }
 
 impl<D, T> Config<Static12<D, T>> for Static12Config<D, T>
 where
-    D: Dimension + Copy + fmt::Debug,
+    D: Dimension + Copy + fmt::Debug + AtLeast<3>,
     T: Dimension + Copy,
 {
     fn initialise(config: &Self) -> Static12<D, T> {
@@ -263,6 +264,7 @@ where
             note_statuses[i].1 = i as Semitones;
         }
         Static12 {
+            config: config.clone(),
             initial_reference_key: config.initial_reference_key,
             reference_stack: Stack::new(
                 config.stack_type.clone(),
@@ -270,7 +272,11 @@ where
                 vector_from_elem(0),
             ),
             reference_key: config.initial_reference_key,
-            neighbourhood: config.initial_neighbourhood.clone(),
+            neighbourhood: Neighbourhood::fivelimit_new(
+                config.initial_neighbourhood_width,
+                config.initial_neighbourhood_index,
+                config.initial_neighbourhood_offset,
+            ),
             active_temperaments: vector_from_elem(false),
             note_statuses,
             sustain: 0,

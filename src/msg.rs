@@ -25,12 +25,6 @@ pub enum ToUI<D: Dimension, T: Dimension> {
 
     CrosstermEvent(crossterm::event::Event),
 
-    SetNeighboughood {
-        neighbourhood: Neighbourhood<D>,
-    },
-    ToggleTemperament {
-        index: Bounded<T>,
-    },
     SetReference {
         key: u8,
         stack: Stack<D, T>,
@@ -48,6 +42,7 @@ pub enum ToUI<D: Dimension, T: Dimension> {
 pub enum ToBackend {
     Start,
     Stop,
+    Reset,
 
     TunedNoteOn {
         channel: Channel,
@@ -80,6 +75,7 @@ pub enum ToBackend {
 pub enum ToProcess<D: Dimension, T: Dimension> {
     Start,
     Stop,
+    Reset,
     SetNeighboughood { neighbourhood: Neighbourhood<D> },
     ToggleTemperament { index: Bounded<T> },
     IncomingMidi { bytes: Vec<u8> },

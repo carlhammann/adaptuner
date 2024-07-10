@@ -21,6 +21,7 @@ impl<D: Dimension, T: Dimension> BackendState<D, T> for OnlyForward {
         match msg {
             msg::ToBackend::Start => {}
             msg::ToBackend::Stop => {}
+            msg::ToBackend::Reset => {}
             msg::ToBackend::TunedNoteOn {
                 channel,
                 note,

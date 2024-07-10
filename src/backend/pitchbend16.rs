@@ -1,8 +1,11 @@
-use std::{time::Instant, fmt,sync::mpsc};
+use std::{fmt, sync::mpsc, time::Instant};
 
-use midi_msg::{ControlChange, ChannelVoiceMsg, MidiMsg, Channel};
+use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
 
-use crate::{msg, util::dimension::Dimension, config::r#trait::Config, backend::r#trait::BackendState, interval::Semitones};
+use crate::{
+    backend::r#trait::BackendState, config::r#trait::Config, interval::Semitones, msg,
+    util::dimension::Dimension,
+};
 
 #[derive(Clone, Copy)]
 struct NoteInfo {
@@ -26,6 +29,8 @@ struct NoteInfo {
 }
 
 pub struct Pitchbend16 {
+    config: Pitchbend16Config,
+
     /// the pitch bend value of every channel
     bends: [u16; 16],
 
@@ -53,21 +58,19 @@ fn semitones_from_bend(bend_range: Semitones, bend: u16) -> Semitones {
     (bend as Semitones - 8192.0) / 8191.0 * bend_range
 }
 
-impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for Pitchbend16 {
-
+impl<D: Dimension + fmt::Debug, T: Dimension + fmt::Debug> BackendState<D, T> for Pitchbend16 {
     fn handle_msg(
         &mut self,
         time: Instant,
         msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<D,T>)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
         midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
     ) {
-
         let send = |msg: MidiMsg, time: Instant| {
             midi_out.send((time, msg.to_midi())).unwrap_or(());
         };
 
-        let send_to_ui = |msg: msg::ToUI<D,T>, time: Instant| to_ui.send((time, msg));
+        let send_to_ui = |msg: msg::ToUI<D, T>, time: Instant| to_ui.send((time, msg));
 
         let mapped_to_and_bend = |tuning: Semitones| {
             let mapped_to = tuning.round() as u8;
@@ -76,7 +79,37 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for P
         };
 
         match msg {
-            msg::ToBackend::Start => {}
+            msg::ToBackend::Start | msg::ToBackend::Reset => {
+                *self = Pitchbend16Config::initialise(&self.config);
+                for i in 0..16 {
+                    let channel = Channel::from_u8(i as u8);
+                    send(
+                        MidiMsg::ChannelVoice {
+                            channel,
+                            msg: ChannelVoiceMsg::PitchBend {
+                                bend: self.bends[i],
+                            },
+                        },
+                        time,
+                    );
+                    send(
+                        MidiMsg::ChannelVoice {
+                            channel,
+                            msg: ChannelVoiceMsg::ControlChange {
+                                control: ControlChange::Hold(0),
+                            },
+                        },
+                        time,
+                    );
+                    send(
+                        MidiMsg::ChannelMode {
+                            channel,
+                            msg: ChannelModeMsg::AllSoundOff,
+                        },
+                        time,
+                    );
+                }
+            }
             msg::ToBackend::Stop => {}
             msg::ToBackend::TunedNoteOn {
                 channel: _,
@@ -350,7 +383,7 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for P
                                             let m = msg::ToUI::DetunedNote {
                                                 note: other_note as u8,
                                                 should_be: desired_tuning,
-                                                actual: other_mapped_to as Semitones 
+                                                actual: other_mapped_to as Semitones
                                                     + semitones_from_bend( self.bend_range, bend),
                                                 explanation: "Detuned because another note on the same channel was re-tuned",
                                             };
@@ -372,17 +405,18 @@ impl<D:Dimension + fmt::Debug, T:Dimension + fmt::Debug> BackendState<D,T> for P
 
 #[derive(Clone)]
 pub struct Pitchbend16Config {
-    pub bend_range: Semitones
+    pub bend_range: Semitones,
 }
 
 impl Config<Pitchbend16> for Pitchbend16Config {
     fn initialise(config: &Self) -> Pitchbend16 {
         Pitchbend16 {
-            bends: [8192;16],
-            usage: [0;16],
+            config: config.clone(),
+            bends: [8192; 16],
+            usage: [0; 16],
             active_notes: [None; 128],
             sustained: false,
-            bend_range: config.bend_range
+            bend_range: config.bend_range,
         }
     }
 }
@@ -397,10 +431,9 @@ mod test {
         time: Instant,
         msg: msg::ToBackend,
         output_to_midi: Vec<(Instant, MidiMsg)>,
-        output_to_ui: Vec<(Instant, msg::ToUI<Size2,Size2>)>,
-    ) 
-        where 
-            S: BackendState<Size2, Size2>
+        output_to_ui: Vec<(Instant, msg::ToUI<Size2, Size2>)>,
+    ) where
+        S: BackendState<Size2, Size2>,
     {
         let (to_ui_tx, to_ui_rx) = mpsc::channel();
         let (midi_out_tx, midi_out_rx) = mpsc::channel();
@@ -419,7 +452,7 @@ mod test {
 
     #[test]
     fn test_sixteen_classes() {
-        let mut s = Pitchbend16Config::initialise(&(Pitchbend16Config{ bend_range:2.0}));
+        let mut s = Pitchbend16Config::initialise(&(Pitchbend16Config { bend_range: 2.0 }));
 
         let mut now = Instant::now();
         one_case(
@@ -538,7 +571,6 @@ mod test {
             vec![],
         );
 
-
         now = Instant::now();
         one_case(
             &mut s,
@@ -556,12 +588,15 @@ mod test {
                     },
                 },
             )],
-            vec![(now,msg::ToUI::DetunedNote {
-                note: 17,
-                should_be: 113.2,
-                actual: 113.0 + semitones_from_bend(2.0, bend_from_semitones(2.0, 0.1)),
-                explanation: "Detuned because another note on the same channel was re-tuned",
-            })],
+            vec![(
+                now,
+                msg::ToUI::DetunedNote {
+                    note: 17,
+                    should_be: 113.2,
+                    actual: 113.0 + semitones_from_bend(2.0, bend_from_semitones(2.0, 0.1)),
+                    explanation: "Detuned because another note on the same channel was re-tuned",
+                },
+            )],
         );
 
         now = Instant::now();
@@ -579,12 +614,15 @@ mod test {
                     msg: ChannelVoiceMsg::PitchBend { bend: 16383 },
                 },
             )],
-            vec![(now, msg::ToUI::DetunedNote {
-                note: 4,
-                should_be: 6.1,
-                actual: 6.0,
-                explanation: "Could not re-tune farther than the pitchbend range",
-            })],
+            vec![(
+                now,
+                msg::ToUI::DetunedNote {
+                    note: 4,
+                    should_be: 6.1,
+                    actual: 6.0,
+                    explanation: "Could not re-tune farther than the pitchbend range",
+                },
+            )],
         );
     }
 }
