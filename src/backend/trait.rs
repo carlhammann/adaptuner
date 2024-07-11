@@ -1,13 +1,13 @@
 use std::{sync::mpsc, time::Instant};
 
-use crate::{msg, util::dimension::Dimension};
+use crate::{interval::StackType, msg};
 
-pub trait BackendState<D: Dimension, T: Dimension> {
+pub trait BackendState<T: StackType> {
     fn handle_msg(
         &mut self,
         time: Instant,
         msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
         midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
     );
 }

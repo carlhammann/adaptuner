@@ -2,17 +2,17 @@ use std::{io::Stdout, sync::mpsc, time::Instant};
 
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
-use crate::{msg, util::dimension::Dimension};
+use crate::{interval::StackType, msg};
 
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
-pub trait UIState<D: Dimension, T: Dimension> {
+pub trait UIState<T: StackType> {
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: msg::ToUI<D, T>,
-        to_process: &mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+        msg: msg::ToUI<T>,
+        to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
         tui: &mut Tui,
     );
 }

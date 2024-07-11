@@ -1,13 +1,12 @@
 use midi_msg::{Channel, MidiMsg};
 
 use crate::{
-    interval::{Semitones, Stack},
+    interval::{Semitones, StackType, Stack},
     neighbourhood::Neighbourhood,
-    util::dimension::{Bounded, Dimension},
 };
 
 #[derive(Debug, PartialEq)]
-pub enum ToUI<D: Dimension, T: Dimension> {
+pub enum ToUI<T:StackType> {
     Start,
     Stop,
 
@@ -27,7 +26,7 @@ pub enum ToUI<D: Dimension, T: Dimension> {
 
     SetReference {
         key: u8,
-        stack: Stack<D, T>,
+        stack: Stack<T>,
     },
     TunedNoteOn {
         note: u8,
@@ -72,11 +71,11 @@ pub enum ToBackend {
     },
 }
 
-pub enum ToProcess<D: Dimension, T: Dimension> {
+pub enum ToProcess {
     Start,
     Stop,
     Reset,
-    SetNeighboughood { neighbourhood: Neighbourhood<D> },
-    ToggleTemperament { index: Bounded<T> },
+    SetNeighboughood { neighbourhood: Neighbourhood },
+    ToggleTemperament { index: usize },
     IncomingMidi { bytes: Vec<u8> },
 }

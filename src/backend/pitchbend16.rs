@@ -1,10 +1,12 @@
-use std::{fmt, sync::mpsc, time::Instant};
+use std::{sync::mpsc, time::Instant};
 
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    backend::r#trait::BackendState, config::r#trait::Config, interval::Semitones, msg,
-    util::dimension::Dimension,
+    backend::r#trait::BackendState,
+    config::r#trait::Config,
+    interval::{Semitones, StackType},
+    msg,
 };
 
 #[derive(Clone, Copy)]
@@ -61,21 +63,19 @@ fn semitones_from_bend(bend_range: Semitones, bend: u16) -> Semitones {
     (bend as Semitones - 8192.0) / 8191.0 * bend_range
 }
 
-impl<const NCHANNELS: usize, D: Dimension + fmt::Debug, T: Dimension + fmt::Debug>
-    BackendState<D, T> for Pitchbend16<NCHANNELS>
-{
+impl<const NCHANNELS: usize, T:StackType> BackendState<T> for Pitchbend16<NCHANNELS> {
     fn handle_msg(
         &mut self,
         time: Instant,
         msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
         midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
     ) {
         let send = |msg: MidiMsg, time: Instant| {
             midi_out.send((time, msg.to_midi())).unwrap_or(());
         };
 
-        let send_to_ui = |msg: msg::ToUI<D, T>, time: Instant| to_ui.send((time, msg));
+        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg));
 
         let mapped_to_and_bend = |tuning: Semitones| {
             let mapped_to = tuning.round() as u8;
@@ -431,16 +431,18 @@ impl<const NCHANNELS: usize> Config<Pitchbend16<NCHANNELS>> for Pitchbend16Confi
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::util::dimension::fixed_sizes::Size2;
+    use crate::interval::ConcreteStackType;
+
+    type MockStackType = ConcreteStackType;
 
     fn one_case<S>(
         state: &mut S,
         time: Instant,
         msg: msg::ToBackend,
         output_to_midi: Vec<(Instant, MidiMsg)>,
-        output_to_ui: Vec<(Instant, msg::ToUI<Size2, Size2>)>,
+        output_to_ui: Vec<(Instant, msg::ToUI<MockStackType>)>,
     ) where
-        S: BackendState<Size2, Size2>,
+        S: BackendState<MockStackType>,
     {
         let (to_ui_tx, to_ui_rx) = mpsc::channel();
         let (midi_out_tx, midi_out_rx) = mpsc::channel();

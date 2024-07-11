@@ -2,18 +2,16 @@ use std::{sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
-use crate::{
-    backend::r#trait::BackendState, config::r#trait::Config, msg, util::dimension::Dimension,
-};
+use crate::{backend::r#trait::BackendState, config::r#trait::Config, interval::StackType, msg};
 
 pub struct OnlyForward {}
 
-impl<D: Dimension, T: Dimension> BackendState<D, T> for OnlyForward {
+impl<T: StackType> BackendState<T> for OnlyForward {
     fn handle_msg(
         &mut self,
         time: Instant,
         msg: msg::ToBackend,
-        _to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
+        _to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
         midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
     ) {
         let send = |msg: MidiMsg, time: Instant| midi_out.send((time, msg.to_midi())).unwrap_or(());

@@ -1,5 +1,4 @@
 use std::{
-    fmt,
     sync::{mpsc, Arc},
     time::Instant,
 };
@@ -15,7 +14,6 @@ use crate::{
     neighbourhood::Neighbourhood,
     notename::NoteNameStyle,
     tui::r#trait::{Tui, UIState},
-    util::dimension::{vector_from_elem, AtLeast, Bounded, Dimension, Vector},
 };
 
 #[derive(Clone)]
@@ -42,12 +40,12 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
     }
 }
 
-pub struct Grid<D: Dimension + AtLeast<3>, T: Dimension> {
+pub struct Grid<T: StackType> {
     pub reference_key: i8,
-    pub reference_stack: Stack<D, T>,
-    pub active_temperaments: Vector<T, bool>,
+    pub reference_stack: Stack<T>,
+    pub active_temperaments: Vec<bool>,
 
-    pub neighbourhood: Neighbourhood<D>,
+    pub neighbourhood: Neighbourhood,
 
     /// these are "absolute pitch classes", i.e. not relative to the reference. The number counts
     /// how many keys of that pich class are currently pressed
@@ -55,34 +53,26 @@ pub struct Grid<D: Dimension + AtLeast<3>, T: Dimension> {
 
     pub active_notes: [bool; 128],
 
-    pub config: GridConfig<D, T>,
+    pub config: GridConfig<T>,
 }
 
-impl<D, T> Widget for Grid<D, T>
-where
-    D: Dimension + AtLeast<3> + Clone + Copy + fmt::Debug,
-    T: Dimension + Copy,
-{
+impl<T: StackType> Widget for Grid<T> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.render_ref(area, buf)
     }
 }
 
-impl<D, T> WidgetRef for Grid<D, T>
-where
-    D: Dimension + AtLeast<3> + Clone + Copy + fmt::Debug,
-    T: Dimension + Copy,
-{
+impl<T: StackType> WidgetRef for Grid<T> {
     /// rendering of Grids expects there to be 2n rows of characters for an n-row grid, because
     /// Cells are two rows high
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let mut the_stack = self.reference_stack.clone();
 
-        let origin_fifth = the_stack.coefficients()[Bounded::new(1).unwrap()];
-        let origin_third = the_stack.coefficients()[Bounded::new(2).unwrap()];
+        let origin_fifth = the_stack.coefficients()[1];
+        let origin_third = the_stack.coefficients()[2];
 
-        let (mut min_fifth, mut max_fifth) = self.neighbourhood.bounds(Bounded::new(1).unwrap());
-        let (mut min_third, mut max_third) = self.neighbourhood.bounds(Bounded::new(2).unwrap());
+        let (mut min_fifth, mut max_fifth) = self.neighbourhood.bounds(1);
+        let (mut min_third, mut max_third) = self.neighbourhood.bounds(2);
         min_fifth += origin_fifth;
         max_fifth += origin_fifth;
         min_third += origin_third;
@@ -104,24 +94,21 @@ where
 
         the_stack.increment_at_index(
             &self.active_temperaments,
-            Bounded::new(2).unwrap(),
-            min_third - self.reference_stack.coefficients()[Bounded::new(2).unwrap()],
+            2,
+            min_third - self.reference_stack.coefficients()[2],
         );
         the_stack.increment_at_index(
             &self.active_temperaments,
-            Bounded::new(1).unwrap(),
-            min_fifth - self.reference_stack.coefficients()[Bounded::new(1).unwrap()],
+            1,
+            min_fifth - self.reference_stack.coefficients()[1],
         );
 
         for i in min_third..=max_third {
             for j in min_fifth..=max_fifth {
                 let mut state = CellState::Off;
                 for k in 0..12 {
-                    if self.neighbourhood.coefficients[k][Bounded::new(1).unwrap()] + origin_fifth
-                        == j
-                        && self.neighbourhood.coefficients[k][Bounded::new(2).unwrap()]
-                            + origin_third
-                            == i
+                    if self.neighbourhood.coefficients[k][1] + origin_fifth == j
+                        && self.neighbourhood.coefficients[k][2] + origin_third == i
                     {
                         if self.active_classes[(k as usize + self.reference_key as usize) % 12]
                         {
@@ -143,32 +130,21 @@ where
                     },
                     buf,
                 );
-                the_stack.increment_at_index(
-                    &self.active_temperaments,
-                    Bounded::new(1).unwrap(),
-                    1,
-                );
+                the_stack.increment_at_index(&self.active_temperaments, 1, 1);
             }
-            the_stack.increment_at_index(&self.active_temperaments, Bounded::new(2).unwrap(), 1);
-            the_stack.increment_at_index(
-                &self.active_temperaments,
-                Bounded::new(1).unwrap(),
-                min_fifth - max_fifth - 1,
-            );
+            the_stack.increment_at_index(&self.active_temperaments, 2, 1);
+            the_stack.increment_at_index(&self.active_temperaments, 1, min_fifth - max_fifth - 1);
         }
     }
 }
 
-fn render_stack<D, T>(
-    stack: &Stack<D, T>,
+fn render_stack<T: StackType>(
+    stack: &Stack<T>,
     state: CellState,
     config: &DisplayConfig,
     area: Rect,
     buf: &mut Buffer,
-) where
-    D: Dimension + AtLeast<3> + fmt::Debug + Copy,
-    T: Dimension + Copy,
-{
+) {
     // Rendering grid cells expects that we have two rows.
     buf.set_string(
         area.x,
@@ -176,7 +152,7 @@ fn render_stack<D, T>(
         stack.notename(&config.notenamestyle),
         Style::default(),
     );
-    let deviation = stack.correction_semitones();
+    let deviation = stack.impure_semitones();
     if !stack.is_pure() {
         buf.set_string(
             area.x,
@@ -204,16 +180,12 @@ fn render_stack<D, T>(
     buf.set_style(area, style);
 }
 
-impl<D, T> UIState<D, T> for Grid<D, T>
-where
-    D: Dimension + AtLeast<3> + PartialEq + fmt::Debug + Copy,
-    T: Dimension + PartialEq + Copy,
-{
+impl<T: StackType> UIState<T> for Grid<T> {
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: msg::ToUI<D, T>,
-        to_process: &mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+        msg: msg::ToUI<T>,
+        to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
         tui: &mut Tui,
     ) {
         let draw_frame = |t: &mut Tui, g: &Self| {
@@ -223,7 +195,7 @@ where
         };
 
         let send_to_process =
-            |msg: msg::ToProcess<D, T>, time: Instant| to_process.send((time, msg)).unwrap_or(());
+            |msg: msg::ToProcess, time: Instant| to_process.send((time, msg)).unwrap_or(());
 
         match msg {
             msg::ToUI::Start => {
@@ -246,7 +218,7 @@ where
                         match k.code {
                             KeyCode::Char('q') => send_to_process(msg::ToProcess::Stop, time),
                             KeyCode::Esc => {
-                                *self = GridConfig::<D, T>::initialise(&self.config);
+                                *self = GridConfig::initialise(&self.config);
                                 send_to_process(msg::ToProcess::Reset, time);
                             }
                             KeyCode::Down => {
@@ -280,12 +252,12 @@ where
                             }
 
                             KeyCode::Char('1') => {
-                                let index = Bounded::new(0).unwrap();
+                                let index = 0;
                                 self.active_temperaments[index] = !self.active_temperaments[index];
                                 send_to_process(msg::ToProcess::ToggleTemperament {index}, time);
                             }
                             KeyCode::Char('2') => {
-                                let index = Bounded::new(1).unwrap();
+                                let index = 1;
                                 self.active_temperaments[index] = !self.active_temperaments[index];
                                 send_to_process(msg::ToProcess::ToggleTemperament {index}, time);
                             }
@@ -322,30 +294,40 @@ where
     }
 }
 
-#[derive(Clone)]
-pub struct GridConfig<D: Dimension + AtLeast<3>, T: Dimension> {
+pub struct GridConfig<T: StackType> {
     pub display_config: DisplayConfig,
     pub initial_reference_key: i8,
-    pub stack_type: Arc<StackType<D, T>>,
+    pub stack_type: Arc<T>,
     pub initial_neighbourhood_width: StackCoeff,
     pub initial_neighbourhood_index: StackCoeff,
     pub initial_neighbourhood_offset: StackCoeff,
 }
 
-impl<D, T> Config<Grid<D, T>> for GridConfig<D, T>
-where
-    D: Dimension + AtLeast<3> + Copy + fmt::Debug,
-    T: Dimension + Copy,
-{
-    fn initialise(config: &Self) -> Grid<D, T> {
+// derive(Clone) doesn't handle cloning `Arc` correctly
+impl<T: StackType> Clone for GridConfig<T> {
+    fn clone(&self) -> Self {
+        GridConfig {
+            display_config: self.display_config.clone(),
+            initial_reference_key: self.initial_reference_key.clone(),
+            stack_type: self.stack_type.clone(),
+            initial_neighbourhood_width: self.initial_neighbourhood_width,
+            initial_neighbourhood_index: self.initial_neighbourhood_index,
+            initial_neighbourhood_offset: self.initial_neighbourhood_offset,
+        }
+    }
+}
+
+impl<T: StackType> Config<Grid<T>> for GridConfig<T> {
+    fn initialise(config: &Self) -> Grid<T> {
+        let no_active_temperaments = vec![false; config.stack_type.num_temperaments()];
         Grid {
             reference_key: config.initial_reference_key,
             reference_stack: Stack::new(
                 config.stack_type.clone(),
-                &vector_from_elem(false),
-                vector_from_elem(0),
+                &no_active_temperaments,
+                vec![0; config.stack_type.num_intervals()],
             ),
-            active_temperaments: vector_from_elem(false),
+            active_temperaments: no_active_temperaments,
             neighbourhood: Neighbourhood::fivelimit_new(
                 config.initial_neighbourhood_width,
                 config.initial_neighbourhood_index,

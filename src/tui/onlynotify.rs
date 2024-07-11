@@ -4,23 +4,19 @@ use crossterm::{execute, terminal::*};
 
 use crate::{
     config::r#trait::Config,
+    interval::StackType,
     msg,
     tui::r#trait::{Tui, UIState},
-    util::dimension::Dimension,
 };
 
 pub struct OnlyNotify {}
 
-impl<D, T> UIState<D, T> for OnlyNotify
-where
-    D: Dimension + fmt::Debug,
-    T: Dimension + fmt::Debug,
-{
+impl<T: StackType + fmt::Debug> UIState<T> for OnlyNotify {
     fn handle_msg(
         &mut self,
         _time: Instant,
-        msg: msg::ToUI<D, T>,
-        _to_process: &mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+        msg: msg::ToUI<T>,
+        _to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
         _tui: &mut Tui,
     ) {
         match msg {

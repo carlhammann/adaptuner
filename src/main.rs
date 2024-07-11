@@ -16,6 +16,7 @@ use crossterm::{
 };
 use midi_msg::Channel;
 use midir::{MidiIO, MidiInput, MidiOutput};
+use ndarray::arr2;
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
 use adaptuner::{
@@ -23,27 +24,22 @@ use adaptuner::{
     backend::r#trait::BackendState,
     config::{r#trait::Config, CompleteConfig, MidiPortConfig},
     interval,
-    interval::{Semitones, Temperament},
-    msg, neighbourhood, notename, process,
+    interval::{Semitones, StackType, Temperament},
+    msg, notename, process,
     process::r#trait::ProcessState,
     tui,
-    tui::{Tui, UIState},
-    util::dimension::{
-        fixed_sizes::{Size0, Size1, Size2, Size3},
-        matrix, vector, Dimension,
-    },
+    tui::r#trait::{Tui, UIState},
 };
 
-fn start_process<D, T, STATE, CONFIG>(
+fn start_process<T, STATE, CONFIG>(
     config: CONFIG,
-    msg_rx: mpsc::Receiver<(Instant, msg::ToProcess<D, T>)>,
+    msg_rx: mpsc::Receiver<(Instant, msg::ToProcess)>,
     backend_tx: mpsc::Sender<(Instant, msg::ToBackend)>,
-    ui_tx: mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
+    ui_tx: mpsc::Sender<(Instant, msg::ToUI<T>)>,
 ) -> thread::JoinHandle<()>
 where
-    D: Dimension + Send + Sync + 'static,
-    T: Dimension + Send + Sync + 'static,
-    STATE: ProcessState<D, T>,
+    T: StackType + Send + Sync + 'static,
+    STATE: ProcessState<T>,
     CONFIG: Config<STATE> + Send + Sync + 'static,
 {
     thread::spawn(move || {
@@ -61,16 +57,15 @@ where
     })
 }
 
-fn start_ui<D, T, STATE, CONFIG>(
+fn start_ui<T, STATE, CONFIG>(
     config: CONFIG,
-    msg_rx: mpsc::Receiver<(Instant, msg::ToUI<D, T>)>,
-    process_tx: mpsc::Sender<(Instant, msg::ToProcess<D, T>)>,
+    msg_rx: mpsc::Receiver<(Instant, msg::ToUI<T>)>,
+    process_tx: mpsc::Sender<(Instant, msg::ToProcess)>,
     mut tui: Tui,
 ) -> thread::JoinHandle<()>
 where
-    D: Dimension + Send + Sync + 'static,
-    T: Dimension + Send + Sync + 'static,
-    STATE: UIState<D, T>,
+    T: StackType + Send + Sync + 'static,
+    STATE: UIState<T>,
     CONFIG: Config<STATE> + Send + Sync + 'static,
 {
     thread::spawn(move || {
@@ -88,16 +83,15 @@ where
     })
 }
 
-fn start_backend<D, T, STATE, CONFIG>(
+fn start_backend<T, STATE, CONFIG>(
     config: CONFIG,
     msg_rx: mpsc::Receiver<(Instant, msg::ToBackend)>,
-    ui_tx: mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
+    ui_tx: mpsc::Sender<(Instant, msg::ToUI<T>)>,
     midi_tx: mpsc::Sender<(Instant, Vec<u8>)>,
 ) -> thread::JoinHandle<()>
 where
-    D: Dimension + Send + Sync + 'static,
-    T: Dimension + Send + Sync + 'static,
-    STATE: BackendState<D, T>,
+    T: StackType + Send + Sync + 'static,
+    STATE: BackendState<T>,
     CONFIG: Config<STATE> + Send + Sync + 'static,
 {
     thread::spawn(move || {
@@ -131,20 +125,19 @@ fn select_port<T: MidiIO>(midi_io: &T, descr: &str) -> Result<T::Port, Box<dyn E
     Ok(port.clone())
 }
 
-fn run<D, T, P, PCONFIG, B, BCONFIG, U, UCONFIG>(
+fn run<T, P, PCONFIG, B, BCONFIG, U, UCONFIG>(
     process_config: PCONFIG,
     backend_config: BCONFIG,
     ui_config: UCONFIG,
     _port_config: MidiPortConfig,
 ) -> Result<(), Box<dyn Error>>
 where
-    D: Dimension + Send + Sync + 'static,
-    T: Dimension + Send + Sync + 'static,
-    P: ProcessState<D, T>,
+    T: StackType + Sync + Send + 'static,
+    P: ProcessState<T>,
     PCONFIG: Config<P> + Send + Sync + 'static,
-    B: BackendState<D, T>,
+    B: BackendState<T>,
     BCONFIG: Config<B> + Send + Sync + 'static,
-    U: UIState<D, T>,
+    U: UIState<T>,
     UCONFIG: Config<U> + Send + Sync + 'static,
 {
     let (to_backend_tx, to_backend_rx) = mpsc::channel();
@@ -281,8 +274,8 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let initial_neighbourhood_index = 5;
     let initial_neighbourhood_offset = 1;
     let initial_reference_key = 60;
-    let stack_type = Arc::new(interval::StackType::new(
-        vector(&[
+    let stack_type = Arc::new(interval::ConcreteStackType::new(
+        vec![
             interval::Interval {
                 name: "octave".to_string(),
                 semitones: 12.0,
@@ -298,23 +291,21 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                 semitones: 12.0 * (1.25 as Semitones).log2(),
                 key_distance: 4,
             },
-        ])
-        .unwrap(),
-        vector(&[
+        ],
+        vec![
             Temperament::new(
                 "12edo".into(),
-                matrix(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]).unwrap(),
-                &matrix(&[[7, 0, 0], [1, 0, 0], [1, 0, 0]]).unwrap(),
+                arr2(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]),
+                arr2(&[[7, 0, 0], [1, 0, 0], [1, 0, 0]]).view(),
             )
             .unwrap(),
             Temperament::new(
                 "1/4-comma fifths".into(),
-                matrix(&[[0, 4, 0], [0, 0, 1], [1, 0, 0]]).unwrap(),
-                &matrix(&[[2, 0, 1], [0, 0, 1], [1, 0, 0]]).unwrap(),
+                arr2(&[[0, 4, 0], [0, 0, 1], [1, 0, 0]]),
+                arr2(&[[2, 0, 1], [0, 0, 1], [1, 0, 0]]).view(),
             )
             .unwrap(),
-        ])
-        .unwrap(),
+        ],
     ));
     // let initial_reference_stack = interval::Stack::new(
     //     stack_type.clone(),
@@ -323,16 +314,15 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     // );
 
     let not_so_trivial_config: CompleteConfig<
-        Size3,
-        Size2,
-        process::static12::Static12<Size3, Size2>,
-        process::static12::Static12Config<Size3, Size2>,
+        interval::ConcreteStackType,
+        process::static12::Static12<interval::ConcreteStackType>,
+        process::static12::Static12Config<interval::ConcreteStackType>,
         backend::pitchbend16::Pitchbend16<15>,
         backend::pitchbend16::Pitchbend16Config<15>,
         // tui::onlynotify::OnlyNotify,
         // tui::onlynotify::OnlyNotifyConfig,
-        tui::grid::Grid<Size3, Size2>,
-        tui::grid::GridConfig<Size3, Size2>,
+        tui::grid::Grid<interval::ConcreteStackType>,
+        tui::grid::GridConfig<interval::ConcreteStackType>,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
         process_config: process::static12::Static12Config {
@@ -374,7 +364,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
             initial_neighbourhood_index,
             initial_neighbourhood_width,
         },
-        //ui_config: tui::onlynotify::OnlyNotifyConfig {},
+        // ui_config: tui::onlynotify::OnlyNotifyConfig {},
         _phantom: PhantomData,
     };
 

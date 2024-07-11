@@ -3,12 +3,10 @@
 //! intervals, where "stacks" are integer linear combinations.
 
 use fractionfree;
-use ndarray::Array1;
+use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 use num_integer::Integer;
 use num_traits::Signed;
 use std::{error::Error, fmt, ops};
-
-use crate::util::dimension::{Bounded, Dimension, Matrix, Vector, VectorView};
 
 /// A description of a temperament, i.e. "how much you detune" some intervals.
 ///
@@ -17,13 +15,20 @@ use crate::util::dimension::{Bounded, Dimension, Matrix, Vector, VectorView};
 /// version of this set of intervals. How much we detune the intervals, in terms of fractions of
 /// linear combinations of the base intervals, is what an element of this type encodes.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Temperament<D: Dimension, I> {
+pub struct Temperament<I> {
     pub name: String,
-    commas: Matrix<D, D, I>,
-    denominators: Vector<D, I>,
+
+    /// a `D x D` matrix. The i-th row describes the "comma" by which the i-th interval is
+    /// detuned: The comma is given as a linear combination of base intervals, and the
+    /// coefficients of that linear combination are what the row contains.
+    commas: Array2<I>,
+
+    /// Often, you don't detune the interval with the whole comma, but only with a fraction
+    /// thereof. This vector stores the denominators of these fractions.
+    denominators: Array1<I>,
 }
 
-impl<D, I> Temperament<D, I>
+impl<I> Temperament<I>
 where
     I: Copy
         + ops::Div<Output = I>
@@ -33,8 +38,12 @@ where
         + Signed
         + Integer
         + 'static,
-    D: Dimension + fmt::Debug,
 {
+    /// the number of base intervals
+    pub fn dimension(&self) -> usize {
+        self.denominators.len()
+    }
+
     /// The error "tempered out" by the `i`-th interval, given as (the coefficients of) a linear
     /// combination of pure intervals.
     ///
@@ -46,12 +55,12 @@ where
     /// * `gcd(x.denominator(i), x.comma(i)[0], ..., x.comma(i)[D]) == 1`
     ///
     /// * `denominator(i) > 0`
-    pub fn comma(&self, i: Bounded<D>) -> VectorView<D, I> {
-        self.commas.row_ref(i)
+    pub fn comma(&self, i: usize) -> ArrayView1<I> {
+        self.commas.slice(s![i, ..])
     }
 
     /// See the documentation of [comma][Temperament::comma].
-    pub fn denominator(&self, i: Bounded<D>) -> I {
+    pub fn denominator(&self, i: usize) -> I {
         self.denominators[i]
     }
 
@@ -74,29 +83,24 @@ where
     /// ```
     /// # use ndarray::{arr1, arr2};
     /// # use adaptuner::interval::*;
-    /// # use adaptuner::util::dimension::*;
-    /// # use adaptuner::util::dimension::fixed_sizes::*;
     /// # fn main () {
-    /// let tempered = matrix(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]).unwrap();
-    /// let pure     = matrix(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]).unwrap();
+    /// let tempered = arr2(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]);
+    /// let pure     = arr2(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]);
     ///
-    /// let t = Temperament::<Size3, i32>::new(String::from("name of temperament"), tempered, &pure).unwrap();
+    /// let t = Temperament::new(String::from("name of temperament"), tempered, pure.view()).unwrap();
     ///
-    /// let i0 = Bounded::<Size3>::new(0).unwrap();
-    /// let i1 = Bounded::<Size3>::new(1).unwrap();
-    /// let i2 = Bounded::<Size3>::new(2).unwrap();
+    /// assert_eq!(t.comma(0), arr1(&[0, 0, 0]).view());
+    /// assert_eq!(t.comma(1), arr1(&[2, -4, 1]).view());
+    /// assert_eq!(t.comma(2), arr1(&[0, 0, 0]).view());
     ///
-    /// assert_eq!(t.comma(i0), vector(&[0, 0, 0]).unwrap().view());
-    /// assert_eq!(t.comma(i1), vector(&[2, -4, 1]).unwrap().view());
-    /// assert_eq!(t.comma(i2), vector(&[0, 0, 0]).unwrap().view());
-    ///
-    /// assert_eq!(t.denominator(i0), 1);
-    /// assert_eq!(t.denominator(i1), 4);
-    /// assert_eq!(t.denominator(i2), 1);
+    /// assert_eq!(t.denominator(0), 1);
+    /// assert_eq!(t.denominator(1), 4);
+    /// assert_eq!(t.denominator(2), 1);
     /// # }
     ///```
     /// The first rows of `tempered` and `pure` encode the constraint that four tempered fifths should
-    /// be equal to two pure octaves plus one pure third. The other two rows rows say that tempered
+    /// be e
+    /// qual to two pure octaves plus one pure third. The other two rows rows say that tempered
     /// octaves and thirds should be equal to their pure counterparts. Thus, the temperament described
     /// by `tempered` and `pure` is: "Make four fifths the same size as two octaves and a third, and
     /// don't detune octaves and thirds". This is, of course, the definition of quarter-comma meantone.
@@ -108,29 +112,33 @@ where
     /// error is distributed between four fifths.
     pub fn new(
         name: String,
-        tempered: Matrix<D, D, I>,
-        pure: &Matrix<D, D, I>,
-    ) -> Result<Temperament<D, I>, TemperamentErr> {
-        let tempered_lu = match fractionfree::lu(tempered.into_array2()) {
+        tempered: Array2<I>,
+        pure: ArrayView2<I>,
+    ) -> Result<Temperament<I>, TemperamentErr> {
+        let d = tempered.raw_dim()[0];
+
+        let tempered_lu = match fractionfree::lu(tempered) {
+            Err(fractionfree::LinalgErr::LURankDeficient) => {
+                return Err(TemperamentErr::Indeterminate)
+            }
             Err(e) => return Err(TemperamentErr::FromLinalgErr(e)),
             Ok(x) => x,
         };
 
         let (det, adj) = tempered_lu.inverse()?;
 
-        let d = adj.raw_dim()[0];
-        let mut e = adj.dot(pure.get_array2());
+        let mut e = adj.dot(&pure);
         for i in 0..d {
             e[[i, i]] -= det;
         }
 
-        let mut k = Array1::from_elem(D::value(), det);
+        let mut k = Array1::from_elem(d, det);
         fractionfree::normalise(&mut k.view_mut(), &mut e.view_mut())?;
 
         Ok(Temperament {
             name,
-            commas: Matrix::new(e).unwrap(),
-            denominators: Vector::new(k).unwrap(),
+            commas: e,
+            denominators: k,
         })
     }
 }

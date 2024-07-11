@@ -1,6 +1,5 @@
 pub mod fivelimit {
-    use crate::interval::{Stack, StackCoeff};
-    use crate::util::dimension::{AtLeast, Bounded, Dimension};
+    use crate::interval::{Stack, StackCoeff, StackType};
     use std::fmt;
 
     pub struct NoteName {
@@ -11,18 +10,19 @@ pub mod fivelimit {
     }
 
     const JOHNSTON_BASE_ROW: [char; 7] = ['F', 'A', 'C', 'E', 'G', 'B', 'D'];
+
     impl NoteName {
         /// Construct a [NoteName] from a [Stack] of intervals on middle C.
         ///
         /// It is assumed that the first three entries in the [coefficients][Stack::coefficients]
         /// of the argument denote the numbers of octaves, fifths, and thirds, in that order. (In
         /// particular, there must be at least three base intervals.)
-        pub fn new<D: AtLeast<3> + Copy + fmt::Debug, T: Dimension + Copy>(
-            s: &Stack<D, T>,
-        ) -> Self {
-            let octaves = s.coefficients()[Bounded::new(0).unwrap()];
-            let fifths = s.coefficients()[Bounded::new(1).unwrap()];
-            let thirds = s.coefficients()[Bounded::new(2).unwrap()];
+        pub fn new<T: StackType>(s: &Stack<T>) -> Self {
+            // TODO implement this only for some suitable "fivelimit stack
+            // type"
+            let octaves = s.coefficients()[0];
+            let fifths = s.coefficients()[1];
+            let thirds = s.coefficients()[2];
             let ix = 2 + 2 * fifths + thirds;
             NoteName {
                 base: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],
@@ -96,7 +96,6 @@ pub mod fivelimit {
     mod test {
         use super::*;
         use crate::interval::stack_test_setup::init_stacktype;
-        use crate::util::dimension::vector;
         use std::sync::Arc;
 
         #[test]
@@ -131,12 +130,8 @@ pub mod fivelimit {
 
             for (coeffs, name) in examples.iter() {
                 assert_eq!(
-                    NoteName::new(&Stack::new(
-                        st.clone(),
-                        &vector(&[false, false]).unwrap(),
-                        vector(coeffs).unwrap()
-                    ))
-                    .str_full(),
+                    NoteName::new(&Stack::new(st.clone(), &[false, false], coeffs.to_vec()))
+                        .str_full(),
                     String::from(*name)
                 );
             }

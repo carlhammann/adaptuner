@@ -3,25 +3,26 @@ use std::{sync::mpsc, time::Instant};
 use midi_msg::{ChannelVoiceMsg, MidiMsg};
 
 use crate::{
-    config::r#trait::Config, interval::Semitones, msg, process::r#trait::ProcessState,
-    util::dimension::Dimension,
+    config::r#trait::Config,
+    interval::{Semitones, StackType},
+    msg,
+    process::r#trait::ProcessState,
 };
 
 pub struct OnlyForward {}
 
 impl OnlyForward {
-    fn handle_midi_msg<D: Dimension, T: Dimension>(
+    fn handle_midi_msg<T: StackType>(
         &mut self,
         time: Instant,
         bytes: &Vec<u8>,
         to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
     ) {
         let send_to_backend =
             |msg: msg::ToBackend, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
-        let send_to_ui =
-            |msg: msg::ToUI<D, T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
 
         match MidiMsg::from_midi(&bytes) {
             Err(e) => send_to_ui(msg::ToUI::MidiParseErr(e), time),
@@ -85,13 +86,13 @@ impl OnlyForward {
     }
 }
 
-impl<D: Dimension, T: Dimension> ProcessState<D, T> for OnlyForward {
+impl<T: StackType> ProcessState<T> for OnlyForward {
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: crate::msg::ToProcess<D, T>,
+        msg: crate::msg::ToProcess,
         to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<D, T>)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
     ) {
         match msg {
             msg::ToProcess::IncomingMidi { bytes } => {

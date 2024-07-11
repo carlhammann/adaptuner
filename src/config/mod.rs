@@ -1,14 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::{
-    backend,
-    backend::r#trait::BackendState,
-    config::r#trait::Config,
-    process,
-    process::r#trait::ProcessState,
-    tui,
-    tui::r#trait::UIState,
-    util::dimension::{fixed_sizes::Size0, Dimension},
+    backend, backend::r#trait::BackendState, config::r#trait::Config, interval,
+    interval::StackType, process, process::r#trait::ProcessState, tui, tui::r#trait::UIState,
 };
 
 pub mod r#trait;
@@ -18,27 +12,25 @@ pub enum MidiPortConfig {
     AskAtStartup,
 }
 
-pub struct CompleteConfig<D, T, P, PCONFIG, B, BCONFIG, U, UCONFIG>
+pub struct CompleteConfig<T, P, PCONFIG, B, BCONFIG, U, UCONFIG>
 where
-    D: Dimension,
-    T: Dimension,
-    P: ProcessState<D, T>,
+    T: StackType,
+    P: ProcessState<T>,
     PCONFIG: Config<P>,
-    B: BackendState<D, T>,
+    B: BackendState<T>,
     BCONFIG: Config<B>,
-    U: UIState<D, T>,
+    U: UIState<T>,
     UCONFIG: Config<U>,
 {
     pub midi_port_config: MidiPortConfig,
     pub process_config: PCONFIG,
     pub backend_config: BCONFIG,
     pub ui_config: UCONFIG,
-    pub _phantom: PhantomData<(D, T, P, B, U)>,
+    pub _phantom: PhantomData<(T, P, B, U)>,
 }
 
 pub static TRIVIAL_CONFIG: CompleteConfig<
-    Size0,
-    Size0,
+    interval::ConcreteStackType,
     process::onlyforward::OnlyForward,
     process::onlyforward::OnlyForwardConfig,
     backend::onlyforward::OnlyForward,
