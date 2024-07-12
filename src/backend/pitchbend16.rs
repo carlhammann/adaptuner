@@ -28,14 +28,17 @@ struct NoteInfo {
     sustained: bool,
 }
 
-pub struct Pitchbend16 {
-    config: Pitchbend16Config,
+pub struct Pitchbend16<const NCHANNELS: usize> {
+    config: Pitchbend16Config<NCHANNELS>,
+
+    /// the channels to use. Exlude CH10 for GM compatibility
+    channels: [Channel; NCHANNELS],
 
     /// the pitch bend value of every channel
-    bends: [u16; 16],
+    bends: [u16; NCHANNELS],
 
     /// How many notes are currently sounding on each channel
-    usage: [u8; 16],
+    usage: [u8; NCHANNELS],
 
     /// which notes are currently active, and on which channel they sound, and which note they map
     /// to on that channel.
@@ -58,7 +61,9 @@ fn semitones_from_bend(bend_range: Semitones, bend: u16) -> Semitones {
     (bend as Semitones - 8192.0) / 8191.0 * bend_range
 }
 
-impl<D: Dimension + fmt::Debug, T: Dimension + fmt::Debug> BackendState<D, T> for Pitchbend16 {
+impl<const NCHANNELS: usize, D: Dimension + fmt::Debug, T: Dimension + fmt::Debug>
+    BackendState<D, T> for Pitchbend16<NCHANNELS>
+{
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -81,8 +86,8 @@ impl<D: Dimension + fmt::Debug, T: Dimension + fmt::Debug> BackendState<D, T> fo
         match msg {
             msg::ToBackend::Start | msg::ToBackend::Reset => {
                 *self = Pitchbend16Config::initialise(&self.config);
-                for i in 0..16 {
-                    let channel = Channel::from_u8(i as u8);
+                for i in 0..NCHANNELS {
+                    let channel = self.channels[i];
                     send(
                         MidiMsg::ChannelVoice {
                             channel,
@@ -123,9 +128,9 @@ impl<D: Dimension + fmt::Debug, T: Dimension + fmt::Debug> BackendState<D, T> fo
 
                 // Try to find a channel that already has the given pitch bend, and add the new
                 // note to that channel:
-                for i in 0..16 {
+                for i in 0..NCHANNELS {
                     if self.bends[i] == bend {
-                        let channel = Channel::from_u8(i as u8);
+                        let channel = self.channels[i];
                         send(
                             MidiMsg::ChannelVoice {
                                 channel,
@@ -154,9 +159,9 @@ impl<D: Dimension + fmt::Debug, T: Dimension + fmt::Debug> BackendState<D, T> fo
                     // Now, we know that there was no channel with the pich bend we need. Thus, we
                     // try to find an unused channel and start using it with the add the new note
                     // with the correct pitch bend:
-                    for i in 0..16 {
+                    for i in 0..NCHANNELS {
                         if self.usage[i] == 0 {
-                            let channel = Channel::from_u8(i as u8);
+                            let channel = self.channels[i];
                             send(
                                 MidiMsg::ChannelVoice {
                                     channel,
@@ -195,13 +200,13 @@ impl<D: Dimension + fmt::Debug, T: Dimension + fmt::Debug> BackendState<D, T> fo
                     // bend we need. Thus, let's take the channel with the closest pitch bend, and send
                     // a notification to the ui about a detuned note.
 
-                    let mut closest_channel = Channel::Ch1;
+                    let mut closest_channel = self.channels[0];
                     let mut dist = (bend as i32 - self.bends[0] as i32).abs();
-                    for i in 1..16 {
+                    for i in 1..NCHANNELS {
                         let new_dist = (bend as i32 - self.bends[i] as i32).abs();
                         if new_dist < dist {
                             dist = new_dist;
-                            closest_channel = Channel::from_u8(i as u8);
+                            closest_channel = self.channels[i];
                         }
                     }
 
@@ -275,10 +280,10 @@ impl<D: Dimension + fmt::Debug, T: Dimension + fmt::Debug> BackendState<D, T> fo
             },
 
             msg::ToBackend::Sustain { channel: _, value } => {
-                for i in 0..16 {
+                for i in 0..NCHANNELS {
                     send(
                         MidiMsg::ChannelVoice {
-                            channel: Channel::from_u8(i),
+                            channel: self.channels[i],
                             msg: ChannelVoiceMsg::ControlChange {
                                 control: ControlChange::Hold(value),
                             },
@@ -311,10 +316,10 @@ impl<D: Dimension + fmt::Debug, T: Dimension + fmt::Debug> BackendState<D, T> fo
                 channel: _,
                 program,
             } => {
-                for i in 0..16 {
+                for i in 0..NCHANNELS {
                     send(
                         MidiMsg::ChannelVoice {
-                            channel: Channel::from_u8(i),
+                            channel: self.channels[i],
                             msg: ChannelVoiceMsg::ProgramChange { program },
                         },
                         time,
@@ -404,16 +409,18 @@ impl<D: Dimension + fmt::Debug, T: Dimension + fmt::Debug> BackendState<D, T> fo
 }
 
 #[derive(Clone)]
-pub struct Pitchbend16Config {
+pub struct Pitchbend16Config<const NCHANNELS: usize> {
+    pub channels: [Channel; NCHANNELS],
     pub bend_range: Semitones,
 }
 
-impl Config<Pitchbend16> for Pitchbend16Config {
-    fn initialise(config: &Self) -> Pitchbend16 {
+impl<const NCHANNELS: usize> Config<Pitchbend16<NCHANNELS>> for Pitchbend16Config<NCHANNELS> {
+    fn initialise(config: &Self) -> Pitchbend16<NCHANNELS> {
         Pitchbend16 {
+            channels: config.channels,
             config: config.clone(),
-            bends: [8192; 16],
-            usage: [0; 16],
+            bends: [8192; NCHANNELS],
+            usage: [0; NCHANNELS],
             active_notes: [None; 128],
             sustained: false,
             bend_range: config.bend_range,
@@ -452,7 +459,12 @@ mod test {
 
     #[test]
     fn test_sixteen_classes() {
-        let mut s = Pitchbend16Config::initialise(&(Pitchbend16Config { bend_range: 2.0 }));
+        let mut s = Pitchbend16Config::<2>::initialise(
+            &(Pitchbend16Config {
+                channels: [Channel::Ch1, Channel::Ch2],
+                bend_range: 2.0,
+            }),
+        );
 
         let mut now = Instant::now();
         one_case(
@@ -555,11 +567,11 @@ mod test {
             },
             {
                 let mut many_sustains = Vec::new();
-                for i in 0..16 {
+                for channel in [Channel::Ch1, Channel::Ch2] {
                     many_sustains.push((
                         now,
                         MidiMsg::ChannelVoice {
-                            channel: Channel::from_u8(i),
+                            channel,
                             msg: ChannelVoiceMsg::ControlChange {
                                 control: ControlChange::Hold(123),
                             },

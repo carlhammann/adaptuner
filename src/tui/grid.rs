@@ -49,9 +49,11 @@ pub struct Grid<D: Dimension + AtLeast<3>, T: Dimension> {
 
     pub neighbourhood: Neighbourhood<D>,
 
-    /// these are "absolute pitch classes", i.e. not relative tot he reference. The number counts
+    /// these are "absolute pitch classes", i.e. not relative to the reference. The number counts
     /// how many keys of that pich class are currently pressed
-    pub active_classes: [u8; 12],
+    pub active_classes: [bool; 12],
+
+    pub active_notes: [bool; 128],
 
     pub config: GridConfig<D, T>,
 }
@@ -121,7 +123,7 @@ where
                             + origin_third
                             == i
                     {
-                        if self.active_classes[(k as usize + self.reference_key as usize) % 12] > 0
+                        if self.active_classes[(k as usize + self.reference_key as usize) % 12]
                         {
                             state = CellState::On;
                         } else {
@@ -276,6 +278,17 @@ where
                                 send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
 
                             }
+
+                            KeyCode::Char('1') => {
+                                let index = Bounded::new(0).unwrap();
+                                self.active_temperaments[index] = !self.active_temperaments[index];
+                                send_to_process(msg::ToProcess::ToggleTemperament {index}, time);
+                            }
+                            KeyCode::Char('2') => {
+                                let index = Bounded::new(1).unwrap();
+                                self.active_temperaments[index] = !self.active_temperaments[index];
+                                send_to_process(msg::ToProcess::ToggleTemperament {index}, time);
+                            }
                             _ => {}
                         }
                     }
@@ -289,11 +302,20 @@ where
                 draw_frame(tui, self);
             }
             msg::ToUI::TunedNoteOn { note, .. } => { // TODO use the tuning data!
-                self.active_classes[(note % 12) as usize] = self.active_classes[(note % 12) as usize].saturating_add(1);
+                self.active_classes[(note % 12) as usize] = true;
+                self.active_notes[note as usize] = true;
                 draw_frame(tui, self);
             }
             msg::ToUI::NoteOff { note } => {
-                self.active_classes[(note % 12) as usize] = self.active_classes[(note % 12) as usize].saturating_sub(1);
+                self.active_notes[note as usize] = false;
+                let mut any_on = false;
+                for i in ((note%12)..128).step_by(12) {
+                    if self.active_notes[i as usize] {
+                        any_on = true;
+                    }
+                }
+
+                self.active_classes[(note % 12) as usize] = any_on; 
                 draw_frame(tui, self);
             }
         }
@@ -329,7 +351,8 @@ where
                 config.initial_neighbourhood_index,
                 config.initial_neighbourhood_offset,
             ),
-            active_classes: [0; 12],
+            active_notes: [false; 128],
+            active_classes: [false; 12],
             config: config.clone(),
         }
     }

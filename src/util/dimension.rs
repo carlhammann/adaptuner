@@ -441,6 +441,16 @@ pub mod fixed_sizes {
         }
     }
     impl AtLeast<0> for Size0 {}
+    
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Size1 {}
+    impl Dimension for Size1 {
+        fn value() -> usize {
+            1
+        }
+    }
+    impl AtLeast<1> for Size1 {}
+    impl AtLeast<0> for Size1 {}
 
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct Size2 {}

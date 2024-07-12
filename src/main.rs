@@ -14,6 +14,7 @@ use crossterm::{
     event, execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use midi_msg::Channel;
 use midir::{MidiIO, MidiInput, MidiOutput};
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
@@ -22,14 +23,14 @@ use adaptuner::{
     backend::r#trait::BackendState,
     config::{r#trait::Config, CompleteConfig, MidiPortConfig},
     interval,
-    interval::Semitones,
+    interval::{Semitones, Temperament},
     msg, neighbourhood, notename, process,
     process::r#trait::ProcessState,
     tui,
     tui::{Tui, UIState},
     util::dimension::{
-        fixed_sizes::{Size0, Size3},
-        vector, Dimension,
+        fixed_sizes::{Size0, Size1, Size2, Size3},
+        matrix, vector, Dimension,
     },
 };
 
@@ -299,7 +300,21 @@ pub fn main() -> Result<(), Box<dyn Error>> {
             },
         ])
         .unwrap(),
-        vector(&[]).unwrap(),
+        vector(&[
+            Temperament::new(
+                "12edo".into(),
+                matrix(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]).unwrap(),
+                &matrix(&[[7, 0, 0], [1, 0, 0], [1, 0, 0]]).unwrap(),
+            )
+            .unwrap(),
+            Temperament::new(
+                "1/4-comma fifths".into(),
+                matrix(&[[0, 4, 0], [0, 0, 1], [1, 0, 0]]).unwrap(),
+                &matrix(&[[2, 0, 1], [0, 0, 1], [1, 0, 0]]).unwrap(),
+            )
+            .unwrap(),
+        ])
+        .unwrap(),
     ));
     // let initial_reference_stack = interval::Stack::new(
     //     stack_type.clone(),
@@ -309,15 +324,15 @@ pub fn main() -> Result<(), Box<dyn Error>> {
 
     let not_so_trivial_config: CompleteConfig<
         Size3,
-        Size0,
-        process::static12::Static12<Size3, Size0>,
-        process::static12::Static12Config<Size3, Size0>,
-        backend::pitchbend16::Pitchbend16,
-        backend::pitchbend16::Pitchbend16Config,
+        Size2,
+        process::static12::Static12<Size3, Size2>,
+        process::static12::Static12Config<Size3, Size2>,
+        backend::pitchbend16::Pitchbend16<15>,
+        backend::pitchbend16::Pitchbend16Config<15>,
         // tui::onlynotify::OnlyNotify,
         // tui::onlynotify::OnlyNotifyConfig,
-        tui::grid::Grid<Size3, Size0>,
-        tui::grid::GridConfig<Size3, Size0>,
+        tui::grid::Grid<Size3, Size2>,
+        tui::grid::GridConfig<Size3, Size2>,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
         process_config: process::static12::Static12Config {
@@ -327,12 +342,31 @@ pub fn main() -> Result<(), Box<dyn Error>> {
             initial_neighbourhood_index,
             initial_neighbourhood_offset,
         },
-        backend_config: backend::pitchbend16::Pitchbend16Config { bend_range: 2.0 },
+        backend_config: backend::pitchbend16::Pitchbend16Config {
+            channels: [
+                Channel::Ch1,
+                Channel::Ch2,
+                Channel::Ch3,
+                Channel::Ch4,
+                Channel::Ch5,
+                Channel::Ch6,
+                Channel::Ch7,
+                Channel::Ch8,
+                Channel::Ch9,
+                Channel::Ch11,
+                Channel::Ch12,
+                Channel::Ch13,
+                Channel::Ch14,
+                Channel::Ch15,
+                Channel::Ch16,
+            ],
+            bend_range: 2.0,
+        },
         ui_config: tui::grid::GridConfig {
             display_config: tui::grid::DisplayConfig {
-                notenamestyle: notename::NoteNameStyle::JohnstonFiveLimitFull,
+                notenamestyle: notename::NoteNameStyle::JohnstonFiveLimitClass,
                 color_range: 0.2,
-                gradient: colorous::VIRIDIS,
+                gradient: colorous::RED_BLUE,
             },
             stack_type: stack_type.clone(),
             initial_reference_key,
@@ -345,8 +379,8 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // run::<
-    //     adaptuner::util::dimension::fixed_sizes::Size0,
-    //     adaptuner::util::dimension::fixed_sizes::Size0,
+    //     adaptuner::util::dimension::fixed_sizes::Size2,
+    //     adaptuner::util::dimension::fixed_sizes::Size2,
     //     adaptuner::process::onlyforward::OnlyForward,
     //     adaptuner::process::onlyforward::OnlyForwardConfig,
     //     adaptuner::backend::onlyforward::OnlyForward,
@@ -362,8 +396,8 @@ pub fn main() -> Result<(), Box<dyn Error>> {
 
     run
     //     ::<
-    //     adaptuner::util::dimension::fixed_sizes::Size0,
-    //     adaptuner::util::dimension::fixed_sizes::Size0,
+    //     adaptuner::util::dimension::fixed_sizes::Size2,
+    //     adaptuner::util::dimension::fixed_sizes::Size2,
     //     adaptuner::process::onlyforward::OnlyForward,
     //     adaptuner::process::onlyforward::OnlyForwardConfig,
     //     adaptuner::backend::onlyforward::OnlyForward,

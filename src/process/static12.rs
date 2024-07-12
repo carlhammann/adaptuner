@@ -152,6 +152,7 @@ impl<D: Dimension + Copy + fmt::Debug + AtLeast<1>, T: Dimension + Copy> Static1
                             },
                             time,
                         );
+                        self.recompute_and_send_tunings_to_backend(time, to_backend);
                     }
                 }
 
