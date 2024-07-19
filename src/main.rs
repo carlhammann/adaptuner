@@ -24,7 +24,7 @@ use adaptuner::{
     backend::r#trait::BackendState,
     config::{r#trait::Config, CompleteConfig, MidiPortConfig},
     interval,
-    interval::{Semitones, StackType, Temperament},
+    interval::{interval::Semitones, stacktype::r#trait::StackType, temperament::Temperament},
     msg, notename, process,
     process::r#trait::ProcessState,
     tui,
@@ -274,19 +274,19 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let initial_neighbourhood_index = 5;
     let initial_neighbourhood_offset = 1;
     let initial_reference_key = 60;
-    let stack_type = Arc::new(interval::ConcreteStackType::new(
+    let stack_type = Arc::new(interval::stacktype::generic::GenericStackType::new(
         vec![
-            interval::Interval {
+            interval::interval::Interval {
                 name: "octave".to_string(),
                 semitones: 12.0,
                 key_distance: 12,
             },
-            interval::Interval {
+            interval::interval::Interval {
                 name: "fifth".to_string(),
                 semitones: 12.0 * (1.5 as Semitones).log2(),
                 key_distance: 7,
             },
-            interval::Interval {
+            interval::interval::Interval {
                 name: "third".to_string(),
                 semitones: 12.0 * (1.25 as Semitones).log2(),
                 key_distance: 4,
@@ -314,15 +314,15 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     // );
 
     let not_so_trivial_config: CompleteConfig<
-        interval::ConcreteStackType,
-        process::static12::Static12<interval::ConcreteStackType>,
-        process::static12::Static12Config<interval::ConcreteStackType>,
+        interval::stacktype::generic::GenericStackType,
+        process::static12::Static12<interval::stacktype::generic::GenericStackType>,
+        process::static12::Static12Config<interval::stacktype::generic::GenericStackType>,
         backend::pitchbend16::Pitchbend16<15>,
         backend::pitchbend16::Pitchbend16Config<15>,
         // tui::onlynotify::OnlyNotify,
         // tui::onlynotify::OnlyNotifyConfig,
-        tui::grid::Grid<interval::ConcreteStackType>,
-        tui::grid::GridConfig<interval::ConcreteStackType>,
+        tui::grid::Grid<interval::stacktype::generic::GenericStackType>,
+        tui::grid::GridConfig<interval::stacktype::generic::GenericStackType>,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
         process_config: process::static12::Static12Config {

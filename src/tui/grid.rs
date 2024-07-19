@@ -9,7 +9,7 @@ use ratatui::{prelude::*, widgets::WidgetRef};
 
 use crate::{
     config::r#trait::Config,
-    interval::{Semitones, Stack, StackCoeff, StackType},
+    interval::{stacktype::r#trait::{StackCoeff, StackType}, interval::Semitones, stack::Stack},
     msg,
     neighbourhood::Neighbourhood,
     notename::NoteNameStyle,

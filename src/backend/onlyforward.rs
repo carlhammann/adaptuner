@@ -2,7 +2,10 @@ use std::{sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
-use crate::{backend::r#trait::BackendState, config::r#trait::Config, interval::StackType, msg};
+use crate::{
+    backend::r#trait::BackendState, config::r#trait::Config,
+    interval::stacktype::r#trait::StackType, msg,
+};
 
 pub struct OnlyForward {}
 

@@ -1,6 +1,6 @@
 use std::{sync::mpsc, time::Instant};
 
-use crate::{interval::StackType, msg};
+use crate::{interval::stacktype::r#trait::StackType, msg};
 
 pub trait BackendState<T: StackType> {
     fn handle_msg(

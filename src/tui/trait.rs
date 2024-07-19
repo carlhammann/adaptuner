@@ -2,7 +2,7 @@ use std::{io::Stdout, sync::mpsc, time::Instant};
 
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
-use crate::{interval::StackType, msg};
+use crate::{interval::stacktype::r#trait::StackType, msg};
 
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;

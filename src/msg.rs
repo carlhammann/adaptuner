@@ -1,12 +1,12 @@
 use midi_msg::{Channel, MidiMsg};
 
 use crate::{
-    interval::{Semitones, StackType, Stack},
+    interval::{interval::Semitones, stack::Stack, stacktype::r#trait::StackType},
     neighbourhood::Neighbourhood,
 };
 
 #[derive(Debug, PartialEq)]
-pub enum ToUI<T:StackType> {
+pub enum ToUI<T: StackType> {
     Start,
     Stop,
 

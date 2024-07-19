@@ -1,5 +1,8 @@
 pub mod fivelimit {
-    use crate::interval::{Stack, StackCoeff, StackType};
+    use crate::interval::{
+        stack::Stack,
+        stacktype::r#trait::{StackCoeff, StackType},
+    };
     use std::fmt;
 
     pub struct NoteName {
@@ -95,7 +98,7 @@ pub mod fivelimit {
     #[cfg(test)]
     mod test {
         use super::*;
-        use crate::interval::stack_test_setup::init_stacktype;
+        use crate::interval::stack::stack_test_setup::init_stacktype;
         use std::sync::Arc;
 
         #[test]

@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::{
     backend, backend::r#trait::BackendState, config::r#trait::Config, interval,
-    interval::StackType, process, process::r#trait::ProcessState, tui, tui::r#trait::UIState,
+    interval::stacktype::r#trait::StackType, process, process::r#trait::ProcessState, tui, tui::r#trait::UIState,
 };
 
 pub mod r#trait;
@@ -30,7 +30,7 @@ where
 }
 
 pub static TRIVIAL_CONFIG: CompleteConfig<
-    interval::ConcreteStackType,
+    interval::stacktype::generic::GenericStackType,
     process::onlyforward::OnlyForward,
     process::onlyforward::OnlyForwardConfig,
     backend::onlyforward::OnlyForward,

@@ -1,4 +1,4 @@
-use crate::interval::{StackType, Stack};
+use crate::interval::{stack::Stack, stacktype::r#trait::StackType};
 
 mod johnston;
 

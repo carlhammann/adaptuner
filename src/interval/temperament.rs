@@ -19,7 +19,7 @@ pub struct Temperament<I> {
     pub name: String,
 
     /// a `D x D` matrix. The i-th row describes the "comma" by which the i-th interval is
-    /// detuned: The comma is given as a linear combination of base intervals, and the
+    /// detuned. The comma is given as a linear combination of base intervals, and the
     /// coefficients of that linear combination are what the row contains.
     commas: Array2<I>,
 
@@ -82,7 +82,7 @@ where
     /// Consider the following:
     /// ```
     /// # use ndarray::{arr1, arr2};
-    /// # use adaptuner::interval::*;
+    /// # use adaptuner::interval::temperament::*;
     /// # fn main () {
     /// let tempered = arr2(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]);
     /// let pure     = arr2(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]);

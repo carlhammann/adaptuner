@@ -4,7 +4,7 @@ use midi_msg::{ChannelVoiceMsg, MidiMsg};
 
 use crate::{
     config::r#trait::Config,
-    interval::{Semitones, StackType},
+    interval::{interval::Semitones, stacktype::r#trait::StackType},
     msg,
     process::r#trait::ProcessState,
 };

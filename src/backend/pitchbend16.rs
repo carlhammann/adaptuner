@@ -5,7 +5,7 @@ use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg}
 use crate::{
     backend::r#trait::BackendState,
     config::r#trait::Config,
-    interval::{Semitones, StackType},
+    interval::{interval::Semitones, stacktype::r#trait::StackType},
     msg,
 };
 
@@ -63,7 +63,7 @@ fn semitones_from_bend(bend_range: Semitones, bend: u16) -> Semitones {
     (bend as Semitones - 8192.0) / 8191.0 * bend_range
 }
 
-impl<const NCHANNELS: usize, T:StackType> BackendState<T> for Pitchbend16<NCHANNELS> {
+impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHANNELS> {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -431,9 +431,9 @@ impl<const NCHANNELS: usize> Config<Pitchbend16<NCHANNELS>> for Pitchbend16Confi
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::interval::ConcreteStackType;
+    use crate::interval::stacktype::generic::GenericStackType;
 
-    type MockStackType = ConcreteStackType;
+    type MockStackType = GenericStackType;
 
     fn one_case<S>(
         state: &mut S,

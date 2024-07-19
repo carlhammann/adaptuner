@@ -1,6 +1,6 @@
 use std::mem::MaybeUninit;
 
-use crate::interval::StackCoeff;
+use crate::interval::stacktype::r#trait::StackCoeff;
 
 /// A description of the positions of representatives of all 12 pitch classes, relative to the
 /// position of a reference note.

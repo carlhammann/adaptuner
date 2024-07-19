@@ -4,7 +4,7 @@ use crossterm::{execute, terminal::*};
 
 use crate::{
     config::r#trait::Config,
-    interval::StackType,
+    interval::stacktype::r#trait::StackType,
     msg,
     tui::r#trait::{Tui, UIState},
 };
