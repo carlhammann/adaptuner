@@ -1,7 +1,7 @@
 pub mod fivelimit {
     use crate::interval::{
         stack::Stack,
-        stacktype::r#trait::{StackCoeff, StackType},
+        stacktype::r#trait::{FiveLimitStackType, StackCoeff},
     };
     use std::fmt;
 
@@ -20,12 +20,10 @@ pub mod fivelimit {
         /// It is assumed that the first three entries in the [coefficients][Stack::coefficients]
         /// of the argument denote the numbers of octaves, fifths, and thirds, in that order. (In
         /// particular, there must be at least three base intervals.)
-        pub fn new<T: StackType>(s: &Stack<T>) -> Self {
-            // TODO implement this only for some suitable "fivelimit stack
-            // type"
-            let octaves = s.coefficients()[0];
-            let fifths = s.coefficients()[1];
-            let thirds = s.coefficients()[2];
+        pub fn new<T: FiveLimitStackType>(s: &Stack<T>) -> Self {
+            let octaves = s.coefficients()[s.stacktype().octave_index()];
+            let fifths = s.coefficients()[s.stacktype().fifth_index()];
+            let thirds = s.coefficients()[s.stacktype().third_index()];
             let ix = 2 + 2 * fifths + thirds;
             NoteName {
                 base: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],
@@ -98,12 +96,12 @@ pub mod fivelimit {
     #[cfg(test)]
     mod test {
         use super::*;
-        use crate::interval::stack::stack_test_setup::init_stacktype;
+        use crate::interval::stack::stack_test_setup::init_fivelimit_stacktype;
         use std::sync::Arc;
 
         #[test]
         fn test_str_name() {
-            let st = Arc::new(init_stacktype());
+            let st = Arc::new(init_fivelimit_stacktype());
 
             let examples = [
                 ([0, 0, 0], "C 4"),

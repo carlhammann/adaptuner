@@ -225,7 +225,9 @@ impl<T: StackType> ops::Add<&Stack<T>> for Stack<T> {
 pub mod stack_test_setup {
     use super::*;
     use crate::interval::{
-        interval::Interval, stacktype::generic::GenericStackType, temperament::Temperament,
+        interval::Interval,
+        stacktype::{fivelimit::ConcreteFiveLimitStackType, generic::GenericStackType},
+        temperament::Temperament,
     };
     use ndarray::arr2;
 
@@ -268,9 +270,14 @@ pub mod stack_test_setup {
         ]
     }
 
-    /// an example [StackType].
+    /// an example [GenericStackType].
     pub fn init_stacktype() -> GenericStackType {
         GenericStackType::new(init_intervals().into(), init_temperaments().into())
+    }
+
+    /// an example [ConcreteFiveLimitStackType].
+    pub fn init_fivelimit_stacktype() -> ConcreteFiveLimitStackType {
+        ConcreteFiveLimitStackType::new(init_temperaments().into())
     }
 }
 

@@ -29,9 +29,15 @@ pub trait StackType {
     fn num_intervals(&self) -> usize {
         self.intervals().len()
     }
-    
+
     /// Convenience: the length of the list returned by [temperaments][StackType::temperaments].
     fn num_temperaments(&self) -> usize {
         self.temperaments().len()
     }
+}
+
+pub trait FiveLimitStackType: StackType {
+    fn octave_index(&self) -> usize;
+    fn fifth_index(&self) -> usize;
+    fn third_index(&self) -> usize;
 }

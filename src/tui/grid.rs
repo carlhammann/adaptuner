@@ -9,7 +9,7 @@ use ratatui::{prelude::*, widgets::WidgetRef};
 
 use crate::{
     config::r#trait::Config,
-    interval::{stacktype::r#trait::{StackCoeff, StackType}, interval::Semitones, stack::Stack},
+    interval::{stacktype::r#trait::{StackCoeff, FiveLimitStackType}, interval::Semitones, stack::Stack},
     msg,
     neighbourhood::Neighbourhood,
     notename::NoteNameStyle,
@@ -40,7 +40,7 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
     }
 }
 
-pub struct Grid<T: StackType> {
+pub struct Grid<T: FiveLimitStackType> {
     pub reference_key: i8,
     pub reference_stack: Stack<T>,
     pub active_temperaments: Vec<bool>,
@@ -56,23 +56,26 @@ pub struct Grid<T: StackType> {
     pub config: GridConfig<T>,
 }
 
-impl<T: StackType> Widget for Grid<T> {
+impl<T: FiveLimitStackType> Widget for Grid<T> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.render_ref(area, buf)
     }
 }
 
-impl<T: StackType> WidgetRef for Grid<T> {
+impl<T: FiveLimitStackType> WidgetRef for Grid<T> {
     /// rendering of Grids expects there to be 2n rows of characters for an n-row grid, because
     /// Cells are two rows high
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+
         let mut the_stack = self.reference_stack.clone();
+        let fifth_index = the_stack.stacktype().fifth_index();
+        let third_index = the_stack.stacktype().third_index();
 
-        let origin_fifth = the_stack.coefficients()[1];
-        let origin_third = the_stack.coefficients()[2];
+        let origin_fifth = the_stack.coefficients()[fifth_index];
+        let origin_third = the_stack.coefficients()[third_index];
 
-        let (mut min_fifth, mut max_fifth) = self.neighbourhood.bounds(1);
-        let (mut min_third, mut max_third) = self.neighbourhood.bounds(2);
+        let (mut min_fifth, mut max_fifth) = self.neighbourhood.bounds(fifth_index);
+        let (mut min_third, mut max_third) = self.neighbourhood.bounds(third_index);
         min_fifth += origin_fifth;
         max_fifth += origin_fifth;
         min_third += origin_third;
@@ -94,21 +97,21 @@ impl<T: StackType> WidgetRef for Grid<T> {
 
         the_stack.increment_at_index(
             &self.active_temperaments,
-            2,
-            min_third - self.reference_stack.coefficients()[2],
+            third_index,
+            min_third - self.reference_stack.coefficients()[third_index],
         );
         the_stack.increment_at_index(
             &self.active_temperaments,
-            1,
-            min_fifth - self.reference_stack.coefficients()[1],
+            fifth_index,
+            min_fifth - self.reference_stack.coefficients()[fifth_index],
         );
 
         for i in min_third..=max_third {
             for j in min_fifth..=max_fifth {
                 let mut state = CellState::Off;
                 for k in 0..12 {
-                    if self.neighbourhood.coefficients[k][1] + origin_fifth == j
-                        && self.neighbourhood.coefficients[k][2] + origin_third == i
+                    if self.neighbourhood.coefficients[k][fifth_index] + origin_fifth == j
+                        && self.neighbourhood.coefficients[k][third_index] + origin_third == i
                     {
                         if self.active_classes[(k as usize + self.reference_key as usize) % 12]
                         {
@@ -130,15 +133,15 @@ impl<T: StackType> WidgetRef for Grid<T> {
                     },
                     buf,
                 );
-                the_stack.increment_at_index(&self.active_temperaments, 1, 1);
+                the_stack.increment_at_index(&self.active_temperaments, fifth_index, 1);
             }
-            the_stack.increment_at_index(&self.active_temperaments, 2, 1);
-            the_stack.increment_at_index(&self.active_temperaments, 1, min_fifth - max_fifth - 1);
+            the_stack.increment_at_index(&self.active_temperaments, third_index, 1);
+            the_stack.increment_at_index(&self.active_temperaments, fifth_index, min_fifth - max_fifth - 1);
         }
     }
 }
 
-fn render_stack<T: StackType>(
+fn render_stack<T: FiveLimitStackType>(
     stack: &Stack<T>,
     state: CellState,
     config: &DisplayConfig,
@@ -180,7 +183,7 @@ fn render_stack<T: StackType>(
     buf.set_style(area, style);
 }
 
-impl<T: StackType> UIState<T> for Grid<T> {
+impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -294,7 +297,7 @@ impl<T: StackType> UIState<T> for Grid<T> {
     }
 }
 
-pub struct GridConfig<T: StackType> {
+pub struct GridConfig<T: FiveLimitStackType> {
     pub display_config: DisplayConfig,
     pub initial_reference_key: i8,
     pub stack_type: Arc<T>,
@@ -304,7 +307,7 @@ pub struct GridConfig<T: StackType> {
 }
 
 // derive(Clone) doesn't handle cloning `Arc` correctly
-impl<T: StackType> Clone for GridConfig<T> {
+impl<T: FiveLimitStackType> Clone for GridConfig<T> {
     fn clone(&self) -> Self {
         GridConfig {
             display_config: self.display_config.clone(),
@@ -317,7 +320,7 @@ impl<T: StackType> Clone for GridConfig<T> {
     }
 }
 
-impl<T: StackType> Config<Grid<T>> for GridConfig<T> {
+impl<T: FiveLimitStackType> Config<Grid<T>> for GridConfig<T> {
     fn initialise(config: &Self) -> Grid<T> {
         let no_active_temperaments = vec![false; config.stack_type.num_temperaments()];
         Grid {
