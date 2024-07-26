@@ -15,16 +15,16 @@ impl<T: StackType + fmt::Debug> UIState<T> for OnlyNotify {
     fn handle_msg(
         &mut self,
         _time: Instant,
-        msg: msg::ToUI<T>,
-        _to_process: &mpsc::Sender<(Instant, msg::ToProcess<T>)>,
+        msg: msg::AfterProcess<T>,
+        _to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
         _tui: &mut Tui,
     ) {
         match msg {
-            msg::ToUI::Start => {
+            msg::AfterProcess::Start => {
                 execute!(stdout(), LeaveAlternateScreen).expect("Could not leave alternate screen");
                 disable_raw_mode().expect("Could not disable raw mode");
             }
-            msg::ToUI::Notify { line } => println!("{}", line),
+            msg::AfterProcess::Notify { line } => println!("{}", line),
             _ => println!("raw message received by UI: {:?}", msg),
         }
     }

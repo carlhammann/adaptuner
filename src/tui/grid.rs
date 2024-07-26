@@ -1,5 +1,4 @@
 use std::{
-    marker::PhantomData,
     sync::{mpsc, Arc},
     time::Instant,
 };
@@ -45,6 +44,12 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
     }
 }
 
+#[derive(Copy, Clone, PartialEq)]
+enum NoteOnState {
+    Pressed,
+    Sustained,
+}
+
 pub struct Grid<const N: usize, T: StackType> {
     horizontal_index: usize,
     vertical_index: usize,
@@ -57,7 +62,7 @@ pub struct Grid<const N: usize, T: StackType> {
     active_temperaments: Vec<bool>,
 
     // the stacks are relative to the initial_reference_key
-    active_notes: Vec<(u8, Stack<T>)>,
+    active_notes: Vec<(u8, Stack<T>, NoteOnState)>,
     considered_notes: Neighbourhood<N, T>,
 
     reference_key: i8,
@@ -86,7 +91,7 @@ impl<const N: usize, T: StackType> Grid<N, T> {
         let (mut min_horizontal, mut max_horizontal) = (origin_horizontal, origin_horizontal);
         let (mut min_vertical, mut max_vertical) = (origin_vertical, origin_vertical);
 
-        for (_, stack) in &self.active_notes {
+        for (_, stack, _) in &self.active_notes {
             let hor = stack.coefficients()[horizontal_index];
             if hor < min_horizontal {
                 min_horizontal = hor;
@@ -212,7 +217,7 @@ impl<const N: usize, T: FiveLimitStackType> WidgetRef for Grid<N, T> {
                 buf,
             );
         }
-        for (_, the_stack) in &self.active_notes {
+        for (_, the_stack, _) in &self.active_notes {
             let i = the_stack.coefficients()[self.vertical_index];
             let j = the_stack.coefficients()[self.horizontal_index];
             if i < self.min_vertical
@@ -250,8 +255,7 @@ fn render_stack<T: FiveLimitStackType>(
     // reset all cells in the area.
     for pos in area.positions() {
         buf.get_mut(pos.x, pos.y).reset()
-    };
-
+    }
 
     buf.set_string(
         area.x,
@@ -291,8 +295,8 @@ impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: msg::ToUI<T>,
-        to_process: &mpsc::Sender<(Instant, msg::ToProcess<T>)>,
+        msg: msg::AfterProcess<T>,
+        to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
         tui: &mut Tui,
     ) {
         let draw_frame = |t: &mut Tui, g: &mut Self| {
@@ -310,134 +314,174 @@ impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T
         // };
 
         let send_to_process =
-            |msg: msg::ToProcess<T>, time: Instant| to_process.send((time, msg)).unwrap_or(());
+            |msg: msg::ToProcess, time: Instant| to_process.send((time, msg)).unwrap_or(());
 
         match msg {
-            msg::ToUI::Start => {
+            msg::AfterProcess::Start => {
                 draw_frame(tui, self);
             }
-            msg::ToUI::Stop => {
+            msg::AfterProcess::Stop => {
                 send_to_process(msg::ToProcess::Stop, time);
             }
-            msg::ToUI::Notify { .. } => {}
-            msg::ToUI::MidiParseErr(_) => {}
-            msg::ToUI::DetunedNote { ..
-                // note,
-                // should_be,
-                // actual,
-                // explanation,
-            } => {}
-            msg::ToUI::CrosstermEvent(e) => {
+            msg::AfterProcess::Notify { .. } => {}
+            msg::AfterProcess::MidiParseErr(_) => {}
+            msg::AfterProcess::DetunedNote { .. } => {}
+            msg::AfterProcess::CrosstermEvent(e) => {
                 match e {
-                    crossterm::event::Event::Key(k) => if k.kind == KeyEventKind::Press {
-                        match k.code {
-                            KeyCode::Char('q') => send_to_process(msg::ToProcess::Stop, time),
-                            KeyCode::Esc => {
-                                *self = GridConfig::initialise(&self.config);
-                                send_to_process(msg::ToProcess::Reset, time);
-                            }
-
-                            // KeyCode::Down => {
-                            //     self.neighbourhood.fivelimit_inc_index();
-                            //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-                            // }
-                            // KeyCode::Up => {
-                            //     self.neighbourhood.fivelimit_dec_index();
-                            //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-                            //
-                            // }
-                            // KeyCode::Left => {
-                            //     self.neighbourhood.fivelimit_inc_offset();
-                            //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-                            //
-                            // }
-                            // KeyCode::Right => {
-                            //     self.neighbourhood.fivelimit_dec_offset();
-                            //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-                            //
-                            // }
-
-                            KeyCode::Char('+') => {
-                                self.vertical_margin +=1;
-                                self.horizontal_margin +=1;
-                            }
-                            KeyCode::Char('-') => {
-                                if self.vertical_margin >=1 {
-                                    self.vertical_margin -=1;
+                    crossterm::event::Event::Key(k) => {
+                        if k.kind == KeyEventKind::Press {
+                            match k.code {
+                                KeyCode::Char('q') => send_to_process(msg::ToProcess::Stop, time),
+                                KeyCode::Esc => {
+                                    *self = GridConfig::initialise(&self.config);
+                                    send_to_process(msg::ToProcess::Reset, time);
                                 }
-                                if self.horizontal_margin >= 1 {
-                                    self.horizontal_margin -=1;
-                                }
-                            }
 
-                            KeyCode::Char('1') => {
-                                let index = 0;
-                                self.active_temperaments[index] = !self.active_temperaments[index];
-                                send_to_process(msg::ToProcess::ToggleTemperament {index}, time);
+                                // KeyCode::Down => {
+                                //     self.neighbourhood.fivelimit_inc_index();
+                                //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+                                // }
+                                // KeyCode::Up => {
+                                //     self.neighbourhood.fivelimit_dec_index();
+                                //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+                                //
+                                // }
+                                // KeyCode::Left => {
+                                //     self.neighbourhood.fivelimit_inc_offset();
+                                //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+                                //
+                                // }
+                                // KeyCode::Right => {
+                                //     self.neighbourhood.fivelimit_dec_offset();
+                                //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+                                //
+                                // }
+                                KeyCode::Char('+') => {
+                                    self.vertical_margin += 1;
+                                    self.horizontal_margin += 1;
+                                }
+                                KeyCode::Char('-') => {
+                                    if self.vertical_margin >= 1 {
+                                        self.vertical_margin -= 1;
+                                    }
+                                    if self.horizontal_margin >= 1 {
+                                        self.horizontal_margin -= 1;
+                                    }
+                                }
+
+                                KeyCode::Char('1') => {
+                                    let index = 0;
+                                    self.active_temperaments[index] =
+                                        !self.active_temperaments[index];
+                                    send_to_process(
+                                        msg::ToProcess::ToggleTemperament { index },
+                                        time,
+                                    );
+                                }
+                                KeyCode::Char('2') => {
+                                    let index = 1;
+                                    self.active_temperaments[index] =
+                                        !self.active_temperaments[index];
+                                    send_to_process(
+                                        msg::ToProcess::ToggleTemperament { index },
+                                        time,
+                                    );
+                                }
+                                _ => {}
                             }
-                            KeyCode::Char('2') => {
-                                let index = 1;
-                                self.active_temperaments[index] = !self.active_temperaments[index];
-                                send_to_process(msg::ToProcess::ToggleTemperament {index}, time);
-                            }
-                            _ => {}
                         }
                     }
-                    crossterm::event::Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: _ }) => {
-                        let horizontal_offset = 
-                          self.min_horizontal + 
-                          column  as StackCoeff / self.column_width as StackCoeff - 
-                          self.reference_stack.coefficients()[self.horizontal_index];
-                        let vertical_offset = 
-                          self.max_vertical - 
-                          row as StackCoeff / 2 - 
-                          self.reference_stack.coefficients()[self.vertical_index];
+                    crossterm::event::Event::Mouse(MouseEvent {
+                        kind: MouseEventKind::Down(MouseButton::Left),
+                        column,
+                        row,
+                        modifiers: _,
+                    }) => {
+                        let horizontal_offset = self.min_horizontal
+                            + column as StackCoeff / self.column_width as StackCoeff
+                            - self.reference_stack.coefficients()[self.horizontal_index];
+                        let vertical_offset = self.max_vertical
+                            - row as StackCoeff / 2
+                            - self.reference_stack.coefficients()[self.vertical_index];
 
                         let mut coefficients = vec![0; self.config.stack_type.num_intervals()];
                         coefficients[self.vertical_index] = vertical_offset;
                         coefficients[self.horizontal_index] = horizontal_offset;
 
-                        send_to_process(msg::ToProcess::Consider {
-                            coefficients,
-                            _phantom: PhantomData,
-                        }, time);
+                        send_to_process(msg::ToProcess::Consider { coefficients }, time);
                     }
                     _ => {}
                 }
                 draw_frame(tui, self);
             }
-            msg::ToUI::SetReference { key, stack } => {
+            msg::AfterProcess::SetReference { key, stack } => {
                 self.reference_key = key as i8;
                 self.reference_stack.clone_from(&stack);
                 draw_frame(tui, self);
             }
 
-            msg::ToUI::TunedNoteOn { note, tuning } | msg::ToUI::Retune { note, tuning } => {
+            msg::AfterProcess::TunedNoteOn {
+                note, tuning_stack, ..
+            } => {
                 let mut inserted = false;
-                for (key, stack) in &mut self.active_notes {
+                for (key, stack, _) in &mut self.active_notes {
                     if *key == note {
                         inserted = true;
-                        stack.clone_from(&tuning);
+                        stack.clone_from(&tuning_stack);
                         break;
                     }
                 }
                 if !inserted {
-                    self.active_notes.push((note, tuning));
+                    self.active_notes
+                        .push((note, tuning_stack, NoteOnState::Pressed));
                 }
                 draw_frame(tui, self);
             }
-            msg::ToUI::NoteOff { note } => {
-                if let Some(index) = self.active_notes.iter().position(|(key, _)| *key == note) {
-                    self.active_notes.swap_remove(index);
+            msg::AfterProcess::Retune {
+                note, tuning_stack, ..
+            } => {
+                for (key, stack, _) in &mut self.active_notes {
+                    if *key == note {
+                        stack.clone_from(&tuning_stack);
+                        break;
+                    }
+                }
+                draw_frame(tui, self);
+            }
+            msg::AfterProcess::NoteOff {
+                held_by_sustain,
+                note,
+                ..
+            } => {
+                if let Some(index) = self
+                    .active_notes
+                    .iter()
+                    .position(|(key, _, _)| *key == note)
+                {
+                    if held_by_sustain {
+                        self.active_notes[index].2 = NoteOnState::Sustained;
+                    } else {
+                        self.active_notes.swap_remove(index);
+                    }
                 }
                 draw_frame(tui, self);
             }
 
-            msg::ToUI::Consider { stack } => {
+            msg::AfterProcess::Consider { stack } => {
                 let height = stack.key_distance();
-                self.considered_notes.stacks[(height%12) as usize] = stack;
+                self.considered_notes.stacks[(height % 12) as usize] = stack;
                 draw_frame(tui, self);
             }
+            msg::AfterProcess::Reset => {}
+            msg::AfterProcess::Sustain { value, .. } => {
+                if value == 0 {
+                    self.active_notes
+                        .retain(|(_, _, s)| *s != NoteOnState::Sustained);
+                }
+                draw_frame(tui, self);
+            }
+            msg::AfterProcess::ProgramChange { .. } => {}
+            msg::AfterProcess::ForwardMidi { .. } => {}
         }
     }
 }

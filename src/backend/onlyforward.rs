@@ -13,21 +13,21 @@ impl<T: StackType> BackendState<T> for OnlyForward {
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: msg::ToBackend,
-        _to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+        msg: msg::AfterProcess<T>,
+        _to_ui: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
         midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
     ) {
         let send = |msg: MidiMsg, time: Instant| midi_out.send((time, msg.to_midi())).unwrap_or(());
 
         match msg {
-            msg::ToBackend::Start => {}
-            msg::ToBackend::Stop => {}
-            msg::ToBackend::Reset => {}
-            msg::ToBackend::TunedNoteOn {
+            msg::AfterProcess::Start => {}
+            msg::AfterProcess::Stop => {}
+            msg::AfterProcess::Reset => {}
+            msg::AfterProcess::TunedNoteOn {
                 channel,
                 note,
                 velocity,
-                tuning: _,
+                ..
             } => send(
                 MidiMsg::ChannelVoice {
                     channel,
@@ -36,10 +36,11 @@ impl<T: StackType> BackendState<T> for OnlyForward {
                 time,
             ),
 
-            msg::ToBackend::NoteOff {
+            msg::AfterProcess::NoteOff {
                 channel,
                 note,
                 velocity,
+                ..
             } => send(
                 MidiMsg::ChannelVoice {
                     channel,
@@ -48,7 +49,7 @@ impl<T: StackType> BackendState<T> for OnlyForward {
                 time,
             ),
 
-            msg::ToBackend::Sustain { channel, value } => send(
+            msg::AfterProcess::Sustain { channel, value } => send(
                 MidiMsg::ChannelVoice {
                     channel,
                     msg: ChannelVoiceMsg::ControlChange {
@@ -58,7 +59,7 @@ impl<T: StackType> BackendState<T> for OnlyForward {
                 time,
             ),
 
-            msg::ToBackend::ProgramChange { channel, program } => send(
+            msg::AfterProcess::ProgramChange { channel, program } => send(
                 MidiMsg::ChannelVoice {
                     channel,
                     msg: ChannelVoiceMsg::ProgramChange { program },
@@ -66,9 +67,15 @@ impl<T: StackType> BackendState<T> for OnlyForward {
                 time,
             ),
 
-            msg::ToBackend::Retune { .. } => {}
+            msg::AfterProcess::Retune { .. } => {}
 
-            msg::ToBackend::ForwardMidi { msg } => send(msg, time),
+            msg::AfterProcess::ForwardMidi { msg } => send(msg, time),
+            msg::AfterProcess::Notify { .. } => {}
+            msg::AfterProcess::MidiParseErr(_) => {}
+            msg::AfterProcess::DetunedNote { .. } => {}
+            msg::AfterProcess::CrosstermEvent(_) => {}
+            msg::AfterProcess::SetReference { .. } => {}
+            msg::AfterProcess::Consider { .. } => {}
         }
     }
 }

@@ -67,15 +67,15 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: msg::ToBackend,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+        msg: msg::AfterProcess<T>,
+        to_ui: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
         midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
     ) {
         let send = |msg: MidiMsg, time: Instant| {
             midi_out.send((time, msg.to_midi())).unwrap_or(());
         };
 
-        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg));
+        let send_to_ui = |msg: msg::AfterProcess<T>, time: Instant| to_ui.send((time, msg));
 
         let mapped_to_and_bend = |tuning: Semitones| {
             let mapped_to = tuning.round() as u8;
@@ -84,7 +84,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
         };
 
         match msg {
-            msg::ToBackend::Start | msg::ToBackend::Reset => {
+            msg::AfterProcess::Start | msg::AfterProcess::Reset => {
                 *self = Pitchbend16Config::initialise(&self.config);
                 for i in 0..NCHANNELS {
                     let channel = self.channels[i];
@@ -115,12 +115,12 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                     );
                 }
             }
-            msg::ToBackend::Stop => {}
-            msg::ToBackend::TunedNoteOn {
-                channel: _,
+            msg::AfterProcess::Stop => {}
+            msg::AfterProcess::TunedNoteOn {
                 note,
                 velocity,
                 tuning,
+                ..
             } => {
                 let (mapped_to, bend) = mapped_to_and_bend(tuning);
 
@@ -229,7 +229,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                     });
                     self.usage[closest_channel as usize] += 1;
 
-                    let m = msg::ToUI::DetunedNote {
+                    let m = msg::AfterProcess::DetunedNote {
                         note,
                         should_be: tuning,
                         actual: semitones_from_bend(
@@ -243,7 +243,8 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                 }
             }
 
-            msg::ToBackend::NoteOff {
+            msg::AfterProcess::NoteOff {
+                held_by_sustain: _,
                 channel: _,
                 note,
                 velocity,
@@ -280,7 +281,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                 None => {}
             },
 
-            msg::ToBackend::Sustain { channel: _, value } => {
+            msg::AfterProcess::Sustain { channel: _, value } => {
                 for i in 0..NCHANNELS {
                     send(
                         MidiMsg::ChannelVoice {
@@ -314,7 +315,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                 }
             }
 
-            msg::ToBackend::ProgramChange {
+            msg::AfterProcess::ProgramChange {
                 channel: _,
                 program,
             } => {
@@ -329,73 +330,76 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                 }
             }
 
-            msg::ToBackend::Retune { note, tuning } => match self.active_notes[note as usize] {
-                None => {}
-                Some(NoteInfo {
-                    desired_tuning: _,
-                    channel,
-                    sustained: _,
-                    mapped_to,
-                }) => {
-                    let bend =
-                        bend_from_semitones(self.bend_range, tuning - mapped_to as Semitones);
+            msg::AfterProcess::Retune { note, tuning, .. } => {
+                match self.active_notes[note as usize] {
+                    None => {}
+                    Some(NoteInfo {
+                        desired_tuning: _,
+                        channel,
+                        sustained: _,
+                        mapped_to,
+                    }) => {
+                        let bend =
+                            bend_from_semitones(self.bend_range, tuning - mapped_to as Semitones);
 
-                    if bend == self.bends[channel as usize] {
-                        return;
-                    }
+                        if bend == self.bends[channel as usize] {
+                            return;
+                        }
 
-                    send(
-                        MidiMsg::ChannelVoice {
-                            channel,
-                            msg: ChannelVoiceMsg::PitchBend { bend },
-                        },
-                        time,
-                    );
+                        send(
+                            MidiMsg::ChannelVoice {
+                                channel,
+                                msg: ChannelVoiceMsg::PitchBend { bend },
+                            },
+                            time,
+                        );
 
-                    self.bends[channel as usize] = bend;
+                        self.bends[channel as usize] = bend;
 
-                    if (tuning - mapped_to as Semitones).abs() > self.bend_range {
-                        let m = msg::ToUI::DetunedNote {
-                            note,
-                            should_be: tuning,
-                            actual: mapped_to as Semitones
-                                + if tuning > note as Semitones {
-                                    self.bend_range
-                                } else {
-                                    -self.bend_range
-                                },
-                            explanation: "Could not re-tune farther than the pitchbend range",
-                        };
-                        // println!("{m:?}");
-                        send_to_ui(m, time).unwrap_or(());
-                    }
+                        if (tuning - mapped_to as Semitones).abs() > self.bend_range {
+                            let m = msg::AfterProcess::DetunedNote {
+                                note,
+                                should_be: tuning,
+                                actual: mapped_to as Semitones
+                                    + if tuning > note as Semitones {
+                                        self.bend_range
+                                    } else {
+                                        -self.bend_range
+                                    },
+                                explanation: "Could not re-tune farther than the pitchbend range",
+                            };
+                            // println!("{m:?}");
+                            send_to_ui(m, time).unwrap_or(());
+                        }
 
-                    if self.usage[channel as usize] > 1 {
-                        for other_note in 0..128 {
-                            match self.active_notes[other_note] {
-                                None => {}
-                                Some(NoteInfo {
-                                    desired_tuning,
-                                    channel: other_channel,
-                                    mapped_to: other_mapped_to,
-                                    sustained: _,
-                                }) => {
-                                    if channel == other_channel && other_mapped_to != mapped_to {
-                                        let other_bend = bend_from_semitones(
-                                            self.bend_range,
-                                            desired_tuning - other_mapped_to as Semitones,
-                                        );
+                        if self.usage[channel as usize] > 1 {
+                            for other_note in 0..128 {
+                                match self.active_notes[other_note] {
+                                    None => {}
+                                    Some(NoteInfo {
+                                        desired_tuning,
+                                        channel: other_channel,
+                                        mapped_to: other_mapped_to,
+                                        sustained: _,
+                                    }) => {
+                                        if channel == other_channel && other_mapped_to != mapped_to
+                                        {
+                                            let other_bend = bend_from_semitones(
+                                                self.bend_range,
+                                                desired_tuning - other_mapped_to as Semitones,
+                                            );
 
-                                        if bend != other_bend {
-                                            let m = msg::ToUI::DetunedNote {
+                                            if bend != other_bend {
+                                                let m = msg::AfterProcess::DetunedNote {
                                                 note: other_note as u8,
                                                 should_be: desired_tuning,
                                                 actual: other_mapped_to as Semitones
                                                     + semitones_from_bend( self.bend_range, bend),
                                                 explanation: "Detuned because another note on the same channel was re-tuned",
                                             };
-                                            // println!("{m:?}");
-                                            send_to_ui(m, time).unwrap_or(());
+                                                // println!("{m:?}");
+                                                send_to_ui(m, time).unwrap_or(());
+                                            }
                                         }
                                     }
                                 }
@@ -403,9 +407,15 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                         }
                     }
                 }
-            },
+            }
 
-            msg::ToBackend::ForwardMidi { msg } => send(msg, time),
+            msg::AfterProcess::ForwardMidi { msg } => send(msg, time),
+            msg::AfterProcess::Notify { .. } => {}
+            msg::AfterProcess::MidiParseErr(_) => {}
+            msg::AfterProcess::DetunedNote { .. } => {}
+            msg::AfterProcess::CrosstermEvent(_) => {}
+            msg::AfterProcess::SetReference { .. } => {}
+            msg::AfterProcess::Consider { .. } => {}
         }
     }
 }
@@ -433,16 +443,20 @@ impl<const NCHANNELS: usize> Config<Pitchbend16<NCHANNELS>> for Pitchbend16Confi
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::interval::stacktype::generic::GenericStackType;
+    use crate::interval::{
+        stack::{stack_test_setup::init_stacktype, Stack},
+        stacktype::generic::GenericStackType,
+    };
+    use std::sync::Arc;
 
     type MockStackType = GenericStackType;
 
     fn one_case<S>(
         state: &mut S,
         time: Instant,
-        msg: msg::ToBackend,
+        msg: msg::AfterProcess<MockStackType>,
         output_to_midi: Vec<(Instant, MidiMsg)>,
-        output_to_ui: Vec<(Instant, msg::ToUI<MockStackType>)>,
+        output_to_ui: Vec<(Instant, msg::AfterProcess<MockStackType>)>,
     ) where
         S: BackendState<MockStackType>,
     {
@@ -470,15 +484,19 @@ mod test {
             }),
         );
 
+        let mock_stack_type = Arc::new(init_stacktype());
+        let mock_stack = Stack::new_zero(mock_stack_type.clone());
+
         let mut now = Instant::now();
         one_case(
             &mut s,
             now,
-            msg::ToBackend::TunedNoteOn {
+            msg::AfterProcess::TunedNoteOn {
                 channel: Channel::Ch1,
                 note: 3,
                 velocity: 100,
                 tuning: 3.2,
+                tuning_stack: mock_stack.clone(),
             },
             vec![
                 (
@@ -508,11 +526,12 @@ mod test {
         one_case(
             &mut s,
             now,
-            msg::ToBackend::TunedNoteOn {
+            msg::AfterProcess::TunedNoteOn {
                 channel: Channel::Ch1,
                 note: 17,
                 velocity: 101,
                 tuning: 113.2,
+                tuning_stack: mock_stack.clone(),
             },
             vec![(
                 now,
@@ -531,11 +550,12 @@ mod test {
         one_case(
             &mut s,
             now,
-            msg::ToBackend::TunedNoteOn {
+            msg::AfterProcess::TunedNoteOn {
                 channel: Channel::Ch1,
                 note: 4,
                 velocity: 13,
                 tuning: 3.7,
+                tuning_stack: mock_stack.clone(),
             },
             vec![
                 (
@@ -565,7 +585,7 @@ mod test {
         one_case(
             &mut s,
             now,
-            msg::ToBackend::Sustain {
+            msg::AfterProcess::Sustain {
                 channel: Channel::Ch1,
                 value: 123,
             },
@@ -591,9 +611,10 @@ mod test {
         one_case(
             &mut s,
             now,
-            msg::ToBackend::Retune {
+            msg::AfterProcess::Retune {
                 note: 3,
                 tuning: 3.1,
+                tuning_stack: mock_stack.clone(),
             },
             vec![(
                 now,
@@ -606,7 +627,7 @@ mod test {
             )],
             vec![(
                 now,
-                msg::ToUI::DetunedNote {
+                msg::AfterProcess::DetunedNote {
                     note: 17,
                     should_be: 113.2,
                     actual: 113.0 + semitones_from_bend(2.0, bend_from_semitones(2.0, 0.1)),
@@ -619,9 +640,10 @@ mod test {
         one_case(
             &mut s,
             now,
-            msg::ToBackend::Retune {
+            msg::AfterProcess::Retune {
                 note: 4,
                 tuning: 6.1,
+                tuning_stack: mock_stack.clone(),
             },
             vec![(
                 now,
@@ -632,7 +654,7 @@ mod test {
             )],
             vec![(
                 now,
-                msg::ToUI::DetunedNote {
+                msg::AfterProcess::DetunedNote {
                     note: 4,
                     should_be: 6.1,
                     actual: 6.0,

@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use midi_msg::{Channel, MidiMsg};
 
 use crate::interval::{
@@ -7,16 +5,18 @@ use crate::interval::{
     stacktype::r#trait::StackType,
 };
 
-#[derive(Debug, PartialEq)]
-pub enum ToUI<T: StackType> {
+#[derive(Debug, PartialEq, Clone)]
+pub enum AfterProcess<T: StackType> {
     Start,
     Stop,
+    Reset,
 
     Notify {
         line: String,
     },
 
-    MidiParseErr(midi_msg::ParseError),
+    MidiParseErr(String),
+
     DetunedNote {
         note: u8,
         should_be: Semitones,
@@ -26,39 +26,15 @@ pub enum ToUI<T: StackType> {
 
     CrosstermEvent(crossterm::event::Event),
 
-    SetReference {
-        key: u8,
-        stack: Stack<T>,
-    },
-    Consider {
-        stack: Stack<T>,
-    },
-    TunedNoteOn {
-        note: u8,
-        tuning: Stack<T>,
-    },
-    Retune {
-        note: u8,
-        tuning: Stack<T>,
-    },
-    NoteOff {
-        note: u8,
-    },
-}
-
-#[derive(Debug)]
-pub enum ToBackend {
-    Start,
-    Stop,
-    Reset,
-
     TunedNoteOn {
         channel: Channel,
         note: u8,
         velocity: u8,
         tuning: Semitones,
+        tuning_stack: Stack<T>,
     },
     NoteOff {
+        held_by_sustain: bool,
         channel: Channel,
         note: u8,
         velocity: u8,
@@ -71,28 +47,30 @@ pub enum ToBackend {
         channel: Channel,
         program: u8,
     },
-    Retune {
-        note: u8,
-        tuning: Semitones,
-    },
     ForwardMidi {
         msg: MidiMsg,
     },
+
+    Retune {
+        note: u8,
+        tuning: Semitones,
+        tuning_stack: Stack<T>,
+    },
+    SetReference {
+        key: u8,
+        stack: Stack<T>,
+    },
+    Consider {
+        stack: Stack<T>,
+    },
 }
 
-pub enum ToProcess<T: StackType> {
+#[derive(Debug)]
+pub enum ToProcess {
     Start,
     Stop,
     Reset,
-    // SetNeighboughood { neighbourhood: Neighbourhood },
-    ToggleTemperament {
-        index: usize,
-    },
-    IncomingMidi {
-        bytes: Vec<u8>,
-    },
-    Consider {
-        coefficients: Vec<StackCoeff>,
-        _phantom: PhantomData<T>
-    },
+    IncomingMidi { bytes: Vec<u8> },
+    Consider { coefficients: Vec<StackCoeff> },
+    ToggleTemperament { index: usize },
 }

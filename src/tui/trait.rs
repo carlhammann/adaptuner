@@ -11,8 +11,8 @@ pub trait UIState<T: StackType> {
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: msg::ToUI<T>,
-        to_process: &mpsc::Sender<(Instant, msg::ToProcess<T>)>,
+        msg: msg::AfterProcess<T>,
+        to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
         tui: &mut Tui,
     );
 }

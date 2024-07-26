@@ -3,7 +3,7 @@ use std::{
     time::Instant,
 };
 
-use midi_msg::{ChannelVoiceMsg, MidiMsg};
+use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
     config::r#trait::Config,
@@ -14,6 +14,7 @@ use crate::{
 
 pub struct OnlyForward<T: StackType> {
     stacktype: Arc<T>,
+    sustain: [bool; 16],
 }
 
 impl<T: StackType> OnlyForward<T> {
@@ -21,34 +22,25 @@ impl<T: StackType> OnlyForward<T> {
         &mut self,
         time: Instant,
         bytes: &Vec<u8>,
-        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
         let send_to_backend =
-            |msg: msg::ToBackend, time: Instant| to_backend.send((time, msg)).unwrap_or(());
-
-        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
         match MidiMsg::from_midi(&bytes) {
-            Err(e) => send_to_ui(msg::ToUI::MidiParseErr(e), time),
+            Err(e) => send_to_backend(msg::AfterProcess::MidiParseErr(e.to_string()), time),
             Ok((msg, _number_of_bytes_parsed)) => match msg {
                 MidiMsg::ChannelVoice {
                     channel,
                     msg: ChannelVoiceMsg::NoteOn { note, velocity },
                 } => {
                     send_to_backend(
-                        msg::ToBackend::TunedNoteOn {
+                        msg::AfterProcess::TunedNoteOn {
                             channel,
                             note,
                             velocity,
                             tuning: note as Semitones,
-                        },
-                        time,
-                    );
-                    send_to_ui(
-                        msg::ToUI::TunedNoteOn {
-                            note,
-                            tuning: Stack::new_zero(self.stacktype.clone()),
+                            tuning_stack: Stack::new_zero(self.stacktype.clone()),
                         },
                         time,
                     );
@@ -59,28 +51,39 @@ impl<T: StackType> OnlyForward<T> {
                     msg: ChannelVoiceMsg::NoteOff { note, velocity },
                 } => {
                     send_to_backend(
-                        msg::ToBackend::NoteOff {
+                        msg::AfterProcess::NoteOff {
+                            held_by_sustain: self.sustain[channel as usize],
                             channel,
                             note,
                             velocity,
                         },
                         time,
                     );
-                    send_to_ui(msg::ToUI::NoteOff { note }, time);
+                }
+
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg:
+                        ChannelVoiceMsg::ControlChange {
+                            control: ControlChange::Hold(value),
+                        },
+                } => {
+                    self.sustain[channel as usize] = value != 0;
+                    send_to_backend(msg::AfterProcess::Sustain { channel, value }, time);
                 }
 
                 _ => match MidiMsg::from_midi(&bytes) {
                     Ok((msg, _)) => {
-                        send_to_ui(
-                            msg::ToUI::Notify {
+                        send_to_backend(
+                            msg::AfterProcess::Notify {
                                 line: format!("{:?}", msg),
                             },
                             time,
                         );
-                        send_to_backend(msg::ToBackend::ForwardMidi { msg }, time);
+                        send_to_backend(msg::AfterProcess::ForwardMidi { msg }, time);
                     }
-                    _ => send_to_ui(
-                        msg::ToUI::Notify {
+                    _ => send_to_backend(
+                        msg::AfterProcess::Notify {
                             line: format!("raw midi bytes sent to backend: {:?}", &bytes),
                         },
                         time,
@@ -95,13 +98,12 @@ impl<T: StackType> ProcessState<T> for OnlyForward<T> {
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: crate::msg::ToProcess<T>,
-        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+        msg: crate::msg::ToProcess,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
         match msg {
             msg::ToProcess::IncomingMidi { bytes } => {
-                self.handle_midi_msg(time, &bytes, to_backend, to_ui)
+                self.handle_midi_msg(time, &bytes, to_backend)
             }
 
             _ => {}
@@ -118,6 +120,7 @@ impl<T: StackType> Config<OnlyForward<T>> for OnlyForwardConfig<T> {
     fn initialise(config: &Self) -> OnlyForward<T> {
         OnlyForward {
             stacktype: config.stacktype.clone(),
+            sustain: [false; 16],
         }
     }
 }

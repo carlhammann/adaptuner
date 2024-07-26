@@ -35,9 +35,8 @@ use adaptuner::{
 
 fn start_process<T, STATE, CONFIG>(
     config: CONFIG,
-    msg_rx: mpsc::Receiver<(Instant, msg::ToProcess<T>)>,
-    backend_tx: mpsc::Sender<(Instant, msg::ToBackend)>,
-    ui_tx: mpsc::Sender<(Instant, msg::ToUI<T>)>,
+    msg_rx: mpsc::Receiver<(Instant, msg::ToProcess)>,
+    backend_tx: mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
 ) -> thread::JoinHandle<()>
 where
     T: StackType + Send + Sync + 'static,
@@ -49,10 +48,10 @@ where
         loop {
             match msg_rx.recv() {
                 Ok((time, msg::ToProcess::Stop)) => {
-                    state.handle_msg(time, msg::ToProcess::Stop, &backend_tx, &ui_tx);
+                    state.handle_msg(time, msg::ToProcess::Stop, &backend_tx);
                     break;
                 }
-                Ok((time, msg)) => state.handle_msg(time, msg, &backend_tx, &ui_tx),
+                Ok((time, msg)) => state.handle_msg(time, msg, &backend_tx),
                 Err(_) => break,
             }
         }
@@ -61,8 +60,8 @@ where
 
 fn start_ui<T, STATE, CONFIG>(
     config: CONFIG,
-    msg_rx: mpsc::Receiver<(Instant, msg::ToUI<T>)>,
-    process_tx: mpsc::Sender<(Instant, msg::ToProcess<T>)>,
+    msg_rx: mpsc::Receiver<(Instant, msg::AfterProcess<T>)>,
+    process_tx: mpsc::Sender<(Instant, msg::ToProcess)>,
     mut tui: Tui,
 ) -> thread::JoinHandle<()>
 where
@@ -74,8 +73,8 @@ where
         let mut state: STATE = <CONFIG as Config<STATE>>::initialise(&config);
         loop {
             match msg_rx.recv() {
-                Ok((time, msg::ToUI::Stop)) => {
-                    state.handle_msg(time, msg::ToUI::Stop, &process_tx, &mut tui);
+                Ok((time, msg::AfterProcess::Stop)) => {
+                    state.handle_msg(time, msg::AfterProcess::Stop, &process_tx, &mut tui);
                     break;
                 }
                 Ok((time, msg)) => state.handle_msg(time, msg, &process_tx, &mut tui),
@@ -87,8 +86,8 @@ where
 
 fn start_backend<T, STATE, CONFIG>(
     config: CONFIG,
-    msg_rx: mpsc::Receiver<(Instant, msg::ToBackend)>,
-    ui_tx: mpsc::Sender<(Instant, msg::ToUI<T>)>,
+    msg_rx: mpsc::Receiver<(Instant, msg::AfterProcess<T>)>,
+    ui_tx: mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     midi_tx: mpsc::Sender<(Instant, Vec<u8>)>,
 ) -> thread::JoinHandle<()>
 where
@@ -100,8 +99,8 @@ where
         let mut state: STATE = <CONFIG as Config<STATE>>::initialise(&config);
         loop {
             match msg_rx.recv() {
-                Ok((time, msg::ToBackend::Stop)) => {
-                    state.handle_msg(time, msg::ToBackend::Stop, &ui_tx, &midi_tx);
+                Ok((time, msg::AfterProcess::Stop)) => {
+                    state.handle_msg(time, msg::AfterProcess::Stop, &ui_tx, &midi_tx);
                     break;
                 }
                 Ok((time, msg)) => state.handle_msg(time, msg, &ui_tx, &midi_tx),
@@ -134,7 +133,7 @@ fn run<T, P, PCONFIG, B, BCONFIG, U, UCONFIG>(
     _port_config: MidiPortConfig,
 ) -> Result<(), Box<dyn Error>>
 where
-    T: StackType + Sync + Send + 'static,
+    T: StackType + Sync + Send + 'static + Clone,
     P: ProcessState<T>,
     PCONFIG: Config<P> + Send + Sync + 'static,
     B: BackendState<T>,
@@ -143,11 +142,14 @@ where
     UCONFIG: Config<U> + Send + Sync + 'static,
 {
     let (to_backend_tx, to_backend_rx) = mpsc::channel();
-    let (to_ui_tx_from_process, to_ui_rx) = mpsc::channel();
-    let to_ui_tx_from_backend = to_ui_tx_from_process.clone();
-    let to_ui_tx = to_ui_tx_from_backend.clone();
+    let (to_ui_tx, to_ui_rx) = mpsc::channel();
+    let (to_backend_and_ui_tx, to_backend_and_ui_rx) = mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
+    let to_ui_tx_from_backend = to_ui_tx.clone();
+    let to_ui_tx_from_outside = to_ui_tx.clone();
+
     let (to_process_tx, to_process_rx) = mpsc::channel();
     let to_process_tx_from_ui = to_process_tx.clone();
+
     let (midi_out_tx, midi_out_rx) = mpsc::channel::<(Instant, Vec<u8>)>();
 
     // these three are for the initial "Start" messages and the "Stop" messages from the Ctrl-C
@@ -205,12 +207,22 @@ where
             Err(_) => {}
             Ok(e) => {
                 let time = Instant::now();
-                to_ui_tx
-                    .send((time, msg::ToUI::CrosstermEvent(e)))
+                to_ui_tx_from_outside
+                    .send((time, msg::AfterProcess::CrosstermEvent(e)))
                     .unwrap_or(());
             }
         }
     });
+
+    thread::spawn(move || loop {
+        match to_backend_and_ui_rx.recv() {
+            Ok((time, msg)) => {
+                to_backend_tx.send((time, msg.clone())).unwrap_or(());
+                to_ui_tx.send((time,msg)).unwrap_or(());
+            }
+            Err(_) => break,
+        }
+});
 
     let backend = start_backend(
         backend_config,
@@ -222,17 +234,16 @@ where
     let process = start_process(
         process_config,
         to_process_rx,
-        to_backend_tx,
-        to_ui_tx_from_process,
+        to_backend_and_ui_tx,
     );
 
     let now = Instant::now();
 
     to_backend_tx_start_and_stop
-        .send((now, msg::ToBackend::Start))
+        .send((now, msg::AfterProcess::Start))
         .unwrap_or(());
     to_ui_tx_start_and_stop
-        .send((now, msg::ToUI::Start))
+        .send((now, msg::AfterProcess::Start))
         .unwrap_or(());
     to_process_tx_start_and_stop
         .send((now, msg::ToProcess::Start))
@@ -245,10 +256,10 @@ where
         let now = Instant::now();
         r.store(false, Ordering::SeqCst);
         to_backend_tx_start_and_stop
-            .send((now, msg::ToBackend::Stop))
+            .send((now, msg::AfterProcess::Stop))
             .unwrap_or(());
         to_ui_tx_start_and_stop
-            .send((now, msg::ToUI::Stop))
+            .send((now, msg::AfterProcess::Stop))
             .unwrap_or(());
         to_process_tx_start_and_stop
             .send((now, msg::ToProcess::Stop))

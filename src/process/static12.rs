@@ -49,43 +49,37 @@ impl<T: StackType> Static12<T> {
         the_stack
     }
 
-    fn calculate_tuning(&mut self, key: i8) -> Semitones {
-        let the_stack = self.calculate_tuning_stack(key);
-        the_stack.semitones() + self.initial_reference_key as Semitones
+    fn tuning_from_stack(&self, stack: &Stack<T>) -> Semitones {
+        stack.semitones() + self.initial_reference_key as Semitones
     }
 
     fn recompute_and_send_tunings(
         &mut self,
         time: Instant,
-        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
         let send_to_backend =
-            |msg: msg::ToBackend, time: Instant| to_backend.send((time, msg)).unwrap_or(());
-        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
         for i in 0..128 {
             match self.note_statuses[i].0 {
                 NoteStatus::Off => {}
                 _ => {
-                    let tuning = self.calculate_tuning(i as i8);
-                    if self.note_statuses[i].1 != tuning {
-                        self.note_statuses[i].1 = tuning;
-                        send_to_backend(
-                            msg::ToBackend::Retune {
-                                note: i as u8,
-                                tuning,
-                            },
-                            time,
-                        );
-                        send_to_ui(
-                            msg::ToUI::Retune {
-                                note: i as u8,
-                                tuning: self.calculate_tuning_stack(i as i8),
-                            },
-                            time,
-                        );
-                    }
+                    let tuning_stack = self.calculate_tuning_stack(i as i8);
+                    let tuning = self.tuning_from_stack(&tuning_stack);
+                    // in the presence of temperaments, the tuning may be the same, but the stack different. Hence, this test is not always corect:
+                    //
+                    // if self.note_statuses[i].1 != tuning {
+                    self.note_statuses[i].1 = tuning;
+                    send_to_backend(
+                        msg::AfterProcess::Retune {
+                            note: i as u8,
+                            tuning,
+                            tuning_stack,
+                        },
+                        time,
+                    );
+                    // }
                 }
             }
         }
@@ -95,68 +89,60 @@ impl<T: StackType> Static12<T> {
         &mut self,
         time: Instant,
         index: usize,
-        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
-        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+        let send_to_backend =
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
         self.active_temperaments[index] = !self.active_temperaments[index];
         for stack in &mut self.neighbourhood.stacks {
             stack.retemper(&self.active_temperaments);
-            send_to_ui(
-                msg::ToUI::Consider {
+            send_to_backend(
+                msg::AfterProcess::Consider {
                     stack: stack.clone(),
                 },
                 time,
             );
         }
-        self.recompute_and_send_tunings(time, to_backend, to_ui);
+        self.recompute_and_send_tunings(time, to_backend);
     }
 
     fn incoming_midi(
         &mut self,
         time: Instant,
         bytes: &[u8],
-        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
         let send_to_backend =
-            |msg: msg::ToBackend, time: Instant| to_backend.send((time, msg)).unwrap_or(());
-
-        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
         match MidiMsg::from_midi(bytes) {
-            Err(err) => send_to_ui(msg::ToUI::MidiParseErr(err), time),
+            Err(err) => send_to_backend(msg::AfterProcess::MidiParseErr(err.to_string()), time),
             Ok((msg, _nbtyes)) => match msg {
                 MidiMsg::ChannelVoice {
                     channel,
                     msg: ChannelVoiceMsg::NoteOn { note, velocity },
                 } => {
                     if note as i8 >= CUTOFF_KEY {
-                        let tuning = self.calculate_tuning(note as i8);
+                        let tuning_stack = self.calculate_tuning_stack(note as i8);
+                        let tuning = self.tuning_from_stack(&tuning_stack);
                         self.note_statuses[note as usize] = (NoteStatus::On, tuning);
                         send_to_backend(
-                            msg::ToBackend::TunedNoteOn {
+                            msg::AfterProcess::TunedNoteOn {
                                 channel,
                                 note,
                                 velocity,
                                 tuning,
-                            },
-                            time,
-                        );
-                        send_to_ui(
-                            msg::ToUI::TunedNoteOn {
-                                note,
-                                tuning: self.calculate_tuning_stack(note as i8),
+                                tuning_stack,
                             },
                             time,
                         );
                     } else {
                         // here, we'll reset the reference
                         let new_reference_stack = self.calculate_tuning_stack(note as i8);
-                        self.reference_stack.clone_from(&new_reference_stack); // TODO: do this without cloning
+                        self.reference_stack.clone_from(&new_reference_stack);
                         self.reference_key = note as i8;
-                        send_to_ui(
-                            msg::ToUI::SetReference {
+                        send_to_backend(
+                            msg::AfterProcess::SetReference {
                                 key: note,
                                 stack: new_reference_stack,
                             },
@@ -164,15 +150,15 @@ impl<T: StackType> Static12<T> {
                         );
 
                         for stack in &self.neighbourhood.stacks {
-                            send_to_ui(
-                                msg::ToUI::Consider {
+                            send_to_backend(
+                                msg::AfterProcess::Consider {
                                     stack: stack.clone(),
                                 },
                                 time,
                             );
                         }
 
-                        self.recompute_and_send_tunings(time, to_backend, to_ui);
+                        self.recompute_and_send_tunings(time, to_backend);
                     }
                 }
 
@@ -182,7 +168,8 @@ impl<T: StackType> Static12<T> {
                 } => {
                     if note as i8 >= CUTOFF_KEY {
                         send_to_backend(
-                            msg::ToBackend::NoteOff {
+                            msg::AfterProcess::NoteOff {
+                                held_by_sustain: self.sustain != 0,
                                 channel,
                                 note,
                                 velocity,
@@ -191,7 +178,6 @@ impl<T: StackType> Static12<T> {
                         );
                         if self.sustain == 0 {
                             self.note_statuses[note as usize].0 = NoteStatus::Off;
-                            send_to_ui(msg::ToUI::NoteOff { note }, time);
                         } else {
                             self.note_statuses[note as usize].0 = NoteStatus::Sustained;
                         }
@@ -206,12 +192,11 @@ impl<T: StackType> Static12<T> {
                         },
                 } => {
                     self.sustain = value;
-                    send_to_backend(msg::ToBackend::Sustain { channel, value }, time);
+                    send_to_backend(msg::AfterProcess::Sustain { channel, value }, time);
                     if value == 0 {
-                        for (note, (status, _tuning)) in self.note_statuses.iter_mut().enumerate() {
+                        for (status, _tuning) in self.note_statuses.iter_mut() {
                             if *status == NoteStatus::Sustained {
                                 *status = NoteStatus::Off;
-                                send_to_ui(msg::ToUI::NoteOff { note: note as u8 }, time);
                             }
                         }
                     }
@@ -220,10 +205,10 @@ impl<T: StackType> Static12<T> {
                 MidiMsg::ChannelVoice {
                     channel,
                     msg: ChannelVoiceMsg::ProgramChange { program },
-                } => send_to_backend(msg::ToBackend::ProgramChange { channel, program }, time),
+                } => send_to_backend(msg::AfterProcess::ProgramChange { channel, program }, time),
 
                 _ => {
-                    send_to_backend(msg::ToBackend::ForwardMidi { msg }, time);
+                    send_to_backend(msg::AfterProcess::ForwardMidi { msg }, time);
                 }
             },
         }
@@ -233,10 +218,11 @@ impl<T: StackType> Static12<T> {
         &mut self,
         time: Instant,
         coefficients: Vec<StackCoeff>,
-        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
-        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+        let send_to_backend =
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+
         let mut normalised_stack = Stack::new(
             self.config.stack_type.clone(),
             &self.active_temperaments,
@@ -250,31 +236,26 @@ impl<T: StackType> Static12<T> {
         normalised_stack.add_mul(-quot, &self.neighbourhood.period);
         self.neighbourhood.stacks[rem as usize].clone_from(&normalised_stack);
 
-        send_to_ui(
-            msg::ToUI::Consider {
+        send_to_backend(
+            msg::AfterProcess::Consider {
                 stack: normalised_stack,
             },
             time,
         );
-        self.recompute_and_send_tunings(time, to_backend, to_ui);
+        self.recompute_and_send_tunings(time, to_backend);
     }
 }
 
 impl<T: FiveLimitStackType> Static12<T> {
-    fn reset(
-        &mut self,
-        time: Instant,
-        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
-    ) {
-        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+    fn reset(&mut self, time: Instant, to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>) {
         let send_to_backend =
-            |msg: msg::ToBackend, time: Instant| to_backend.send((time, msg)).unwrap_or(());
-        send_to_backend(msg::ToBackend::Reset, time);
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+
+        send_to_backend(msg::AfterProcess::Reset, time);
         *self = Static12Config::initialise(&self.config);
         for stack in &self.neighbourhood.stacks {
-            send_to_ui(
-                msg::ToUI::Consider {
+            send_to_backend(
+                msg::AfterProcess::Consider {
                     stack: stack.clone(),
                 },
                 time,
@@ -287,29 +268,23 @@ impl<T: FiveLimitStackType> ProcessState<T> for Static12<T> {
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: crate::msg::ToProcess<T>,
-        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+        msg: crate::msg::ToProcess,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
         match msg {
             msg::ToProcess::Start => {
-                self.reset(time, to_backend, to_ui);
+                self.reset(time, to_backend);
             }
             msg::ToProcess::Stop => {}
             msg::ToProcess::Reset => {
-                self.reset(time, to_backend, to_ui);
+                self.reset(time, to_backend);
             }
             msg::ToProcess::ToggleTemperament { index } => {
-                self.toggle_temperament(time, index, to_backend, to_ui)
+                self.toggle_temperament(time, index, to_backend)
             }
-            msg::ToProcess::IncomingMidi { bytes } => {
-                self.incoming_midi(time, &bytes, to_backend, to_ui)
-            }
-            msg::ToProcess::Consider {
-                coefficients,
-                _phantom,
-            } => {
-                self.consider(time, coefficients, to_backend, to_ui);
+            msg::ToProcess::IncomingMidi { bytes } => self.incoming_midi(time, &bytes, to_backend),
+            msg::ToProcess::Consider { coefficients } => {
+                self.consider(time, coefficients, to_backend);
             }
         }
     }
@@ -318,7 +293,7 @@ impl<T: FiveLimitStackType> ProcessState<T> for Static12<T> {
 pub struct Static12Config<const N: usize, T: StackType> {
     pub stack_type: Arc<T>,
     pub initial_reference_key: i8,
-    pub initial_neighbourhood: Neighbourhood<N,T>,
+    pub initial_neighbourhood: Neighbourhood<N, T>,
 }
 
 // derive(Clone) doesn't handle cloning of `Arc` correctly

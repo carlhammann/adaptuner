@@ -8,7 +8,7 @@ use crate::interval::{
     temperament::Temperament,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ConcreteFiveLimitStackType {
     temperaments: Vec<Temperament<StackCoeff>>,
     precomputed_temperings: Array2<Semitones>,
