@@ -12,7 +12,7 @@ pub trait UIState<T: StackType> {
         &mut self,
         time: Instant,
         msg: msg::ToUI<T>,
-        to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
+        to_process: &mpsc::Sender<(Instant, msg::ToProcess<T>)>,
         tui: &mut Tui,
     );
 }

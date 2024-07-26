@@ -1,7 +1,7 @@
 pub mod fivelimit {
     use crate::interval::{
         stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, StackCoeff},
+        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     };
     use std::fmt;
 
@@ -15,15 +15,24 @@ pub mod fivelimit {
     const JOHNSTON_BASE_ROW: [char; 7] = ['F', 'A', 'C', 'E', 'G', 'B', 'D'];
 
     impl NoteName {
-        /// Construct a [NoteName] from a [Stack] of intervals on middle C.
-        ///
-        /// It is assumed that the first three entries in the [coefficients][Stack::coefficients]
-        /// of the argument denote the numbers of octaves, fifths, and thirds, in that order. (In
-        /// particular, there must be at least three base intervals.)
         pub fn new<T: FiveLimitStackType>(s: &Stack<T>) -> Self {
-            let octaves = s.coefficients()[s.stacktype().octave_index()];
-            let fifths = s.coefficients()[s.stacktype().fifth_index()];
-            let thirds = s.coefficients()[s.stacktype().third_index()];
+            Self::new_with_indices(
+                s.stacktype().octave_index(),
+                s.stacktype().fifth_index(),
+                s.stacktype().third_index(),
+                s,
+            )
+        }
+
+        fn new_with_indices<T: StackType>(
+            octave_index: usize,
+            fifth_index: usize,
+            third_index: usize,
+            s: &Stack<T>,
+        ) -> Self {
+            let octaves = s.coefficients()[octave_index];
+            let fifths = s.coefficients()[fifth_index];
+            let thirds = s.coefficients()[third_index];
             let ix = 2 + 2 * fifths + thirds;
             NoteName {
                 base: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],

@@ -16,7 +16,7 @@ impl<T: StackType + fmt::Debug> UIState<T> for OnlyNotify {
         &mut self,
         _time: Instant,
         msg: msg::ToUI<T>,
-        _to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
+        _to_process: &mpsc::Sender<(Instant, msg::ToProcess<T>)>,
         _tui: &mut Tui,
     ) {
         match msg {

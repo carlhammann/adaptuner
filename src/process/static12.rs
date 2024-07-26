@@ -10,7 +10,7 @@ use crate::{
     interval::{
         interval::Semitones,
         stack::Stack,
-        stacktype::r#trait::{StackCoeff, StackType},
+        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     },
     msg,
     neighbourhood::Neighbourhood,
@@ -25,11 +25,11 @@ enum NoteStatus {
 }
 
 pub struct Static12<T: StackType> {
-    config: Static12Config<T>,
+    config: Static12Config<12, T>,
     initial_reference_key: i8,
     reference_stack: Stack<T>,
     reference_key: i8,
-    neighbourhood: Neighbourhood,
+    neighbourhood: Neighbourhood<12, T>,
     active_temperaments: Vec<bool>,
     note_statuses: [(NoteStatus, Semitones); 128],
     sustain: u8,
@@ -44,11 +44,8 @@ impl<T: StackType> Static12<T> {
         let mut the_stack = self.reference_stack.clone();
         let rem = (key - self.reference_key).rem_euclid(12);
         let quot = (key - self.reference_key).div_euclid(12);
-        the_stack.increment(
-            &self.active_temperaments,
-            &self.neighbourhood.coefficients[rem as usize],
-        );
-        the_stack.increment_at_index(&self.active_temperaments, 0, quot as StackCoeff);
+        the_stack.add_mul(1, &self.neighbourhood.stacks[rem as usize]);
+        the_stack.add_mul(quot as StackCoeff, &self.neighbourhood.period);
         the_stack
     }
 
@@ -57,13 +54,15 @@ impl<T: StackType> Static12<T> {
         the_stack.semitones() + self.initial_reference_key as Semitones
     }
 
-    fn recompute_and_send_tunings_to_backend(
+    fn recompute_and_send_tunings(
         &mut self,
         time: Instant,
         to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
     ) {
         let send_to_backend =
             |msg: msg::ToBackend, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
 
         for i in 0..128 {
             match self.note_statuses[i].0 {
@@ -79,20 +78,17 @@ impl<T: StackType> Static12<T> {
                             },
                             time,
                         );
+                        send_to_ui(
+                            msg::ToUI::Retune {
+                                note: i as u8,
+                                tuning: self.calculate_tuning_stack(i as i8),
+                            },
+                            time,
+                        );
                     }
                 }
             }
         }
-    }
-
-    fn set_neighborhood(
-        &mut self,
-        time: Instant,
-        new_neighbourhood: Neighbourhood,
-        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
-    ) {
-        self.neighbourhood = new_neighbourhood;
-        self.recompute_and_send_tunings_to_backend(time, to_backend);
     }
 
     fn toggle_temperament(
@@ -100,9 +96,20 @@ impl<T: StackType> Static12<T> {
         time: Instant,
         index: usize,
         to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
     ) {
+        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
         self.active_temperaments[index] = !self.active_temperaments[index];
-        self.recompute_and_send_tunings_to_backend(time, to_backend);
+        for stack in &mut self.neighbourhood.stacks {
+            stack.retemper(&self.active_temperaments);
+            send_to_ui(
+                msg::ToUI::Consider {
+                    stack: stack.clone(),
+                },
+                time,
+            );
+        }
+        self.recompute_and_send_tunings(time, to_backend, to_ui);
     }
 
     fn incoming_midi(
@@ -136,7 +143,13 @@ impl<T: StackType> Static12<T> {
                             },
                             time,
                         );
-                        send_to_ui(msg::ToUI::TunedNoteOn { note, tuning }, time);
+                        send_to_ui(
+                            msg::ToUI::TunedNoteOn {
+                                note,
+                                tuning: self.calculate_tuning_stack(note as i8),
+                            },
+                            time,
+                        );
                     } else {
                         // here, we'll reset the reference
                         let new_reference_stack = self.calculate_tuning_stack(note as i8);
@@ -149,7 +162,17 @@ impl<T: StackType> Static12<T> {
                             },
                             time,
                         );
-                        self.recompute_and_send_tunings_to_backend(time, to_backend);
+
+                        for stack in &self.neighbourhood.stacks {
+                            send_to_ui(
+                                msg::ToUI::Consider {
+                                    stack: stack.clone(),
+                                },
+                                time,
+                            );
+                        }
+
+                        self.recompute_and_send_tunings(time, to_backend, to_ui);
                     }
                 }
 
@@ -205,61 +228,111 @@ impl<T: StackType> Static12<T> {
             },
         }
     }
-}
 
-impl<T: StackType> ProcessState<T> for Static12<T> {
-    fn handle_msg(
+    fn consider(
         &mut self,
         time: Instant,
-        msg: crate::msg::ToProcess,
+        coefficients: Vec<StackCoeff>,
         to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
         to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
     ) {
+        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+        let mut normalised_stack = Stack::new(
+            self.config.stack_type.clone(),
+            &self.active_temperaments,
+            coefficients,
+        );
+
+        let height = normalised_stack.key_distance();
+        let quot = height.div_euclid(12);
+        let rem = height.rem_euclid(12);
+
+        normalised_stack.add_mul(-quot, &self.neighbourhood.period);
+        self.neighbourhood.stacks[rem as usize].clone_from(&normalised_stack);
+
+        send_to_ui(
+            msg::ToUI::Consider {
+                stack: normalised_stack,
+            },
+            time,
+        );
+        self.recompute_and_send_tunings(time, to_backend, to_ui);
+    }
+}
+
+impl<T: FiveLimitStackType> Static12<T> {
+    fn reset(
+        &mut self,
+        time: Instant,
+        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+    ) {
+        let send_to_ui = |msg: msg::ToUI<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
         let send_to_backend =
             |msg: msg::ToBackend, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+        send_to_backend(msg::ToBackend::Reset, time);
+        *self = Static12Config::initialise(&self.config);
+        for stack in &self.neighbourhood.stacks {
+            send_to_ui(
+                msg::ToUI::Consider {
+                    stack: stack.clone(),
+                },
+                time,
+            );
+        }
+    }
+}
 
+impl<T: FiveLimitStackType> ProcessState<T> for Static12<T> {
+    fn handle_msg(
+        &mut self,
+        time: Instant,
+        msg: crate::msg::ToProcess<T>,
+        to_backend: &mpsc::Sender<(Instant, msg::ToBackend)>,
+        to_ui: &mpsc::Sender<(Instant, msg::ToUI<T>)>,
+    ) {
         match msg {
-            msg::ToProcess::Start => {}
+            msg::ToProcess::Start => {
+                self.reset(time, to_backend, to_ui);
+            }
             msg::ToProcess::Stop => {}
             msg::ToProcess::Reset => {
-                send_to_backend(msg::ToBackend::Reset, time);
-                *self = Static12Config::initialise(&self.config);
-            }
-            msg::ToProcess::SetNeighboughood { neighbourhood } => {
-                self.set_neighborhood(time, neighbourhood, to_backend)
+                self.reset(time, to_backend, to_ui);
             }
             msg::ToProcess::ToggleTemperament { index } => {
-                self.toggle_temperament(time, index, to_backend)
+                self.toggle_temperament(time, index, to_backend, to_ui)
             }
             msg::ToProcess::IncomingMidi { bytes } => {
                 self.incoming_midi(time, &bytes, to_backend, to_ui)
             }
+            msg::ToProcess::Consider {
+                coefficients,
+                _phantom,
+            } => {
+                self.consider(time, coefficients, to_backend, to_ui);
+            }
         }
     }
 }
 
-pub struct Static12Config<T: StackType> {
+pub struct Static12Config<const N: usize, T: StackType> {
     pub stack_type: Arc<T>,
     pub initial_reference_key: i8,
-    pub initial_neighbourhood_width: StackCoeff,
-    pub initial_neighbourhood_index: StackCoeff,
-    pub initial_neighbourhood_offset: StackCoeff,
+    pub initial_neighbourhood: Neighbourhood<N,T>,
 }
 
 // derive(Clone) doesn't handle cloning of `Arc` correctly
-impl<T: StackType> Clone for Static12Config<T> {
+impl<const N: usize, T: StackType> Clone for Static12Config<N, T> {
     fn clone(&self) -> Self {
         Static12Config {
             stack_type: self.stack_type.clone(),
             initial_reference_key: self.initial_reference_key,
-            initial_neighbourhood_width: self.initial_neighbourhood_width,
-            initial_neighbourhood_index: self.initial_neighbourhood_index,
-            initial_neighbourhood_offset: self.initial_neighbourhood_offset,
+            initial_neighbourhood: self.initial_neighbourhood.clone(),
         }
     }
 }
 
-impl<T: StackType> Config<Static12<T>> for Static12Config<T> {
+impl<T: FiveLimitStackType> Config<Static12<T>> for Static12Config<12, T> {
     fn initialise(config: &Self) -> Static12<T> {
         let mut note_statuses = [(NoteStatus::Off, 0.0); 128];
         for i in 0..128 {
@@ -275,11 +348,7 @@ impl<T: StackType> Config<Static12<T>> for Static12Config<T> {
                 vec![0; config.stack_type.num_intervals()],
             ),
             reference_key: config.initial_reference_key,
-            neighbourhood: Neighbourhood::fivelimit_new(
-                config.initial_neighbourhood_width,
-                config.initial_neighbourhood_index,
-                config.initial_neighbourhood_offset,
-            ),
+            neighbourhood: config.initial_neighbourhood.clone(),
             active_temperaments: no_active_temperaments,
             note_statuses,
             sustain: 0,

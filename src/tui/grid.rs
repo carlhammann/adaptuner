@@ -1,15 +1,20 @@
 use std::{
+    marker::PhantomData,
     sync::{mpsc, Arc},
     time::Instant,
 };
 
 use colorous;
-use crossterm::event::{KeyCode, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{prelude::*, widgets::WidgetRef};
 
 use crate::{
     config::r#trait::Config,
-    interval::{stacktype::r#trait::{StackCoeff, FiveLimitStackType}, interval::Semitones, stack::Stack},
+    interval::{
+        interval::Semitones,
+        stack::Stack,
+        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
+    },
     msg,
     neighbourhood::Neighbourhood,
     notename::NoteNameStyle,
@@ -34,109 +39,201 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
     let luminance = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) / 255.0;
 
     if luminance > 0.5 {
-        return 50; // 0; // bright colors - black font
+        return 0; // bright colors - black font
     } else {
-        return 200; // 255; // dark colors - white font
+        return 255; // dark colors - white font
     }
 }
 
-pub struct Grid<T: FiveLimitStackType> {
-    pub reference_key: i8,
-    pub reference_stack: Stack<T>,
-    pub active_temperaments: Vec<bool>,
+pub struct Grid<const N: usize, T: StackType> {
+    horizontal_index: usize,
+    vertical_index: usize,
+    column_width: u16,
+    min_horizontal: StackCoeff,
+    max_horizontal: StackCoeff,
+    min_vertical: StackCoeff,
+    max_vertical: StackCoeff,
 
-    pub neighbourhood: Neighbourhood,
+    active_temperaments: Vec<bool>,
 
-    /// these are "absolute pitch classes", i.e. not relative to the reference. The number counts
-    /// how many keys of that pich class are currently pressed
-    pub active_classes: [bool; 12],
+    // the stacks are relative to the initial_reference_key
+    active_notes: Vec<(u8, Stack<T>)>,
+    considered_notes: Neighbourhood<N, T>,
 
-    pub active_notes: [bool; 128],
+    reference_key: i8,
+    reference_stack: Stack<T>,
 
-    pub config: GridConfig<T>,
+    horizontal_margin: StackCoeff,
+    vertical_margin: StackCoeff,
+
+    config: GridConfig<N, T>,
 }
 
-impl<T: FiveLimitStackType> Widget for Grid<T> {
+impl<const N: usize, T: FiveLimitStackType> Widget for Grid<N, T> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.render_ref(area, buf)
     }
 }
 
-impl<T: FiveLimitStackType> WidgetRef for Grid<T> {
-    /// rendering of Grids expects there to be 2n rows of characters for an n-row grid, because
-    /// Cells are two rows high
-    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+impl<const N: usize, T: StackType> Grid<N, T> {
+    fn recalculate_dimensions(&mut self, area: &Rect) {
+        let horizontal_index = self.horizontal_index;
+        let vertical_index = self.vertical_index;
 
-        let mut the_stack = self.reference_stack.clone();
-        let fifth_index = the_stack.stacktype().fifth_index();
-        let third_index = the_stack.stacktype().third_index();
+        let origin_horizontal = self.reference_stack.coefficients()[horizontal_index];
+        let origin_vertical = self.reference_stack.coefficients()[vertical_index];
 
-        let origin_fifth = the_stack.coefficients()[fifth_index];
-        let origin_third = the_stack.coefficients()[third_index];
+        let (mut min_horizontal, mut max_horizontal) = (origin_horizontal, origin_horizontal);
+        let (mut min_vertical, mut max_vertical) = (origin_vertical, origin_vertical);
 
-        let (mut min_fifth, mut max_fifth) = self.neighbourhood.bounds(fifth_index);
-        let (mut min_third, mut max_third) = self.neighbourhood.bounds(third_index);
-        min_fifth += origin_fifth;
-        max_fifth += origin_fifth;
-        min_third += origin_third;
-        max_third += origin_third;
-
-        // if max_fifth - min_fifth < self.width {
-        //     min_fifth = origin_fifth - self.width / 2;
-        //     max_fifth = min_fifth + self.width - 1;
-        // }
-
-        let max_lines = area.height as StackCoeff / 2;
-        if max_third - min_third > max_lines {
-            min_third = origin_third - max_lines / 2;
-            max_third = min_third + max_lines - 1;
+        for (_, stack) in &self.active_notes {
+            let hor = stack.coefficients()[horizontal_index];
+            if hor < min_horizontal {
+                min_horizontal = hor;
+            }
+            if hor > max_horizontal {
+                max_horizontal = hor;
+            }
+            let ver = stack.coefficients()[vertical_index];
+            if ver < min_vertical {
+                min_vertical = ver;
+            }
+            if ver > max_vertical {
+                max_vertical = ver;
+            }
+        }
+        for stack in &self.considered_notes.stacks {
+            let hor = stack.coefficients()[horizontal_index] + origin_horizontal;
+            if hor < min_horizontal {
+                min_horizontal = hor;
+            }
+            if hor > max_horizontal {
+                max_horizontal = hor;
+            }
+            let ver = stack.coefficients()[vertical_index] + origin_vertical;
+            if ver < min_vertical {
+                min_vertical = ver;
+            }
+            if ver > max_vertical {
+                max_vertical = ver;
+            }
         }
 
-        let cols = 1 + max_fifth - min_fifth;
-        let cellwidth = area.width / cols as u16;
+        max_vertical += self.vertical_margin;
+        min_vertical -= self.vertical_margin;
+        max_horizontal += self.horizontal_margin;
+        min_horizontal -= self.horizontal_margin;
 
+        // each cell must be at exactly two characters tall:
+        let max_rows = area.height as StackCoeff / 2;
+        if max_vertical - min_vertical + 1 > max_rows {
+            min_vertical = origin_vertical - max_rows / 2;
+            max_vertical = min_vertical + max_rows - 1;
+        }
+
+        // each cell must be at least four characters wide:
+        let max_cols = area.width as StackCoeff / 4;
+        if max_horizontal - min_horizontal + 1 > max_cols {
+            min_horizontal = origin_horizontal - max_cols / 2;
+            max_horizontal = min_horizontal + max_cols - 1;
+        }
+
+        let cols = 1 + max_horizontal - min_horizontal;
+
+        self.column_width = area.width / cols as u16;
+        self.min_horizontal = min_horizontal;
+        self.max_horizontal = max_horizontal;
+        self.min_vertical = min_vertical;
+        self.max_vertical = max_vertical;
+    }
+}
+
+impl<const N: usize, T: FiveLimitStackType> WidgetRef for Grid<N, T> {
+    /// This expects [recalculate_dimensions][Grid::recalculate_dimensions] to be called first.
+    /// Otherwise, expect bad things to happen!    
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+        let mut the_stack = self.reference_stack.clone();
         the_stack.increment_at_index(
             &self.active_temperaments,
-            third_index,
-            min_third - self.reference_stack.coefficients()[third_index],
+            self.vertical_index,
+            self.min_vertical - self.reference_stack.coefficients()[self.vertical_index],
         );
         the_stack.increment_at_index(
             &self.active_temperaments,
-            fifth_index,
-            min_fifth - self.reference_stack.coefficients()[fifth_index],
+            self.horizontal_index,
+            self.min_horizontal - self.reference_stack.coefficients()[self.horizontal_index],
         );
 
-        for i in min_third..=max_third {
-            for j in min_fifth..=max_fifth {
-                let mut state = CellState::Off;
-                for k in 0..12 {
-                    if self.neighbourhood.coefficients[k][fifth_index] + origin_fifth == j
-                        && self.neighbourhood.coefficients[k][third_index] + origin_third == i
-                    {
-                        if self.active_classes[(k as usize + self.reference_key as usize) % 12]
-                        {
-                            state = CellState::On;
-                        } else {
-                            state = CellState::Considered;
-                        }
-                    }
-                }
+        for i in self.min_vertical..=self.max_vertical {
+            for j in self.min_horizontal..=self.max_horizontal {
                 render_stack(
                     &the_stack,
-                    state,
+                    CellState::Off,
                     &self.config.display_config,
                     Rect {
-                        x: area.x + cellwidth * (j - min_fifth) as u16,
-                        y: area.y + 2 * (max_third - i) as u16,
-                        width: cellwidth,
+                        x: area.x + self.column_width * (j - self.min_horizontal) as u16,
+                        y: area.y + 2 * (self.max_vertical - i) as u16,
+                        width: self.column_width,
                         height: 2,
                     },
                     buf,
                 );
-                the_stack.increment_at_index(&self.active_temperaments, fifth_index, 1);
+                the_stack.increment_at_index(&self.active_temperaments, self.horizontal_index, 1);
             }
-            the_stack.increment_at_index(&self.active_temperaments, third_index, 1);
-            the_stack.increment_at_index(&self.active_temperaments, fifth_index, min_fifth - max_fifth - 1);
+            the_stack.increment_at_index(&self.active_temperaments, self.vertical_index, 1);
+            the_stack.increment_at_index(
+                &self.active_temperaments,
+                self.horizontal_index,
+                self.min_horizontal - self.max_horizontal - 1,
+            );
+        }
+        for relative_stack in &self.considered_notes.stacks {
+            the_stack.clone_from(relative_stack);
+            the_stack.add_mul(1, &self.reference_stack);
+            let i = the_stack.coefficients()[self.vertical_index];
+            let j = the_stack.coefficients()[self.horizontal_index];
+            if i < self.min_vertical
+                || i > self.max_vertical
+                || j < self.min_horizontal
+                || j > self.max_horizontal
+            {
+                break;
+            }
+            render_stack(
+                &the_stack,
+                CellState::Considered,
+                &self.config.display_config,
+                Rect {
+                    x: area.x + self.column_width * (j - self.min_horizontal) as u16,
+                    y: area.y + 2 * (self.max_vertical - i) as u16,
+                    width: self.column_width,
+                    height: 2,
+                },
+                buf,
+            );
+        }
+        for (_, the_stack) in &self.active_notes {
+            let i = the_stack.coefficients()[self.vertical_index];
+            let j = the_stack.coefficients()[self.horizontal_index];
+            if i < self.min_vertical
+                || i > self.max_vertical
+                || j < self.min_horizontal
+                || j > self.max_horizontal
+            {
+                break;
+            }
+            render_stack(
+                &the_stack,
+                CellState::On,
+                &self.config.display_config,
+                Rect {
+                    x: area.x + self.column_width * (j - self.min_horizontal) as u16,
+                    y: area.y + 2 * (self.max_vertical - i) as u16,
+                    width: self.column_width,
+                    height: 2,
+                },
+                buf,
+            );
         }
     }
 }
@@ -149,6 +246,13 @@ fn render_stack<T: FiveLimitStackType>(
     buf: &mut Buffer,
 ) {
     // Rendering grid cells expects that we have two rows.
+
+    // reset all cells in the area.
+    for pos in area.positions() {
+        buf.get_mut(pos.x, pos.y).reset()
+    };
+
+
     buf.set_string(
         area.x,
         area.y,
@@ -183,22 +287,30 @@ fn render_stack<T: FiveLimitStackType>(
     buf.set_style(area, style);
 }
 
-impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
+impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T> {
     fn handle_msg(
         &mut self,
         time: Instant,
         msg: msg::ToUI<T>,
-        to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
+        to_process: &mpsc::Sender<(Instant, msg::ToProcess<T>)>,
         tui: &mut Tui,
     ) {
-        let draw_frame = |t: &mut Tui, g: &Self| {
-            t.draw(|frame| frame.render_widget(g, frame.size()))
-                .expect("");
+        let draw_frame = |t: &mut Tui, g: &mut Self| {
+            match t.draw(|frame| {
+                g.recalculate_dimensions(&frame.size());
+                frame.render_widget(&*g, frame.size());
+            }) {
+                _ => {}
+            }
             0
         };
 
+        // let other_draw_fra reference_stack.coefficients()[self.vertical_index];e = || {
+        //     tui.draw(|frame| frame.render_widget(self, frame.size()))
+        // };
+
         let send_to_process =
-            |msg: msg::ToProcess, time: Instant| to_process.send((time, msg)).unwrap_or(());
+            |msg: msg::ToProcess<T>, time: Instant| to_process.send((time, msg)).unwrap_or(());
 
         match msg {
             msg::ToUI::Start => {
@@ -224,34 +336,38 @@ impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
                                 *self = GridConfig::initialise(&self.config);
                                 send_to_process(msg::ToProcess::Reset, time);
                             }
-                            KeyCode::Down => {
-                                self.neighbourhood.fivelimit_inc_index();
-                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-                            }
-                            KeyCode::Up => {
-                                self.neighbourhood.fivelimit_dec_index();
-                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
 
-                            }
-                            KeyCode::Left => {
-                                self.neighbourhood.fivelimit_inc_offset();
-                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+                            // KeyCode::Down => {
+                            //     self.neighbourhood.fivelimit_inc_index();
+                            //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+                            // }
+                            // KeyCode::Up => {
+                            //     self.neighbourhood.fivelimit_dec_index();
+                            //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+                            //
+                            // }
+                            // KeyCode::Left => {
+                            //     self.neighbourhood.fivelimit_inc_offset();
+                            //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+                            //
+                            // }
+                            // KeyCode::Right => {
+                            //     self.neighbourhood.fivelimit_dec_offset();
+                            //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
+                            //
+                            // }
 
-                            }
-                            KeyCode::Right => {
-                                self.neighbourhood.fivelimit_dec_offset();
-                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-
-                            }
                             KeyCode::Char('+') => {
-                                self.neighbourhood.fivelimit_inc_width();
-                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-
+                                self.vertical_margin +=1;
+                                self.horizontal_margin +=1;
                             }
                             KeyCode::Char('-') => {
-                                self.neighbourhood.fivelimit_dec_width();
-                                send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-
+                                if self.vertical_margin >=1 {
+                                    self.vertical_margin -=1;
+                                }
+                                if self.horizontal_margin >= 1 {
+                                    self.horizontal_margin -=1;
+                                }
                             }
 
                             KeyCode::Char('1') => {
@@ -267,7 +383,26 @@ impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
                             _ => {}
                         }
                     }
-                    _ =>{},
+                    crossterm::event::Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: _ }) => {
+                        let horizontal_offset = 
+                          self.min_horizontal + 
+                          column  as StackCoeff / self.column_width as StackCoeff - 
+                          self.reference_stack.coefficients()[self.horizontal_index];
+                        let vertical_offset = 
+                          self.max_vertical - 
+                          row as StackCoeff / 2 - 
+                          self.reference_stack.coefficients()[self.vertical_index];
+
+                        let mut coefficients = vec![0; self.config.stack_type.num_intervals()];
+                        coefficients[self.vertical_index] = vertical_offset;
+                        coefficients[self.horizontal_index] = horizontal_offset;
+
+                        send_to_process(msg::ToProcess::Consider {
+                            coefficients,
+                            _phantom: PhantomData,
+                        }, time);
+                    }
+                    _ => {}
                 }
                 draw_frame(tui, self);
             }
@@ -276,54 +411,75 @@ impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
                 self.reference_stack.clone_from(&stack);
                 draw_frame(tui, self);
             }
-            msg::ToUI::TunedNoteOn { note, .. } => { // TODO use the tuning data!
-                self.active_classes[(note % 12) as usize] = true;
-                self.active_notes[note as usize] = true;
+
+            msg::ToUI::TunedNoteOn { note, tuning } | msg::ToUI::Retune { note, tuning } => {
+                let mut inserted = false;
+                for (key, stack) in &mut self.active_notes {
+                    if *key == note {
+                        inserted = true;
+                        stack.clone_from(&tuning);
+                        break;
+                    }
+                }
+                if !inserted {
+                    self.active_notes.push((note, tuning));
+                }
                 draw_frame(tui, self);
             }
             msg::ToUI::NoteOff { note } => {
-                self.active_notes[note as usize] = false;
-                let mut any_on = false;
-                for i in ((note%12)..128).step_by(12) {
-                    if self.active_notes[i as usize] {
-                        any_on = true;
-                    }
+                if let Some(index) = self.active_notes.iter().position(|(key, _)| *key == note) {
+                    self.active_notes.swap_remove(index);
                 }
+                draw_frame(tui, self);
+            }
 
-                self.active_classes[(note % 12) as usize] = any_on; 
+            msg::ToUI::Consider { stack } => {
+                let height = stack.key_distance();
+                self.considered_notes.stacks[(height%12) as usize] = stack;
                 draw_frame(tui, self);
             }
         }
     }
 }
 
-pub struct GridConfig<T: FiveLimitStackType> {
-    pub display_config: DisplayConfig,
-    pub initial_reference_key: i8,
+pub struct GridConfig<const N: usize, T: StackType> {
     pub stack_type: Arc<T>,
-    pub initial_neighbourhood_width: StackCoeff,
-    pub initial_neighbourhood_index: StackCoeff,
-    pub initial_neighbourhood_offset: StackCoeff,
+
+    pub horizontal_index: usize,
+    pub vertical_index: usize,
+    pub fifth_index: usize,
+    pub third_index: usize,
+
+    pub display_config: DisplayConfig,
+
+    pub initial_reference_key: i8,
+    pub initial_neighbourhood: Neighbourhood<N, T>,
 }
 
 // derive(Clone) doesn't handle cloning `Arc` correctly
-impl<T: FiveLimitStackType> Clone for GridConfig<T> {
+impl<const N: usize, T: StackType> Clone for GridConfig<N, T> {
     fn clone(&self) -> Self {
         GridConfig {
             display_config: self.display_config.clone(),
             initial_reference_key: self.initial_reference_key.clone(),
             stack_type: self.stack_type.clone(),
-            initial_neighbourhood_width: self.initial_neighbourhood_width,
-            initial_neighbourhood_index: self.initial_neighbourhood_index,
-            initial_neighbourhood_offset: self.initial_neighbourhood_offset,
+
+            initial_neighbourhood: self.initial_neighbourhood.clone(),
+            horizontal_index: self.horizontal_index,
+            vertical_index: self.vertical_index,
+            fifth_index: self.fifth_index,
+            third_index: self.third_index,
         }
     }
 }
 
-impl<T: FiveLimitStackType> Config<Grid<T>> for GridConfig<T> {
-    fn initialise(config: &Self) -> Grid<T> {
+impl<const N: usize, T: FiveLimitStackType> Config<Grid<N, T>> for GridConfig<N, T> {
+    fn initialise(config: &Self) -> Grid<N, T> {
         let no_active_temperaments = vec![false; config.stack_type.num_temperaments()];
         Grid {
+            horizontal_index: config.horizontal_index,
+            vertical_index: config.vertical_index,
+
             reference_key: config.initial_reference_key,
             reference_stack: Stack::new(
                 config.stack_type.clone(),
@@ -331,14 +487,20 @@ impl<T: FiveLimitStackType> Config<Grid<T>> for GridConfig<T> {
                 vec![0; config.stack_type.num_intervals()],
             ),
             active_temperaments: no_active_temperaments,
-            neighbourhood: Neighbourhood::fivelimit_new(
-                config.initial_neighbourhood_width,
-                config.initial_neighbourhood_index,
-                config.initial_neighbourhood_offset,
-            ),
-            active_notes: [false; 128],
-            active_classes: [false; 12],
+
+            considered_notes: config.initial_neighbourhood.clone(),
+
+            active_notes: Vec::with_capacity(12),
             config: config.clone(),
+
+            horizontal_margin: 1,
+            vertical_margin: 1,
+            min_horizontal: -1,
+            max_horizontal: 1,
+            min_vertical: -1,
+            max_vertical: 1,
+            column_width: 0, // this will be changed. I initialise to zero to make division panic
+                             // if not
         }
     }
 }

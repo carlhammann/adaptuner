@@ -44,7 +44,7 @@
 
         nativeBuildInputs = with pkgs; [pkg-config];
         buildInputs =
-          (with pkgs; [alsa-lib])
+          (with pkgs; [gtk4 alsa-lib])
           ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             # Additional darwin specific inputs can be set here
             pkgs.libiconv

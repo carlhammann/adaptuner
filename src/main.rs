@@ -24,9 +24,10 @@ use adaptuner::{
     backend::r#trait::BackendState,
     config::{r#trait::Config, CompleteConfig, MidiPortConfig},
     interval,
-    interval::stacktype::r#trait::StackType,
-    interval::temperament::Temperament,
-    msg, notename, process,
+    interval::{stack::Stack, stacktype::r#trait::StackType, temperament::Temperament},
+    msg,
+    neighbourhood::Neighbourhood,
+    notename, process,
     process::r#trait::ProcessState,
     tui,
     tui::r#trait::{Tui, UIState},
@@ -34,7 +35,7 @@ use adaptuner::{
 
 fn start_process<T, STATE, CONFIG>(
     config: CONFIG,
-    msg_rx: mpsc::Receiver<(Instant, msg::ToProcess)>,
+    msg_rx: mpsc::Receiver<(Instant, msg::ToProcess<T>)>,
     backend_tx: mpsc::Sender<(Instant, msg::ToBackend)>,
     ui_tx: mpsc::Sender<(Instant, msg::ToUI<T>)>,
 ) -> thread::JoinHandle<()>
@@ -61,7 +62,7 @@ where
 fn start_ui<T, STATE, CONFIG>(
     config: CONFIG,
     msg_rx: mpsc::Receiver<(Instant, msg::ToUI<T>)>,
-    process_tx: mpsc::Sender<(Instant, msg::ToProcess)>,
+    process_tx: mpsc::Sender<(Instant, msg::ToProcess<T>)>,
     mut tui: Tui,
 ) -> thread::JoinHandle<()>
 where
@@ -194,6 +195,7 @@ where
     });
 
     execute!(stdout(), EnterAlternateScreen).expect("Could not enter alternate screen");
+    execute!(stdout(), event::EnableMouseCapture).expect("Could not enable mouse capture");
     enable_raw_mode().expect("Could not enable raw mode");
     let tui = Terminal::new(CrosstermBackend::new(stdout()))
         .expect("Could not start a new Terminal with the crossterm backend");
@@ -252,6 +254,7 @@ where
             .send((now, msg::ToProcess::Stop))
             .unwrap_or(());
         execute!(stdout(), LeaveAlternateScreen).expect("Could not leave alternate screen");
+        execute!(stdout(), event::DisableMouseCapture).expect("Could not disable mouse capture");
         disable_raw_mode().expect("Could not disable raw mode");
     })
     .expect("Error setting Ctrl-C handler");
@@ -265,6 +268,7 @@ where
     }
 
     execute!(stdout(), LeaveAlternateScreen).expect("Could not leave alternate screen");
+    execute!(stdout(), event::DisableMouseCapture).expect("Could not disable mouse capture");
     disable_raw_mode().expect("Could not disable raw mode");
 
     Ok(())
@@ -291,6 +295,16 @@ pub fn main() -> Result<(), Box<dyn Error>> {
             .unwrap(),
         ]),
     );
+    let octave = Arc::new(Stack::new(stack_type.clone(), &[false; 2], vec![1, 0, 0]));
+    let no_active_temperaments = vec![false; stack_type.num_temperaments()];
+    let initial_neighbourhood = Neighbourhood::fivelimit_new(
+        stack_type.clone(),
+        octave,
+        &no_active_temperaments,
+        initial_neighbourhood_width,
+        initial_neighbourhood_index,
+        initial_neighbourhood_offset,
+    );
     // let initial_reference_stack = interval::Stack::new(
     //     stack_type.clone(),
     //     &vector_from_elem(false),
@@ -301,22 +315,21 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
         process::static12::Static12<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
         process::static12::Static12Config<
+            12,
             interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
         >,
         backend::pitchbend16::Pitchbend16<15>,
         backend::pitchbend16::Pitchbend16Config<15>,
         // tui::onlynotify::OnlyNotify,
         // tui::onlynotify::OnlyNotifyConfig,
-        tui::grid::Grid<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
-        tui::grid::GridConfig<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
+        tui::grid::Grid<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
+        tui::grid::GridConfig<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
         process_config: process::static12::Static12Config {
             stack_type: stack_type.clone(),
             initial_reference_key,
-            initial_neighbourhood_width,
-            initial_neighbourhood_index,
-            initial_neighbourhood_offset,
+            initial_neighbourhood: initial_neighbourhood.clone(),
         },
         backend_config: backend::pitchbend16::Pitchbend16Config {
             channels: [
@@ -346,9 +359,11 @@ pub fn main() -> Result<(), Box<dyn Error>> {
             },
             stack_type: stack_type.clone(),
             initial_reference_key,
-            initial_neighbourhood_offset,
-            initial_neighbourhood_index,
-            initial_neighbourhood_width,
+            initial_neighbourhood,
+            horizontal_index: 1,
+            vertical_index: 2,
+            fifth_index: 1,
+            third_index: 2,
         },
         // ui_config: tui::onlynotify::OnlyNotifyConfig {},
         _phantom: PhantomData,

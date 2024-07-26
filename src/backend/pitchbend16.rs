@@ -273,7 +273,8 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                         });
                     } else {
                         self.active_notes[note as usize] = None;
-                        self.usage[channel as usize] -= 1;
+                        self.usage[channel as usize] =
+                            self.usage[channel as usize].saturating_sub(1);
                     }
                 }
                 None => {}
@@ -303,7 +304,8 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                                 mapped_to: _,
                             }) => {
                                 if sustained {
-                                    self.usage[channel as usize] -= 1;
+                                    self.usage[channel as usize] =
+                                        self.usage[channel as usize].saturating_sub(1);
                                     self.active_notes[i] = None;
                                 }
                             }

@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::{
-    backend, backend::r#trait::BackendState, config::r#trait::Config, interval,
-    interval::stacktype::r#trait::StackType, process, process::r#trait::ProcessState, tui, tui::r#trait::UIState,
+    backend::r#trait::BackendState, config::r#trait::Config,
+    interval::stacktype::r#trait::StackType, process::r#trait::ProcessState, tui::r#trait::UIState,
 };
 
 pub mod r#trait;
@@ -28,19 +28,3 @@ where
     pub ui_config: UCONFIG,
     pub _phantom: PhantomData<(T, P, B, U)>,
 }
-
-pub static TRIVIAL_CONFIG: CompleteConfig<
-    interval::stacktype::generic::GenericStackType,
-    process::onlyforward::OnlyForward,
-    process::onlyforward::OnlyForwardConfig,
-    backend::onlyforward::OnlyForward,
-    backend::onlyforward::OnlyForwardConfig,
-    tui::onlynotify::OnlyNotify,
-    tui::onlynotify::OnlyNotifyConfig,
-> = CompleteConfig {
-    midi_port_config: MidiPortConfig::AskAtStartup,
-    process_config: process::onlyforward::OnlyForwardConfig {},
-    backend_config: backend::onlyforward::OnlyForwardConfig {},
-    ui_config: tui::onlynotify::OnlyNotifyConfig {},
-    _phantom: PhantomData,
-};

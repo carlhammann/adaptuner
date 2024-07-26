@@ -1,8 +1,10 @@
+use std::marker::PhantomData;
+
 use midi_msg::{Channel, MidiMsg};
 
-use crate::{
-    interval::{interval::Semitones, stack::Stack, stacktype::r#trait::StackType},
-    neighbourhood::Neighbourhood,
+use crate::interval::{
+    interval::Semitones, stack::Stack, stacktype::r#trait::StackCoeff,
+    stacktype::r#trait::StackType,
 };
 
 #[derive(Debug, PartialEq)]
@@ -28,9 +30,16 @@ pub enum ToUI<T: StackType> {
         key: u8,
         stack: Stack<T>,
     },
+    Consider {
+        stack: Stack<T>,
+    },
     TunedNoteOn {
         note: u8,
-        tuning: Semitones,
+        tuning: Stack<T>,
+    },
+    Retune {
+        note: u8,
+        tuning: Stack<T>,
     },
     NoteOff {
         note: u8,
@@ -71,11 +80,19 @@ pub enum ToBackend {
     },
 }
 
-pub enum ToProcess {
+pub enum ToProcess<T: StackType> {
     Start,
     Stop,
     Reset,
-    SetNeighboughood { neighbourhood: Neighbourhood },
-    ToggleTemperament { index: usize },
-    IncomingMidi { bytes: Vec<u8> },
+    // SetNeighboughood { neighbourhood: Neighbourhood },
+    ToggleTemperament {
+        index: usize,
+    },
+    IncomingMidi {
+        bytes: Vec<u8>,
+    },
+    Consider {
+        coefficients: Vec<StackCoeff>,
+        _phantom: PhantomData<T>
+    },
 }

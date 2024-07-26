@@ -110,6 +110,41 @@ impl<T: StackType> Stack<T> {
         res
     }
 
+    pub fn reset_to(&mut self, active_temperaments: &[bool], coefficients: &[StackCoeff]) {
+        for (i, c) in coefficients.iter().enumerate() {
+            self.coefficients[i] = *c;
+            for (t, active) in active_temperaments.iter().enumerate() {
+                if *active {
+                    self.corrections[[i, t]] = *c;
+                }
+            }
+        }
+        self.normalise();
+    }
+
+    /// Apply new temperaments, forgetting all currently applied adjustments. In particular, this
+    /// may change the [coefficients][Stack::coefficients], if the new temperaments happen to
+    /// "temper out" some interval. (This scenario is like the one explained at the documentation
+    /// comment for [increment][Stack::increment].)
+    pub fn retemper(&mut self, active_temperaments: &[bool]) {
+        for (i, &c) in self.coefficients.iter().enumerate() {
+            for (t, &active) in active_temperaments.iter().enumerate() {
+                self.corrections[[i, t]] = if active { c } else { 0 };
+            }
+        }
+        self.normalise();
+    }
+
+    pub fn new_zero(stacktype: Arc<T>) -> Stack<T> {
+        let coefficients = vec![0; stacktype.num_intervals()];
+        let corrections = Array2::zeros((stacktype.num_intervals(), stacktype.num_temperaments()));
+        Stack {
+            stacktype,
+            coefficients,
+            corrections,
+        }
+    }
+
     pub fn stacktype(&self) -> Arc<T> {
         self.stacktype.clone()
     }
@@ -141,6 +176,15 @@ impl<T: StackType> Stack<T> {
             }
         }
         true
+    }
+
+    /// Hoe many piano keys wide is the the interval described by this stack?
+    pub fn key_distance(&self) -> StackCoeff {
+        let mut res = 0;
+        for (i, &c) in self.coefficients.iter().enumerate() {
+            res += c * self.stacktype.intervals()[i].key_distance as StackCoeff;
+        }
+        res
     }
 
     /// Like [increment_at_index][StackType::increment_at_index], but acting on several intervals at
@@ -190,9 +234,21 @@ impl<T: StackType> Stack<T> {
         }
         self.normalise();
     }
+
+    /// Add a multiple of one stack to a stack. See the comment at
+    /// [increment_at_index][Stack::increment_at_index] for why this warrants its own function.
+    pub fn add_mul(&mut self, n: StackCoeff, added: &Self) {
+        for (i, c) in added.coefficients.iter().enumerate() {
+            self.coefficients[i] += n * c;
+        }
+        for (i, c) in added.corrections.indexed_iter() {
+            self.corrections[i] += n * c;
+        }
+        self.normalise()
+    }
 }
 
-impl<T: StackType> ops::Add<&Stack<T>> for Stack<T> {
+impl<T: StackType, P: ops::Deref<Target = Stack<T>>> ops::Add<P> for Stack<T> {
     type Output = Self;
 
     /// Addition of [Stack]s is a bit more involved than one might think at first glance: It
@@ -204,7 +260,7 @@ impl<T: StackType> ops::Add<&Stack<T>> for Stack<T> {
     ///
     /// Also, in many applications, [increment][Stack::increment]ing might be the cheaper option,
     /// because it doesn't require you to construct a second [Stack].
-    fn add(mut self, x: &Self) -> Self {
+    fn add(mut self, x: P) -> Self {
         if !std::sync::Arc::ptr_eq(&self.stacktype, &x.stacktype) {
             panic!("tried to add two `Stack`s of different `StackType`s")
         }
