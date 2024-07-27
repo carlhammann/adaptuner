@@ -5,7 +5,10 @@ use std::{
 
 use colorous;
 use crossterm::event::{KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
-use ratatui::{prelude::*, widgets::WidgetRef};
+use ratatui::{
+    prelude::{Buffer, Color, Frame, Rect, Style, Widget},
+    widgets::WidgetRef,
+};
 
 use crate::{
     config::r#trait::Config,
@@ -17,7 +20,7 @@ use crate::{
     msg,
     neighbourhood::Neighbourhood,
     notename::NoteNameStyle,
-    tui::r#trait::{Tui, UIState},
+    tui::r#trait::UIState,
 };
 
 #[derive(Clone)]
@@ -291,23 +294,20 @@ fn render_stack<T: FiveLimitStackType>(
     buf.set_style(area, style);
 }
 
-impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T> {
+impl<const N: usize, T: FiveLimitStackType> UIState<T> for Grid<N, T> {
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: msg::AfterProcess<T>,
+        msg: &msg::AfterProcess<T>,
         to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
-        tui: &mut Tui,
+        frame: &mut Frame,
+        area: Rect,
     ) {
-        let draw_frame = |t: &mut Tui, g: &mut Self| {
-            match t.draw(|frame| {
-                g.recalculate_dimensions(&frame.size());
-                frame.render_widget(&*g, frame.size());
-            }) {
-                _ => {}
-            }
-            0
-        };
+        // let draw_frame = |t: &mut Tui, g: &mut Self| {
+        //     let mut frame = t.get_frame();
+        //     g.recalculate_dimensions(&area);
+        //     frame.render_widget(&*g, area);
+        // };
 
         // let other_draw_fra reference_stack.coefficients()[self.vertical_index];e = || {
         //     tui.draw(|frame| frame.render_widget(self, frame.size()))
@@ -317,9 +317,7 @@ impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T
             |msg: msg::ToProcess, time: Instant| to_process.send((time, msg)).unwrap_or(());
 
         match msg {
-            msg::AfterProcess::Start => {
-                draw_frame(tui, self);
-            }
+            msg::AfterProcess::Start => {}
             msg::AfterProcess::Stop => {
                 send_to_process(msg::ToProcess::Stop, time);
             }
@@ -398,10 +396,10 @@ impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T
                         modifiers: _,
                     }) => {
                         let horizontal_offset = self.min_horizontal
-                            + column as StackCoeff / self.column_width as StackCoeff
+                            + *column as StackCoeff / self.column_width as StackCoeff
                             - self.reference_stack.coefficients()[self.horizontal_index];
                         let vertical_offset = self.max_vertical
-                            - row as StackCoeff / 2
+                            - *row as StackCoeff / 2
                             - self.reference_stack.coefficients()[self.vertical_index];
 
                         let mut coefficients = vec![0; self.config.stack_type.num_intervals()];
@@ -412,12 +410,10 @@ impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T
                     }
                     _ => {}
                 }
-                draw_frame(tui, self);
             }
             msg::AfterProcess::SetReference { key, stack } => {
-                self.reference_key = key as i8;
+                self.reference_key = *key as i8;
                 self.reference_stack.clone_from(&stack);
-                draw_frame(tui, self);
             }
 
             msg::AfterProcess::TunedNoteOn {
@@ -425,7 +421,7 @@ impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T
             } => {
                 let mut inserted = false;
                 for (key, stack, _) in &mut self.active_notes {
-                    if *key == note {
+                    if *key == *note {
                         inserted = true;
                         stack.clone_from(&tuning_stack);
                         break;
@@ -433,20 +429,18 @@ impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T
                 }
                 if !inserted {
                     self.active_notes
-                        .push((note, tuning_stack, NoteOnState::Pressed));
+                        .push((*note, tuning_stack.clone(), NoteOnState::Pressed));
                 }
-                draw_frame(tui, self);
             }
             msg::AfterProcess::Retune {
                 note, tuning_stack, ..
             } => {
                 for (key, stack, _) in &mut self.active_notes {
-                    if *key == note {
+                    if *key == *note {
                         stack.clone_from(&tuning_stack);
                         break;
                     }
                 }
-                draw_frame(tui, self);
             }
             msg::AfterProcess::NoteOff {
                 held_by_sustain,
@@ -456,34 +450,33 @@ impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T
                 if let Some(index) = self
                     .active_notes
                     .iter()
-                    .position(|(key, _, _)| *key == note)
+                    .position(|(key, _, _)| *key == *note)
                 {
-                    if held_by_sustain {
+                    if *held_by_sustain {
                         self.active_notes[index].2 = NoteOnState::Sustained;
                     } else {
                         self.active_notes.swap_remove(index);
                     }
                 }
-                draw_frame(tui, self);
             }
 
             msg::AfterProcess::Consider { stack } => {
                 let height = stack.key_distance();
-                self.considered_notes.stacks[(height % 12) as usize] = stack;
-                draw_frame(tui, self);
+                self.considered_notes.stacks[(height % 12) as usize] = stack.clone();
             }
             msg::AfterProcess::Reset => {}
             msg::AfterProcess::Sustain { value, .. } => {
-                if value == 0 {
+                if *value == 0 {
                     self.active_notes
                         .retain(|(_, _, s)| *s != NoteOnState::Sustained);
                 }
-                draw_frame(tui, self);
             }
             msg::AfterProcess::ProgramChange { .. } => {}
             msg::AfterProcess::ForwardMidi { .. } => {}
             msg::AfterProcess::BackendLatency { .. } => {}
         }
+        self.recalculate_dimensions(&area);
+        frame.render_widget(&*self, area);
     }
 }
 

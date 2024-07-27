@@ -3,52 +3,58 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ratatui::prelude::Line;
+use ratatui::prelude::{Frame, Line, Rect};
 
 use crate::{
-    config::r#trait::Config, interval::stacktype::r#trait::StackType, tui::r#trait::UIState,
+    config::r#trait::Config, interval::stacktype::r#trait::StackType, msg, tui::r#trait::UIState,
 };
 
-pub struct LatencyReporter<const N: usize> {
-    values: [Duration; N],
+pub struct LatencyReporter {
+    values: Vec<Duration>,
     next_to_update: usize,
+    mean: u128,
 }
 
-impl<const N: usize, T: StackType> UIState<T> for LatencyReporter<N> {
+impl<T: StackType> UIState<T> for LatencyReporter {
     fn handle_msg(
         &mut self,
         _time: Instant,
-        msg: crate::msg::AfterProcess<T>,
+        msg: &msg::AfterProcess<T>,
         _to_process: &mpsc::Sender<(Instant, crate::msg::ToProcess)>,
-        tui: &mut super::r#trait::Tui,
+        frame: &mut Frame,
+        area: Rect,
     ) {
         match msg {
             crate::msg::AfterProcess::BackendLatency { since_input } => {
-                self.values[self.next_to_update] = since_input;
-                self.next_to_update = (self.next_to_update + 1) % N;
-                let mean = self.values.iter().map(|x| x.as_micros()).sum::<u128>() / N as u128;
-                match tui.draw(|frame| {
-                    frame.render_widget(
-                        Line::from(format!("mean latency to backend: {mean} usec")),
-                        frame.size(),
-                    )
-                }) {
-                    _ => (),
-                };
+                let n = self.values.len();
+                self.values[self.next_to_update] = *since_input;
+                self.next_to_update = (self.next_to_update + 1) % n;
+                self.mean = self.values.iter().map(|x| x.as_micros()).sum::<u128>() / n as u128;
             }
             _ => {}
         }
+        let n = self.values.len();
+        frame.render_widget(
+            Line::from(format!(
+                "mean MIDI latency (last {n} events): {} microseconds",
+                self.mean
+            )),
+            area,
+        );
     }
 }
 
 #[derive(Clone)]
-pub struct LatencyReporterConfig {}
+pub struct LatencyReporterConfig {
+    pub nsamples: usize,
+}
 
-impl<const N: usize> Config<LatencyReporter<N>> for LatencyReporterConfig {
-    fn initialise(_: &Self) -> LatencyReporter<N> {
+impl Config<LatencyReporter> for LatencyReporterConfig {
+    fn initialise(config: &Self) -> LatencyReporter {
         LatencyReporter {
-            values: [Duration::new(0, 0); N],
+            values: vec![Duration::new(0, 0); config.nsamples],
             next_to_update: 0,
+            mean: 0,
         }
     }
 }

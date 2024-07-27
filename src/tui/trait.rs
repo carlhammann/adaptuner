@@ -1,6 +1,6 @@
 use std::{io::Stdout, sync::mpsc, time::Instant};
 
-use ratatui::prelude::{CrosstermBackend, Terminal};
+use ratatui::prelude::{CrosstermBackend, Frame, Rect, Terminal};
 
 use crate::{interval::stacktype::r#trait::StackType, msg};
 
@@ -11,8 +11,9 @@ pub trait UIState<T: StackType> {
     fn handle_msg(
         &mut self,
         time: Instant,
-        msg: msg::AfterProcess<T>,
+        msg: &msg::AfterProcess<T>,
         to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
-        tui: &mut Tui,
+        frame: &mut Frame,
+        area: Rect,
     );
 }

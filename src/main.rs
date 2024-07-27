@@ -74,10 +74,22 @@ where
         loop {
             match msg_rx.recv() {
                 Ok((time, msg::AfterProcess::Stop)) => {
-                    state.handle_msg(time, msg::AfterProcess::Stop, &process_tx, &mut tui);
+                    let _ = tui.draw(|frame| {
+                        state.handle_msg(
+                            time,
+                            &msg::AfterProcess::Stop,
+                            &process_tx,
+                            frame,
+                            frame.size(),
+                        );
+                    });
                     break;
                 }
-                Ok((time, msg)) => state.handle_msg(time, msg, &process_tx, &mut tui),
+                Ok((time, msg)) => {
+                    let _ = tui.draw(|frame| {
+                        state.handle_msg(time, &msg, &process_tx, frame, frame.size());
+                    });
+                }
                 Err(_) => break,
             }
         }
@@ -342,8 +354,14 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         // tui::onlynotify::OnlyNotifyConfig,
         // tui::grid::Grid<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
         // tui::grid::GridConfig<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
-        tui::latencyreporter::LatencyReporter<20>,
-        tui::latencyreporter::LatencyReporterConfig,
+        tui::wrappedgrid::WrappedGrid<
+            12,
+            interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
+        >,
+        tui::wrappedgrid::WrappedGridConfig<
+            12,
+            interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
+        >,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
         process_config: process::static12::Static12Config {
@@ -371,21 +389,23 @@ pub fn main() -> Result<(), Box<dyn Error>> {
             ],
             bend_range: 2.0,
         },
-        // ui_config: tui::grid::GridConfig {
-        //     display_config: tui::grid::DisplayConfig {
-        //         notenamestyle: notename::NoteNameStyle::JohnstonFiveLimitClass,
-        //         color_range: 0.2,
-        //         gradient: colorous::RED_BLUE,
-        //     },
-        //     stack_type: stack_type.clone(),
-        //     initial_reference_key,
-        //     initial_neighbourhood,
-        //     horizontal_index: 1,
-        //     vertical_index: 2,
-        //     fifth_index: 1,
-        //     third_index: 2,
-        // },
-        ui_config: tui::latencyreporter::LatencyReporterConfig {},
+        ui_config: tui::wrappedgrid::WrappedGridConfig {
+            gridconfig: tui::grid::GridConfig {
+                display_config: tui::grid::DisplayConfig {
+                    notenamestyle: notename::NoteNameStyle::JohnstonFiveLimitClass,
+                    color_range: 0.2,
+                    gradient: colorous::RED_BLUE,
+                },
+                stack_type: stack_type.clone(),
+                initial_reference_key,
+                initial_neighbourhood,
+                horizontal_index: 1,
+                vertical_index: 2,
+                fifth_index: 1,
+                third_index: 2,
+            },
+            latencyreporterconfig: tui::latencyreporter::LatencyReporterConfig { nsamples: 20 },
+        },
         // ui_config: tui::onlynotify::OnlyNotifyConfig {},
         _phantom: PhantomData,
     };
@@ -406,15 +426,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     //     TRIVIAL_CONFIG.midi_port_config.clone(),
     // )
 
-    run::<
-        _,
-        _,
-        _,
-        _,
-        _,
-        tui::latencyreporter::LatencyReporter<20>,
-        tui::latencyreporter::LatencyReporterConfig,
-    >(
+    run(
         not_so_trivial_config.process_config.clone(),
         not_so_trivial_config.backend_config.clone(),
         not_so_trivial_config.ui_config.clone(),
