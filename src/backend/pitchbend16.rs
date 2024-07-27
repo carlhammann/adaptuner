@@ -71,11 +71,11 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
         to_ui: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
         midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
     ) {
+        let send_to_ui = |msg: msg::AfterProcess<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+
         let send = |msg: MidiMsg, time: Instant| {
             midi_out.send((time, msg.to_midi())).unwrap_or(());
         };
-
-        let send_to_ui = |msg: msg::AfterProcess<T>, time: Instant| to_ui.send((time, msg));
 
         let mapped_to_and_bend = |tuning: Semitones| {
             let mapped_to = tuning.round() as u8;
@@ -239,7 +239,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                         explanation: "No more available channels on NoteOn",
                     };
                     // println!("{m:?}");
-                    send_to_ui(m, time).unwrap_or(());
+                    send_to_ui(m, time);
                 }
             }
 
@@ -369,7 +369,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                                 explanation: "Could not re-tune farther than the pitchbend range",
                             };
                             // println!("{m:?}");
-                            send_to_ui(m, time).unwrap_or(());
+                            send_to_ui(m, time);
                         }
 
                         if self.usage[channel as usize] > 1 {
@@ -398,7 +398,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                                                 explanation: "Detuned because another note on the same channel was re-tuned",
                                             };
                                                 // println!("{m:?}");
-                                                send_to_ui(m, time).unwrap_or(());
+                                                send_to_ui(m, time);
                                             }
                                         }
                                     }
@@ -416,6 +416,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
             msg::AfterProcess::CrosstermEvent(_) => {}
             msg::AfterProcess::SetReference { .. } => {}
             msg::AfterProcess::Consider { .. } => {}
+            msg::AfterProcess::BackendLatency { .. } => {}
         }
     }
 }

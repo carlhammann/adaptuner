@@ -143,7 +143,9 @@ where
 {
     let (to_backend_tx, to_backend_rx) = mpsc::channel();
     let (to_ui_tx, to_ui_rx) = mpsc::channel();
-    let (to_backend_and_ui_tx, to_backend_and_ui_rx) = mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
+    let (to_backend_and_ui_tx, to_backend_and_ui_rx) =
+        mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
+    let to_backend_and_ui_tx_from_midi_out = to_backend_and_ui_tx.clone();
     let to_ui_tx_from_backend = to_ui_tx.clone();
     let to_ui_tx_from_outside = to_ui_tx.clone();
 
@@ -189,8 +191,17 @@ where
     let mut conn_out = midi_out.connect(&midi_out_port, "adaptuner-forward")?;
     thread::spawn(move || loop {
         match midi_out_rx.recv() {
-            Ok((_time, msg)) => {
+            Ok((original_time, msg)) => {
                 conn_out.send(&msg).unwrap_or(());
+                let time = Instant::now();
+                to_backend_and_ui_tx_from_midi_out
+                    .send((
+                        time,
+                        msg::AfterProcess::BackendLatency {
+                            since_input: time.duration_since(original_time),
+                        },
+                    ))
+                    .unwrap_or(());
             }
             Err(_) => break,
         }
@@ -218,11 +229,11 @@ where
         match to_backend_and_ui_rx.recv() {
             Ok((time, msg)) => {
                 to_backend_tx.send((time, msg.clone())).unwrap_or(());
-                to_ui_tx.send((time,msg)).unwrap_or(());
+                to_ui_tx.send((time, msg)).unwrap_or(());
             }
             Err(_) => break,
         }
-});
+    });
 
     let backend = start_backend(
         backend_config,
@@ -231,11 +242,7 @@ where
         midi_out_tx,
     );
     let ui = start_ui(ui_config, to_ui_rx, to_process_tx_from_ui, tui);
-    let process = start_process(
-        process_config,
-        to_process_rx,
-        to_backend_and_ui_tx,
-    );
+    let process = start_process(process_config, to_process_rx, to_backend_and_ui_tx);
 
     let now = Instant::now();
 
@@ -333,8 +340,10 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         backend::pitchbend16::Pitchbend16Config<15>,
         // tui::onlynotify::OnlyNotify,
         // tui::onlynotify::OnlyNotifyConfig,
-        tui::grid::Grid<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
-        tui::grid::GridConfig<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
+        // tui::grid::Grid<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
+        // tui::grid::GridConfig<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
+        tui::latencyreporter::LatencyReporter<20>,
+        tui::latencyreporter::LatencyReporterConfig,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
         process_config: process::static12::Static12Config {
@@ -362,20 +371,21 @@ pub fn main() -> Result<(), Box<dyn Error>> {
             ],
             bend_range: 2.0,
         },
-        ui_config: tui::grid::GridConfig {
-            display_config: tui::grid::DisplayConfig {
-                notenamestyle: notename::NoteNameStyle::JohnstonFiveLimitClass,
-                color_range: 0.2,
-                gradient: colorous::RED_BLUE,
-            },
-            stack_type: stack_type.clone(),
-            initial_reference_key,
-            initial_neighbourhood,
-            horizontal_index: 1,
-            vertical_index: 2,
-            fifth_index: 1,
-            third_index: 2,
-        },
+        // ui_config: tui::grid::GridConfig {
+        //     display_config: tui::grid::DisplayConfig {
+        //         notenamestyle: notename::NoteNameStyle::JohnstonFiveLimitClass,
+        //         color_range: 0.2,
+        //         gradient: colorous::RED_BLUE,
+        //     },
+        //     stack_type: stack_type.clone(),
+        //     initial_reference_key,
+        //     initial_neighbourhood,
+        //     horizontal_index: 1,
+        //     vertical_index: 2,
+        //     fifth_index: 1,
+        //     third_index: 2,
+        // },
+        ui_config: tui::latencyreporter::LatencyReporterConfig {},
         // ui_config: tui::onlynotify::OnlyNotifyConfig {},
         _phantom: PhantomData,
     };
@@ -396,18 +406,15 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     //     TRIVIAL_CONFIG.midi_port_config.clone(),
     // )
 
-    run
-    //     ::<
-    //     adaptuner::util::dimension::fixed_sizes::Size2,
-    //     adaptuner::util::dimension::fixed_sizes::Size2,
-    //     adaptuner::process::onlyforward::OnlyForward,
-    //     adaptuner::process::onlyforward::OnlyForwardConfig,
-    //     adaptuner::backend::onlyforward::OnlyForward,
-    //     adaptuner::backend::onlyforward::OnlyForwardConfig,
-    //     adaptuner::tui::onlynotify::OnlyNotify,
-    //     adaptuner::tui::onlynotify::OnlyNotifyConfig,
-    // >
-        (
+    run::<
+        _,
+        _,
+        _,
+        _,
+        _,
+        tui::latencyreporter::LatencyReporter<20>,
+        tui::latencyreporter::LatencyReporterConfig,
+    >(
         not_so_trivial_config.process_config.clone(),
         not_so_trivial_config.backend_config.clone(),
         not_so_trivial_config.ui_config.clone(),

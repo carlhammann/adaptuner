@@ -76,6 +76,7 @@ impl<T: StackType> BackendState<T> for OnlyForward {
             msg::AfterProcess::CrosstermEvent(_) => {}
             msg::AfterProcess::SetReference { .. } => {}
             msg::AfterProcess::Consider { .. } => {}
+            msg::AfterProcess::BackendLatency { .. } => {}
         }
     }
 }

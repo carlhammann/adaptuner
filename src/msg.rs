@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use midi_msg::{Channel, MidiMsg};
 
 use crate::interval::{
@@ -63,6 +65,10 @@ pub enum AfterProcess<T: StackType> {
     Consider {
         stack: Stack<T>,
     },
+
+    BackendLatency {
+        since_input: Duration,
+    }
 }
 
 #[derive(Debug)]

@@ -482,6 +482,7 @@ impl<const N: usize, T: FiveLimitStackType + PartialEq> UIState<T> for Grid<N, T
             }
             msg::AfterProcess::ProgramChange { .. } => {}
             msg::AfterProcess::ForwardMidi { .. } => {}
+            msg::AfterProcess::BackendLatency { .. } => {}
         }
     }
 }
