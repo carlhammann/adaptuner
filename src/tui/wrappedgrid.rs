@@ -11,12 +11,12 @@ use crate::{
     tui::r#trait::UIState,
 };
 
-pub struct WrappedGrid<const NEIGHBOURS: usize, T: StackType> {
-    grid: Grid<NEIGHBOURS, T>,
+pub struct WrappedGrid<T: StackType> {
+    grid: Grid<T>,
     latencyreporter: LatencyReporter,
 }
 
-impl<const N: usize, T: FiveLimitStackType> UIState<T> for WrappedGrid<N, T> {
+impl<T: FiveLimitStackType> UIState<T> for WrappedGrid<T> {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -34,12 +34,12 @@ impl<const N: usize, T: FiveLimitStackType> UIState<T> for WrappedGrid<N, T> {
     }
 }
 
-pub struct WrappedGridConfig<const NEIGHBOURS: usize, T: StackType> {
-    pub gridconfig: GridConfig<NEIGHBOURS, T>,
+pub struct WrappedGridConfig<T: StackType> {
+    pub gridconfig: GridConfig<T>,
     pub latencyreporterconfig: LatencyReporterConfig,
 }
 
-impl<const N: usize, T: StackType> Clone for WrappedGridConfig<N, T> {
+impl<T: StackType> Clone for WrappedGridConfig<T> {
     fn clone(&self) -> Self {
         WrappedGridConfig {
             gridconfig: self.gridconfig.clone(),
@@ -48,8 +48,8 @@ impl<const N: usize, T: StackType> Clone for WrappedGridConfig<N, T> {
     }
 }
 
-impl<const N: usize, T: FiveLimitStackType> Config<WrappedGrid<N, T>> for WrappedGridConfig<N, T> {
-    fn initialise(config: &Self) -> WrappedGrid<N, T> {
+impl<T: FiveLimitStackType> Config<WrappedGrid<T>> for WrappedGridConfig<T> {
+    fn initialise(config: &Self) -> WrappedGrid<T> {
         WrappedGrid {
             grid: <_ as Config<_>>::initialise(&config.gridconfig),
             latencyreporter: <_ as Config<_>>::initialise(&config.latencyreporterconfig),

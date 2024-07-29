@@ -53,7 +53,7 @@ enum NoteOnState {
     Sustained,
 }
 
-pub struct Grid<const N: usize, T: StackType> {
+pub struct Grid<T: StackType> {
     horizontal_index: usize,
     vertical_index: usize,
     column_width: u16,
@@ -66,7 +66,7 @@ pub struct Grid<const N: usize, T: StackType> {
 
     // the stacks are relative to the initial_reference_key
     active_notes: Vec<(u8, Stack<T>, NoteOnState)>,
-    considered_notes: Neighbourhood<N, T>,
+    considered_notes: Neighbourhood<T>,
 
     reference_key: i8,
     reference_stack: Stack<T>,
@@ -74,16 +74,16 @@ pub struct Grid<const N: usize, T: StackType> {
     horizontal_margin: StackCoeff,
     vertical_margin: StackCoeff,
 
-    config: GridConfig<N, T>,
+    config: GridConfig<T>,
 }
 
-impl<const N: usize, T: FiveLimitStackType> Widget for Grid<N, T> {
+impl<T: FiveLimitStackType> Widget for Grid<T> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.render_ref(area, buf)
     }
 }
 
-impl<const N: usize, T: StackType> Grid<N, T> {
+impl<T: StackType> Grid<T> {
     fn recalculate_dimensions(&mut self, area: &Rect) {
         let horizontal_index = self.horizontal_index;
         let vertical_index = self.vertical_index;
@@ -156,7 +156,7 @@ impl<const N: usize, T: StackType> Grid<N, T> {
     }
 }
 
-impl<const N: usize, T: FiveLimitStackType> WidgetRef for Grid<N, T> {
+impl<T: FiveLimitStackType> WidgetRef for Grid<T> {
     /// This expects [recalculate_dimensions][Grid::recalculate_dimensions] to be called first.
     /// Otherwise, expect bad things to happen!    
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
@@ -294,7 +294,7 @@ fn render_stack<T: FiveLimitStackType>(
     buf.set_style(area, style);
 }
 
-impl<const N: usize, T: FiveLimitStackType> UIState<T> for Grid<N, T> {
+impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -462,7 +462,7 @@ impl<const N: usize, T: FiveLimitStackType> UIState<T> for Grid<N, T> {
 
             msg::AfterProcess::Consider { stack } => {
                 let height = stack.key_distance();
-                self.considered_notes.stacks[(height % 12) as usize] = stack.clone();
+                self.considered_notes.stacks[(height % self.considered_notes.period_keys as StackCoeff) as usize] = stack.clone();
             }
             msg::AfterProcess::Reset => {}
             msg::AfterProcess::Sustain { value, .. } => {
@@ -480,7 +480,7 @@ impl<const N: usize, T: FiveLimitStackType> UIState<T> for Grid<N, T> {
     }
 }
 
-pub struct GridConfig<const N: usize, T: StackType> {
+pub struct GridConfig<T: StackType> {
     pub stack_type: Arc<T>,
 
     pub horizontal_index: usize,
@@ -491,11 +491,11 @@ pub struct GridConfig<const N: usize, T: StackType> {
     pub display_config: DisplayConfig,
 
     pub initial_reference_key: i8,
-    pub initial_neighbourhood: Neighbourhood<N, T>,
+    pub initial_neighbourhood: Neighbourhood<T>,
 }
 
 // derive(Clone) doesn't handle cloning `Arc` correctly
-impl<const N: usize, T: StackType> Clone for GridConfig<N, T> {
+impl<T: StackType> Clone for GridConfig<T> {
     fn clone(&self) -> Self {
         GridConfig {
             display_config: self.display_config.clone(),
@@ -511,8 +511,8 @@ impl<const N: usize, T: StackType> Clone for GridConfig<N, T> {
     }
 }
 
-impl<const N: usize, T: FiveLimitStackType> Config<Grid<N, T>> for GridConfig<N, T> {
-    fn initialise(config: &Self) -> Grid<N, T> {
+impl<T: FiveLimitStackType> Config<Grid<T>> for GridConfig<T> {
+    fn initialise(config: &Self) -> Grid<T> {
         let no_active_temperaments = vec![false; config.stack_type.num_temperaments()];
         Grid {
             horizontal_index: config.horizontal_index,

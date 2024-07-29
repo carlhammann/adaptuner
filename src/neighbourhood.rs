@@ -1,4 +1,4 @@
-use std::{mem::MaybeUninit, sync::Arc};
+use std::sync::Arc;
 
 use crate::interval::{
     stack::Stack,
@@ -11,22 +11,25 @@ use crate::interval::{
 /// invariants:
 /// - the [key_distance][Stack::key_distance] of the stack on index `ì` is `i`. In particular, the
 /// first one (at index zero) must map to a unison on the keyboard.
+/// - period_keys == period_keys.len()
 #[derive(Debug, PartialEq)]
-pub struct Neighbourhood<const N: usize, T: StackType> {
-    pub stacks: [Stack<T>; N],
+pub struct Neighbourhood<T: StackType> {
+    pub stacks: Vec<Stack<T>>,
     pub period: Arc<Stack<T>>,
+    pub period_keys: usize,
 }
 
-impl<const N: usize, T: StackType> Clone for Neighbourhood<N, T> {
+impl<T: StackType> Clone for Neighbourhood<T> {
     fn clone(&self) -> Self {
         Neighbourhood {
             stacks: self.stacks.clone(),
             period: self.period.clone(),
+            period_keys: self.period_keys,
         }
     }
 }
 
-impl<T: FiveLimitStackType> Neighbourhood<12, T> {
+impl<T: FiveLimitStackType> Neighbourhood<T> {
     ///
     /// - `width` must be in `1..=12-index+offset`
     /// - `offset` must be in `0..width`
@@ -41,11 +44,7 @@ impl<T: FiveLimitStackType> Neighbourhood<12, T> {
         index: StackCoeff,
         offset: StackCoeff,
     ) -> Self {
-        let mut uninitialised: [MaybeUninit<Stack<T>>; 12] = MaybeUninit::uninit_array();
-        for i in 0..12 {
-            uninitialised[i].write(Stack::new_zero(stacktype.clone()));
-        }
-        let mut stacks = unsafe { MaybeUninit::array_assume_init(uninitialised) };
+        let mut stacks = vec![Stack::new_zero(stacktype.clone()); 12];
         for i in (-index)..(12 - index) {
             let (octaves, fifths, thirds) = fivelimit_corridor(width, offset, i);
             let the_stack = &mut stacks[(7 * i).rem_euclid(12) as usize];
@@ -56,11 +55,12 @@ impl<T: FiveLimitStackType> Neighbourhood<12, T> {
         Neighbourhood {
             stacks,
             period: octave,
+            period_keys: 12,
         }
     }
 }
 
-impl<const N: usize, T: StackType> Neighbourhood<N, T> {
+impl<T: StackType> Neighbourhood<T> {
     /// the lowest and highest entry in the given dimension. The `axis` must be in the range
     /// `0..N`, where `N` is the [num_intervals][StackType::num_intervals].
     pub fn bounds(&self, axis: usize) -> (StackCoeff, StackCoeff) {
@@ -68,8 +68,8 @@ impl<const N: usize, T: StackType> Neighbourhood<N, T> {
         // vector
         let mut min = 0;
         let mut max = 0;
-        for i in 1..N {
-            let curr = self.stacks[i].coefficients()[axis];
+        for stack in &self.stacks {
+            let curr = stack.coefficients()[axis];
             if curr < min {
                 min = curr;
             }
@@ -112,7 +112,7 @@ mod test {
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 12, 0, 0),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-4, 7, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-1, 2, 0]),
@@ -127,13 +127,14 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 5, 0]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 3, 0, 0),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![0, -1, 2]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-1, 2, 0]),
@@ -148,13 +149,14 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 1, 1]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 5, 0, 0),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-1, 2, 0]),
@@ -169,13 +171,14 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 1, 1]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 0, 0),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-1, 2, 0]),
@@ -190,13 +193,14 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 1, 1]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 1, 0),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-1, 2, 0]),
@@ -211,13 +215,14 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 1, 1]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 2, 0),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-1, 2, 0]),
@@ -232,13 +237,14 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 1, 1]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 3, 0),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-1, 2, 0]),
@@ -253,13 +259,14 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 1, 1]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 4, 0),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-1, 2, 0]),
@@ -274,13 +281,14 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 1, 1]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 0, 1),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![0, -1, 2]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-1, 2, 0]),
@@ -295,13 +303,14 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 1, 1]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 0, 2),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![0, -1, 2]),
                     Stack::new(st.clone(), &vec![false; 2], vec![1, -2, 1]),
@@ -316,13 +325,14 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 1, 1]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 0, 3),
             Neighbourhood {
-                stacks: [
+                stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![0, -1, 2]),
                     Stack::new(st.clone(), &vec![false; 2], vec![1, -2, 1]),
@@ -337,6 +347,7 @@ mod test {
                     Stack::new(st.clone(), &vec![false; 2], vec![2, -3, 2]),
                 ],
                 period: period.clone(),
+                period_keys: 12,
             }
         );
     }

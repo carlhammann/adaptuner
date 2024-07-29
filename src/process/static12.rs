@@ -25,11 +25,11 @@ enum NoteStatus {
 }
 
 pub struct Static12<T: StackType> {
-    config: Static12Config<12, T>,
+    config: Static12Config<T>,
     initial_reference_key: i8,
     reference_stack: Stack<T>,
     reference_key: i8,
-    neighbourhood: Neighbourhood<12, T>,
+    neighbourhood: Neighbourhood<T>,
     active_temperaments: Vec<bool>,
     note_statuses: [(NoteStatus, Semitones); 128],
     sustain: u8,
@@ -42,8 +42,8 @@ static CUTOFF_KEY: i8 = 33;
 impl<T: StackType> Static12<T> {
     fn calculate_tuning_stack(&self, key: i8) -> Stack<T> {
         let mut the_stack = self.reference_stack.clone();
-        let rem = (key - self.reference_key).rem_euclid(12);
-        let quot = (key - self.reference_key).div_euclid(12);
+        let rem = (key - self.reference_key).rem_euclid(self.neighbourhood.period_keys as i8);
+        let quot = (key - self.reference_key).div_euclid(self.neighbourhood.period_keys as i8);
         the_stack.add_mul(1, &self.neighbourhood.stacks[rem as usize]);
         the_stack.add_mul(quot as StackCoeff, &self.neighbourhood.period);
         the_stack
@@ -230,8 +230,8 @@ impl<T: StackType> Static12<T> {
         );
 
         let height = normalised_stack.key_distance();
-        let quot = height.div_euclid(12);
-        let rem = height.rem_euclid(12);
+        let quot = height.div_euclid(self.neighbourhood.period_keys as StackCoeff);
+        let rem = height.rem_euclid(self.neighbourhood.period_keys as StackCoeff);
 
         normalised_stack.add_mul(-quot, &self.neighbourhood.period);
         self.neighbourhood.stacks[rem as usize].clone_from(&normalised_stack);
@@ -290,14 +290,14 @@ impl<T: FiveLimitStackType> ProcessState<T> for Static12<T> {
     }
 }
 
-pub struct Static12Config<const N: usize, T: StackType> {
+pub struct Static12Config<T: StackType> {
     pub stack_type: Arc<T>,
     pub initial_reference_key: i8,
-    pub initial_neighbourhood: Neighbourhood<N, T>,
+    pub initial_neighbourhood: Neighbourhood<T>,
 }
 
 // derive(Clone) doesn't handle cloning of `Arc` correctly
-impl<const N: usize, T: StackType> Clone for Static12Config<N, T> {
+impl<T: StackType> Clone for Static12Config<T> {
     fn clone(&self) -> Self {
         Static12Config {
             stack_type: self.stack_type.clone(),
@@ -307,7 +307,7 @@ impl<const N: usize, T: StackType> Clone for Static12Config<N, T> {
     }
 }
 
-impl<T: FiveLimitStackType> Config<Static12<T>> for Static12Config<12, T> {
+impl<T: FiveLimitStackType> Config<Static12<T>> for Static12Config<T> {
     fn initialise(config: &Self) -> Static12<T> {
         let mut note_statuses = [(NoteStatus::Off, 0.0); 128];
         for i in 0..128 {

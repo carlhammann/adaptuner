@@ -345,7 +345,6 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
         process::static12::Static12<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
         process::static12::Static12Config<
-            12,
             interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
         >,
         backend::pitchbend16::Pitchbend16<15>,
@@ -354,12 +353,8 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         // tui::onlynotify::OnlyNotifyConfig,
         // tui::grid::Grid<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
         // tui::grid::GridConfig<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
-        tui::wrappedgrid::WrappedGrid<
-            12,
-            interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
-        >,
+        tui::wrappedgrid::WrappedGrid<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
         tui::wrappedgrid::WrappedGridConfig<
-            12,
             interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
         >,
     > = CompleteConfig {
