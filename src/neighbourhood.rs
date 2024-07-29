@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::interval::{
     stack::Stack,
     stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
 };
 
-/// A description of the positions of representatives of all 12 pitch classes, relative to the
+/// A description of the positions of representatives of consecutive pitch classes, relative to the
 /// position of a reference note.
 ///
 /// invariants:
@@ -13,23 +13,136 @@ use crate::interval::{
 /// first one (at index zero) must map to a unison on the keyboard.
 /// - period_keys == period_keys.len()
 #[derive(Debug, PartialEq)]
-pub struct Neighbourhood<T: StackType> {
-    pub stacks: Vec<Stack<T>>,
-    pub period: Arc<Stack<T>>,
-    pub period_keys: usize,
+pub enum Neighbourhood<T: StackType> {
+    PeriodicComplete {
+        stacks: Vec<Stack<T>>,
+        period: Arc<Stack<T>>,
+        period_keys: usize,
+    },
+    PeriodicPartial {
+        /// invariant: the keys are all in the range 0..=(period_keys-1)
+        stacks: HashMap<usize, Stack<T>>,
+        period: Arc<Stack<T>>,
+        period_keys: usize,
+    },
+}
+
+impl<T: StackType> Neighbourhood<T> {
+    pub fn period(&self) -> Arc<Stack<T>> {
+        match self {
+            Neighbourhood::PeriodicComplete { period, .. } => period.clone(),
+            Neighbourhood::PeriodicPartial { period, .. } => period.clone(),
+        }
+    }
+    pub fn period_keys(&self) -> usize {
+        match self {
+            Neighbourhood::PeriodicComplete { period_keys, .. } => *period_keys,
+            Neighbourhood::PeriodicPartial { period_keys, .. } => *period_keys,
+        }
+    }
+
+    /// insert a stack into a neighbourhood. If there's already a stack for the pitch class
+    /// (remember, this is modulo period_keys), replace it. This function will also normalise the
+    /// provided stack before storing, (i.e. subtract as many [period]s as necessary, in order to
+    /// make it smaller than the [period_keys].)
+    pub fn insert(&mut self, mut stack: Stack<T>) -> Stack<T> {
+        let height = stack.key_distance();
+        let quot = height.div_euclid(self.period_keys() as StackCoeff);
+        let rem = height.rem_euclid(self.period_keys() as StackCoeff) as usize; // Yes, these casts are correct... height may be negative!
+        stack.add_mul(-quot, &self.period());
+
+        match self {
+            Neighbourhood::PeriodicComplete { stacks, .. } => {
+                stacks[rem].clone_from(&stack);
+                stack
+            }
+            Neighbourhood::PeriodicPartial { stacks, .. } => {
+                let _ = stacks.insert(rem, stack.clone());
+                stack
+            }
+        }
+    }
+
+    pub fn relative_stack_for_key_offset(&self, offset: i8) -> Option<Stack<T>> {
+        let rem = offset.rem_euclid(self.period_keys() as i8) as usize;
+        let quot = offset.div_euclid(self.period_keys() as i8) as StackCoeff;
+        let mut the_stack = Stack::new_zero(self.period().stacktype());
+        the_stack.add_mul(quot, &self.period());
+        match self {
+            Neighbourhood::PeriodicComplete { stacks, .. } => {
+                the_stack.add_mul(1, &stacks[rem as usize]);
+                Some(the_stack)
+            }
+            Neighbourhood::PeriodicPartial { stacks, .. } => match stacks.get(&rem) {
+                None => None,
+                Some(increment) => {
+                    the_stack.add_mul(1, increment);
+                    Some(the_stack)
+                }
+            },
+        }
+    }
+
+    pub fn for_each_stack<F: FnMut(usize, &Stack<T>) -> ()>(&self, mut f: F) {
+        match self {
+            Neighbourhood::PeriodicComplete { stacks, .. } => {
+                for (i, s) in stacks.iter().enumerate() {
+                    f(i, s);
+                }
+            }
+            Neighbourhood::PeriodicPartial { stacks, .. } => {
+                for (&i, s) in stacks.iter() {
+                    f(i, s);
+                }
+            }
+        }
+    }
+
+    pub fn for_each_stack_mut<F: FnMut(usize, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
+        match self {
+            Neighbourhood::PeriodicComplete { stacks, .. } => {
+                for (i, s) in stacks.iter_mut().enumerate() {
+                    f(i, s);
+                }
+            }
+            Neighbourhood::PeriodicPartial { stacks, .. } => {
+                for (&i, s) in stacks.iter_mut() {
+                    f(i, s);
+                }
+            }
+        }
+    }
 }
 
 impl<T: StackType> Clone for Neighbourhood<T> {
     fn clone(&self) -> Self {
-        Neighbourhood {
-            stacks: self.stacks.clone(),
-            period: self.period.clone(),
-            period_keys: self.period_keys,
+        match self {
+            Neighbourhood::PeriodicComplete {
+                stacks,
+                period,
+                period_keys,
+            } => Neighbourhood::PeriodicComplete {
+                stacks: stacks.clone(),
+                period: period.clone(),
+                period_keys: *period_keys,
+            },
+            Neighbourhood::PeriodicPartial {
+                stacks,
+                period,
+                period_keys,
+            } => Neighbourhood::PeriodicPartial {
+                stacks: stacks.clone(),
+                period: period.clone(),
+                period_keys: *period_keys,
+            },
         }
     }
 }
 
 impl<T: FiveLimitStackType> Neighbourhood<T> {
+    /// Generate a complete set of 12 notes, with a sensible five-limit tuning. TODO: explain the
+    /// arguments, if we decide to keep these functions.
+    ///
     ///
     /// - `width` must be in `1..=12-index+offset`
     /// - `offset` must be in `0..width`
@@ -52,7 +165,7 @@ impl<T: FiveLimitStackType> Neighbourhood<T> {
             the_stack.increment_at_index(&active_temperaments, stacktype.fifth_index(), fifths);
             the_stack.increment_at_index(&active_temperaments, stacktype.third_index(), thirds);
         }
-        Neighbourhood {
+        Neighbourhood::PeriodicComplete {
             stacks,
             period: octave,
             period_keys: 12,
@@ -68,13 +181,28 @@ impl<T: StackType> Neighbourhood<T> {
         // vector
         let mut min = 0;
         let mut max = 0;
-        for stack in &self.stacks {
-            let curr = stack.coefficients()[axis];
-            if curr < min {
-                min = curr;
+        match self {
+            Neighbourhood::PeriodicComplete { stacks, .. } => {
+                for stack in stacks {
+                    let curr = stack.coefficients()[axis];
+                    if curr < min {
+                        min = curr;
+                    }
+                    if curr > max {
+                        max = curr;
+                    }
+                }
             }
-            if curr > max {
-                max = curr;
+            Neighbourhood::PeriodicPartial { stacks, .. } => {
+                for (_, stack) in stacks {
+                    let curr = stack.coefficients()[axis];
+                    if curr < min {
+                        min = curr;
+                    }
+                    if curr > max {
+                        max = curr;
+                    }
+                }
             }
         }
         (min, max)
@@ -111,7 +239,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 12, 0, 0),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-4, 7, 0]),
@@ -133,7 +261,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 3, 0, 0),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![0, -1, 2]),
@@ -155,7 +283,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 5, 0, 0),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
@@ -177,7 +305,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 0, 0),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
@@ -199,7 +327,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 1, 0),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
@@ -221,7 +349,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 2, 0),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
@@ -243,7 +371,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 3, 0),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
@@ -265,7 +393,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 4, 0),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![-2, 3, 1]),
@@ -287,7 +415,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 0, 1),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![0, -1, 2]),
@@ -309,7 +437,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 0, 2),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![0, -1, 2]),
@@ -331,7 +459,7 @@ mod test {
 
         assert_eq!(
             Neighbourhood::fivelimit_new(st.clone(), period.clone(), &[false; 2], 4, 0, 3),
-            Neighbourhood {
+            Neighbourhood::PeriodicComplete {
                 stacks: vec![
                     Stack::new(st.clone(), &vec![false; 2], vec![0, 0, 0]),
                     Stack::new(st.clone(), &vec![false; 2], vec![0, -1, 2]),

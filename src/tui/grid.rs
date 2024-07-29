@@ -110,7 +110,7 @@ impl<T: StackType> Grid<T> {
                 max_vertical = ver;
             }
         }
-        for stack in &self.considered_notes.stacks {
+        self.considered_notes.for_each_stack(|_, stack| {
             let hor = stack.coefficients()[horizontal_index] + origin_horizontal;
             if hor < min_horizontal {
                 min_horizontal = hor;
@@ -125,7 +125,7 @@ impl<T: StackType> Grid<T> {
             if ver > max_vertical {
                 max_vertical = ver;
             }
-        }
+        });
 
         max_vertical += self.vertical_margin;
         min_vertical -= self.vertical_margin;
@@ -195,31 +195,30 @@ impl<T: FiveLimitStackType> WidgetRef for Grid<T> {
                 self.min_horizontal - self.max_horizontal - 1,
             );
         }
-        for relative_stack in &self.considered_notes.stacks {
+        self.considered_notes.for_each_stack(|_, relative_stack| {
             the_stack.clone_from(relative_stack);
             the_stack.add_mul(1, &self.reference_stack);
             let i = the_stack.coefficients()[self.vertical_index];
             let j = the_stack.coefficients()[self.horizontal_index];
-            if i < self.min_vertical
+            if !(i < self.min_vertical
                 || i > self.max_vertical
                 || j < self.min_horizontal
-                || j > self.max_horizontal
+                || j > self.max_horizontal)
             {
-                break;
+                render_stack(
+                    &the_stack,
+                    CellState::Considered,
+                    &self.config.display_config,
+                    Rect {
+                        x: area.x + self.column_width * (j - self.min_horizontal) as u16,
+                        y: area.y + 2 * (self.max_vertical - i) as u16,
+                        width: self.column_width,
+                        height: 2,
+                    },
+                    buf,
+                );
             }
-            render_stack(
-                &the_stack,
-                CellState::Considered,
-                &self.config.display_config,
-                Rect {
-                    x: area.x + self.column_width * (j - self.min_horizontal) as u16,
-                    y: area.y + 2 * (self.max_vertical - i) as u16,
-                    width: self.column_width,
-                    height: 2,
-                },
-                buf,
-            );
-        }
+        });
         for (_, the_stack, _) in &self.active_notes {
             let i = the_stack.coefficients()[self.vertical_index];
             let j = the_stack.coefficients()[self.horizontal_index];
@@ -461,8 +460,7 @@ impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
             }
 
             msg::AfterProcess::Consider { stack } => {
-                let height = stack.key_distance();
-                self.considered_notes.stacks[(height % self.considered_notes.period_keys as StackCoeff) as usize] = stack.clone();
+                self.considered_notes.insert(stack.clone());
             }
             msg::AfterProcess::Reset => {}
             msg::AfterProcess::Sustain { value, .. } => {

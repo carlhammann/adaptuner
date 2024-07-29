@@ -54,6 +54,11 @@ impl<T: StackType> Clone for Stack<T> {
             corrections: self.corrections.clone(),
         }
     }
+    fn clone_from(&mut self, source: &Self) {
+        self.stacktype = source.stacktype.clone();
+        self.coefficients.clone_from(&source.coefficients);
+        self.corrections.clone_from(&source.corrections);
+    }
 }
 
 impl<T: StackType> Stack<T> {

@@ -41,11 +41,11 @@ static CUTOFF_KEY: i8 = 33;
 
 impl<T: StackType> Static12<T> {
     fn calculate_tuning_stack(&self, key: i8) -> Stack<T> {
-        let mut the_stack = self.reference_stack.clone();
-        let rem = (key - self.reference_key).rem_euclid(self.neighbourhood.period_keys as i8);
-        let quot = (key - self.reference_key).div_euclid(self.neighbourhood.period_keys as i8);
-        the_stack.add_mul(1, &self.neighbourhood.stacks[rem as usize]);
-        the_stack.add_mul(quot as StackCoeff, &self.neighbourhood.period);
+        let mut the_stack = self
+            .neighbourhood
+            .relative_stack_for_key_offset(key - self.reference_key)
+            .unwrap(); // this is ok, because the neighbourhood is always complete
+        the_stack.add_mul(1, &self.reference_stack);
         the_stack
     }
 
@@ -94,7 +94,7 @@ impl<T: StackType> Static12<T> {
         let send_to_backend =
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
         self.active_temperaments[index] = !self.active_temperaments[index];
-        for stack in &mut self.neighbourhood.stacks {
+        self.neighbourhood.for_each_stack_mut(|_, stack| {
             stack.retemper(&self.active_temperaments);
             send_to_backend(
                 msg::AfterProcess::Consider {
@@ -102,7 +102,7 @@ impl<T: StackType> Static12<T> {
                 },
                 time,
             );
-        }
+        });
         self.recompute_and_send_tunings(time, to_backend);
     }
 
@@ -149,15 +149,14 @@ impl<T: StackType> Static12<T> {
                             time,
                         );
 
-                        for stack in &self.neighbourhood.stacks {
+                        self.neighbourhood.for_each_stack(|_, stack| {
                             send_to_backend(
                                 msg::AfterProcess::Consider {
                                     stack: stack.clone(),
                                 },
                                 time,
                             );
-                        }
-
+                        });
                         self.recompute_and_send_tunings(time, to_backend);
                     }
                 }
@@ -223,18 +222,13 @@ impl<T: StackType> Static12<T> {
         let send_to_backend =
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
-        let mut normalised_stack = Stack::new(
+        let stack = Stack::new(
             self.config.stack_type.clone(),
             &self.active_temperaments,
             coefficients,
         );
 
-        let height = normalised_stack.key_distance();
-        let quot = height.div_euclid(self.neighbourhood.period_keys as StackCoeff);
-        let rem = height.rem_euclid(self.neighbourhood.period_keys as StackCoeff);
-
-        normalised_stack.add_mul(-quot, &self.neighbourhood.period);
-        self.neighbourhood.stacks[rem as usize].clone_from(&normalised_stack);
+        let normalised_stack = self.neighbourhood.insert(stack);
 
         send_to_backend(
             msg::AfterProcess::Consider {
@@ -253,14 +247,14 @@ impl<T: FiveLimitStackType> Static12<T> {
 
         send_to_backend(msg::AfterProcess::Reset, time);
         *self = Static12Config::initialise(&self.config);
-        for stack in &self.neighbourhood.stacks {
+        self.neighbourhood.for_each_stack(|_, stack| {
             send_to_backend(
                 msg::AfterProcess::Consider {
                     stack: stack.clone(),
                 },
                 time,
             );
-        }
+        });
     }
 }
 
