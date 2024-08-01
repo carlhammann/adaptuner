@@ -4,19 +4,22 @@ use ratatui::prelude::{Constraint, Frame, Layout, Rect};
 
 use crate::{
     config::r#trait::Config,
-    interval::stacktype::r#trait::{FiveLimitStackType, StackType},
+    interval::stacktype::r#trait::{FiveLimitStackType, PeriodicStackType},
     msg,
+    neighbourhood::AlignedPeriodicNeighbourhood,
     tui::grid::{Grid, GridConfig},
     tui::latencyreporter::{LatencyReporter, LatencyReporterConfig},
     tui::r#trait::UIState,
 };
 
-pub struct WrappedGrid<T: StackType> {
-    grid: Grid<T>,
+pub struct WrappedGrid<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> {
+    grid: Grid<T, N>,
     latencyreporter: LatencyReporter,
 }
 
-impl<T: FiveLimitStackType> UIState<T> for WrappedGrid<T> {
+impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<T> + Clone>
+    UIState<T> for WrappedGrid<T, N>
+{
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -35,13 +38,15 @@ impl<T: FiveLimitStackType> UIState<T> for WrappedGrid<T> {
 }
 
 #[derive(Clone)]
-pub struct WrappedGridConfig<T: StackType> {
-    pub gridconfig: GridConfig<T>,
+pub struct WrappedGridConfig<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> {
+    pub gridconfig: GridConfig<T, N>,
     pub latencyreporterconfig: LatencyReporterConfig,
 }
 
-impl<T: FiveLimitStackType> Config<WrappedGrid<T>> for WrappedGridConfig<T> {
-    fn initialise(config: &Self) -> WrappedGrid<T> {
+impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<T> + Clone>
+    Config<WrappedGrid<T, N>> for WrappedGridConfig<T, N>
+{
+    fn initialise(config: &Self) -> WrappedGrid<T, N> {
         WrappedGrid {
             grid: <_ as Config<_>>::initialise(&config.gridconfig),
             latencyreporter: <_ as Config<_>>::initialise(&config.latencyreporterconfig),

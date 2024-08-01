@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant};
+use std::{marker::PhantomData, sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -10,7 +10,7 @@ use crate::{
         stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     },
     msg,
-    neighbourhood::Neighbourhood,
+    neighbourhood::CompleteNeigbourhood,
     process::r#trait::ProcessState,
 };
 
@@ -21,12 +21,12 @@ enum NoteStatus {
     Sustained,
 }
 
-pub struct Static12<T: StackType> {
-    config: Static12Config<T>,
+pub struct Static12<T: StackType, N: CompleteNeigbourhood<T>> {
+    config: Static12Config<T, N>,
     initial_reference_key: i8,
     reference_stack: Stack<T>,
     reference_key: i8,
-    neighbourhood: Neighbourhood<T>,
+    neighbourhood: N,
     active_temperaments: Vec<bool>,
     note_statuses: [(NoteStatus, Semitones); 128],
     sustain: u8,
@@ -36,12 +36,11 @@ pub struct Static12<T: StackType> {
 /// piano) will be muted and only be used to set the `reference_key` (and `reference_stack`).
 static CUTOFF_KEY: i8 = 33;
 
-impl<T: StackType> Static12<T> {
+impl<T: StackType, N: CompleteNeigbourhood<T>> Static12<T, N> {
     fn calculate_tuning_stack(&self, key: i8) -> Stack<T> {
         let mut the_stack = self
             .neighbourhood
-            .relative_stack_for_key_offset(key - self.reference_key)
-            .unwrap(); // this is ok, because the neighbourhood is always complete
+            .get_relative_stack(key - self.reference_key);
         the_stack.add_mul(1, &self.reference_stack);
         the_stack
     }
@@ -220,22 +219,19 @@ impl<T: StackType> Static12<T> {
         let send_to_backend =
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
-        let stack = Stack::new(&self.active_temperaments, coefficients);
+        let mut stack = Stack::new(&self.active_temperaments, coefficients);
 
-        let normalised_stack = self.neighbourhood.insert(stack);
+        let normalised_stack = self.neighbourhood.insert(&stack);
 
-        send_to_backend(
-            msg::AfterProcess::Consider {
-                stack: normalised_stack,
-            },
-            time,
-        );
+        stack.clone_from(normalised_stack);
+
+        send_to_backend(msg::AfterProcess::Consider { stack }, time);
 
         self.recompute_and_send_tunings(time, to_backend);
     }
 }
 
-impl<T: FiveLimitStackType> Static12<T> {
+impl<T: FiveLimitStackType, N: CompleteNeigbourhood<T> + Clone> Static12<T, N> {
     fn reset(&mut self, time: Instant, to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>) {
         let send_to_backend =
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
@@ -253,7 +249,7 @@ impl<T: FiveLimitStackType> Static12<T> {
     }
 }
 
-impl<T: FiveLimitStackType> ProcessState<T> for Static12<T> {
+impl<T: FiveLimitStackType, N: CompleteNeigbourhood<T> + Clone> ProcessState<T> for Static12<T, N> {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -280,13 +276,16 @@ impl<T: FiveLimitStackType> ProcessState<T> for Static12<T> {
 }
 
 #[derive(Clone)]
-pub struct Static12Config<T: StackType> {
+pub struct Static12Config<T: StackType, N: CompleteNeigbourhood<T>> {
     pub initial_reference_key: i8,
-    pub initial_neighbourhood: Neighbourhood<T>,
+    pub initial_neighbourhood: N,
+    pub _phantom: PhantomData<T>,
 }
 
-impl<T: FiveLimitStackType> Config<Static12<T>> for Static12Config<T> {
-    fn initialise(config: &Self) -> Static12<T> {
+impl<T: FiveLimitStackType, N: CompleteNeigbourhood<T> + Clone> Config<Static12<T, N>>
+    for Static12Config<T, N>
+{
+    fn initialise(config: &Self) -> Static12<T, N> {
         let mut note_statuses = [(NoteStatus::Off, 0.0); 128];
         for i in 0..128 {
             note_statuses[i].1 = i as Semitones;

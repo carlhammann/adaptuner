@@ -1,275 +1,321 @@
-use std::collections::HashMap;
+//! A neighbourhood is a description of the tunings of some notes, relative to
+//! a reference note.
 
 use crate::interval::{
     stack::Stack,
-    stacktype::r#trait::{FiveLimitStackType, OctavePeriodicStackType, StackCoeff, StackType},
+    stacktype::r#trait::{
+        FiveLimitStackType, OctavePeriodicStackType, PeriodicStackType, StackCoeff, StackType,
+    },
 };
+use std::collections::HashMap;
 
-/// A description of the positions of representatives of consecutive pitch classes, relative to the
-/// position of a reference note.
+#[derive(Debug, PartialEq, Clone)]
+pub enum SomeNeighbourhood<T: StackType> {
+    PeriodicComplete(PeriodicComplete<T>),
+    PeriodicPartial(PeriodicPartial<T>),
+    // This one is excluded, as it only exists for [PeriodicStackType]s
+    // PeriodicCompleteAligned(PeriodicCompleteAligned<T>),
+}
+
+/// Tunings for all notes, described by giving the tunings of all notes in the first "octave" above
+/// the reference.
 ///
 /// invariants:
 /// - the [key_distance][Stack::key_distance] of the stack on index `ì` is `i`. In particular, the
 /// first one (at index zero) must map to a unison on the keyboard.
-/// - period_keys == period_keys.len()
 #[derive(Debug, PartialEq, Clone)]
-pub enum Neighbourhood<T: StackType> {
-    PeriodicComplete {
-        stacks: Vec<Stack<T>>,
-        period: Stack<T>,
-        period_keys: u8,
-    },
-    PeriodicPartial {
-        /// invariant: the keys are all in the range 0..=(period_keys-1)
-        stacks: HashMap<usize, Stack<T>>,
-        period: Stack<T>,
-        period_keys: u8,
-    },
+pub struct PeriodicComplete<T: StackType> {
+    stacks: Vec<Stack<T>>,
+    period: Stack<T>,
 }
 
-impl<T: StackType> Neighbourhood<T> {
-    pub fn period(&self) -> &Stack<T> {
-        match self {
-            Neighbourhood::PeriodicComplete { period, .. } => period,
-            Neighbourhood::PeriodicPartial { period, .. } => period,
-        }
-    }
+/// Like [PeriodicComplete], but with the invariant that the period is the one of the stack type
+#[derive(Debug, PartialEq, Clone)]
+pub struct PeriodicCompleteAligned<T: PeriodicStackType> {
+    inner: PeriodicComplete<T>,
+}
 
-    pub fn period_keys(&self) -> u8 {
-        match self {
-            Neighbourhood::PeriodicComplete { period_keys, .. } => *period_keys,
-            Neighbourhood::PeriodicPartial { period_keys, .. } => *period_keys,
-        }
-    }
+/// Tunings for some notes and their "octave equivalents" described by giving tunings of some notes
+/// in the first "octave" over the reference.
+#[derive(Debug, PartialEq, Clone)]
+pub struct PeriodicPartial<T: StackType> {
+    /// invariant: the keys are all in the range 0..=(period_keys-1)
+    stacks: HashMap<usize, Stack<T>>,
+    period: Stack<T>,
+}
 
-    pub fn get(&self, i: usize) -> Option<&Stack<T>> {
-        match self {
-            Neighbourhood::PeriodicComplete { stacks, .. } => {
-                Some(&stacks[i.rem_euclid(self.period_keys() as usize)])
-            }
-            Neighbourhood::PeriodicPartial { stacks, .. } => {
-                stacks.get(&i.rem_euclid(self.period_keys() as usize))
-            }
-        }
-    }
+pub trait Neighbourhood<T: StackType> {
+    /// Insert a tuning. If there's already a tuning for the (relative) note described by Stack,
+    /// update. Returns a reference to the  actually inserted Stack (which may be different in the case of
+    /// periodic neighbourhoods, where we store the representative in the "octave" above the
+    /// reference)
+    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T>;
 
-    /// insert a stack into a neighbourhood. If there's already a stack for the pitch class
-    /// (remember, this is modulo period_keys), replace it. This function will also normalise the
-    /// provided stack before storing, (i.e. subtract as many [period]s as necessary, in order to
-    /// make it smaller than the [period_keys].)
-    pub fn insert(&mut self, mut stack: Stack<T>) -> Stack<T> {
-        let height = stack.key_distance();
-        let quot = height.div_euclid(self.period_keys() as StackCoeff);
-        let rem = height.rem_euclid(self.period_keys() as StackCoeff) as usize; // Yes, these casts are correct... height may be negative!
-        stack.add_mul(-quot, &self.period());
+    /// Go through all stacks _that are actually stored_ (for example, in a periodic neighbourhood,
+    /// only at most the entries for one peirod are stored) in the neighbourhood, with their offset
+    /// to the reference.
+    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, f: F);
 
-        match self {
-            Neighbourhood::PeriodicComplete { stacks, .. } => {
-                stacks[rem].clone_from(&stack);
-                stack
-            }
-            Neighbourhood::PeriodicPartial { stacks, .. } => {
-                let _ = stacks.insert(rem, stack.clone());
-                stack
-            }
-        }
-    }
+    /// like [for_each_stack], but allows mutation.
+    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, f: F);
 
-    pub fn extend(&mut self, other: &Self) {
-        match self {
-            Neighbourhood::PeriodicComplete { stacks, .. } => other.for_each_stack(|i, stack| {
-                stacks[i].clone_from(stack);
-            }),
-            Neighbourhood::PeriodicPartial { stacks, .. } => {
-                other.for_each_stack(|i, stack| match stacks.get_mut(&i) {
-                    None => {
-                        let _ = stacks.insert(i, stack.clone());
-                    }
-                    Some(target) => target.clone_from(&stack),
-                })
-            }
-        }
-    }
+    /// Does this neighbourhood provide a tuning for a note with the given offset from the
+    /// reference?
+    fn has_tuning_for(&self, offset: i8) -> bool;
 
-    /// interpret `other` as a neighbourhood based around the stack that is `offset` above the
-    /// reference of `self`, and extend `self` with the stacks thus obtained.
-    ///
-    /// Each new inserted Stack is passed to `notify`. This can be used to track what actually
-    /// changed.
-    pub fn extend_with_constant_offset<F: FnMut(&Stack<T>)>(
-        &mut self,
-        offset: &Stack<T>,
-        other: &Self,
-        mut notify: F,
-    ) {
-        let mut tmp = Stack::new_zero();
-        match self {
-            Neighbourhood::PeriodicComplete {
-                stacks,
-                period,
-                period_keys,
-            } => other.for_each_stack(|_, stack| {
-                tmp.clone_from(stack);
-                tmp.add_mul(1, offset);
-                let height = tmp.key_distance();
-                let quot = height.div_euclid(*period_keys as StackCoeff);
-                let rem = height.rem_euclid(*period_keys as StackCoeff) as usize;
-                tmp.add_mul(-quot, period);
-                stacks[rem].clone_from(&tmp);
-                notify(&tmp);
-            }),
-            Neighbourhood::PeriodicPartial {
-                stacks,
-                period,
-                period_keys,
-            } => other.for_each_stack(|_, stack| {
-                tmp.clone_from(stack);
-                tmp.add_mul(1, offset);
-                let height = tmp.key_distance();
-                let quot = height.div_euclid(*period_keys as StackCoeff);
-                let rem = height.rem_euclid(*period_keys as StackCoeff) as usize;
-                tmp.add_mul(-quot, period);
-                match stacks.get_mut(&rem) {
-                    None => {
-                        let _ = stacks.insert(rem, tmp.clone());
-                    }
-                    Some(target) => target.clone_from(&tmp),
-                }
-                notify(&tmp);
-            }),
-        }
-    }
+    /// must return true iff has_tuning_for returns true for the same offset. Must leave `target`
+    /// unchanged if it returns `false`
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool;
 
-    // // Add the same stack to all entries in the neighbourhood (wrapping around at the preiod), and also change the indices, so that
-    // // the modified `self` is relative to the same reference as `base`
-    // pub fn rebase_on(&mut self, base: &Stack<T>) {
-    //     todo!()
-    // }
-    //
-
-    pub fn write_relative_stack_for_key_offset(&self, target: &mut Stack<T>, offset: i8) -> bool {
-        let rem = offset.rem_euclid(self.period_keys() as i8) as usize;
-        let quot = offset.div_euclid(self.period_keys() as i8) as StackCoeff;
-        match self {
-            Neighbourhood::PeriodicComplete { stacks, .. } => {
-                target.clone_from(&stacks[rem as usize]);
-            }
-            Neighbourhood::PeriodicPartial { stacks, .. } => match stacks.get(&rem) {
-                None => return false,
-                Some(stack) => {
-                    target.clone_from(stack);
-                }
-            },
-        }
-        target.add_mul(quot, &self.period());
-        true
-    }
-
-    pub fn relative_stack_for_key_offset(&self, offset: i8) -> Option<Stack<T>> {
-        let mut the_stack = Stack::new_zero();
-        if self.write_relative_stack_for_key_offset(&mut the_stack, offset) {
-            Some(the_stack)
+    /// must return Some iff has_tuning_for returns true for the same offset.
+    fn try_get_relative_stack(&self, offset: i8) -> Option<Stack<T>> {
+        if self.has_tuning_for(offset) {
+            let mut res = Stack::new_zero();
+            let _ = self.try_write_relative_stack(&mut res, offset);
+            Some(res)
         } else {
             None
         }
     }
 
-    pub fn for_each_stack<F: FnMut(usize, &Stack<T>) -> ()>(&self, mut f: F) {
-        match self {
-            Neighbourhood::PeriodicComplete { stacks, .. } => {
-                for (i, s) in stacks.iter().enumerate() {
-                    f(i, s);
-                }
-            }
-            Neighbourhood::PeriodicPartial { stacks, .. } => {
-                for (&i, s) in stacks.iter() {
-                    f(i, s);
-                }
-            }
-        }
-    }
-
-    pub fn for_each_stack_mut<F: FnMut(usize, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
-        match self {
-            Neighbourhood::PeriodicComplete { stacks, .. } => {
-                for (i, s) in stacks.iter_mut().enumerate() {
-                    f(i, s);
-                }
-            }
-            Neighbourhood::PeriodicPartial { stacks, .. } => {
-                for (&i, s) in stacks.iter_mut() {
-                    f(i, s);
-                }
-            }
-        }
-    }
-}
-
-impl<T: FiveLimitStackType + OctavePeriodicStackType> Neighbourhood<T> {
-    /// Generate a complete set of 12 notes, with a sensible five-limit tuning. TODO: explain the
-    /// arguments, if we decide to keep these functions.
-    ///
-    ///
-    /// - `width` must be in `1..=12-index+offset`
-    /// - `offset` must be in `0..width`
-    /// - `index` must be in `0..=11`
-    ///
-    /// - `octave` must be a stack describing a pure octave
-    pub fn fivelimit_new(
-        active_temperaments: &[bool],
-        width: StackCoeff,
-        index: StackCoeff,
-        offset: StackCoeff,
-    ) -> Self {
-        let mut stacks = vec![Stack::new_zero(); 12];
-        for i in (-index)..(12 - index) {
-            let (octaves, fifths, thirds) = fivelimit_corridor(width, offset, i);
-            let the_stack = &mut stacks[(7 * i).rem_euclid(12) as usize];
-            the_stack.increment_at_index(&active_temperaments, T::octave_index(), octaves);
-            the_stack.increment_at_index(&active_temperaments, T::fifth_index(), fifths);
-            the_stack.increment_at_index(&active_temperaments, T::third_index(), thirds);
-        }
-        Neighbourhood::PeriodicComplete {
-            stacks,
-            period: Stack::from_pure_interval(T::period_index()),
-            period_keys: 12,
-        }
-    }
-}
-
-impl<T: StackType> Neighbourhood<T> {
     /// the lowest and highest entry in the given dimension. The `axis` must be in the range
     /// `0..N`, where `N` is the [num_intervals][StackType::num_intervals].
-    pub fn bounds(&self, axis: usize) -> (StackCoeff, StackCoeff) {
-        // this initialisation is correct, because the first entry of `coefficients` is always a zero
-        // vector
-        let mut min = 0;
-        let mut max = 0;
-        match self {
-            Neighbourhood::PeriodicComplete { stacks, .. } => {
-                for stack in stacks {
-                    let curr = stack.coefficients()[axis];
-                    if curr < min {
-                        min = curr;
-                    }
-                    if curr > max {
-                        max = curr;
-                    }
-                }
+    fn bounds(&self, axis: usize) -> (StackCoeff, StackCoeff) {
+        let (mut min, mut max) = (0, 0);
+        self.for_each_stack(|_, stack| {
+            let x = stack.coefficients()[axis];
+            if x > max {
+                max = x
             }
-            Neighbourhood::PeriodicPartial { stacks, .. } => {
-                for (_, stack) in stacks {
-                    let curr = stack.coefficients()[axis];
-                    if curr < min {
-                        min = curr;
-                    }
-                    if curr > max {
-                        max = curr;
-                    }
-                }
+            if x < min {
+                min = x
+            }
+        });
+        (min, max)
+    }
+}
+
+/// Marker trait of neighbourhoods that can return a Note for every offset.
+pub trait CompleteNeigbourhood<T: StackType>: Neighbourhood<T> {
+    fn write_relative_stack(&self, target: &mut Stack<T>, offset: i8) {
+        self.try_write_relative_stack(target, offset);
+    }
+
+    fn get_relative_stack(&self, offset: i8) -> Stack<T> {
+        self.try_get_relative_stack(offset).expect(
+            "This should never happen: CompleteNeigbourhood doesn't have a tuning for an offset!",
+        )
+    }
+}
+
+pub trait PeriodicNeighbourhood<T: StackType>: Neighbourhood<T> {
+    /// The "octave": keys will be tuned relative to the highest note that can be obtained by
+    /// shifting the reference a number (negative, zero, or positive) of these periods.
+    fn period(&self) -> &Stack<T>;
+
+    /// Convenience: the [key_distance][Stack::key_distance] of the period.
+    fn period_keys(&self) -> u8 {
+        self.period().key_distance() as u8
+    }
+}
+
+/// Marker trait for periodic neighbourhoods whose period is the one of the stack type.
+pub trait AlignedPeriodicNeighbourhood<T: PeriodicStackType>: PeriodicNeighbourhood<T> {}
+
+impl<T: StackType> Neighbourhood<T> for PeriodicComplete<T> {
+    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+        let n = self.period_keys() as StackCoeff;
+        let quot = stack.key_distance().div_euclid(n);
+        let rem = stack.key_distance().rem_euclid(n) as usize;
+        self.stacks[rem].clone_from(stack);
+        self.stacks[rem].add_mul(-quot, &self.period);
+        &self.stacks[rem]
+    }
+
+    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, mut f: F) {
+        for (i, stack) in self.stacks.iter().enumerate() {
+            f(i as i8, stack)
+        }
+    }
+
+    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
+        for (i, stack) in self.stacks.iter_mut().enumerate() {
+            f(i as i8, stack)
+        }
+    }
+
+    fn has_tuning_for(&self, _: i8) -> bool {
+        true
+    }
+
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
+        let n = self.period_keys() as i8;
+        let quot = offset.div_euclid(n) as StackCoeff;
+        let rem = offset.rem_euclid(n) as usize;
+        target.clone_from(&self.stacks[rem]);
+        target.add_mul(quot, &self.period);
+        true
+    }
+}
+
+impl<T: StackType> CompleteNeigbourhood<T> for PeriodicComplete<T> {}
+
+impl<T: StackType> PeriodicNeighbourhood<T> for PeriodicComplete<T> {
+    fn period(&self) -> &Stack<T> {
+        &self.period
+    }
+}
+
+impl<T: StackType> Neighbourhood<T> for PeriodicPartial<T> {
+    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+        let n = self.period_keys() as StackCoeff;
+        let quot = stack.key_distance().div_euclid(n);
+        let rem = stack.key_distance().rem_euclid(n) as usize;
+        match self.stacks.get_mut(&rem) {
+            None => {
+                let mut the_stack = stack.clone();
+                the_stack.add_mul(-quot, &self.period);
+                self.stacks.insert(rem, the_stack);
+            }
+            Some(target) => {
+                target.clone_from(stack);
+                target.add_mul(-quot, &self.period);
             }
         }
-        (min, max)
+        self.stacks.get(&rem).expect("this can't happen: No entry for Stack just inserted into PeriodicPartial neighbourhood")
+    }
+
+    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, mut f: F) {
+        for (&i, stack) in self.stacks.iter() {
+            f(i as i8, stack)
+        }
+    }
+
+    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
+        for (&i, stack) in self.stacks.iter_mut() {
+            f(i as i8, stack)
+        }
+    }
+
+    fn has_tuning_for(&self, offset: i8) -> bool {
+        let n = self.period_keys() as i8;
+        let rem = offset.rem_euclid(n) as usize;
+        self.stacks.contains_key(&rem)
+    }
+
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
+        let n = self.period_keys() as i8;
+        let quot = offset.div_euclid(n) as StackCoeff;
+        let rem = offset.rem_euclid(n) as usize;
+        match self.stacks.get(&rem) {
+            None => false,
+            Some(stack) => {
+                target.clone_from(stack);
+                target.add_mul(quot, &self.period);
+                true
+            }
+        }
+    }
+}
+
+impl<T: StackType> PeriodicNeighbourhood<T> for PeriodicPartial<T> {
+    fn period(&self) -> &Stack<T> {
+        &self.period
+    }
+}
+
+impl<T: StackType> Neighbourhood<T> for SomeNeighbourhood<T> {
+    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(n) => n.insert(stack),
+            SomeNeighbourhood::PeriodicPartial(n) => n.insert(stack),
+        }
+    }
+
+    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, f: F) {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(n) => n.for_each_stack(f),
+            SomeNeighbourhood::PeriodicPartial(n) => n.for_each_stack(f),
+        }
+    }
+
+    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, f: F) {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(n) => n.for_each_stack_mut(f),
+            SomeNeighbourhood::PeriodicPartial(n) => n.for_each_stack_mut(f),
+        }
+    }
+
+    fn has_tuning_for(&self, offset: i8) -> bool {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(n) => n.has_tuning_for(offset),
+            SomeNeighbourhood::PeriodicPartial(n) => n.has_tuning_for(offset),
+        }
+    }
+
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(n) => n.try_write_relative_stack(target, offset),
+            SomeNeighbourhood::PeriodicPartial(n) => n.try_write_relative_stack(target, offset),
+        }
+    }
+}
+
+impl<T: PeriodicStackType> Neighbourhood<T> for PeriodicCompleteAligned<T> {
+    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+        self.inner.insert(stack)
+    }
+
+    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, f: F) {
+        self.inner.for_each_stack(f);
+    }
+
+    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, f: F) {
+        self.inner.for_each_stack_mut(f);
+    }
+
+    fn has_tuning_for(&self, offset: i8) -> bool {
+        self.inner.has_tuning_for(offset)
+    }
+
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
+        self.inner.try_write_relative_stack(target, offset)
+    }
+}
+impl<T: PeriodicStackType> CompleteNeigbourhood<T> for PeriodicCompleteAligned<T> {}
+impl<T: PeriodicStackType> PeriodicNeighbourhood<T> for PeriodicCompleteAligned<T> {
+    fn period(&self) -> &Stack<T> {
+        self.inner.period()
+    }
+}
+impl<T: PeriodicStackType> AlignedPeriodicNeighbourhood<T> for PeriodicCompleteAligned<T> {}
+
+/// Generate a complete set of 12 notes, with a sensible five-limit tuning. TODO: explain the
+/// arguments, if we decide to keep these functions.
+///
+///
+/// - `width` must be in `1..=12-index+offset`
+/// - `offset` must be in `0..width`
+/// - `index` must be in `0..=11`
+pub fn new_fivelimit_neighbourhood<T: FiveLimitStackType + OctavePeriodicStackType>(
+    active_temperaments: &[bool],
+    width: StackCoeff,
+    index: StackCoeff,
+    offset: StackCoeff,
+) -> PeriodicCompleteAligned<T> {
+    let mut stacks = vec![Stack::new_zero(); 12];
+    for i in (-index)..(12 - index) {
+        let (octaves, fifths, thirds) = fivelimit_corridor(width, offset, i);
+        let the_stack = &mut stacks[(7 * i).rem_euclid(12) as usize];
+        the_stack.increment_at_index(&active_temperaments, T::octave_index(), octaves);
+        the_stack.increment_at_index(&active_temperaments, T::fifth_index(), fifths);
+        the_stack.increment_at_index(&active_temperaments, T::third_index(), thirds);
+    }
+    PeriodicCompleteAligned {
+        inner: PeriodicComplete {
+            stacks,
+            period: Stack::from_pure_interval(T::period_index()),
+        },
     }
 }
 
@@ -302,244 +348,255 @@ mod test {
         let period = Stack::<MockStackType>::new(&[false; 2], vec![1, 0, 0]);
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 12, 0, 0),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![-4, 7, 0]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                    Stack::new(&vec![false; 2], vec![-5, 9, 0]),
-                    Stack::new(&vec![false; 2], vec![-2, 4, 0]),
-                    Stack::new(&vec![false; 2], vec![-6, 11, 0]),
-                    Stack::new(&vec![false; 2], vec![-3, 6, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                    Stack::new(&vec![false; 2], vec![-4, 8, 0]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                    Stack::new(&vec![false; 2], vec![-5, 10, 0]),
-                    Stack::new(&vec![false; 2], vec![-2, 5, 0]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 12, 0, 0),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![-4, 7, 0]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
+                        Stack::new(&vec![false; 2], vec![-5, 9, 0]),
+                        Stack::new(&vec![false; 2], vec![-2, 4, 0]),
+                        Stack::new(&vec![false; 2], vec![-6, 11, 0]),
+                        Stack::new(&vec![false; 2], vec![-3, 6, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
+                        Stack::new(&vec![false; 2], vec![-4, 8, 0]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
+                        Stack::new(&vec![false; 2], vec![-5, 10, 0]),
+                        Stack::new(&vec![false; 2], vec![-2, 5, 0]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 3, 0, 0),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![0, -1, 2]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                    Stack::new(&vec![false; 2], vec![1, -3, 3]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                    Stack::new(&vec![false; 2], vec![0, -1, 3]),
-                    Stack::new(&vec![false; 2], vec![1, -2, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                    Stack::new(&vec![false; 2], vec![1, -1, 1]),
-                    Stack::new(&vec![false; 2], vec![1, -2, 3]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 1]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 3, 0, 0),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![0, -1, 2]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
+                        Stack::new(&vec![false; 2], vec![1, -3, 3]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
+                        Stack::new(&vec![false; 2], vec![0, -1, 3]),
+                        Stack::new(&vec![false; 2], vec![1, -2, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
+                        Stack::new(&vec![false; 2], vec![1, -1, 1]),
+                        Stack::new(&vec![false; 2], vec![1, -2, 3]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 5, 0, 0),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                    Stack::new(&vec![false; 2], vec![-3, 5, 1]),
-                    Stack::new(&vec![false; 2], vec![-2, 4, 0]),
-                    Stack::new(&vec![false; 2], vec![-2, 3, 2]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                    Stack::new(&vec![false; 2], vec![-2, 4, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 1]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 5, 0, 0),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
+                        Stack::new(&vec![false; 2], vec![-3, 5, 1]),
+                        Stack::new(&vec![false; 2], vec![-2, 4, 0]),
+                        Stack::new(&vec![false; 2], vec![-2, 3, 2]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
+                        Stack::new(&vec![false; 2], vec![-2, 4, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 4, 0, 0),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                    Stack::new(&vec![false; 2], vec![-1, 1, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                    Stack::new(&vec![false; 2], vec![-2, 3, 2]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 1]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 4, 0, 0),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
+                        Stack::new(&vec![false; 2], vec![-1, 1, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
+                        Stack::new(&vec![false; 2], vec![-2, 3, 2]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 4, 1, 0),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                    Stack::new(&vec![false; 2], vec![-1, 1, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, -1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 1]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 4, 1, 0),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
+                        Stack::new(&vec![false; 2], vec![-1, 1, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, -1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 4, 2, 0),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                    Stack::new(&vec![false; 2], vec![-1, 1, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, -1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 2, -1]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 1]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 4, 2, 0),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
+                        Stack::new(&vec![false; 2], vec![-1, 1, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, -1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 2, -1]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 4, 3, 0),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 1, -1]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, -1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 2, -1]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 1]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 4, 3, 0),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 1, -1]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, -1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 2, -1]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 4, 4, 0),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 1, -1]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, -1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                    Stack::new(&vec![false; 2], vec![1, 0, -1]),
-                    Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 2, -1]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 1]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 4, 4, 0),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 1, -1]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, -1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
+                        Stack::new(&vec![false; 2], vec![1, 0, -1]),
+                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 2, -1]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 4, 0, 1),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![0, -1, 2]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                    Stack::new(&vec![false; 2], vec![-1, 1, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                    Stack::new(&vec![false; 2], vec![0, -1, 3]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                    Stack::new(&vec![false; 2], vec![1, -1, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 2, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 1]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 4, 0, 1),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![0, -1, 2]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
+                        Stack::new(&vec![false; 2], vec![-1, 1, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
+                        Stack::new(&vec![false; 2], vec![0, -1, 3]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
+                        Stack::new(&vec![false; 2], vec![1, -1, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 2, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 4, 0, 2),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![0, -1, 2]),
-                    Stack::new(&vec![false; 2], vec![1, -2, 1]),
-                    Stack::new(&vec![false; 2], vec![-1, 1, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                    Stack::new(&vec![false; 2], vec![0, -1, 3]),
-                    Stack::new(&vec![false; 2], vec![1, -2, 2]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                    Stack::new(&vec![false; 2], vec![1, -1, 1]),
-                    Stack::new(&vec![false; 2], vec![1, -2, 3]),
-                    Stack::new(&vec![false; 2], vec![0, 1, 1]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 4, 0, 2),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![0, -1, 2]),
+                        Stack::new(&vec![false; 2], vec![1, -2, 1]),
+                        Stack::new(&vec![false; 2], vec![-1, 1, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
+                        Stack::new(&vec![false; 2], vec![0, -1, 3]),
+                        Stack::new(&vec![false; 2], vec![1, -2, 2]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
+                        Stack::new(&vec![false; 2], vec![1, -1, 1]),
+                        Stack::new(&vec![false; 2], vec![1, -2, 3]),
+                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
 
         assert_eq!(
-            Neighbourhood::fivelimit_new(&[false; 2], 4, 0, 3),
-            Neighbourhood::PeriodicComplete {
-                stacks: vec![
-                    Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                    Stack::new(&vec![false; 2], vec![0, -1, 2]),
-                    Stack::new(&vec![false; 2], vec![1, -2, 1]),
-                    Stack::new(&vec![false; 2], vec![1, -3, 3]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                    Stack::new(&vec![false; 2], vec![0, -1, 3]),
-                    Stack::new(&vec![false; 2], vec![1, -2, 2]),
-                    Stack::new(&vec![false; 2], vec![2, -3, 1]),
-                    Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                    Stack::new(&vec![false; 2], vec![1, -1, 1]),
-                    Stack::new(&vec![false; 2], vec![1, -2, 3]),
-                    Stack::new(&vec![false; 2], vec![2, -3, 2]),
-                ],
-                period: period.clone(),
-                period_keys: 12,
+            new_fivelimit_neighbourhood(&[false; 2], 4, 0, 3),
+            PeriodicCompleteAligned {
+                inner: PeriodicComplete {
+                    stacks: vec![
+                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
+                        Stack::new(&vec![false; 2], vec![0, -1, 2]),
+                        Stack::new(&vec![false; 2], vec![1, -2, 1]),
+                        Stack::new(&vec![false; 2], vec![1, -3, 3]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
+                        Stack::new(&vec![false; 2], vec![0, -1, 3]),
+                        Stack::new(&vec![false; 2], vec![1, -2, 2]),
+                        Stack::new(&vec![false; 2], vec![2, -3, 1]),
+                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
+                        Stack::new(&vec![false; 2], vec![1, -1, 1]),
+                        Stack::new(&vec![false; 2], vec![1, -2, 3]),
+                        Stack::new(&vec![false; 2], vec![2, -3, 2]),
+                    ],
+                    period: period.clone(),
+                }
             }
         );
     }

@@ -28,7 +28,7 @@ use adaptuner::{
         stack::Stack,
         stacktype::r#trait::{PeriodicStackType, StackType},
     },
-    msg,
+    msg, neighbourhood,
     neighbourhood::Neighbourhood,
     notename,
     pattern::{KeyShape, Pattern},
@@ -316,7 +316,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let initial_neighbourhood_offset = 1;
     let initial_reference_key = 60;
     let no_active_temperaments = vec![false; TheStackType::num_temperaments()];
-    let initial_neighbourhood = Neighbourhood::fivelimit_new(
+    let initial_neighbourhood = neighbourhood::new_fivelimit_neighbourhood(
         &no_active_temperaments,
         initial_neighbourhood_width,
         initial_neighbourhood_index,
@@ -330,65 +330,63 @@ pub fn main() -> Result<(), Box<dyn Error>> {
 
     let not_so_trivial_config: CompleteConfig<
         TheStackType,
-        // process::static12::Static12<TheStackType>,
-        // process::static12::Static12Config<
-        //     TheStackType,
-        // >,
-        process::walking::Walking<TheStackType>,
-        process::walking::WalkingConfig<TheStackType>,
+        process::static12::Static12<TheStackType, neighbourhood::PeriodicCompleteAligned<TheStackType>>,
+        process::static12::Static12Config<TheStackType, neighbourhood::PeriodicCompleteAligned<TheStackType>>,
+        // process::walking::Walking<TheStackType>,
+        // process::walking::WalkingConfig<TheStackType>,
         backend::pitchbend16::Pitchbend16<15>,
         backend::pitchbend16::Pitchbend16Config<15>,
         // tui::onlynotify::OnlyNotify,
         // tui::onlynotify::OnlyNotifyConfig,
         // tui::grid::Grid<12, TheStackType>,
         // tui::grid::GridConfig<12, TheStackType>,
-        tui::wrappedgrid::WrappedGrid<TheStackType>,
-        tui::wrappedgrid::WrappedGridConfig<TheStackType>,
+        tui::wrappedgrid::WrappedGrid<TheStackType, neighbourhood::PeriodicCompleteAligned<TheStackType>>,
+        tui::wrappedgrid::WrappedGridConfig<TheStackType, neighbourhood::PeriodicCompleteAligned<TheStackType>>,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
-        process_config: process::walking::WalkingConfig {
-            initial_neighbourhood: initial_neighbourhood.clone(),
-            patterns: vec![
-                Pattern {
-                    name: String::from("major"),
-                    keyshape: KeyShape::ClassesRelative {
-                        period_keys: 12,
-                        classes: vec![0, 4, 7],
-                    },
-                    neighbourhood: Neighbourhood::PeriodicPartial {
-                        period_keys: TheStackType::period_keys(),
-                        period: Stack::from_pure_interval(TheStackType::period_index()),
-                        stacks: HashMap::from([
-                            (0, Stack::new_zero()),
-                            (4, Stack::new(&no_active_temperaments, vec![0, 0, 1])),
-                            (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
-                        ]),
-                    },
-                },
-                Pattern {
-                    name: String::from("minor"),
-                    keyshape: KeyShape::ClassesRelative {
-                        period_keys: 12,
-                        classes: vec![0, 3, 7],
-                    },
-                    neighbourhood: Neighbourhood::PeriodicPartial {
-                        period_keys: TheStackType::period_keys(),
-                        period: Stack::from_pure_interval(TheStackType::period_index()),
-                        stacks: HashMap::from([
-                            (0, Stack::new_zero()),
-                            (3, Stack::new(&no_active_temperaments, vec![0, 1, -1])),
-                            (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
-                        ]),
-                    },
-                },
-            ],
-            consider_played: false,
-        },
-        // process::static12::Static12Config {
-        //     stack_type: stack_type.clone(),
-        //     initial_reference_key,
+        // process_config: process::walking::WalkingConfig {
         //     initial_neighbourhood: initial_neighbourhood.clone(),
+        //     patterns: vec![
+        //         Pattern {
+        //             name: String::from("major"),
+        //             keyshape: KeyShape::ClassesRelative {
+        //                 period_keys: 12,
+        //                 classes: vec![0, 4, 7],
+        //             },
+        //             neighbourhood: Neighbourhood::PeriodicPartial {
+        //                 period_keys: TheStackType::period_keys(),
+        //                 period: Stack::from_pure_interval(TheStackType::period_index()),
+        //                 stacks: HashMap::from([
+        //                     (0, Stack::new_zero()),
+        //                     (4, Stack::new(&no_active_temperaments, vec![0, 0, 1])),
+        //                     (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
+        //                 ]),
+        //             },
+        //         },
+        //         Pattern {
+        //             name: String::from("minor"),
+        //             keyshape: KeyShape::ClassesRelative {
+        //                 period_keys: 12,
+        //                 classes: vec![0, 3, 7],
+        //             },
+        //             neighbourhood: Neighbourhood::PeriodicPartial {
+        //                 period_keys: TheStackType::period_keys(),
+        //                 period: Stack::from_pure_interval(TheStackType::period_index()),
+        //                 stacks: HashMap::from([
+        //                     (0, Stack::new_zero()),
+        //                     (3, Stack::new(&no_active_temperaments, vec![0, 1, -1])),
+        //                     (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
+        //                 ]),
+        //             },
+        //         },
+        //     ],
+        //     consider_played: false,
         // },
+        process_config: process::static12::Static12Config {
+            initial_reference_key,
+            initial_neighbourhood: initial_neighbourhood.clone(),
+            _phantom: PhantomData,
+        },
         backend_config: backend::pitchbend16::Pitchbend16Config {
             channels: [
                 Channel::Ch1,
@@ -422,28 +420,13 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                 vertical_index: 2,
                 fifth_index: 1,
                 third_index: 2,
+                _phantom: PhantomData,
             },
             latencyreporterconfig: tui::latencyreporter::LatencyReporterConfig { nsamples: 20 },
         },
         // ui_config: tui::onlynotify::OnlyNotifyConfig {},
         _phantom: PhantomData,
     };
-
-    // run::<
-    //     adaptuner::util::dimension::fixed_sizes::Size2,
-    //     adaptuner::util::dimension::fixed_sizes::Size2,
-    //     adaptuner::process::onlyforward::OnlyForward,
-    //     adaptuner::process::onlyforward::OnlyForwardConfig,
-    //     adaptuner::backend::onlyforward::OnlyForward,
-    //     adaptuner::backend::onlyforward::OnlyForwardConfig,
-    //     adaptuner::tui::onlynotify::OnlyNotify,
-    //     adaptuner::tui::onlynotify::OnlyNotifyConfig,
-    // >(
-    //     TRIVIAL_CONFIG.process_config.clone(),
-    //     TRIVIAL_CONFIG.backend_config.clone(),
-    //     TRIVIAL_CONFIG.ui_config.clone(),
-    //     TRIVIAL_CONFIG.midi_port_config.clone(),
-    // )
 
     run(
         not_so_trivial_config.process_config.clone(),

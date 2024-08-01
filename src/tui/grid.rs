@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant};
+use std::{marker::PhantomData, sync::mpsc, time::Instant};
 
 use colorous;
 use crossterm::event::{KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
@@ -12,10 +12,10 @@ use crate::{
     interval::{
         interval::Semitones,
         stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
+        stacktype::r#trait::{FiveLimitStackType, PeriodicStackType, StackCoeff},
     },
     msg,
-    neighbourhood::Neighbourhood,
+    neighbourhood::AlignedPeriodicNeighbourhood,
     notename::NoteNameStyle,
     tui::r#trait::UIState,
 };
@@ -50,7 +50,7 @@ enum NoteOnState {
     Sustained,
 }
 
-pub struct Grid<T: StackType> {
+pub struct Grid<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> {
     horizontal_index: usize,
     vertical_index: usize,
     column_width: u16,
@@ -63,7 +63,7 @@ pub struct Grid<T: StackType> {
 
     // the stacks are relative to the initial_reference_key
     active_notes: Vec<(u8, Stack<T>, NoteOnState)>,
-    considered_notes: Neighbourhood<T>,
+    considered_notes: N,
 
     reference_key: i8,
     reference_stack: Stack<T>,
@@ -71,16 +71,18 @@ pub struct Grid<T: StackType> {
     horizontal_margin: StackCoeff,
     vertical_margin: StackCoeff,
 
-    config: GridConfig<T>,
+    config: GridConfig<T, N>,
 }
 
-impl<T: FiveLimitStackType> Widget for Grid<T> {
+impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> Widget
+    for Grid<T, N>
+{
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.render_ref(area, buf)
     }
 }
 
-impl<T: StackType> Grid<T> {
+impl<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> Grid<T, N> {
     fn recalculate_dimensions(&mut self, area: &Rect) {
         let horizontal_index = self.horizontal_index;
         let vertical_index = self.vertical_index;
@@ -153,7 +155,9 @@ impl<T: StackType> Grid<T> {
     }
 }
 
-impl<T: FiveLimitStackType> WidgetRef for Grid<T> {
+impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> WidgetRef
+    for Grid<T, N>
+{
     /// This expects [recalculate_dimensions][Grid::recalculate_dimensions] to be called first.
     /// Otherwise, expect bad things to happen!    
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
@@ -290,7 +294,9 @@ fn render_stack<T: FiveLimitStackType>(
     buf.set_style(area, style);
 }
 
-impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
+impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<T> + Clone> UIState<T>
+    for Grid<T, N>
+{
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -457,7 +463,7 @@ impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
             }
 
             msg::AfterProcess::Consider { stack } => {
-                self.considered_notes.insert(stack.clone());
+                self.considered_notes.insert(stack);
             }
             msg::AfterProcess::Reset => {}
             msg::AfterProcess::Sustain { value, .. } => {
@@ -476,7 +482,7 @@ impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
 }
 
 #[derive(Clone)]
-pub struct GridConfig<T: StackType> {
+pub struct GridConfig<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> {
     pub horizontal_index: usize,
     pub vertical_index: usize,
     pub fifth_index: usize,
@@ -485,11 +491,14 @@ pub struct GridConfig<T: StackType> {
     pub display_config: DisplayConfig,
 
     pub initial_reference_key: i8,
-    pub initial_neighbourhood: Neighbourhood<T>,
+    pub initial_neighbourhood: N,
+    pub _phantom: PhantomData<T>,
 }
 
-impl<T: FiveLimitStackType> Config<Grid<T>> for GridConfig<T> {
-    fn initialise(config: &Self) -> Grid<T> {
+impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<T> + Clone>
+    Config<Grid<T, N>> for GridConfig<T, N>
+{
+    fn initialise(config: &Self) -> Grid<T, N> {
         let no_active_temperaments = vec![false; T::num_temperaments()];
         Grid {
             horizontal_index: config.horizontal_index,

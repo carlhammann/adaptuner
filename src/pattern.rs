@@ -1,10 +1,10 @@
-use crate::{interval::stacktype::r#trait::StackType, neighbourhood::Neighbourhood};
+use crate::{interval::stacktype::r#trait::StackType, neighbourhood::SomeNeighbourhood};
 
 #[derive(Debug, Clone)]
 pub struct Pattern<T: StackType> {
     pub name: String,
     pub keyshape: KeyShape,
-    pub neighbourhood: Neighbourhood<T>,
+    pub neighbourhood: SomeNeighbourhood<T>,
 }
 
 #[derive(Debug, Clone)]
