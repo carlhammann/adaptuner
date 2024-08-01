@@ -334,8 +334,8 @@ pub fn main() -> Result<(), Box<dyn Error>> {
             TheStackType,
             neighbourhood::PeriodicCompleteAligned<TheStackType>,
         >,
-        backend::pitchbend16::Pitchbend16<15>,
-        backend::pitchbend16::Pitchbend16Config<15>,
+        backend::pitchbend::Pitchbend<15>,
+        backend::pitchbend::PitchbendConfig<15>,
         // tui::onlynotify::OnlyNotify,
         // tui::onlynotify::OnlyNotifyConfig,
         tui::wrappedgrid::WrappedGrid<
@@ -391,7 +391,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         //     initial_neighbourhood: initial_neighbourhood.clone(),
         //     _phantom: PhantomData,
         // },
-        backend_config: backend::pitchbend16::Pitchbend16Config {
+        backend_config: backend::pitchbend::PitchbendConfig {
             channels: [
                 Channel::Ch1,
                 Channel::Ch2,

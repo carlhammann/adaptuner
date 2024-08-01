@@ -41,8 +41,8 @@ struct ChannelInfo {
     bend: u16,
 }
 
-pub struct Pitchbend16<const NCHANNELS: usize> {
-    config: Pitchbend16Config<NCHANNELS>,
+pub struct Pitchbend<const NCHANNELS: usize> {
+    config: PitchbendConfig<NCHANNELS>,
 
     /// the channels to use. Exlude CH10 for GM compatibility
     channels: [Channel; NCHANNELS],
@@ -71,7 +71,7 @@ fn semitones_from_bend(bend_range: Semitones, bend: u16) -> Semitones {
     (bend as Semitones - 8192.0) / 8191.0 * bend_range
 }
 
-impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHANNELS> {
+impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend<NCHANNELS> {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -94,7 +94,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
 
         match msg {
             msg::AfterProcess::Start | msg::AfterProcess::Reset => {
-                *self = Pitchbend16Config::initialise(&self.config);
+                *self = PitchbendConfig::initialise(&self.config);
                 for i in 0..NCHANNELS {
                     let channel = self.channels[i];
                     send(
@@ -441,13 +441,13 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
 }
 
 #[derive(Clone)]
-pub struct Pitchbend16Config<const NCHANNELS: usize> {
+pub struct PitchbendConfig<const NCHANNELS: usize> {
     pub channels: [Channel; NCHANNELS],
     pub bend_range: Semitones,
 }
 
-impl<const NCHANNELS: usize> Config<Pitchbend16<NCHANNELS>> for Pitchbend16Config<NCHANNELS> {
-    fn initialise(config: &Self) -> Pitchbend16<NCHANNELS> {
+impl<const NCHANNELS: usize> Config<Pitchbend<NCHANNELS>> for PitchbendConfig<NCHANNELS> {
+    fn initialise(config: &Self) -> Pitchbend<NCHANNELS> {
         let mut uninit_channelinfo: [MaybeUninit<ChannelInfo>; NCHANNELS] =
             MaybeUninit::uninit_array();
         for i in 0..NCHANNELS {
@@ -457,7 +457,7 @@ impl<const NCHANNELS: usize> Config<Pitchbend16<NCHANNELS>> for Pitchbend16Confi
             });
         }
         let channelinfo = unsafe { MaybeUninit::array_assume_init(uninit_channelinfo) };
-        Pitchbend16 {
+        Pitchbend {
             channels: config.channels,
             config: config.clone(),
             channelinfo,
@@ -501,8 +501,8 @@ mod test {
 
     #[test]
     fn test_sixteen_classes() {
-        let mut s = Pitchbend16Config::<2>::initialise(
-            &(Pitchbend16Config {
+        let mut s = PitchbendConfig::<2>::initialise(
+            &(PitchbendConfig {
                 channels: [Channel::Ch1, Channel::Ch2],
                 bend_range: 2.0,
             }),
