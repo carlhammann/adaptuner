@@ -54,4 +54,6 @@ pub trait PeriodicStackType: StackType {
     }
 }
 
+/// Marker trait for stack types whose period is the octave. This means two things: the frequency
+/// ratio is 2:1, and there are 12 notes in that space.
 pub trait OctavePeriodicStackType: PeriodicStackType {}

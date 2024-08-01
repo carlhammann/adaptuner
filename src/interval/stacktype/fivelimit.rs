@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
 use ndarray::{arr2, Array2, ArrayView2};
+use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
     interval::{Interval, Semitones},
@@ -10,7 +11,7 @@ use crate::interval::{
     temperament::Temperament,
 };
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct ConcreteFiveLimitStackType {}
 
 static INTERVALS: LazyLock<[Interval; 3]> = LazyLock::new(|| {

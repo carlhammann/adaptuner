@@ -1,6 +1,7 @@
 use std::{marker::PhantomData, ops};
 
 use ndarray::Array2;
+use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
     interval::Semitones,
@@ -32,7 +33,7 @@ use crate::interval::{
 /// This is what enables [is_pure][Stack::is_pure]. Even more importantly, we need that
 /// representation for the "rollovers" that happen when a number of tempered intervals add up to
 /// pure intervals.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stack<T: StackType> {
     _phantom: PhantomData<T>,
 

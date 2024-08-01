@@ -1,13 +1,15 @@
 use crate::{interval::stacktype::r#trait::StackType, neighbourhood::SomeNeighbourhood};
 
-#[derive(Debug, Clone)]
+use serde_derive::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pattern<T: StackType> {
     pub name: String,
     pub keyshape: KeyShape,
     pub neighbourhood: SomeNeighbourhood<T>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum KeyShape {
     ClassesFixed {
         period_keys: u8,
@@ -69,17 +71,19 @@ impl KeyShape {
                 classes,
                 zero,
             } => fit_classes_fixed(*period_keys, classes, *zero, notes, start),
-            Self::ClassesRelative { period_keys, classes } => {
-                fit_classes_relative(*period_keys, classes, notes, start)
-            }
+            Self::ClassesRelative {
+                period_keys,
+                classes,
+            } => fit_classes_relative(*period_keys, classes, notes, start),
             Self::VoicingFixed {
                 period_keys,
                 blocks,
                 zero,
             } => fit_voicing_fixed(*period_keys, blocks, *zero, notes, start),
-            Self::VoicingRelative { period_keys, blocks } => {
-                fit_voicing_relative(*period_keys, blocks, notes, start)
-            }
+            Self::VoicingRelative {
+                period_keys,
+                blocks,
+            } => fit_voicing_relative(*period_keys, blocks, notes, start),
         }
     }
 }
@@ -354,7 +358,10 @@ mod test {
     fn one_voicing_relative(active: &[u8], blocks: Vec<Vec<u8>>, reference: u8, next: usize) {
         one_case(
             active,
-            KeyShape::VoicingRelative { period_keys: 12, blocks },
+            KeyShape::VoicingRelative {
+                period_keys: 12,
+                blocks,
+            },
             Fit { reference, next },
         );
     }

@@ -1,15 +1,18 @@
 //! A neighbourhood is a description of the tunings of some notes, relative to
 //! a reference note.
 
+use std::collections::HashMap;
+
+use serde_derive::{Deserialize, Serialize};
+
 use crate::interval::{
     stack::Stack,
     stacktype::r#trait::{
         FiveLimitStackType, OctavePeriodicStackType, PeriodicStackType, StackCoeff, StackType,
     },
 };
-use std::collections::HashMap;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum SomeNeighbourhood<T: StackType> {
     PeriodicComplete(PeriodicComplete<T>),
     PeriodicPartial(PeriodicPartial<T>),
@@ -23,7 +26,7 @@ pub enum SomeNeighbourhood<T: StackType> {
 /// invariants:
 /// - the [key_distance][Stack::key_distance] of the stack on index `ì` is `i`. In particular, the
 /// first one (at index zero) must map to a unison on the keyboard.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PeriodicComplete<T: StackType> {
     pub stacks: Vec<Stack<T>>,
     pub period: Stack<T>,
@@ -37,7 +40,7 @@ pub struct PeriodicCompleteAligned<T: PeriodicStackType> {
 
 /// Tunings for some notes and their "octave equivalents" described by giving tunings of some notes
 /// in the first "octave" over the reference.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
 pub struct PeriodicPartial<T: StackType> {
     /// invariant: the keys are all in the range 0..=(period_keys-1)
     pub stacks: HashMap<usize, Stack<T>>,
