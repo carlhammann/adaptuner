@@ -36,7 +36,7 @@ impl<T: StackType> UIState<T> for LatencyReporter {
         let n = self.values.len();
         frame.render_widget(
             Line::from(format!(
-                "mean MIDI latency (last {n} events): {} microseconds",
+                "mean MIDI latency (last {n} events): {} µs",
                 self.mean
             )),
             area,
