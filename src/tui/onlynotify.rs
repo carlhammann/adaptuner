@@ -1,6 +1,10 @@
 use std::{fmt, io::stdout, sync::mpsc, time::Instant};
 
-use crossterm::{execute, terminal::*};
+use crossterm::{
+    event::DisableMouseCapture,
+    execute,
+    terminal::{disable_raw_mode, LeaveAlternateScreen},
+};
 use ratatui::prelude::{Frame, Rect};
 
 use crate::{
@@ -21,10 +25,11 @@ impl<T: StackType + fmt::Debug> UIState<T> for OnlyNotify {
         match msg {
             msg::AfterProcess::Start => {
                 execute!(stdout(), LeaveAlternateScreen).expect("Could not leave alternate screen");
+                execute!(stdout(), DisableMouseCapture).expect("Could not disable mouse capture");
                 disable_raw_mode().expect("Could not disable raw mode");
             }
             msg::AfterProcess::Notify { line } => println!("{}", line),
-            _ => println!("raw message received by UI: {:?}", msg),
+            _ => {} //println!("raw message received by UI: {:?}", msg),
         }
     }
 }
