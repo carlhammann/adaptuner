@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant};
+use std::{mem::MaybeUninit, sync::mpsc, time::Instant};
 
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -21,6 +21,9 @@ struct NoteInfo {
     /// the channel this note is being played on, currently
     channel: Channel,
 
+    /// the index of the channel in the internal list of channels
+    channelindex: usize,
+
     /// the note number the note is played as on the channel. This will be the closest integer to
     /// `desired_tuning`. The pitchbend active on `channel` will bring this note closer to the
     /// ideal tuning (in the nominal case, exactly to it, whithin the presicion of pitchbend).
@@ -30,17 +33,22 @@ struct NoteInfo {
     sustained: bool,
 }
 
+struct ChannelInfo {
+    /// How many notes are currently sounding on this channel
+    usage: u8,
+
+    /// the pitch bend value of this channel
+    bend: u16,
+}
+
 pub struct Pitchbend16<const NCHANNELS: usize> {
     config: Pitchbend16Config<NCHANNELS>,
 
     /// the channels to use. Exlude CH10 for GM compatibility
     channels: [Channel; NCHANNELS],
 
-    /// the pitch bend value of every channel
-    bends: [u16; NCHANNELS],
-
-    /// How many notes are currently sounding on each channel
-    usage: [u8; NCHANNELS],
+    /// invariant: the info pertaining to `channels[i]` is in `channelinfo[i]`
+    channelinfo: [ChannelInfo; NCHANNELS],
 
     /// which notes are currently active, and on which channel they sound, and which note they map
     /// to on that channel.
@@ -93,7 +101,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                         MidiMsg::ChannelVoice {
                             channel,
                             msg: ChannelVoiceMsg::PitchBend {
-                                bend: self.bends[i],
+                                bend: self.channelinfo[i].bend,
                             },
                         },
                         time,
@@ -130,7 +138,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                 // Try to find a channel that already has the given pitch bend, and add the new
                 // note to that channel:
                 for i in 0..NCHANNELS {
-                    if self.bends[i] == bend {
+                    if self.channelinfo[i].bend == bend {
                         let channel = self.channels[i];
                         send(
                             MidiMsg::ChannelVoice {
@@ -146,10 +154,11 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                         self.active_notes[note as usize] = Some(NoteInfo {
                             desired_tuning: tuning,
                             channel,
+                            channelindex: i,
                             sustained: false,
                             mapped_to,
                         });
-                        self.usage[i] += 1;
+                        self.channelinfo[i].usage += 1;
 
                         inserted = true;
                         break;
@@ -161,7 +170,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                     // try to find an unused channel and start using it with the add the new note
                     // with the correct pitch bend:
                     for i in 0..NCHANNELS {
-                        if self.usage[i] == 0 {
+                        if self.channelinfo[i].usage == 0 {
                             let channel = self.channels[i];
                             send(
                                 MidiMsg::ChannelVoice {
@@ -184,11 +193,12 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                             self.active_notes[note as usize] = Some(NoteInfo {
                                 desired_tuning: tuning,
                                 channel,
+                                channelindex: i,
                                 sustained: false,
                                 mapped_to,
                             });
-                            self.usage[i] = 1;
-                            self.bends[i] = bend;
+                            self.channelinfo[i].usage = 1;
+                            self.channelinfo[i].bend = bend;
 
                             inserted = true;
                             break;
@@ -202,12 +212,14 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                     // a notification to the ui about a detuned note.
 
                     let mut closest_channel = self.channels[0];
-                    let mut dist = (bend as i32 - self.bends[0] as i32).abs();
+                    let mut closest_channel_index = 0;
+                    let mut dist = (bend as i32 - self.channelinfo[0].bend as i32).abs();
                     for i in 1..NCHANNELS {
-                        let new_dist = (bend as i32 - self.bends[i] as i32).abs();
+                        let new_dist = (bend as i32 - self.channelinfo[i].bend as i32).abs();
                         if new_dist < dist {
                             dist = new_dist;
                             closest_channel = self.channels[i];
+                            closest_channel_index = i;
                         }
                     }
 
@@ -225,17 +237,18 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                     self.active_notes[note as usize] = Some(NoteInfo {
                         desired_tuning: tuning,
                         channel: closest_channel,
+                        channelindex: closest_channel_index,
                         sustained: false,
                         mapped_to,
                     });
-                    self.usage[closest_channel as usize] += 1;
+                    self.channelinfo[closest_channel_index].usage += 1;
 
                     let m = msg::AfterProcess::DetunedNote {
                         note,
                         should_be: tuning,
                         actual: semitones_from_bend(
                             self.bend_range,
-                            self.bends[closest_channel as usize],
+                            self.channelinfo[closest_channel_index].bend,
                         ),
                         explanation: "No more available channels on NoteOn",
                     };
@@ -252,6 +265,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
             } => match self.active_notes[note as usize] {
                 Some(NoteInfo {
                     channel,
+                    channelindex,
                     sustained: _,
                     desired_tuning,
                     mapped_to,
@@ -270,13 +284,14 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                         self.active_notes[note as usize] = Some(NoteInfo {
                             desired_tuning,
                             channel,
+                            channelindex,
                             mapped_to,
                             sustained: true,
                         });
                     } else {
                         self.active_notes[note as usize] = None;
-                        self.usage[channel as usize] =
-                            self.usage[channel as usize].saturating_sub(1);
+                        self.channelinfo[channelindex].usage =
+                            self.channelinfo[channelindex].usage.saturating_sub(1);
                     }
                 }
                 None => {}
@@ -301,13 +316,14 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                             None => {}
                             Some(NoteInfo {
                                 desired_tuning: _,
-                                channel,
+                                channel: _,
+                                channelindex,
                                 sustained,
                                 mapped_to: _,
                             }) => {
                                 if sustained {
-                                    self.usage[channel as usize] =
-                                        self.usage[channel as usize].saturating_sub(1);
+                                    self.channelinfo[channelindex].usage =
+                                        self.channelinfo[channelindex].usage.saturating_sub(1);
                                     self.active_notes[i] = None;
                                 }
                             }
@@ -336,6 +352,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                     None => {}
                     Some(NoteInfo {
                         desired_tuning: _,
+                        channelindex,
                         channel,
                         sustained: _,
                         mapped_to,
@@ -343,7 +360,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                         let bend =
                             bend_from_semitones(self.bend_range, tuning - mapped_to as Semitones);
 
-                        if bend == self.bends[channel as usize] {
+                        if bend == self.channelinfo[channelindex].bend {
                             return;
                         }
 
@@ -355,7 +372,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                             time,
                         );
 
-                        self.bends[channel as usize] = bend;
+                        self.channelinfo[channelindex].bend = bend;
 
                         if (tuning - mapped_to as Semitones).abs() > self.bend_range {
                             let m = msg::AfterProcess::DetunedNote {
@@ -373,12 +390,13 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
                             send_to_ui(m, time);
                         }
 
-                        if self.usage[channel as usize] > 1 {
+                        if self.channelinfo[channelindex].usage > 1 {
                             for other_note in 0..128 {
                                 match self.active_notes[other_note] {
                                     None => {}
                                     Some(NoteInfo {
                                         desired_tuning,
+                                        channelindex: _,
                                         channel: other_channel,
                                         mapped_to: other_mapped_to,
                                         sustained: _,
@@ -430,11 +448,19 @@ pub struct Pitchbend16Config<const NCHANNELS: usize> {
 
 impl<const NCHANNELS: usize> Config<Pitchbend16<NCHANNELS>> for Pitchbend16Config<NCHANNELS> {
     fn initialise(config: &Self) -> Pitchbend16<NCHANNELS> {
+        let mut uninit_channelinfo: [MaybeUninit<ChannelInfo>; NCHANNELS] =
+            MaybeUninit::uninit_array();
+        for i in 0..NCHANNELS {
+            uninit_channelinfo[i].write(ChannelInfo {
+                bend: 8192,
+                usage: 0,
+            });
+        }
+        let channelinfo = unsafe { MaybeUninit::array_assume_init(uninit_channelinfo) };
         Pitchbend16 {
             channels: config.channels,
             config: config.clone(),
-            bends: [8192; NCHANNELS],
-            usage: [0; NCHANNELS],
+            channelinfo,
             active_notes: [None; 128],
             sustained: false,
             bend_range: config.bend_range,

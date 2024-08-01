@@ -1,6 +1,6 @@
-use std::{marker::PhantomData, mem::MaybeUninit, sync::mpsc, time::Instant};
+use std::{fmt, marker::PhantomData, mem::MaybeUninit, sync::mpsc, time::Instant};
 
-use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
+use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
     config::r#trait::Config,
@@ -12,10 +12,15 @@ use crate::{
     process::r#trait::ProcessState,
 };
 
-struct NoteWithInfo<T: StackType> {
-    active: bool,
-    sustained: bool,
-    channel: Channel,
+#[derive(PartialEq, Clone, Copy)]
+enum NoteState {
+    Pressed,
+    Sustained,
+    Off,
+}
+
+struct NoteInfo<T: StackType> {
+    state_per_channel: [NoteState; 16],
     tuning: Semitones,
     tuning_stack: Stack<T>,
 }
@@ -29,7 +34,7 @@ pub struct Walking<T: StackType, N: CompleteNeigbourhood<T>> {
 
     current_fit: Option<(usize, Stack<T>)>,
 
-    active_notes: [NoteWithInfo<T>; 128],
+    current_notes: [NoteInfo<T>; 128],
 
     sustain: [bool; 16],
 
@@ -40,23 +45,28 @@ pub struct Walking<T: StackType, N: CompleteNeigbourhood<T>> {
     tmp_work_stack: Stack<T>,
 }
 
-impl<T: StackType> HasActivationStatus for NoteWithInfo<T> {
+impl<T: StackType> HasActivationStatus for NoteInfo<T> {
     fn active(&self) -> bool {
-        self.active
+        for state in self.state_per_channel {
+            if state != NoteState::Off {
+                return true;
+            }
+        }
+        false
     }
 }
 
-impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
-    // returns true iff the corrent_fit changed
+impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
+    // returns true iff the current_fit changed
     fn recompute_fit(&mut self) -> bool {
         let find_fit = || -> Option<(usize, Fit)> {
             let mut index = 0;
-            let mut best_fit = self.patterns[0].fit(&self.active_notes);
+            let mut best_fit = self.patterns[0].fit(&self.current_notes);
             for i in 1..self.patterns.len() {
                 if best_fit.is_complete() {
                     break;
                 }
-                let fit = self.patterns[i].fit(&self.active_notes);
+                let fit = self.patterns[i].fit(&self.current_notes);
                 if fit.is_better_than(&best_fit) {
                     best_fit = fit;
                     index = i;
@@ -104,7 +114,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
 
     // returns true iff the tuning changed
     fn update_tuning(&mut self, i: u8) -> bool {
-        let note = &mut self.active_notes[i as usize];
+        let note = &mut self.current_notes[i as usize];
 
         self.tmp_work_stack.clone_from(&note.tuning_stack);
 
@@ -114,7 +124,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
                 (i as StackCoeff - self.key_center_stack.key_distance()) as i8,
             );
             note.tuning_stack.add_mul(1, &self.key_center_stack);
-            note.tuning = note.tuning_stack.semitones(); // 60 is the tuning of the reference, which is C4
+            note.tuning = note.tuning_stack.semitones();
         };
 
         match &self.current_fit {
@@ -152,9 +162,9 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
         let changed = self.update_tuning(i);
-        let note = &self.active_notes[i as usize];
+        let note = &self.current_notes[i as usize];
 
-        if note.active && changed {
+        if changed {
             send_to_backend(
                 msg::AfterProcess::Retune {
                     note: i,
@@ -172,7 +182,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
         to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
         for i in 0..128 {
-            if self.active_notes[i].active {
+            if self.current_notes[i].active() {
                 self.update_tuning_and_send(time, i as u8, to_backend);
             }
         }
@@ -220,8 +230,8 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
                             velocity,
                         },
                 } => {
-                    self.active_notes[new_key_number as usize].active = true;
-                    self.active_notes[new_key_number as usize].sustained = false;
+                    self.current_notes[new_key_number as usize].state_per_channel
+                        [channel as usize] = NoteState::Pressed;
                     let fit_changed = self.recompute_fit();
 
                     self.update_tuning(new_key_number);
@@ -230,8 +240,8 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
                             channel,
                             note: new_key_number,
                             velocity,
-                            tuning: self.active_notes[new_key_number as usize].tuning,
-                            tuning_stack: self.active_notes[new_key_number as usize]
+                            tuning: self.current_notes[new_key_number as usize].tuning,
+                            tuning_stack: self.current_notes[new_key_number as usize]
                                 .tuning_stack
                                 .clone(),
                         },
@@ -246,24 +256,25 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
                     channel,
                     msg: ChannelVoiceMsg::NoteOff { note, velocity },
                 } => {
-                    if self.sustain[channel as usize] {
-                        self.active_notes[note as usize].sustained = true;
-                    } else {
-                        self.active_notes[note as usize].active = false;
-                        self.active_notes[note as usize].sustained = false;
-                        if self.recompute_fit() {
-                            self.update_all_tunings(time, to_backend);
-                        }
-                    }
+                    let held_by_sustain = self.sustain[channel as usize];
+                    self.current_notes[note as usize].state_per_channel[channel as usize] =
+                        if held_by_sustain {
+                            NoteState::Sustained
+                        } else {
+                            NoteState::Off
+                        };
                     send_to_backend(
                         msg::AfterProcess::NoteOff {
                             channel,
                             note,
                             velocity,
-                            held_by_sustain: self.sustain[channel as usize],
+                            held_by_sustain,
                         },
                         time,
                     );
+                    if self.recompute_fit() {
+                        self.update_all_tunings(time, to_backend);
+                    }
                 }
 
                 MidiMsg::ChannelVoice {
@@ -275,18 +286,20 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
                 } => {
                     self.sustain[channel as usize] = value != 0;
                     if value == 0 {
-                        // deactivate all notes on this channel that are only held by sustain
-                        for note in &mut self.active_notes {
-                            if note.channel == channel {
-                                note.active = false;
-                                note.sustained = false;
-                            }
-                        }
-                        if self.recompute_fit() {
-                            self.update_all_tunings(time, to_backend);
+                        for note in &mut self.current_notes {
+                            note.state_per_channel[channel as usize] =
+                                match note.state_per_channel[channel as usize] {
+                                    NoteState::Sustained => NoteState::Off,
+                                    NoteState::Pressed => NoteState::Pressed,
+                                    NoteState::Off => NoteState::Off,
+                                };
                         }
                     }
+
                     send_to_backend(msg::AfterProcess::Sustain { channel, value }, time);
+                    if self.recompute_fit() {
+                        self.update_all_tunings(time, to_backend);
+                    }
                 }
 
                 MidiMsg::ChannelVoice {
@@ -354,7 +367,9 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
     }
 }
 
-impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> ProcessState<T> for Walking<T, N> {
+impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> ProcessState<T>
+    for Walking<T, N>
+{
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -389,21 +404,18 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Config<Walking<T, N>>
     for WalkingConfig<T, N>
 {
     fn initialise(config: &Self) -> Walking<T, N> {
-        let mut uninit_active_notes: [MaybeUninit<NoteWithInfo<T>>; 128] =
-            MaybeUninit::uninit_array();
+        let mut uninit_current_notes: [MaybeUninit<NoteInfo<T>>; 128] = MaybeUninit::uninit_array();
         for i in 0..128 {
-            uninit_active_notes[i].write(NoteWithInfo {
-                active: false,
-                sustained: false,
-                channel: Channel::Ch1,
+            uninit_current_notes[i].write(NoteInfo {
+                state_per_channel: [NoteState::Off; 16],
                 tuning: 0.0,
                 tuning_stack: Stack::new_zero(),
             });
         }
-        let active_notes = unsafe { MaybeUninit::array_assume_init(uninit_active_notes) };
+        let current_notes = unsafe { MaybeUninit::array_assume_init(uninit_current_notes) };
         Walking {
             config: config.clone(),
-            active_notes,
+            current_notes,
             sustain: [false; 16],
             patterns: config.patterns.clone(),
             active_temperaments: vec![false; T::num_temperaments()],

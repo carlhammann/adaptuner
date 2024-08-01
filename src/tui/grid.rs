@@ -62,7 +62,7 @@ pub struct Grid<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> {
     active_temperaments: Vec<bool>,
 
     // the stacks are relative to the initial_reference_key
-    active_notes: Vec<(u8, Stack<T>, NoteOnState)>,
+    active_notes: Vec<(u8, Stack<T>, NoteOnState)>, // TODO: this sometimes does weird things, because we don't track which channel(s) the notes are on
     considered_notes: N,
 
     reference_key: i8,
@@ -294,8 +294,8 @@ fn render_stack<T: FiveLimitStackType>(
     buf.set_style(area, style);
 }
 
-impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<T> + Clone> UIState<T>
-    for Grid<T, N>
+impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<T> + Clone>
+    UIState<T> for Grid<T, N>
 {
     fn handle_msg(
         &mut self,
