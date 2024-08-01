@@ -224,18 +224,6 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
                     self.active_notes[new_key_number as usize].sustained = false;
                     let fit_changed = self.recompute_fit();
 
-                    if fit_changed {
-                        send_to_backend(
-                            msg::AfterProcess::Notify {
-                                line: format!(
-                                    "fit changed. reference is {}",
-                                    self.current_fit.clone().expect("").1.key_distance()
-                                ),
-                            },
-                            time,
-                        );
-                    }
-
                     self.update_tuning(new_key_number);
                     send_to_backend(
                         msg::AfterProcess::TunedNoteOn {
