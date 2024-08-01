@@ -1,7 +1,4 @@
-use std::{
-    sync::{mpsc, Arc},
-    time::Instant,
-};
+use std::{sync::mpsc, time::Instant};
 
 use colorous;
 use crossterm::event::{KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
@@ -401,7 +398,7 @@ impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
                             - *row as StackCoeff / 2
                             - self.reference_stack.coefficients()[self.vertical_index];
 
-                        let mut coefficients = vec![0; self.config.stack_type.num_intervals()];
+                        let mut coefficients = vec![0; T::num_intervals()];
                         coefficients[self.vertical_index] = vertical_offset;
                         coefficients[self.horizontal_index] = horizontal_offset;
 
@@ -478,9 +475,8 @@ impl<T: FiveLimitStackType> UIState<T> for Grid<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct GridConfig<T: StackType> {
-    pub stack_type: Arc<T>,
-
     pub horizontal_index: usize,
     pub vertical_index: usize,
     pub fifth_index: usize,
@@ -492,36 +488,15 @@ pub struct GridConfig<T: StackType> {
     pub initial_neighbourhood: Neighbourhood<T>,
 }
 
-// derive(Clone) doesn't handle cloning `Arc` correctly
-impl<T: StackType> Clone for GridConfig<T> {
-    fn clone(&self) -> Self {
-        GridConfig {
-            display_config: self.display_config.clone(),
-            initial_reference_key: self.initial_reference_key.clone(),
-            stack_type: self.stack_type.clone(),
-
-            initial_neighbourhood: self.initial_neighbourhood.clone(),
-            horizontal_index: self.horizontal_index,
-            vertical_index: self.vertical_index,
-            fifth_index: self.fifth_index,
-            third_index: self.third_index,
-        }
-    }
-}
-
 impl<T: FiveLimitStackType> Config<Grid<T>> for GridConfig<T> {
     fn initialise(config: &Self) -> Grid<T> {
-        let no_active_temperaments = vec![false; config.stack_type.num_temperaments()];
+        let no_active_temperaments = vec![false; T::num_temperaments()];
         Grid {
             horizontal_index: config.horizontal_index,
             vertical_index: config.vertical_index,
 
             reference_key: config.initial_reference_key,
-            reference_stack: Stack::new(
-                config.stack_type.clone(),
-                &no_active_temperaments,
-                vec![0; config.stack_type.num_intervals()],
-            ),
+            reference_stack: Stack::new(&no_active_temperaments, vec![0; T::num_intervals()]),
             active_temperaments: no_active_temperaments,
 
             considered_notes: config.initial_neighbourhood.clone(),

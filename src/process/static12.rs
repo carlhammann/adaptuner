@@ -1,7 +1,4 @@
-use std::{
-    sync::{mpsc, Arc},
-    time::Instant,
-};
+use std::{sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -223,11 +220,7 @@ impl<T: StackType> Static12<T> {
         let send_to_backend =
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
-        let stack = Stack::new(
-            self.config.stack_type.clone(),
-            &self.active_temperaments,
-            coefficients,
-        );
+        let stack = Stack::new(&self.active_temperaments, coefficients);
 
         let normalised_stack = self.neighbourhood.insert(stack);
 
@@ -286,21 +279,10 @@ impl<T: FiveLimitStackType> ProcessState<T> for Static12<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct Static12Config<T: StackType> {
-    pub stack_type: Arc<T>,
     pub initial_reference_key: i8,
     pub initial_neighbourhood: Neighbourhood<T>,
-}
-
-// derive(Clone) doesn't handle cloning of `Arc` correctly
-impl<T: StackType> Clone for Static12Config<T> {
-    fn clone(&self) -> Self {
-        Static12Config {
-            stack_type: self.stack_type.clone(),
-            initial_reference_key: self.initial_reference_key,
-            initial_neighbourhood: self.initial_neighbourhood.clone(),
-        }
-    }
 }
 
 impl<T: FiveLimitStackType> Config<Static12<T>> for Static12Config<T> {
@@ -309,15 +291,11 @@ impl<T: FiveLimitStackType> Config<Static12<T>> for Static12Config<T> {
         for i in 0..128 {
             note_statuses[i].1 = i as Semitones;
         }
-        let no_active_temperaments = vec![false; config.stack_type.num_temperaments()];
+        let no_active_temperaments = vec![false; T::num_temperaments()];
         Static12 {
             config: config.clone(),
             initial_reference_key: config.initial_reference_key,
-            reference_stack: Stack::new(
-                config.stack_type.clone(),
-                &no_active_temperaments,
-                vec![0; config.stack_type.num_intervals()],
-            ),
+            reference_stack: Stack::new(&no_active_temperaments, vec![0; T::num_intervals()]),
             reference_key: config.initial_reference_key,
             neighbourhood: config.initial_neighbourhood.clone(),
             active_temperaments: no_active_temperaments,

@@ -34,18 +34,10 @@ impl<T: FiveLimitStackType> UIState<T> for WrappedGrid<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct WrappedGridConfig<T: StackType> {
     pub gridconfig: GridConfig<T>,
     pub latencyreporterconfig: LatencyReporterConfig,
-}
-
-impl<T: StackType> Clone for WrappedGridConfig<T> {
-    fn clone(&self) -> Self {
-        WrappedGridConfig {
-            gridconfig: self.gridconfig.clone(),
-            latencyreporterconfig: self.latencyreporterconfig.clone(),
-        }
-    }
 }
 
 impl<T: FiveLimitStackType> Config<WrappedGrid<T>> for WrappedGridConfig<T> {

@@ -71,7 +71,8 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend16<NCHAN
         to_ui: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
         midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
     ) {
-        let send_to_ui = |msg: msg::AfterProcess<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+        let send_to_ui =
+            |msg: msg::AfterProcess<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
 
         let send = |msg: MidiMsg, time: Instant| {
             midi_out.send((time, msg.to_midi())).unwrap_or(());
@@ -444,13 +445,9 @@ impl<const NCHANNELS: usize> Config<Pitchbend16<NCHANNELS>> for Pitchbend16Confi
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::interval::{
-        stack::{stack_test_setup::init_stacktype, Stack},
-        stacktype::generic::GenericStackType,
-    };
-    use std::sync::Arc;
+    use crate::interval::stack::Stack;
 
-    type MockStackType = GenericStackType;
+    type MockStackType = crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
 
     fn one_case<S>(
         state: &mut S,
@@ -485,8 +482,7 @@ mod test {
             }),
         );
 
-        let mock_stack_type = Arc::new(init_stacktype());
-        let mock_stack = Stack::new_zero(mock_stack_type.clone());
+        let mock_stack = Stack::<MockStackType>::new_zero();
 
         let mut now = Instant::now();
         one_case(

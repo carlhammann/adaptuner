@@ -1,20 +1,10 @@
 use crate::{interval::stacktype::r#trait::StackType, neighbourhood::Neighbourhood};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pattern<T: StackType> {
     pub name: String,
     pub keyshape: KeyShape,
     pub neighbourhood: Neighbourhood<T>,
-}
-
-impl<T: StackType> Clone for Pattern<T> {
-    fn clone(&self) -> Self {
-        Pattern {
-            name: self.name.clone(),
-            keyshape: self.keyshape.clone(),
-            neighbourhood: self.neighbourhood.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

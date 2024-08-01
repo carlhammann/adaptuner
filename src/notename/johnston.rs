@@ -16,12 +16,7 @@ pub mod fivelimit {
 
     impl NoteName {
         pub fn new<T: FiveLimitStackType>(s: &Stack<T>) -> Self {
-            Self::new_with_indices(
-                s.stacktype().octave_index(),
-                s.stacktype().fifth_index(),
-                s.stacktype().third_index(),
-                s,
-            )
+            Self::new_with_indices(T::octave_index(), T::fifth_index(), T::third_index(), s)
         }
 
         fn new_with_indices<T: StackType>(
@@ -105,13 +100,11 @@ pub mod fivelimit {
     #[cfg(test)]
     mod test {
         use super::*;
-        use crate::interval::stack::stack_test_setup::init_fivelimit_stacktype;
-        use std::sync::Arc;
+
+        type MockStackType = crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
 
         #[test]
         fn test_str_name() {
-            let st = Arc::new(init_fivelimit_stacktype());
-
             let examples = [
                 ([0, 0, 0], "C 4"),
                 ([-1, 0, 0], "C 3"),
@@ -140,8 +133,11 @@ pub mod fivelimit {
 
             for (coeffs, name) in examples.iter() {
                 assert_eq!(
-                    NoteName::new(&Stack::new(st.clone(), &[false, false], coeffs.to_vec()))
-                        .str_full(),
+                    NoteName::new(&Stack::<MockStackType>::new(
+                        &[false, false],
+                        coeffs.to_vec()
+                    ))
+                    .str_full(),
                     String::from(*name)
                 );
             }

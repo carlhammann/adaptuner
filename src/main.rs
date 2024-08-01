@@ -17,7 +17,6 @@ use crossterm::{
 };
 use midi_msg::Channel;
 use midir::{MidiIO, MidiInput, MidiOutput};
-use ndarray::arr2;
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
 use adaptuner::{
@@ -25,7 +24,10 @@ use adaptuner::{
     backend::r#trait::BackendState,
     config::{r#trait::Config, CompleteConfig, MidiPortConfig},
     interval,
-    interval::{stack::Stack, stacktype::r#trait::StackType, temperament::Temperament},
+    interval::{
+        stack::Stack,
+        stacktype::r#trait::{PeriodicStackType, StackType},
+    },
     msg,
     neighbourhood::Neighbourhood,
     notename,
@@ -308,31 +310,13 @@ where
 }
 
 pub fn main() -> Result<(), Box<dyn Error>> {
+    type TheStackType = crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
     let initial_neighbourhood_width = 4;
     let initial_neighbourhood_index = 5;
     let initial_neighbourhood_offset = 1;
     let initial_reference_key = 60;
-    let stack_type = Arc::new(
-        interval::stacktype::fivelimit::ConcreteFiveLimitStackType::new(vec![
-            Temperament::new(
-                "12edo".into(),
-                arr2(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]),
-                arr2(&[[7, 0, 0], [1, 0, 0], [1, 0, 0]]).view(),
-            )
-            .unwrap(),
-            Temperament::new(
-                "1/4-comma fifths".into(),
-                arr2(&[[0, 4, 0], [0, 0, 1], [1, 0, 0]]),
-                arr2(&[[2, 0, 1], [0, 0, 1], [1, 0, 0]]).view(),
-            )
-            .unwrap(),
-        ]),
-    );
-    let octave = Arc::new(Stack::new(stack_type.clone(), &[false; 2], vec![1, 0, 0]));
-    let no_active_temperaments = vec![false; stack_type.num_temperaments()];
+    let no_active_temperaments = vec![false; TheStackType::num_temperaments()];
     let initial_neighbourhood = Neighbourhood::fivelimit_new(
-        stack_type.clone(),
-        octave.clone(),
         &no_active_temperaments,
         initial_neighbourhood_width,
         initial_neighbourhood_index,
@@ -345,27 +329,24 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     // );
 
     let not_so_trivial_config: CompleteConfig<
-        interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
-        // process::static12::Static12<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
+        TheStackType,
+        // process::static12::Static12<TheStackType>,
         // process::static12::Static12Config<
-        //     interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
+        //     TheStackType,
         // >,
-        process::walking::Walking<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
-        process::walking::WalkingConfig<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
+        process::walking::Walking<TheStackType>,
+        process::walking::WalkingConfig<TheStackType>,
         backend::pitchbend16::Pitchbend16<15>,
         backend::pitchbend16::Pitchbend16Config<15>,
         // tui::onlynotify::OnlyNotify,
         // tui::onlynotify::OnlyNotifyConfig,
-        // tui::grid::Grid<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
-        // tui::grid::GridConfig<12, interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
-        tui::wrappedgrid::WrappedGrid<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
-        tui::wrappedgrid::WrappedGridConfig<
-            interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
-        >,
+        // tui::grid::Grid<12, TheStackType>,
+        // tui::grid::GridConfig<12, TheStackType>,
+        tui::wrappedgrid::WrappedGrid<TheStackType>,
+        tui::wrappedgrid::WrappedGridConfig<TheStackType>,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
         process_config: process::walking::WalkingConfig {
-            stacktype: stack_type.clone(),
             initial_neighbourhood: initial_neighbourhood.clone(),
             patterns: vec![
                 Pattern {
@@ -375,26 +356,12 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                         classes: vec![0, 4, 7],
                     },
                     neighbourhood: Neighbourhood::PeriodicPartial {
-                        period_keys: 12,
-                        period: octave.clone(),
+                        period_keys: TheStackType::period_keys(),
+                        period: Stack::from_pure_interval(TheStackType::period_index()),
                         stacks: HashMap::from([
-                            (0, Stack::new_zero(stack_type.clone())),
-                            (
-                                4,
-                                Stack::new(
-                                    stack_type.clone(),
-                                    &no_active_temperaments,
-                                    vec![0, 0, 1],
-                                ),
-                            ),
-                            (
-                                7,
-                                Stack::new(
-                                    stack_type.clone(),
-                                    &no_active_temperaments,
-                                    vec![0, 1, 0],
-                                ),
-                            ),
+                            (0, Stack::new_zero()),
+                            (4, Stack::new(&no_active_temperaments, vec![0, 0, 1])),
+                            (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
                         ]),
                     },
                 },
@@ -405,31 +372,17 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                         classes: vec![0, 3, 7],
                     },
                     neighbourhood: Neighbourhood::PeriodicPartial {
-                        period_keys: 12,
-                        period: octave.clone(),
+                        period_keys: TheStackType::period_keys(),
+                        period: Stack::from_pure_interval(TheStackType::period_index()),
                         stacks: HashMap::from([
-                            (0, Stack::new_zero(stack_type.clone())),
-                            (
-                                3,
-                                Stack::new(
-                                    stack_type.clone(),
-                                    &no_active_temperaments,
-                                    vec![0, 1, -1],
-                                ),
-                            ),
-                            (
-                                7,
-                                Stack::new(
-                                    stack_type.clone(),
-                                    &no_active_temperaments,
-                                    vec![0, 1, 0],
-                                ),
-                            ),
+                            (0, Stack::new_zero()),
+                            (3, Stack::new(&no_active_temperaments, vec![0, 1, -1])),
+                            (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
                         ]),
                     },
                 },
             ],
-            consider_played: false ,
+            consider_played: false,
         },
         // process::static12::Static12Config {
         //     stack_type: stack_type.clone(),
@@ -463,7 +416,6 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                     color_range: 0.2,
                     gradient: colorous::RED_BLUE,
                 },
-                stack_type: stack_type.clone(),
                 initial_reference_key,
                 initial_neighbourhood,
                 horizontal_index: 1,

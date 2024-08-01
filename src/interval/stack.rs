@@ -1,4 +1,4 @@
-use std::{ops, sync::Arc};
+use std::{marker::PhantomData, ops};
 
 use ndarray::Array2;
 
@@ -32,9 +32,9 @@ use crate::interval::{
 /// This is what enables [is_pure][Stack::is_pure]. Even more importantly, we need that
 /// representation for the "rollovers" that happen when a number of tempered intervals add up to
 /// pure intervals.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Stack<T: StackType> {
-    stacktype: Arc<T>,
+    _phantom: PhantomData<T>,
 
     /// a `D`-vector of coefficients,  one for each base interval.
     coefficients: Vec<StackCoeff>,
@@ -45,29 +45,13 @@ pub struct Stack<T: StackType> {
     corrections: Array2<StackCoeff>,
 }
 
-// derive(Clone) doesn't treat cloning `Arc` correctly
-impl<T: StackType> Clone for Stack<T> {
-    fn clone(&self) -> Self {
-        Stack {
-            stacktype: self.stacktype.clone(),
-            coefficients: self.coefficients.clone(),
-            corrections: self.corrections.clone(),
-        }
-    }
-    fn clone_from(&mut self, source: &Self) {
-        self.stacktype = source.stacktype.clone();
-        self.coefficients.clone_from(&source.coefficients);
-        self.corrections.clone_from(&source.corrections);
-    }
-}
-
 impl<T: StackType> Stack<T> {
     /// private: the absolute value of `corrections[[i,t]]` must be less than the
     /// [denominator][Temperament::denominator] of the `t`-th temperament for interval `i`.
     /// This invariant is enforced by all functions we expose.
     fn normalise(&mut self) {
-        for (t, temper) in self.stacktype.temperaments().iter().enumerate() {
-            for (i, _) in self.stacktype.intervals().iter().enumerate() {
+        for (t, temper) in T::temperaments().iter().enumerate() {
+            for (i, _) in T::intervals().iter().enumerate() {
                 let comma = temper.comma(i);
                 let denominator = temper.denominator(i);
 
@@ -91,11 +75,7 @@ impl<T: StackType> Stack<T> {
     ///
     /// - `active_temperaments.len() == stacktype.temperaments().len()`
     /// - `coefficients.len() == stacktype.intervals().len()`
-    pub fn new(
-        stacktype: Arc<T>,
-        active_temperaments: &[bool],
-        coefficients: Vec<StackCoeff>,
-    ) -> Stack<T> {
+    pub fn new(active_temperaments: &[bool], coefficients: Vec<StackCoeff>) -> Stack<T> {
         let corrections =
             Array2::from_shape_fn((coefficients.len(), active_temperaments.len()), |(i, t)| {
                 if active_temperaments[t] {
@@ -106,12 +86,18 @@ impl<T: StackType> Stack<T> {
             });
 
         let mut res = Stack {
-            stacktype,
+            _phantom: PhantomData,
             coefficients,
             corrections,
         };
         res.normalise();
 
+        res
+    }
+
+    pub fn from_pure_interval(index: usize) -> Self {
+        let mut res = Self::new_zero();
+        res.coefficients[index] = 1;
         res
     }
 
@@ -140,18 +126,14 @@ impl<T: StackType> Stack<T> {
         self.normalise();
     }
 
-    pub fn new_zero(stacktype: Arc<T>) -> Stack<T> {
-        let coefficients = vec![0; stacktype.num_intervals()];
-        let corrections = Array2::zeros((stacktype.num_intervals(), stacktype.num_temperaments()));
+    pub fn new_zero() -> Stack<T> {
+        let coefficients = vec![0; T::num_intervals()];
+        let corrections = Array2::zeros((T::num_intervals(), T::num_temperaments()));
         Stack {
-            stacktype,
+            _phantom: PhantomData,
             coefficients,
             corrections,
         }
-    }
-
-    pub fn stacktype(&self) -> Arc<T> {
-        self.stacktype.clone()
     }
 
     pub fn coefficients(&self) -> &[StackCoeff] {
@@ -161,7 +143,7 @@ impl<T: StackType> Stack<T> {
     pub fn semitones(&self) -> Semitones {
         let mut pure_semitones = 0.0;
         for (i, c) in self.coefficients.iter().enumerate() {
-            pure_semitones += (*c as Semitones) * self.stacktype.intervals()[i].semitones;
+            pure_semitones += (*c as Semitones) * T::intervals()[i].semitones;
         }
         pure_semitones + self.impure_semitones()
     }
@@ -169,7 +151,7 @@ impl<T: StackType> Stack<T> {
     pub fn impure_semitones(&self) -> Semitones {
         let mut res = 0.0;
         for (ix, c) in self.corrections.indexed_iter() {
-            res += (*c as Semitones) * self.stacktype.precomputed_temperings()[ix];
+            res += (*c as Semitones) * T::precomputed_temperings()[ix];
         }
         res
     }
@@ -187,7 +169,7 @@ impl<T: StackType> Stack<T> {
     pub fn key_distance(&self) -> StackCoeff {
         let mut res = 0;
         for (i, &c) in self.coefficients.iter().enumerate() {
-            res += c * self.stacktype.intervals()[i].key_distance as StackCoeff;
+            res += c * T::intervals()[i].key_distance as StackCoeff;
         }
         res
     }
@@ -266,10 +248,6 @@ impl<T: StackType, P: ops::Deref<Target = Stack<T>>> ops::Add<P> for Stack<T> {
     /// Also, in many applications, [increment][Stack::increment]ing might be the cheaper option,
     /// because it doesn't require you to construct a second [Stack].
     fn add(mut self, x: P) -> Self {
-        if !std::sync::Arc::ptr_eq(&self.stacktype, &x.stacktype) {
-            panic!("tried to add two `Stack`s of different `StackType`s")
-        }
-
         for (ix, coeff) in self.coefficients.iter_mut().enumerate() {
             *coeff += x.coefficients[ix];
         }
@@ -283,76 +261,16 @@ impl<T: StackType, P: ops::Deref<Target = Stack<T>>> ops::Add<P> for Stack<T> {
 }
 
 #[cfg(test)]
-pub mod stack_test_setup {
-    use super::*;
-    use crate::interval::{
-        interval::Interval,
-        stacktype::{fivelimit::ConcreteFiveLimitStackType, generic::GenericStackType},
-        temperament::Temperament,
-    };
-    use ndarray::arr2;
-
-    /// some base intervals: octaves, fifths, thirds.
-    pub fn init_intervals() -> [Interval; 3] {
-        [
-            Interval {
-                name: "octave".into(),
-                semitones: 12.0,
-                key_distance: 12,
-            },
-            Interval {
-                name: "fifth".into(),
-                semitones: 12.0 * (3.0 / 2.0 as Semitones).log2(),
-                key_distance: 7,
-            },
-            Interval {
-                name: "third".into(),
-                semitones: 12.0 * (5.0 / 4.0 as Semitones).log2(),
-                key_distance: 4,
-            },
-        ]
-    }
-
-    /// some example temperaments: quarter-comma meantone, and 12-EDO
-    pub fn init_temperaments() -> [Temperament<StackCoeff>; 2] {
-        [
-            Temperament::new(
-                "1/4-comma meantone".into(),
-                arr2(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]),
-                arr2(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]).view(),
-            )
-            .unwrap(),
-            Temperament::new(
-                "12edo".into(),
-                arr2(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]),
-                arr2(&[[7, 0, 0], [1, 0, 0], [1, 0, 0]]).view(),
-            )
-            .unwrap(),
-        ]
-    }
-
-    /// an example [GenericStackType].
-    pub fn init_stacktype() -> GenericStackType {
-        GenericStackType::new(init_intervals().into(), init_temperaments().into())
-    }
-
-    /// an example [ConcreteFiveLimitStackType].
-    pub fn init_fivelimit_stacktype() -> ConcreteFiveLimitStackType {
-        ConcreteFiveLimitStackType::new(init_temperaments().into())
-    }
-}
-
-#[cfg(test)]
 mod test {
-    use super::stack_test_setup::*;
     use super::*;
+    use crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
     use approx::*;
     use ndarray::arr2;
 
+    type MockStackType = ConcreteFiveLimitStackType;
+
     #[test]
     fn test_stack_semitones() {
-        let st = Arc::new(init_stacktype());
-
         let octave = 12.0;
         let fifth = 12.0 * (3.0 / 2.0 as Semitones).log2();
         let third = 12.0 * (5.0 / 4.0 as Semitones).log2();
@@ -364,15 +282,15 @@ mod test {
         let eps = 0.00000000001; // just an arbitrary small number. I don't care about
                                  // extreme numerical stbility.
 
-        let s = Stack::new(st.clone(), &[false, true], vec![0, 0, 1]);
+        let s = Stack::<MockStackType>::new(&[true, false], vec![0, 0, 1]);
         assert_relative_eq!(s.impure_semitones(), edo12_third_error, max_relative = eps);
         assert_relative_eq!(s.semitones(), third + edo12_third_error, max_relative = eps);
 
-        let s = Stack::new(st.clone(), &[true, false], vec![0, 4, 0]);
+        let s = Stack::<MockStackType>::new(&[false, true], vec![0, 4, 0]);
         assert_relative_eq!(s.impure_semitones(), 0.0, max_relative = eps);
         assert_relative_eq!(s.semitones(), third + 2.0 * octave, max_relative = eps);
 
-        let s = Stack::new(st.clone(), &[true, false], vec![0, 6, 0]);
+        let s = Stack::<MockStackType>::new(&[false, true], vec![0, 6, 0]);
         assert_relative_eq!(
             s.impure_semitones(),
             2.0 * quarter_comma,
@@ -384,7 +302,7 @@ mod test {
             max_relative = eps
         );
 
-        let s = Stack::new(st.clone(), &[false, true], vec![0, 0, 7]);
+        let s = Stack::<MockStackType>::new(&[true, false], vec![0, 0, 7]);
         assert_relative_eq!(s.impure_semitones(), edo12_third_error, max_relative = eps);
         assert_relative_eq!(
             s.semitones(),
@@ -392,7 +310,7 @@ mod test {
             max_relative = eps
         );
 
-        let s = Stack::new(st.clone(), &[true, true], vec![0, 5, 7]);
+        let s = Stack::<MockStackType>::new(&[true, true], vec![0, 5, 7]);
         assert_relative_eq!(
             s.impure_semitones(),
             quarter_comma + 5.0 * edo12_fifth_error + edo12_third_error,
@@ -414,31 +332,29 @@ mod test {
     /// helped me understand the implementation.
     #[test]
     fn test_stack_add() {
-        let st = Arc::new(init_stacktype());
-
-        let mut s = Stack::new(st.clone(), &[false, false], vec![0, 4, 3]);
-        s = s + &Stack::new(st.clone(), &[false, false], vec![0, 2, 5]);
+        let mut s = Stack::<MockStackType>::new(&[false, false], vec![0, 4, 3]);
+        s = s + &Stack::<MockStackType>::new(&[false, false], vec![0, 2, 5]);
         assert_eq!(s.coefficients, vec![0 + 0, 4 + 2, 3 + 5]);
         assert_eq!(s.corrections, arr2(&[[0, 0], [0, 0], [0, 0]]));
 
-        let mut s = Stack::new(st.clone(), &[true, false], vec![0, 4, 3]);
-        s = s + &Stack::new(st.clone(), &[false, false], vec![0, 2, 5]);
+        let mut s = Stack::<MockStackType>::new(&[false, true], vec![0, 4, 3]);
+        s = s + &Stack::<MockStackType>::new(&[false, false], vec![0, 2, 5]);
         assert_eq!(s.coefficients, vec![2 + 0, 0 + 2, 4 + 5]);
         assert_eq!(s.corrections, arr2(&[[0, 0], [0, 0], [0, 0]]));
 
-        let mut s = Stack::new(st.clone(), &[true, false], vec![0, 4, 3]);
-        s = s + &Stack::new(st.clone(), &[true, false], vec![0, 2, 5]);
+        let mut s = Stack::<MockStackType>::new(&[false, true], vec![0, 4, 3]);
+        s = s + &Stack::<MockStackType>::new(&[false, true], vec![0, 2, 5]);
         assert_eq!(s.coefficients, vec![2 + 0, 0 + 2, 4 + 5]);
-        assert_eq!(s.corrections, arr2(&[[0, 0], [2, 0], [0, 0]]));
+        assert_eq!(s.corrections, arr2(&[[0, 0], [0, 2], [0, 0]]));
 
-        let mut s = Stack::new(st.clone(), &[true, true], vec![0, 4, 3]);
-        s = s + &Stack::new(st.clone(), &[true, false], vec![0, 2, 5]);
+        let mut s = Stack::<MockStackType>::new(&[true, true], vec![0, 4, 3]);
+        s = s + &Stack::<MockStackType>::new(&[false, true], vec![0, 2, 5]);
         assert_eq!(s.coefficients, vec![3 + 0, 0 + 2, 1 + 5]);
-        assert_eq!(s.corrections, arr2(&[[0, 0], [2, 4], [0, 0]]));
+        assert_eq!(s.corrections, arr2(&[[0, 0], [4, 2], [0, 0]]));
 
-        let mut s = Stack::new(st.clone(), &[true, true], vec![0, 4, 3]);
-        s = s + &Stack::new(st.clone(), &[true, true], vec![0, 2, 5]);
+        let mut s = Stack::<MockStackType>::new(&[true, true], vec![0, 4, 3]);
+        s = s + &Stack::<MockStackType>::new(&[true, true], vec![0, 2, 5]);
         assert_eq!(s.coefficients, vec![3 + 1, 0 + 2, 1 + 2]);
-        assert_eq!(s.corrections, arr2(&[[0, 0], [2, 6], [0, 2]]));
+        assert_eq!(s.corrections, arr2(&[[0, 0], [6, 2], [2, 0]]));
     }
 }

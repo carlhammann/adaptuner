@@ -1,7 +1,4 @@
-use std::{
-    sync::{mpsc, Arc},
-    time::Instant,
-};
+use std::{sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -12,13 +9,12 @@ use crate::{
     process::r#trait::ProcessState,
 };
 
-pub struct OnlyForward<T: StackType> {
-    stacktype: Arc<T>,
+pub struct OnlyForward {
     sustain: [bool; 16],
 }
 
-impl<T: StackType> OnlyForward<T> {
-    fn handle_midi_msg(
+impl OnlyForward {
+    fn handle_midi_msg<T: StackType>(
         &mut self,
         time: Instant,
         bytes: &Vec<u8>,
@@ -40,7 +36,7 @@ impl<T: StackType> OnlyForward<T> {
                             note,
                             velocity,
                             tuning: note as Semitones,
-                            tuning_stack: Stack::new_zero(self.stacktype.clone()),
+                            tuning_stack: Stack::new_zero(),
                         },
                         time,
                     );
@@ -94,7 +90,7 @@ impl<T: StackType> OnlyForward<T> {
     }
 }
 
-impl<T: StackType> ProcessState<T> for OnlyForward<T> {
+impl<T: StackType> ProcessState<T> for OnlyForward {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -112,14 +108,11 @@ impl<T: StackType> ProcessState<T> for OnlyForward<T> {
 }
 
 #[derive(Clone)]
-pub struct OnlyForwardConfig<T: StackType> {
-    stacktype: Arc<T>,
-}
+pub struct OnlyForwardConfig {}
 
-impl<T: StackType> Config<OnlyForward<T>> for OnlyForwardConfig<T> {
-    fn initialise(config: &Self) -> OnlyForward<T> {
+impl Config<OnlyForward> for OnlyForwardConfig {
+    fn initialise(_: &Self) -> OnlyForward {
         OnlyForward {
-            stacktype: config.stacktype.clone(),
             sustain: [false; 16],
         }
     }

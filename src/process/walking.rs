@@ -1,8 +1,4 @@
-use std::{
-    mem::MaybeUninit,
-    sync::{mpsc, Arc},
-    time::Instant,
-};
+use std::{mem::MaybeUninit, sync::mpsc, time::Instant};
 
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -22,18 +18,6 @@ struct NoteWithInfo<T: StackType> {
     channel: Channel,
     tuning: Semitones,
     tuning_stack: Stack<T>,
-}
-
-impl<T: StackType> Clone for NoteWithInfo<T> {
-    fn clone(&self) -> Self {
-        NoteWithInfo {
-            active: self.active,
-            sustained: self.sustained,
-            channel: self.channel,
-            tuning: self.tuning,
-            tuning_stack: self.tuning_stack.clone(),
-        }
-    }
 }
 
 pub struct TuningFrame<T: StackType> {
@@ -357,22 +341,11 @@ impl<T: StackType> ProcessState<T> for Walking<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct WalkingConfig<T: StackType> {
-    pub stacktype: Arc<T>,
     pub patterns: Vec<Pattern<T>>,
     pub consider_played: bool,
     pub initial_neighbourhood: Neighbourhood<T>,
-}
-
-impl<T: StackType> Clone for WalkingConfig<T> {
-    fn clone(&self) -> Self {
-        WalkingConfig {
-            stacktype: self.stacktype.clone(),
-            patterns: self.patterns.clone(),
-            consider_played: self.consider_played,
-            initial_neighbourhood: self.initial_neighbourhood.clone(),
-        }
-    }
 }
 
 impl<T: StackType> Config<Walking<T>> for WalkingConfig<T> {
@@ -385,7 +358,7 @@ impl<T: StackType> Config<Walking<T>> for WalkingConfig<T> {
                 sustained: false,
                 channel: Channel::Ch1,
                 tuning: 0.0,
-                tuning_stack: Stack::new_zero(config.stacktype.clone()),
+                tuning_stack: Stack::new_zero(),
             });
         }
         let active_notes = unsafe { MaybeUninit::array_assume_init(uninit_active_notes) };
@@ -394,7 +367,7 @@ impl<T: StackType> Config<Walking<T>> for WalkingConfig<T> {
             tuningframe: TuningFrame {
                 initial_reference_key: 60,
                 reference_key: 60,
-                reference_stack: Stack::new_zero(config.stacktype.clone()),
+                reference_stack: Stack::new_zero(),
                 neighbourhood: config.initial_neighbourhood.clone(),
             },
             active_notes,
