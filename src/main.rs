@@ -29,7 +29,7 @@ use adaptuner::{
         stacktype::r#trait::{PeriodicStackType, StackType},
     },
     msg, neighbourhood,
-    neighbourhood::Neighbourhood,
+    neighbourhood::{PeriodicPartial, SomeNeighbourhood},
     notename,
     pattern::{KeyShape, Pattern},
     process,
@@ -314,7 +314,6 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let initial_neighbourhood_width = 4;
     let initial_neighbourhood_index = 5;
     let initial_neighbourhood_offset = 1;
-    let initial_reference_key = 60;
     let no_active_temperaments = vec![false; TheStackType::num_temperaments()];
     let initial_neighbourhood = neighbourhood::new_fivelimit_neighbourhood(
         &no_active_temperaments,
@@ -322,71 +321,76 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         initial_neighbourhood_index,
         initial_neighbourhood_offset,
     );
-    // let initial_reference_stack = interval::Stack::new(
-    //     stack_type.clone(),
-    //     &vector_from_elem(false),
-    //     vector_from_elem(0),
-    // );
 
     let not_so_trivial_config: CompleteConfig<
         TheStackType,
-        process::static12::Static12<TheStackType, neighbourhood::PeriodicCompleteAligned<TheStackType>>,
-        process::static12::Static12Config<TheStackType, neighbourhood::PeriodicCompleteAligned<TheStackType>>,
-        // process::walking::Walking<TheStackType>,
-        // process::walking::WalkingConfig<TheStackType>,
+        // process::static12::Static12<TheStackType, neighbourhood::PeriodicCompleteAligned<TheStackType>>,
+        // process::static12::Static12Config<TheStackType, neighbourhood::PeriodicCompleteAligned<TheStackType>>,
+        process::walking::Walking<
+            TheStackType,
+            neighbourhood::PeriodicCompleteAligned<TheStackType>,
+        >,
+        process::walking::WalkingConfig<
+            TheStackType,
+            neighbourhood::PeriodicCompleteAligned<TheStackType>,
+        >,
         backend::pitchbend16::Pitchbend16<15>,
         backend::pitchbend16::Pitchbend16Config<15>,
         // tui::onlynotify::OnlyNotify,
         // tui::onlynotify::OnlyNotifyConfig,
-        // tui::grid::Grid<12, TheStackType>,
-        // tui::grid::GridConfig<12, TheStackType>,
-        tui::wrappedgrid::WrappedGrid<TheStackType, neighbourhood::PeriodicCompleteAligned<TheStackType>>,
-        tui::wrappedgrid::WrappedGridConfig<TheStackType, neighbourhood::PeriodicCompleteAligned<TheStackType>>,
+        tui::wrappedgrid::WrappedGrid<
+            TheStackType,
+            neighbourhood::PeriodicCompleteAligned<TheStackType>,
+        >,
+        tui::wrappedgrid::WrappedGridConfig<
+            TheStackType,
+            neighbourhood::PeriodicCompleteAligned<TheStackType>,
+        >,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
-        // process_config: process::walking::WalkingConfig {
-        //     initial_neighbourhood: initial_neighbourhood.clone(),
-        //     patterns: vec![
-        //         Pattern {
-        //             name: String::from("major"),
-        //             keyshape: KeyShape::ClassesRelative {
-        //                 period_keys: 12,
-        //                 classes: vec![0, 4, 7],
-        //             },
-        //             neighbourhood: Neighbourhood::PeriodicPartial {
-        //                 period_keys: TheStackType::period_keys(),
-        //                 period: Stack::from_pure_interval(TheStackType::period_index()),
-        //                 stacks: HashMap::from([
-        //                     (0, Stack::new_zero()),
-        //                     (4, Stack::new(&no_active_temperaments, vec![0, 0, 1])),
-        //                     (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
-        //                 ]),
-        //             },
-        //         },
-        //         Pattern {
-        //             name: String::from("minor"),
-        //             keyshape: KeyShape::ClassesRelative {
-        //                 period_keys: 12,
-        //                 classes: vec![0, 3, 7],
-        //             },
-        //             neighbourhood: Neighbourhood::PeriodicPartial {
-        //                 period_keys: TheStackType::period_keys(),
-        //                 period: Stack::from_pure_interval(TheStackType::period_index()),
-        //                 stacks: HashMap::from([
-        //                     (0, Stack::new_zero()),
-        //                     (3, Stack::new(&no_active_temperaments, vec![0, 1, -1])),
-        //                     (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
-        //                 ]),
-        //             },
-        //         },
-        //     ],
-        //     consider_played: false,
-        // },
-        process_config: process::static12::Static12Config {
-            initial_reference_key,
-            initial_neighbourhood: initial_neighbourhood.clone(),
+        process_config: process::walking::WalkingConfig {
             _phantom: PhantomData,
+            temper_pattern_neighbourhoods: false,
+            initial_neighbourhood: initial_neighbourhood.clone(),
+            patterns: vec![
+                Pattern {
+                    name: String::from("major"),
+                    keyshape: KeyShape::ClassesRelative {
+                        period_keys: 12,
+                        classes: vec![0, 4, 7],
+                    },
+                    neighbourhood: SomeNeighbourhood::PeriodicPartial(PeriodicPartial {
+                        period: Stack::from_pure_interval(TheStackType::period_index()),
+                        stacks: HashMap::from([
+                            (0, Stack::new_zero()),
+                            (4, Stack::new(&no_active_temperaments, vec![0, 0, 1])),
+                            (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
+                        ]),
+                    }),
+                },
+                Pattern {
+                    name: String::from("minor"),
+                    keyshape: KeyShape::ClassesRelative {
+                        period_keys: 12,
+                        classes: vec![0, 3, 7],
+                    },
+                    neighbourhood: SomeNeighbourhood::PeriodicPartial(PeriodicPartial {
+                        period: Stack::from_pure_interval(TheStackType::period_index()),
+                        stacks: HashMap::from([
+                            (0, Stack::new_zero()),
+                            (3, Stack::new(&no_active_temperaments, vec![0, 1, -1])),
+                            (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
+                        ]),
+                    }),
+                },
+            ],
+            consider_played: false,
         },
+        // process_config: process::static12::Static12Config {
+        //     initial_reference_key,
+        //     initial_neighbourhood: initial_neighbourhood.clone(),
+        //     _phantom: PhantomData,
+        // },
         backend_config: backend::pitchbend16::Pitchbend16Config {
             channels: [
                 Channel::Ch1,
@@ -414,7 +418,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
                     color_range: 0.2,
                     gradient: colorous::RED_BLUE,
                 },
-                initial_reference_key,
+                initial_reference_key: 60,
                 initial_neighbourhood,
                 horizontal_index: 1,
                 vertical_index: 2,

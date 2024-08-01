@@ -32,7 +32,7 @@ use crate::interval::{
 /// This is what enables [is_pure][Stack::is_pure]. Even more importantly, we need that
 /// representation for the "rollovers" that happen when a number of tempered intervals add up to
 /// pure intervals.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub struct Stack<T: StackType> {
     _phantom: PhantomData<T>,
 
@@ -43,6 +43,12 @@ pub struct Stack<T: StackType> {
     /// entry of every column counts how many (fractions of) commas for the i-th interval from that
     /// temperament should be added to the stack.
     corrections: Array2<StackCoeff>,
+}
+
+impl<T: StackType> PartialEq for Stack<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.coefficients == other.coefficients && self.corrections == other.corrections
+    }
 }
 
 impl<T: StackType> Stack<T> {

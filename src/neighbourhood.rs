@@ -25,14 +25,14 @@ pub enum SomeNeighbourhood<T: StackType> {
 /// first one (at index zero) must map to a unison on the keyboard.
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeriodicComplete<T: StackType> {
-    stacks: Vec<Stack<T>>,
-    period: Stack<T>,
+    pub stacks: Vec<Stack<T>>,
+    pub period: Stack<T>,
 }
 
 /// Like [PeriodicComplete], but with the invariant that the period is the one of the stack type
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeriodicCompleteAligned<T: PeriodicStackType> {
-    inner: PeriodicComplete<T>,
+    pub inner: PeriodicComplete<T>,
 }
 
 /// Tunings for some notes and their "octave equivalents" described by giving tunings of some notes
@@ -40,8 +40,8 @@ pub struct PeriodicCompleteAligned<T: PeriodicStackType> {
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeriodicPartial<T: StackType> {
     /// invariant: the keys are all in the range 0..=(period_keys-1)
-    stacks: HashMap<usize, Stack<T>>,
-    period: Stack<T>,
+    pub stacks: HashMap<usize, Stack<T>>,
+    pub period: Stack<T>,
 }
 
 pub trait Neighbourhood<T: StackType> {
