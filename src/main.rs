@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     error::Error,
     io::{stdin, stdout, Write},
     marker::PhantomData,
@@ -27,7 +28,9 @@ use adaptuner::{
     interval::{stack::Stack, stacktype::r#trait::StackType, temperament::Temperament},
     msg,
     neighbourhood::Neighbourhood,
-    notename, process,
+    notename,
+    pattern::{KeyShape, Pattern},
+    process,
     process::r#trait::ProcessState,
     tui,
     tui::r#trait::{Tui, UIState},
@@ -329,7 +332,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let no_active_temperaments = vec![false; stack_type.num_temperaments()];
     let initial_neighbourhood = Neighbourhood::fivelimit_new(
         stack_type.clone(),
-        octave,
+        octave.clone(),
         &no_active_temperaments,
         initial_neighbourhood_width,
         initial_neighbourhood_index,
@@ -343,10 +346,12 @@ pub fn main() -> Result<(), Box<dyn Error>> {
 
     let not_so_trivial_config: CompleteConfig<
         interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
-        process::static12::Static12<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
-        process::static12::Static12Config<
-            interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
-        >,
+        // process::static12::Static12<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
+        // process::static12::Static12Config<
+        //     interval::stacktype::fivelimit::ConcreteFiveLimitStackType,
+        // >,
+        process::walking::Walking<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
+        process::walking::WalkingConfig<interval::stacktype::fivelimit::ConcreteFiveLimitStackType>,
         backend::pitchbend16::Pitchbend16<15>,
         backend::pitchbend16::Pitchbend16Config<15>,
         // tui::onlynotify::OnlyNotify,
@@ -359,11 +364,78 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         >,
     > = CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
-        process_config: process::static12::Static12Config {
-            stack_type: stack_type.clone(),
-            initial_reference_key,
+        process_config: process::walking::WalkingConfig {
+            stacktype: stack_type.clone(),
             initial_neighbourhood: initial_neighbourhood.clone(),
+            patterns: vec![
+                Pattern {
+                    name: String::from("major"),
+                    keyshape: KeyShape::ClassesRelative {
+                        period_keys: 12,
+                        classes: vec![0, 4, 7],
+                    },
+                    neighbourhood: Neighbourhood::PeriodicPartial {
+                        period_keys: 12,
+                        period: octave.clone(),
+                        stacks: HashMap::from([
+                            (0, Stack::new_zero(stack_type.clone())),
+                            (
+                                4,
+                                Stack::new(
+                                    stack_type.clone(),
+                                    &no_active_temperaments,
+                                    vec![0, 0, 1],
+                                ),
+                            ),
+                            (
+                                7,
+                                Stack::new(
+                                    stack_type.clone(),
+                                    &no_active_temperaments,
+                                    vec![0, 1, 0],
+                                ),
+                            ),
+                        ]),
+                    },
+                },
+                Pattern {
+                    name: String::from("minor"),
+                    keyshape: KeyShape::ClassesRelative {
+                        period_keys: 12,
+                        classes: vec![0, 3, 7],
+                    },
+                    neighbourhood: Neighbourhood::PeriodicPartial {
+                        period_keys: 12,
+                        period: octave.clone(),
+                        stacks: HashMap::from([
+                            (0, Stack::new_zero(stack_type.clone())),
+                            (
+                                3,
+                                Stack::new(
+                                    stack_type.clone(),
+                                    &no_active_temperaments,
+                                    vec![0, 1, -1],
+                                ),
+                            ),
+                            (
+                                7,
+                                Stack::new(
+                                    stack_type.clone(),
+                                    &no_active_temperaments,
+                                    vec![0, 1, 0],
+                                ),
+                            ),
+                        ]),
+                    },
+                },
+            ],
+            consider_played: false ,
         },
+        // process::static12::Static12Config {
+        //     stack_type: stack_type.clone(),
+        //     initial_reference_key,
+        //     initial_neighbourhood: initial_neighbourhood.clone(),
+        // },
         backend_config: backend::pitchbend16::Pitchbend16Config {
             channels: [
                 Channel::Ch1,

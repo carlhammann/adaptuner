@@ -80,9 +80,9 @@
           # dev-y
           jq
 
-	  # tex
-	  texlive.combined.scheme-full
-	  latexrun
+          # tex
+          texlive.combined.scheme-full
+          latexrun
         ];
       };
     });

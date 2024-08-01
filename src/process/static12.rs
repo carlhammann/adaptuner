@@ -53,6 +53,7 @@ impl<T: StackType> Static12<T> {
         stack.semitones() + self.initial_reference_key as Semitones
     }
 
+    // TODO: This can be made more efficient; we don't need to always recompute everything.
     fn recompute_and_send_tunings(
         &mut self,
         time: Instant,
@@ -236,6 +237,7 @@ impl<T: StackType> Static12<T> {
             },
             time,
         );
+
         self.recompute_and_send_tunings(time, to_backend);
     }
 }

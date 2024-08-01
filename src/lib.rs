@@ -10,4 +10,3 @@ pub mod notename;
 pub mod pattern;
 pub mod process;
 pub mod tui;
-pub mod util;

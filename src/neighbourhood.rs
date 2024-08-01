@@ -41,6 +41,17 @@ impl<T: StackType> Neighbourhood<T> {
         }
     }
 
+    pub fn get(&self, i: usize) -> Option<&Stack<T>> {
+        match self {
+            Neighbourhood::PeriodicComplete { stacks, .. } => {
+                Some(&stacks[i.rem_euclid(self.period_keys())])
+            }
+            Neighbourhood::PeriodicPartial { stacks, .. } => {
+                stacks.get(&i.rem_euclid(self.period_keys()))
+            }
+        }
+    }
+
     /// insert a stack into a neighbourhood. If there's already a stack for the pitch class
     /// (remember, this is modulo period_keys), replace it. This function will also normalise the
     /// provided stack before storing, (i.e. subtract as many [period]s as necessary, in order to
@@ -63,23 +74,102 @@ impl<T: StackType> Neighbourhood<T> {
         }
     }
 
-    pub fn relative_stack_for_key_offset(&self, offset: i8) -> Option<Stack<T>> {
+    pub fn extend(&mut self, other: &Self) {
+        match self {
+            Neighbourhood::PeriodicComplete { stacks, .. } => other.for_each_stack(|i, stack| {
+                stacks[i].clone_from(stack);
+            }),
+            Neighbourhood::PeriodicPartial { stacks, .. } => {
+                other.for_each_stack(|i, stack| match stacks.get_mut(&i) {
+                    None => {
+                        let _ = stacks.insert(i, stack.clone());
+                    }
+                    Some(target) => target.clone_from(&stack),
+                })
+            }
+        }
+    }
+
+    /// interpret `other` as a neighbourhood based around the stack that is `offset` above the
+    /// reference of `self`, and extend `self` with the stacks thus obtained.
+    ///
+    /// Each new inserted Stack is passed to `notify`. This can be used to track what actually
+    /// changed.
+    pub fn extend_with_constant_offset<F: FnMut(&Stack<T>)>(
+        &mut self,
+        offset: &Stack<T>,
+        other: &Self,
+        mut notify: F,
+    ) {
+        let mut tmp = Stack::new_zero(self.period().stacktype());
+        match self {
+            Neighbourhood::PeriodicComplete {
+                stacks,
+                period,
+                period_keys,
+            } => other.for_each_stack(|_, stack| {
+                tmp.clone_from(stack);
+                tmp.add_mul(1, offset);
+                let height = tmp.key_distance();
+                let quot = height.div_euclid(*period_keys as StackCoeff);
+                let rem = height.rem_euclid(*period_keys as StackCoeff) as usize;
+                tmp.add_mul(-quot, period);
+                stacks[rem].clone_from(&tmp);
+                notify(&tmp);
+            }),
+            Neighbourhood::PeriodicPartial {
+                stacks,
+                period,
+                period_keys,
+            } => other.for_each_stack(|_, stack| {
+                tmp.clone_from(stack);
+                tmp.add_mul(1, offset);
+                let height = tmp.key_distance();
+                let quot = height.div_euclid(*period_keys as StackCoeff);
+                let rem = height.rem_euclid(*period_keys as StackCoeff) as usize;
+                tmp.add_mul(-quot, period);
+                match stacks.get_mut(&rem) {
+                    None => {
+                        let _ = stacks.insert(rem, tmp.clone());
+                    }
+                    Some(target) => target.clone_from(&tmp),
+                }
+                notify(&tmp);
+            }),
+        }
+    }
+
+    // // Add the same stack to all entries in the neighbourhood (wrapping around at the preiod), and also change the indices, so that
+    // // the modified `self` is relative to the same reference as `base`
+    // pub fn rebase_on(&mut self, base: &Stack<T>) {
+    //     todo!()
+    // }
+    //
+
+    pub fn write_relative_stack_for_key_offset(&self, target: &mut Stack<T>, offset: i8) -> bool {
         let rem = offset.rem_euclid(self.period_keys() as i8) as usize;
         let quot = offset.div_euclid(self.period_keys() as i8) as StackCoeff;
-        let mut the_stack = Stack::new_zero(self.period().stacktype());
-        the_stack.add_mul(quot, &self.period());
         match self {
             Neighbourhood::PeriodicComplete { stacks, .. } => {
-                the_stack.add_mul(1, &stacks[rem as usize]);
-                Some(the_stack)
+                target.clone_from(&stacks[rem as usize]);
             }
             Neighbourhood::PeriodicPartial { stacks, .. } => match stacks.get(&rem) {
-                None => None,
-                Some(increment) => {
-                    the_stack.add_mul(1, increment);
-                    Some(the_stack)
+                None => return false,
+                Some(stack) => {
+                    target.clone_from(stack);
                 }
             },
+        }
+        target.add_mul(quot, &self.period());
+        true
+    }
+
+    pub fn relative_stack_for_key_offset(&self, offset: i8) -> Option<Stack<T>> {
+        let mut the_stack = Stack::new_zero(self.period().stacktype());
+        if self.write_relative_stack_for_key_offset(&mut the_stack, offset) {
+            Some(the_stack)
+        } else {
+            None
         }
     }
 
