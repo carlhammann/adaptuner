@@ -24,6 +24,7 @@ use crate::{
     tui::{
         grid::{DisplayConfig, GridConfig},
         latencyreporter::LatencyReporterConfig,
+        onlynotify::{OnlyNotify, OnlyNotifyConfig},
         r#trait::UIState,
         wrappedgrid::{WrappedGrid, WrappedGridConfig},
     },
@@ -161,6 +162,68 @@ pub fn init_walking_config(
             },
             latencyreporterconfig: LatencyReporterConfig { nsamples: 20 },
         },
+        _phantom: PhantomData,
+    }
+}
+
+/// See the restrictions on [new_fivelimit_neighbourhood] on the first three arguments!
+pub fn init_walking_debug_config(
+    initial_neighbourhood_width: StackCoeff,
+    initial_neighbourhood_index: StackCoeff,
+    initial_neighbourhood_offset: StackCoeff,
+    patterns: Vec<SimplePatternConfig>,
+) -> CompleteConfig<
+    ConcreteFiveLimitStackType,
+    Walking<
+        ConcreteFiveLimitStackType,
+        neighbourhood::PeriodicCompleteAligned<ConcreteFiveLimitStackType>,
+    >,
+    WalkingConfig<
+        ConcreteFiveLimitStackType,
+        neighbourhood::PeriodicCompleteAligned<ConcreteFiveLimitStackType>,
+    >,
+    Pitchbend<15>,
+    PitchbendConfig<15>,
+    OnlyNotify,
+    OnlyNotifyConfig,
+> {
+    let no_active_temperaments = vec![false; ConcreteFiveLimitStackType::num_temperaments()];
+    let initial_neighbourhood = new_fivelimit_neighbourhood(
+        &no_active_temperaments,
+        initial_neighbourhood_width,
+        initial_neighbourhood_index,
+        initial_neighbourhood_offset,
+    );
+    CompleteConfig {
+        midi_port_config: MidiPortConfig::AskAtStartup,
+        process_config: WalkingConfig {
+            _phantom: PhantomData,
+            temper_pattern_neighbourhoods: false,
+            initial_neighbourhood: initial_neighbourhood.clone(),
+            patterns: patterns.into_iter().map(From::from).collect(),
+            consider_played: false,
+        },
+        backend_config: PitchbendConfig {
+            channels: [
+                Channel::Ch1,
+                Channel::Ch2,
+                Channel::Ch3,
+                Channel::Ch4,
+                Channel::Ch5,
+                Channel::Ch6,
+                Channel::Ch7,
+                Channel::Ch8,
+                Channel::Ch9,
+                Channel::Ch11,
+                Channel::Ch12,
+                Channel::Ch13,
+                Channel::Ch14,
+                Channel::Ch15,
+                Channel::Ch16,
+            ],
+            bend_range: 2.0,
+        },
+        ui_config: OnlyNotifyConfig {},
         _phantom: PhantomData,
     }
 }
