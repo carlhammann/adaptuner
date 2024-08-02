@@ -24,6 +24,7 @@ use crate::{
         r#trait::ProcessState,
         walking::{Walking, WalkingConfig},
     },
+    tui,
     tui::{
         grid::{DisplayConfig, GridConfig},
         latencyreporter::LatencyReporterConfig,
@@ -106,10 +107,13 @@ pub fn init_walking_config(
     WrappedGrid<
         ConcreteFiveLimitStackType,
         neighbourhood::PeriodicCompleteAligned<ConcreteFiveLimitStackType>,
+        tui::walking::Walking<ConcreteFiveLimitStackType>,
     >,
     WrappedGridConfig<
         ConcreteFiveLimitStackType,
         neighbourhood::PeriodicCompleteAligned<ConcreteFiveLimitStackType>,
+        tui::walking::Walking<ConcreteFiveLimitStackType>,
+        tui::walking::WalkingConfig<ConcreteFiveLimitStackType>,
     >,
 > {
     let no_active_temperaments = vec![false; ConcreteFiveLimitStackType::num_temperaments()];
@@ -161,6 +165,11 @@ pub fn init_walking_config(
                 _phantom: PhantomData,
             },
             latencyreporterconfig: LatencyReporterConfig { nsamples: 20 },
+            special_config: tui::walking::WalkingConfig {
+                notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
+                initial_key_center: Stack::new_zero(),
+            },
+            _phantom: PhantomData,
         },
         _phantom: PhantomData,
     }

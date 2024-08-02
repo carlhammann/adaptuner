@@ -120,6 +120,15 @@ impl<T: StackType> Stack<T> {
         self.normalise();
     }
 
+    pub fn reset_to_zero(&mut self) {
+        for c in self.coefficients.iter_mut() {
+            *c = 0;
+        }
+        for c in self.corrections.iter_mut() {
+            *c = 0;
+        }
+    }
+
     /// Apply new temperaments, forgetting all currently applied adjustments. In particular, this
     /// may change the [coefficients][Stack::coefficients], if the new temperaments happen to
     /// "temper out" some interval. (This scenario is like the one explained at the documentation

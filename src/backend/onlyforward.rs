@@ -66,17 +66,10 @@ impl<T: StackType> BackendState<T> for OnlyForward {
                 },
                 time,
             ),
-
             msg::AfterProcess::Retune { .. } => {}
 
             msg::AfterProcess::ForwardMidi { msg } => send(msg, time),
-            msg::AfterProcess::Notify { .. } => {}
-            msg::AfterProcess::MidiParseErr(_) => {}
-            msg::AfterProcess::DetunedNote { .. } => {}
-            msg::AfterProcess::CrosstermEvent(_) => {}
-            msg::AfterProcess::SetReference { .. } => {}
-            msg::AfterProcess::Consider { .. } => {}
-            msg::AfterProcess::BackendLatency { .. } => {}
+            _ => {}
         }
     }
 }

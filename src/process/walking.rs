@@ -58,7 +58,14 @@ impl<T: StackType> HasActivationStatus for NoteInfo<T> {
 
 impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
     // returns true iff the current_fit changed
-    fn recompute_fit(&mut self) -> bool {
+    fn recompute_fit(
+        &mut self,
+        time: Instant,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+    ) -> bool {
+        let send_to_backend =
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+
         let find_fit = || -> Option<(usize, Fit)> {
             let mut index = 0;
             let mut best_fit = self.patterns[0].fit(&self.current_notes);
@@ -79,37 +86,53 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
             }
         };
 
+        let mut updated = false;
         match find_fit() {
             None => {
                 if self.current_fit.is_some() {
                     self.current_fit = None;
-                    true
-                } else {
-                    false
+                    updated = true;
                 }
             }
-            Some((new_index, best_fit)) => match &mut self.current_fit {
-                None => {
-                    let reference = self
-                        .neighbourhood
-                        .get_relative_stack(best_fit.reference as i8);
-                    self.current_fit = Some((new_index, reference));
-                    true
-                }
-                Some((old_index, reference)) => {
-                    if *old_index != new_index
-                        || best_fit.reference as StackCoeff != reference.key_distance()
-                    {
-                        *old_index = new_index;
-                        self.neighbourhood
-                            .write_relative_stack(reference, best_fit.reference as i8);
-                        true
-                    } else {
-                        false
+            Some((new_index, best_fit)) => {
+                let best_fit_offset =
+                    best_fit.reference as StackCoeff - self.key_center_stack.key_number();
+                match &mut self.current_fit {
+                    None => {
+                        let offset = self.neighbourhood.get_relative_stack(best_fit_offset as i8);
+
+                        self.current_fit = Some((new_index, offset));
+                        updated = true;
+                    }
+                    Some((old_index, offset)) => {
+                        if *old_index != new_index || best_fit_offset != offset.key_distance() {
+                            *old_index = new_index;
+                            self.neighbourhood
+                                .write_relative_stack(offset, best_fit_offset as i8);
+                            updated = true;
+                        }
                     }
                 }
-            },
+            }
         }
+
+        match &self.current_fit {
+            Some((index, offset)) => {
+                let pattern_name = self.patterns[*index].name.clone();
+                let mut reference_stack = offset.clone();
+                reference_stack.add_mul(1, &self.key_center_stack);
+                send_to_backend(
+                    msg::AfterProcess::NotifyFit {
+                        pattern_name,
+                        reference_stack,
+                    },
+                    time,
+                );
+            }
+            None => send_to_backend(msg::AfterProcess::NotifyNoFit, time),
+        }
+
+        updated
     }
 
     // returns true iff the tuning changed
@@ -232,7 +255,7 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
                 } => {
                     self.current_notes[new_key_number as usize].state_per_channel
                         [channel as usize] = NoteState::Pressed;
-                    let fit_changed = self.recompute_fit();
+                    let fit_changed = self.recompute_fit(time, to_backend);
 
                     self.update_tuning(new_key_number);
                     send_to_backend(
@@ -272,7 +295,7 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
                         },
                         time,
                     );
-                    if self.recompute_fit() {
+                    if self.recompute_fit(time, to_backend) {
                         self.update_all_tunings(time, to_backend);
                     }
                 }
@@ -297,7 +320,7 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
                     }
 
                     send_to_backend(msg::AfterProcess::Sustain { channel, value }, time);
-                    if self.recompute_fit() {
+                    if self.recompute_fit(time, to_backend) {
                         self.update_all_tunings(time, to_backend);
                     }
                 }
@@ -372,6 +395,66 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
             );
         });
     }
+
+    fn toggle_temper_pattern_neighbourhoods(
+        &mut self,
+        time: Instant,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+    ) {
+        let send_to_backend =
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+
+        self.temper_pattern_neighbourhoods = !self.temper_pattern_neighbourhoods;
+        self.update_all_tunings(time, to_backend);
+        self.neighbourhood.for_each_stack(|_, stack| {
+            send_to_backend(
+                msg::AfterProcess::Consider {
+                    stack: stack.clone(),
+                },
+                time,
+            );
+        });
+    }
+
+    fn update_key_center(
+        &mut self,
+        time: Instant,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+    ) {
+        let send_to_backend =
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+
+        match &mut self.current_fit {
+            None => {}
+            Some((_, reference)) => {
+                self.tmp_work_stack.clone_from(&self.key_center_stack);
+                self.neighbourhood.write_relative_stack(
+                    &mut self.key_center_stack,
+                    reference.key_distance() as i8,
+                );
+                self.key_center_stack.add_mul(1, &self.tmp_work_stack);
+                reference.reset_to_zero();
+            }
+        }
+
+        self.update_all_tunings(time, to_backend);
+
+        send_to_backend(
+            msg::AfterProcess::SetReference {
+                key: self.key_center_stack.key_number() as u8,
+                stack: self.key_center_stack.clone(),
+            },
+            time,
+        );
+        self.neighbourhood.for_each_stack(|_, stack| {
+            send_to_backend(
+                msg::AfterProcess::Consider {
+                    stack: stack.clone(),
+                },
+                time,
+            );
+        });
+    }
 }
 
 impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> ProcessState<T>
@@ -383,20 +466,12 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> ProcessState
         msg: msg::ToProcess,
         to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
-        let send_to_backend =
-            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
         match msg {
-            msg::ToProcess::Special { .. } => {
-                self.temper_pattern_neighbourhoods = !self.temper_pattern_neighbourhoods;
-                self.update_all_tunings(time, to_backend);
-                self.neighbourhood.for_each_stack(|_, stack| {
-                    send_to_backend(
-                        msg::AfterProcess::Consider {
-                            stack: stack.clone(),
-                        },
-                        time,
-                    );
-                });
+            msg::ToProcess::Special { code: 1 } => {
+                self.toggle_temper_pattern_neighbourhoods(time, to_backend)
+            }
+            msg::ToProcess::Special { code: 2 } => {
+                self.update_key_center(time, to_backend);
             }
             msg::ToProcess::Start => self.start(time, to_backend),
             msg::ToProcess::Stop => self.stop(time, to_backend),
@@ -408,6 +483,7 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> ProcessState
             msg::ToProcess::ToggleTemperament { index } => {
                 self.toggle_temperament(time, index, to_backend)
             }
+            _ => {}
         }
     }
 }

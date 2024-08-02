@@ -65,6 +65,11 @@ pub enum AfterProcess<T: StackType> {
     Consider {
         stack: Stack<T>,
     },
+    NotifyFit {
+        pattern_name: String,
+        reference_stack: Stack<T>,
+    },
+    NotifyNoFit,
 
     BackendLatency {
         since_input: Duration,

@@ -430,14 +430,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend<NCHANNE
                 }
             }
 
-            msg::AfterProcess::ForwardMidi { msg } => send(msg, time),
-            msg::AfterProcess::Notify { .. } => {}
-            msg::AfterProcess::MidiParseErr(_) => {}
-            msg::AfterProcess::DetunedNote { .. } => {}
-            msg::AfterProcess::CrosstermEvent(_) => {}
-            msg::AfterProcess::SetReference { .. } => {}
-            msg::AfterProcess::Consider { .. } => {}
-            msg::AfterProcess::BackendLatency { .. } => {}
+            _ => {}
         }
     }
 }

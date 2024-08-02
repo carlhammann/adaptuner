@@ -258,13 +258,7 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                 }
             }
 
-            msg::AfterProcess::SetReference { .. } => {}
-            msg::AfterProcess::Consider { .. } => {}
-            msg::AfterProcess::BackendLatency { .. } => {}
-            msg::AfterProcess::Notify { .. } => {}
-            msg::AfterProcess::MidiParseErr(_) => {}
-            msg::AfterProcess::DetunedNote { .. } => {}
-            msg::AfterProcess::CrosstermEvent(_) => {}
+            _ => {}
         }
     }
 }

@@ -369,8 +369,12 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                                     }
                                 }
 
-                                KeyCode::F(n) => {
-                                    send_to_process(msg::ToProcess::Special { code: n }, time);
+                                KeyCode::Char(' ') => {
+                                    send_to_process(msg::ToProcess::Special { code: 2 }, time);
+                                }
+
+                                KeyCode::Char('t') => {
+                                    send_to_process(msg::ToProcess::Special { code: 1 }, time);
                                 }
 
                                 KeyCode::Char('1') => {
@@ -479,6 +483,8 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
             msg::AfterProcess::ProgramChange { .. } => {}
             msg::AfterProcess::ForwardMidi { .. } => {}
             msg::AfterProcess::BackendLatency { .. } => {}
+            msg::AfterProcess::NotifyFit { .. } => {}
+            msg::AfterProcess::NotifyNoFit => {}
         }
         self.recalculate_dimensions(&area);
         frame.render_widget(&*self, area);

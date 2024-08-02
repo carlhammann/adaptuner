@@ -1,11 +1,8 @@
-use crate::interval::{
-    stack::Stack,
-    stacktype::r#trait::{FiveLimitStackType},
-};
+use crate::interval::{stack::Stack, stacktype::r#trait::FiveLimitStackType};
 
 mod johnston;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum NoteNameStyle {
     JohnstonFiveLimitFull,
     JohnstonFiveLimitClass,

@@ -2,14 +2,14 @@ use crate::{interval::stacktype::r#trait::StackType, neighbourhood::SomeNeighbou
 
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Pattern<T: StackType> {
     pub name: String,
     pub keyshape: KeyShape,
     pub neighbourhood: SomeNeighbourhood<T>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum KeyShape {
     ClassesFixed {
         period_keys: u8,
