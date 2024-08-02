@@ -4,7 +4,11 @@ use midi_msg::Channel;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    backend::{pitchbend::*, r#trait::BackendState},
+    backend::{
+        pitchbend::{Pitchbend, PitchbendConfig},
+        pitchbend12::{Pitchbend12, Pitchbend12Config},
+        r#trait::BackendState,
+    },
     config::r#trait::Config,
     interval::{
         stack::Stack,
@@ -98,8 +102,8 @@ pub fn init_walking_config(
         ConcreteFiveLimitStackType,
         neighbourhood::PeriodicCompleteAligned<ConcreteFiveLimitStackType>,
     >,
-    Pitchbend<15>,
-    PitchbendConfig<15>,
+    Pitchbend12,
+    Pitchbend12Config,
     WrappedGrid<
         ConcreteFiveLimitStackType,
         neighbourhood::PeriodicCompleteAligned<ConcreteFiveLimitStackType>,
@@ -125,7 +129,7 @@ pub fn init_walking_config(
             patterns: patterns.into_iter().map(From::from).collect(),
             consider_played: false,
         },
-        backend_config: PitchbendConfig {
+        backend_config: Pitchbend12Config {
             channels: [
                 Channel::Ch1,
                 Channel::Ch2,
@@ -139,9 +143,6 @@ pub fn init_walking_config(
                 Channel::Ch11,
                 Channel::Ch12,
                 Channel::Ch13,
-                Channel::Ch14,
-                Channel::Ch15,
-                Channel::Ch16,
             ],
             bend_range: 2.0,
         },
