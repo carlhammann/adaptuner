@@ -1,13 +1,11 @@
 use std::{sync::mpsc, time::Instant};
 
+use crossterm::event::{Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
 
 use crate::{
     config::r#trait::Config,
-    interval::{
-        stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, StackType},
-    },
+    interval::{stack::Stack, stacktype::r#trait::FiveLimitStackType},
     msg,
     notename::NoteNameStyle,
     tui::r#trait::UIState,
@@ -20,20 +18,27 @@ pub struct Walking<T: FiveLimitStackType> {
     key_center: Stack<T>,
 }
 
+impl<T: FiveLimitStackType> Walking<T> {
+    fn reset(&mut self) {
+        self.key_center.clone_from(&self.config.initial_key_center);
+        self.current_fit = None;
+    }
+}
+
 impl<T: FiveLimitStackType> UIState<T> for Walking<T> {
     fn handle_msg(
         &mut self,
-        _time: Instant,
+        time: Instant,
         msg: &msg::AfterProcess<T>,
-        _to_process: &mpsc::Sender<(Instant, crate::msg::ToProcess)>,
+        to_process: &mpsc::Sender<(Instant, crate::msg::ToProcess)>,
         frame: &mut Frame,
         area: Rect,
     ) {
+        let send_to_process =
+            |msg: msg::ToProcess, time: Instant| to_process.send((time, msg)).unwrap_or(());
+
         match msg {
-            msg::AfterProcess::Reset => {
-                self.key_center.clone_from(&self.config.initial_key_center);
-                self.current_fit = None;
-            }
+            msg::AfterProcess::Reset => self.reset(),
             msg::AfterProcess::NotifyFit {
                 pattern_name,
                 reference_stack,
@@ -42,6 +47,30 @@ impl<T: FiveLimitStackType> UIState<T> for Walking<T> {
             }
             msg::AfterProcess::NotifyNoFit => self.current_fit = None,
             msg::AfterProcess::SetReference { stack, .. } => self.key_center.clone_from(stack),
+
+            msg::AfterProcess::CrosstermEvent(e) => match e {
+                Event::Key(k) => {
+                    if k.kind == KeyEventKind::Press {
+                        match k.code {
+                            KeyCode::Char('q') => send_to_process(msg::ToProcess::Stop, time),
+                            KeyCode::Esc => {
+                                self.reset();
+                                send_to_process(msg::ToProcess::Reset, time);
+                            }
+                            KeyCode::Char(' ') => {
+                                send_to_process(msg::ToProcess::Special { code: 2 }, time);
+                            }
+
+                            KeyCode::Char('t') => {
+                                send_to_process(msg::ToProcess::Special { code: 1 }, time);
+                            }
+
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
         frame.render_widget(

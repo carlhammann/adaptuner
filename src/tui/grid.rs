@@ -326,101 +326,64 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
             msg::AfterProcess::Notify { .. } => {}
             msg::AfterProcess::MidiParseErr(_) => {}
             msg::AfterProcess::DetunedNote { .. } => {}
-            msg::AfterProcess::CrosstermEvent(e) => {
-                match e {
-                    crossterm::event::Event::Key(k) => {
-                        if k.kind == KeyEventKind::Press {
-                            match k.code {
-                                KeyCode::Char('q') => send_to_process(msg::ToProcess::Stop, time),
-                                KeyCode::Esc => {
-                                    *self = GridConfig::initialise(&self.config);
-                                    send_to_process(msg::ToProcess::Reset, time);
-                                }
-
-                                // KeyCode::Down => {
-                                //     self.neighbourhood.fivelimit_inc_index();
-                                //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-                                // }
-                                // KeyCode::Up => {
-                                //     self.neighbourhood.fivelimit_dec_index();
-                                //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-                                //
-                                // }
-                                // KeyCode::Left => {
-                                //     self.neighbourhood.fivelimit_inc_offset();
-                                //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-                                //
-                                // }
-                                // KeyCode::Right => {
-                                //     self.neighbourhood.fivelimit_dec_offset();
-                                //     send_to_process(msg::ToProcess::SetNeighboughood {neighbourhood: self.neighbourhood.clone()}, time);
-                                //
-                                // }
-                                KeyCode::Char('+') => {
-                                    self.vertical_margin += 1;
-                                    self.horizontal_margin += 1;
-                                }
-                                KeyCode::Char('-') => {
-                                    if self.vertical_margin >= 1 {
-                                        self.vertical_margin -= 1;
-                                    }
-                                    if self.horizontal_margin >= 1 {
-                                        self.horizontal_margin -= 1;
-                                    }
-                                }
-
-                                KeyCode::Char(' ') => {
-                                    send_to_process(msg::ToProcess::Special { code: 2 }, time);
-                                }
-
-                                KeyCode::Char('t') => {
-                                    send_to_process(msg::ToProcess::Special { code: 1 }, time);
-                                }
-
-                                KeyCode::Char('1') => {
-                                    let index = 0;
-                                    self.active_temperaments[index] =
-                                        !self.active_temperaments[index];
-                                    send_to_process(
-                                        msg::ToProcess::ToggleTemperament { index },
-                                        time,
-                                    );
-                                }
-                                KeyCode::Char('2') => {
-                                    let index = 1;
-                                    self.active_temperaments[index] =
-                                        !self.active_temperaments[index];
-                                    send_to_process(
-                                        msg::ToProcess::ToggleTemperament { index },
-                                        time,
-                                    );
-                                }
-                                _ => {}
+            msg::AfterProcess::CrosstermEvent(e) => match e {
+                crossterm::event::Event::Key(k) => {
+                    if k.kind == KeyEventKind::Press {
+                        match k.code {
+                            KeyCode::Char('q') => send_to_process(msg::ToProcess::Stop, time),
+                            KeyCode::Esc => {
+                                *self = GridConfig::initialise(&self.config);
+                                send_to_process(msg::ToProcess::Reset, time);
                             }
+
+                            KeyCode::Char('+') => {
+                                self.vertical_margin += 1;
+                                self.horizontal_margin += 1;
+                            }
+                            KeyCode::Char('-') => {
+                                if self.vertical_margin >= 1 {
+                                    self.vertical_margin -= 1;
+                                }
+                                if self.horizontal_margin >= 1 {
+                                    self.horizontal_margin -= 1;
+                                }
+                            }
+
+                            KeyCode::Char('1') => {
+                                let index = 0;
+                                self.active_temperaments[index] = !self.active_temperaments[index];
+                                send_to_process(msg::ToProcess::ToggleTemperament { index }, time);
+                            }
+                            KeyCode::Char('2') => {
+                                let index = 1;
+                                self.active_temperaments[index] = !self.active_temperaments[index];
+                                send_to_process(msg::ToProcess::ToggleTemperament { index }, time);
+                            }
+                            _ => {}
                         }
                     }
-                    crossterm::event::Event::Mouse(MouseEvent {
-                        kind: MouseEventKind::Down(MouseButton::Left),
-                        column,
-                        row,
-                        modifiers: _,
-                    }) => {
-                        let horizontal_offset = self.min_horizontal
-                            + *column as StackCoeff / self.column_width as StackCoeff
-                            - self.reference_stack.coefficients()[self.horizontal_index];
-                        let vertical_offset = self.max_vertical
-                            - *row as StackCoeff / 2
-                            - self.reference_stack.coefficients()[self.vertical_index];
-
-                        let mut coefficients = vec![0; T::num_intervals()];
-                        coefficients[self.vertical_index] = vertical_offset;
-                        coefficients[self.horizontal_index] = horizontal_offset;
-
-                        send_to_process(msg::ToProcess::Consider { coefficients }, time);
-                    }
-                    _ => {}
                 }
-            }
+                crossterm::event::Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column,
+                    row,
+                    modifiers: _,
+                }) => {
+                    let horizontal_offset = self.min_horizontal
+                        + *column as StackCoeff / self.column_width as StackCoeff
+                        - self.reference_stack.coefficients()[self.horizontal_index];
+                    let vertical_offset = self.max_vertical
+                        - *row as StackCoeff / 2
+                        - self.reference_stack.coefficients()[self.vertical_index];
+
+                    let mut coefficients = vec![0; T::num_intervals()];
+                    coefficients[self.vertical_index] = vertical_offset;
+                    coefficients[self.horizontal_index] = horizontal_offset;
+
+                    send_to_process(msg::ToProcess::Consider { coefficients }, time);
+                }
+                _ => {}
+            },
             msg::AfterProcess::SetReference { key, stack } => {
                 self.reference_key = *key as i8;
                 self.reference_stack.clone_from(&stack);
