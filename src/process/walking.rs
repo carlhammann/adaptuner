@@ -41,6 +41,7 @@ pub struct Walking<T: StackType, N: CompleteNeigbourhood<T>> {
     patterns: Vec<Pattern<T>>, // must be non-empty
 
     temper_pattern_neighbourhoods: bool,
+    use_patterns: bool,
 
     tmp_work_stack: Stack<T>,
 }
@@ -149,6 +150,11 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
             note.tuning_stack.add_mul(1, &self.key_center_stack);
             note.tuning = note.tuning_stack.absolute_semitones();
         };
+
+        if !self.use_patterns {
+            tune_using_neighbourhood_and_key_center();
+            return note.tuning_stack != self.tmp_work_stack;
+        }
 
         match &self.current_fit {
             None => tune_using_neighbourhood_and_key_center(),
@@ -455,6 +461,23 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
             );
         });
     }
+
+    fn toggle_patterns(
+        &mut self,
+        time: Instant,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+    ) {
+        let send_to_backend =
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+        self.use_patterns = !self.use_patterns;
+        self.update_all_tunings(time, to_backend);
+        send_to_backend(
+            msg::AfterProcess::Special {
+                code: if self.use_patterns { 1 } else { 2 },
+            },
+            time,
+        );
+    }
 }
 
 impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> ProcessState<T>
@@ -472,6 +495,9 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> ProcessState
             }
             msg::ToProcess::Special { code: 2 } => {
                 self.update_key_center(time, to_backend);
+            }
+            msg::ToProcess::Special { code: 3 } => {
+                self.toggle_patterns(time, to_backend);
             }
             msg::ToProcess::Start => self.start(time, to_backend),
             msg::ToProcess::Stop => self.stop(time, to_backend),
@@ -494,6 +520,7 @@ pub struct WalkingConfig<T: StackType, N: CompleteNeigbourhood<T>> {
     pub consider_played: bool,
     pub initial_neighbourhood: N,
     pub temper_pattern_neighbourhoods: bool,
+    pub use_patterns: bool,
     pub _phantom: PhantomData<T>,
 }
 
@@ -520,6 +547,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Config<Walking<T, N>>
             key_center_stack: Stack::new_zero(),
             current_fit: None,
             temper_pattern_neighbourhoods: config.temper_pattern_neighbourhoods,
+            use_patterns: config.use_patterns,
             tmp_work_stack: Stack::new_zero(),
         }
     }

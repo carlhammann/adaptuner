@@ -128,6 +128,7 @@ pub fn init_walking_config(
         process_config: WalkingConfig {
             _phantom: PhantomData,
             temper_pattern_neighbourhoods: false,
+            use_patterns: true,
             initial_neighbourhood: initial_neighbourhood.clone(),
             patterns: patterns.into_iter().map(From::from).collect(),
             consider_played: false,
@@ -154,7 +155,7 @@ pub fn init_walking_config(
                 display_config: DisplayConfig {
                     notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
                     color_range: 0.2,
-                    gradient: colorous::RED_BLUE,
+                    gradient: colorous::CIVIDIS,
                 },
                 initial_reference_key: 60,
                 initial_neighbourhood,
@@ -168,6 +169,7 @@ pub fn init_walking_config(
             special_config: tui::walking::WalkingConfig {
                 notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
                 initial_key_center: Stack::new_zero(),
+                use_patterns:true,
             },
             _phantom: PhantomData,
         },
@@ -208,6 +210,7 @@ pub fn init_walking_debug_config(
         process_config: WalkingConfig {
             _phantom: PhantomData,
             temper_pattern_neighbourhoods: false,
+            use_patterns: true,
             initial_neighbourhood: initial_neighbourhood.clone(),
             patterns: patterns.into_iter().map(From::from).collect(),
             consider_played: false,

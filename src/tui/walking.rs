@@ -16,6 +16,7 @@ pub struct Walking<T: FiveLimitStackType> {
     current_fit: Option<(String, Stack<T>)>,
     notenamestyle: NoteNameStyle,
     key_center: Stack<T>,
+    use_patterns: bool,
 }
 
 impl<T: FiveLimitStackType> Walking<T> {
@@ -57,6 +58,11 @@ impl<T: FiveLimitStackType> UIState<T> for Walking<T> {
                                 self.reset();
                                 send_to_process(msg::ToProcess::Reset, time);
                             }
+
+                            KeyCode::Char('p') => {
+                                send_to_process(msg::ToProcess::Special { code: 3 }, time);
+                            }
+
                             KeyCode::Char(' ') => {
                                 send_to_process(msg::ToProcess::Special { code: 2 }, time);
                             }
@@ -71,22 +77,36 @@ impl<T: FiveLimitStackType> UIState<T> for Walking<T> {
                 }
                 _ => {}
             },
+
+            msg::AfterProcess::Special { code: 1 } => {
+                self.use_patterns = true;
+            }
+
+            msg::AfterProcess::Special { code: 2 } => {
+                self.use_patterns = false;
+            }
+
             _ => {}
         }
         frame.render_widget(
-            Line::from(match &self.current_fit {
-                None => format!(
-                    "key center: {}, no current fit",
-                    self.key_center.notename(&self.notenamestyle)
-                ),
-                Some((name, stack)) => {
-                    format!(
+            Line::from({
+                let mut str = match &self.current_fit {
+                    None => format!(
+                        "key center: {}, no current fit",
+                        self.key_center.notename(&self.notenamestyle)
+                    ),
+
+                    Some((name, stack)) => format!(
                         "key center: {}, current fit: {}, reference: {}",
                         self.key_center.notename(&self.notenamestyle),
                         name,
                         stack.notename(&self.notenamestyle)
-                    )
+                    ),
+                };
+                if !self.use_patterns {
+                    str.push_str(&", patterns disabled");
                 }
+                str
             }),
             area,
         );
@@ -97,6 +117,7 @@ impl<T: FiveLimitStackType> UIState<T> for Walking<T> {
 pub struct WalkingConfig<T: FiveLimitStackType> {
     pub notenamestyle: NoteNameStyle,
     pub initial_key_center: Stack<T>,
+    pub use_patterns: bool,
 }
 
 impl<T: FiveLimitStackType> Config<Walking<T>> for WalkingConfig<T> {
@@ -106,6 +127,7 @@ impl<T: FiveLimitStackType> Config<Walking<T>> for WalkingConfig<T> {
             current_fit: None,
             notenamestyle: config.notenamestyle,
             key_center: config.initial_key_center.clone(),
+            use_patterns: config.use_patterns,
         }
     }
 }

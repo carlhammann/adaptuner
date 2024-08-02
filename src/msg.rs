@@ -71,6 +71,10 @@ pub enum AfterProcess<T: StackType> {
     },
     NotifyNoFit,
 
+    Special {
+        code: u8,
+    },
+
     BackendLatency {
         since_input: Duration,
     },

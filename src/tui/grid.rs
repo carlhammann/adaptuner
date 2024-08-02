@@ -323,9 +323,6 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
             msg::AfterProcess::Stop => {
                 send_to_process(msg::ToProcess::Stop, time);
             }
-            msg::AfterProcess::Notify { .. } => {}
-            msg::AfterProcess::MidiParseErr(_) => {}
-            msg::AfterProcess::DetunedNote { .. } => {}
             msg::AfterProcess::CrosstermEvent(e) => match e {
                 crossterm::event::Event::Key(k) => {
                     if k.kind == KeyEventKind::Press {
@@ -443,11 +440,8 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                         .retain(|(_, _, s)| *s != NoteOnState::Sustained);
                 }
             }
-            msg::AfterProcess::ProgramChange { .. } => {}
-            msg::AfterProcess::ForwardMidi { .. } => {}
-            msg::AfterProcess::BackendLatency { .. } => {}
-            msg::AfterProcess::NotifyFit { .. } => {}
-            msg::AfterProcess::NotifyNoFit => {}
+
+            _ => {}
         }
         self.recalculate_dimensions(&area);
         frame.render_widget(&*self, area);
