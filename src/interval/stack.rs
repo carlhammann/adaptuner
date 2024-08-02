@@ -172,7 +172,7 @@ impl<T: StackType> Stack<T> {
         true
     }
 
-    /// Hoe many piano keys wide is the the interval described by this stack?
+    /// How many piano keys wide is the the interval described by this stack?
     pub fn key_distance(&self) -> StackCoeff {
         let mut res = 0;
         for (i, &c) in self.coefficients.iter().enumerate() {

@@ -347,26 +347,62 @@ mod test {
     type MockStackType = crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
 
     #[test]
-    fn test_neighbours() {
+    fn test_test_insert_retrieve() {
         let period = Stack::<MockStackType>::new(&[false; 2], vec![1, 0, 0]);
+        let no_active_temperaments = vec![false; MockStackType::num_temperaments()];
+        let mut neigh = PeriodicPartial {
+            stacks: [(9, Stack::new(&no_active_temperaments, vec![1, 4, 123]))].into(),
+            period,
+        };
+        assert_eq!(
+            neigh.try_get_relative_stack(9 + 12),
+            Some(Stack::new(&no_active_temperaments, vec![2, 4, 123]))
+        );
+
+        neigh.insert(&Stack::new(&no_active_temperaments, vec![0, 3, 0]));
+        assert_eq!(
+            neigh.try_get_relative_stack(9),
+            Some(Stack::new(&no_active_temperaments, vec![-1, 3, 0]))
+        );
+        assert_eq!(
+            neigh.try_get_relative_stack(-3),
+            Some(Stack::new(&no_active_temperaments, vec![-2, 3, 0]))
+        );
+
+        // the next two are a regression test
+        neigh.insert(&Stack::new(&no_active_temperaments, vec![1, -2, 0]));
+        assert_eq!(
+            neigh.stacks.get(&10),
+            Some(&Stack::new(&no_active_temperaments, vec![2, -2, 0]))
+        );
+        assert_eq!(
+            neigh.try_get_relative_stack(10),
+            Some(Stack::new(&no_active_temperaments, vec![2, -2, 0]))
+        );
+    }
+
+    #[test]
+    fn test_new_fivelimit_neighbourhood() {
+        let period = Stack::<MockStackType>::new(&[false; 2], vec![1, 0, 0]);
+        let no_active_temperaments = vec![false; MockStackType::num_temperaments()];
 
         assert_eq!(
             new_fivelimit_neighbourhood(&[false; 2], 12, 0, 0),
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![-4, 7, 0]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                        Stack::new(&vec![false; 2], vec![-5, 9, 0]),
-                        Stack::new(&vec![false; 2], vec![-2, 4, 0]),
-                        Stack::new(&vec![false; 2], vec![-6, 11, 0]),
-                        Stack::new(&vec![false; 2], vec![-3, 6, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                        Stack::new(&vec![false; 2], vec![-4, 8, 0]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                        Stack::new(&vec![false; 2], vec![-5, 10, 0]),
-                        Stack::new(&vec![false; 2], vec![-2, 5, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![-4, 7, 0]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 0]),
+                        Stack::new(&no_active_temperaments, vec![-5, 9, 0]),
+                        Stack::new(&no_active_temperaments, vec![-2, 4, 0]),
+                        Stack::new(&no_active_temperaments, vec![-6, 11, 0]),
+                        Stack::new(&no_active_temperaments, vec![-3, 6, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 0]),
+                        Stack::new(&no_active_temperaments, vec![-4, 8, 0]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, 0]),
+                        Stack::new(&no_active_temperaments, vec![-5, 10, 0]),
+                        Stack::new(&no_active_temperaments, vec![-2, 5, 0]),
                     ],
                     period: period.clone(),
                 }
@@ -378,18 +414,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![0, -1, 2]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                        Stack::new(&vec![false; 2], vec![1, -3, 3]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                        Stack::new(&vec![false; 2], vec![0, -1, 3]),
-                        Stack::new(&vec![false; 2], vec![1, -2, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                        Stack::new(&vec![false; 2], vec![1, -1, 1]),
-                        Stack::new(&vec![false; 2], vec![1, -2, 3]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, -1, 2]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 0]),
+                        Stack::new(&no_active_temperaments, vec![1, -3, 3]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, -1, 3]),
+                        Stack::new(&no_active_temperaments, vec![1, -2, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 2]),
+                        Stack::new(&no_active_temperaments, vec![1, -1, 1]),
+                        Stack::new(&no_active_temperaments, vec![1, -2, 3]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -401,18 +437,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                        Stack::new(&vec![false; 2], vec![-3, 5, 1]),
-                        Stack::new(&vec![false; 2], vec![-2, 4, 0]),
-                        Stack::new(&vec![false; 2], vec![-2, 3, 2]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                        Stack::new(&vec![false; 2], vec![-2, 4, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![-2, 3, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 0]),
+                        Stack::new(&no_active_temperaments, vec![-3, 5, 1]),
+                        Stack::new(&no_active_temperaments, vec![-2, 4, 0]),
+                        Stack::new(&no_active_temperaments, vec![-2, 3, 2]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 0]),
+                        Stack::new(&no_active_temperaments, vec![-2, 4, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, 0]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -424,18 +460,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                        Stack::new(&vec![false; 2], vec![-1, 1, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                        Stack::new(&vec![false; 2], vec![-2, 3, 2]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![-2, 3, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 0]),
+                        Stack::new(&no_active_temperaments, vec![-1, 1, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 1]),
+                        Stack::new(&no_active_temperaments, vec![-2, 3, 2]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 2]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, 0]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -447,18 +483,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                        Stack::new(&vec![false; 2], vec![-1, 1, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, -1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![-2, 3, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 0]),
+                        Stack::new(&no_active_temperaments, vec![-1, 1, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, -1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 2]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, 0]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -470,18 +506,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                        Stack::new(&vec![false; 2], vec![-1, 1, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, -1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 2, -1]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![-2, 3, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 0]),
+                        Stack::new(&no_active_temperaments, vec![-1, 1, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, -1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 2]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 2, -1]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -493,18 +529,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 1, -1]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, -1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 2, -1]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![-2, 3, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, -1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, -1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 2]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 2, -1]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -516,18 +552,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![-2, 3, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 1, -1]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, -1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                        Stack::new(&vec![false; 2], vec![1, 0, -1]),
-                        Stack::new(&vec![false; 2], vec![-1, 3, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 2, -1]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![-2, 3, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, -1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, -1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 0]),
+                        Stack::new(&no_active_temperaments, vec![1, 0, -1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 3, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 2, -1]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -539,18 +575,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![0, -1, 2]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 0]),
-                        Stack::new(&vec![false; 2], vec![-1, 1, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                        Stack::new(&vec![false; 2], vec![0, -1, 3]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 1]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                        Stack::new(&vec![false; 2], vec![1, -1, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 2, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, -1, 2]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 0]),
+                        Stack::new(&no_active_temperaments, vec![-1, 1, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, -1, 3]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 2]),
+                        Stack::new(&no_active_temperaments, vec![1, -1, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 2, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -562,18 +598,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![0, -1, 2]),
-                        Stack::new(&vec![false; 2], vec![1, -2, 1]),
-                        Stack::new(&vec![false; 2], vec![-1, 1, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                        Stack::new(&vec![false; 2], vec![0, -1, 3]),
-                        Stack::new(&vec![false; 2], vec![1, -2, 2]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 0]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                        Stack::new(&vec![false; 2], vec![1, -1, 1]),
-                        Stack::new(&vec![false; 2], vec![1, -2, 3]),
-                        Stack::new(&vec![false; 2], vec![0, 1, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, -1, 2]),
+                        Stack::new(&no_active_temperaments, vec![1, -2, 1]),
+                        Stack::new(&no_active_temperaments, vec![-1, 1, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, -1, 3]),
+                        Stack::new(&no_active_temperaments, vec![1, -2, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 2]),
+                        Stack::new(&no_active_temperaments, vec![1, -1, 1]),
+                        Stack::new(&no_active_temperaments, vec![1, -2, 3]),
+                        Stack::new(&no_active_temperaments, vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -585,18 +621,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::new(&vec![false; 2], vec![0, 0, 0]),
-                        Stack::new(&vec![false; 2], vec![0, -1, 2]),
-                        Stack::new(&vec![false; 2], vec![1, -2, 1]),
-                        Stack::new(&vec![false; 2], vec![1, -3, 3]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 1]),
-                        Stack::new(&vec![false; 2], vec![0, -1, 3]),
-                        Stack::new(&vec![false; 2], vec![1, -2, 2]),
-                        Stack::new(&vec![false; 2], vec![2, -3, 1]),
-                        Stack::new(&vec![false; 2], vec![0, 0, 2]),
-                        Stack::new(&vec![false; 2], vec![1, -1, 1]),
-                        Stack::new(&vec![false; 2], vec![1, -2, 3]),
-                        Stack::new(&vec![false; 2], vec![2, -3, 2]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 0]),
+                        Stack::new(&no_active_temperaments, vec![0, -1, 2]),
+                        Stack::new(&no_active_temperaments, vec![1, -2, 1]),
+                        Stack::new(&no_active_temperaments, vec![1, -3, 3]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, -1, 3]),
+                        Stack::new(&no_active_temperaments, vec![1, -2, 2]),
+                        Stack::new(&no_active_temperaments, vec![2, -3, 1]),
+                        Stack::new(&no_active_temperaments, vec![0, 0, 2]),
+                        Stack::new(&no_active_temperaments, vec![1, -1, 1]),
+                        Stack::new(&no_active_temperaments, vec![1, -2, 3]),
+                        Stack::new(&no_active_temperaments, vec![2, -3, 2]),
                     ],
                     period: period.clone(),
                 }

@@ -1,6 +1,7 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::marker::PhantomData;
 
 use midi_msg::Channel;
+use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     backend::{pitchbend::*, r#trait::BackendState},
@@ -52,12 +53,40 @@ where
     pub _phantom: PhantomData<(T, P, B, U)>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct SimplePatternConfig {
+    name: String,
+    keyshape: KeyShape,
+    neighbourhood: Vec<(usize, [StackCoeff; 3])>,
+}
+
+impl From<SimplePatternConfig> for Pattern<ConcreteFiveLimitStackType> {
+    fn from(simple: SimplePatternConfig) -> Self {
+        let octave = Stack::from_pure_interval(ConcreteFiveLimitStackType::period_index());
+        let no_active_temperaments = vec![false; ConcreteFiveLimitStackType::num_temperaments()];
+        Pattern {
+            name: simple.name,
+            keyshape: simple.keyshape,
+            neighbourhood: SomeNeighbourhood::PeriodicPartial(PeriodicPartial {
+                stacks: simple
+                    .neighbourhood
+                    .into_iter()
+                    .map(|(offset, coeffs)| {
+                        (offset, Stack::new(&no_active_temperaments, coeffs.to_vec()))
+                    })
+                    .collect(),
+                period: octave,
+            }),
+        }
+    }
+}
+
 /// See the restrictions on [new_fivelimit_neighbourhood] on the first three arguments!
 pub fn init_walking_config(
     initial_neighbourhood_width: StackCoeff,
     initial_neighbourhood_index: StackCoeff,
     initial_neighbourhood_offset: StackCoeff,
-    patterns: Vec<Pattern<ConcreteFiveLimitStackType>>,
+    patterns: Vec<SimplePatternConfig>,
 ) -> CompleteConfig<
     ConcreteFiveLimitStackType,
     Walking<
@@ -92,43 +121,7 @@ pub fn init_walking_config(
             _phantom: PhantomData,
             temper_pattern_neighbourhoods: false,
             initial_neighbourhood: initial_neighbourhood.clone(),
-            patterns,
-            // : vec![
-            //     Pattern {
-            //         name: String::from("major"),
-            //         keyshape: KeyShape::ClassesRelative {
-            //             period_keys: 12,
-            //             classes: vec![0, 4, 7],
-            //         },
-            //         neighbourhood: SomeNeighbourhood::PeriodicPartial(PeriodicPartial {
-            //             period: Stack::from_pure_interval(
-            //                 ConcreteFiveLimitStackType::period_index(),
-            //             ),
-            //             stacks: HashMap::from([
-            //                 (0, Stack::new_zero()),
-            //                 (4, Stack::new(&no_active_temperaments, vec![0, 0, 1])),
-            //                 (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
-            //             ]),
-            //         }),
-            //     },
-            //     Pattern {
-            //         name: String::from("minor"),
-            //         keyshape: KeyShape::ClassesRelative {
-            //             period_keys: 12,
-            //             classes: vec![0, 3, 7],
-            //         },
-            //         neighbourhood: SomeNeighbourhood::PeriodicPartial(PeriodicPartial {
-            //             period: Stack::from_pure_interval(
-            //                 ConcreteFiveLimitStackType::period_index(),
-            //             ),
-            //             stacks: HashMap::from([
-            //                 (0, Stack::new_zero()),
-            //                 (3, Stack::new(&no_active_temperaments, vec![0, 1, -1])),
-            //                 (7, Stack::new(&no_active_temperaments, vec![0, 1, 0])),
-            //             ]),
-            //         }),
-            //     },
-            // ],
+            patterns: patterns.into_iter().map(From::from).collect(),
             consider_played: false,
         },
         backend_config: PitchbendConfig {
