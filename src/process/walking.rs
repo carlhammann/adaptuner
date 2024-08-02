@@ -328,6 +328,14 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
         let mut stack = Stack::new(&self.active_temperaments, coefficients);
         let normalised_stack = self.neighbourhood.insert(&stack);
         stack.clone_from(normalised_stack);
+        match &mut self.current_fit {
+            None => {}
+            Some((_, reference)) => {
+                let dist = reference.key_distance();
+                self.neighbourhood
+                    .write_relative_stack(reference, dist as i8);
+            }
+        };
         send_to_backend(msg::AfterProcess::Consider { stack }, time);
 
         self.update_all_tunings(time, to_backend); // TODO make this affect  only the changed notes?
@@ -343,18 +351,18 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
         self.active_temperaments[index] = !self.active_temperaments[index];
-        self.neighbourhood
-            .for_each_stack_mut(|_, stack| stack.retemper(&self.active_temperaments));
-        if self.temper_pattern_neighbourhoods {
-            match &mut self.current_fit {
-                None => {}
-                Some((_index, reference)) => {
-                    reference.retemper(&self.active_temperaments);
-                    // we don't have to apply anything to the neighbourhood around the reference.
-                    // [update_tuning] takes temper_pattern_neighbourhoods into account.
-                }
+        self.neighbourhood.for_each_stack_mut(|_, stack| {
+            stack.retemper(&self.active_temperaments);
+        });
+        match &mut self.current_fit {
+            None => {}
+            Some((_index, reference)) => {
+                reference.retemper(&self.active_temperaments);
+                // we don't have to apply anything to the neighbourhood around the reference.
+                // [update_tuning] takes temper_pattern_neighbourhoods into account.
             }
         }
+        self.update_all_tunings(time, to_backend);
         self.neighbourhood.for_each_stack(|_, stack| {
             send_to_backend(
                 msg::AfterProcess::Consider {
@@ -363,7 +371,6 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
                 time,
             );
         });
-        self.update_all_tunings(time, to_backend);
     }
 }
 
@@ -376,7 +383,21 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> ProcessState
         msg: msg::ToProcess,
         to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
+        let send_to_backend =
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
         match msg {
+            msg::ToProcess::Special { .. } => {
+                self.temper_pattern_neighbourhoods = !self.temper_pattern_neighbourhoods;
+                self.update_all_tunings(time, to_backend);
+                self.neighbourhood.for_each_stack(|_, stack| {
+                    send_to_backend(
+                        msg::AfterProcess::Consider {
+                            stack: stack.clone(),
+                        },
+                        time,
+                    );
+                });
+            }
             msg::ToProcess::Start => self.start(time, to_backend),
             msg::ToProcess::Stop => self.stop(time, to_backend),
             msg::ToProcess::Reset => self.reset(time, to_backend),

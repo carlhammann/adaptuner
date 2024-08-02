@@ -257,6 +257,7 @@ impl<T: FiveLimitStackType, N: CompleteNeigbourhood<T> + Clone> ProcessState<T> 
         to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
         match msg {
+            msg::ToProcess::Special { .. } => {}
             msg::ToProcess::Start => {
                 self.reset(time, to_backend);
             }

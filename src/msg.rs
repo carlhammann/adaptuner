@@ -79,4 +79,5 @@ pub enum ToProcess {
     IncomingMidi { bytes: Vec<u8> },
     Consider { coefficients: Vec<StackCoeff> },
     ToggleTemperament { index: usize },
+    Special { code: u8 },
 }

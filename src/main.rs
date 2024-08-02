@@ -21,7 +21,8 @@ use ratatui::{prelude::CrosstermBackend, Terminal};
 
 use adaptuner::{
     backend::r#trait::BackendState,
-    config::{init_walking_config, r#trait::Config, CompleteConfig},
+    config,
+    config::{r#trait::Config, CompleteConfig},
     interval::stacktype::r#trait::StackType,
     msg,
     process::r#trait::ProcessState,
@@ -321,7 +322,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         Ok(patterns) => patterns,
     };
 
-    let the_config = init_walking_config(
+    let the_config = config::init_walking_config(
         initial_neighbourhood_width,
         initial_neighbourhood_index,
         initial_neighbourhood_offset,

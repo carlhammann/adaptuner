@@ -369,6 +369,10 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                                     }
                                 }
 
+                                KeyCode::F(n) => {
+                                    send_to_process(msg::ToProcess::Special { code: n }, time);
+                                }
+
                                 KeyCode::Char('1') => {
                                     let index = 0;
                                     self.active_temperaments[index] =
