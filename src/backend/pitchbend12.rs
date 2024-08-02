@@ -129,7 +129,6 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                 let channel_index = note as usize % 12;
                 let old_bend = self.bends[channel_index];
                 let bend = self.bend_from_semitones(tuning - note as Semitones);
-                self.bends[channel_index] = bend;
                 send(
                     MidiMsg::ChannelVoice {
                         channel: self.channels[channel_index],
@@ -145,6 +144,7 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                         },
                         time,
                     );
+                    self.bends[channel_index] = bend;
                 }
                 if (tuning - note as Semitones).abs() > self.bend_range {
                     send_to_ui(
@@ -229,6 +229,7 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                         },
                         time,
                     );
+                    self.bends[channel_index] = bend;
                 }
                 if (tuning - note as Semitones).abs() > self.bend_range {
                     send_to_ui(
