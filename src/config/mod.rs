@@ -5,7 +5,6 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     backend::{
-        pitchbend::{Pitchbend, PitchbendConfig},
         pitchbend12::{Pitchbend12, Pitchbend12Config},
         r#trait::BackendState,
     },
@@ -183,8 +182,8 @@ pub fn init_walking_debug_config(
         ConcreteFiveLimitStackType,
         neighbourhood::PeriodicCompleteAligned<ConcreteFiveLimitStackType>,
     >,
-    Pitchbend<15>,
-    PitchbendConfig<15>,
+    Pitchbend12,
+    Pitchbend12Config,
     OnlyNotify,
     OnlyNotifyConfig,
 > {
@@ -204,7 +203,7 @@ pub fn init_walking_debug_config(
             patterns: patterns.into_iter().map(From::from).collect(),
             consider_played: false,
         },
-        backend_config: PitchbendConfig {
+        backend_config: Pitchbend12Config {
             channels: [
                 Channel::Ch1,
                 Channel::Ch2,
@@ -218,9 +217,6 @@ pub fn init_walking_debug_config(
                 Channel::Ch11,
                 Channel::Ch12,
                 Channel::Ch13,
-                Channel::Ch14,
-                Channel::Ch15,
-                Channel::Ch16,
             ],
             bend_range: 2.0,
         },
