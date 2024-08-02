@@ -121,10 +121,10 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
         let mut tune_using_neighbourhood_and_key_center = || {
             self.neighbourhood.write_relative_stack(
                 &mut note.tuning_stack,
-                (i as StackCoeff - self.key_center_stack.key_distance()) as i8,
+                (i as StackCoeff - self.key_center_stack.key_number()) as i8,
             );
             note.tuning_stack.add_mul(1, &self.key_center_stack);
-            note.tuning = note.tuning_stack.semitones();
+            note.tuning = note.tuning_stack.absolute_semitones();
         };
 
         match &self.current_fit {
@@ -132,7 +132,7 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
             Some((index, relative_reference_stack)) => {
                 let fit_neighbourhood = &self.patterns[*index].neighbourhood;
                 let offset = (i as StackCoeff
-                    - self.key_center_stack.key_distance()
+                    - self.key_center_stack.key_number()
                     - relative_reference_stack.key_distance()) as i8;
                 if fit_neighbourhood.has_tuning_for(offset) {
                     let _ =
@@ -142,7 +142,7 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
                     }
                     note.tuning_stack.add_mul(1, relative_reference_stack);
                     note.tuning_stack.add_mul(1, &self.key_center_stack);
-                    note.tuning = note.tuning_stack.semitones();
+                    note.tuning = note.tuning_stack.absolute_semitones();
                 } else {
                     tune_using_neighbourhood_and_key_center();
                 }

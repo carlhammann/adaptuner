@@ -21,7 +21,7 @@ use crate::interval::{
 ///
 /// * Due to the presence of temperaments, the [coefficients][Stack::coefficients] alone _do not
 /// suffice_ to compute the size of the composite interval described by a [Stack]. Use
-/// [semitones][Stack::semitones] to compute the size the interval described by a [Stack] as a
+/// [relative_semitones][Stack::relative_semitones] to compute the size the interval described by a [Stack] as a
 /// floating-point number of semitones. You can also use
 /// [impure_semitones][Stack::impure_semitones] if you're interested in the deviation from
 /// the pure note due to temperaments.
@@ -147,12 +147,18 @@ impl<T: StackType> Stack<T> {
         &self.coefficients
     }
 
-    pub fn semitones(&self) -> Semitones {
+    pub fn relative_semitones(&self) -> Semitones {
         let mut pure_semitones = 0.0;
         for (i, c) in self.coefficients.iter().enumerate() {
             pure_semitones += (*c as Semitones) * T::intervals()[i].semitones;
         }
         pure_semitones + self.impure_semitones()
+    }
+
+    /// If `self` is a stack above C4, this will return the "fractional MIDI note number" described
+    /// by this stack
+    pub fn absolute_semitones(&self) -> Semitones {
+        self.relative_semitones() + 60.0
     }
 
     pub fn impure_semitones(&self) -> Semitones {
@@ -179,6 +185,11 @@ impl<T: StackType> Stack<T> {
             res += c * T::intervals()[i].key_distance as StackCoeff;
         }
         res
+    }
+
+    /// If the zero stack describes MIDI key C4, which key does `self` describe?
+    pub fn key_number(&self) -> StackCoeff {
+        60 + self.key_distance()
     }
 
     /// Like [increment_at_index][StackType::increment_at_index], but acting on several intervals at
@@ -291,11 +302,19 @@ mod test {
 
         let s = Stack::<MockStackType>::new(&[true, false], vec![0, 0, 1]);
         assert_relative_eq!(s.impure_semitones(), edo12_third_error, max_relative = eps);
-        assert_relative_eq!(s.semitones(), third + edo12_third_error, max_relative = eps);
+        assert_relative_eq!(
+            s.relative_semitones(),
+            third + edo12_third_error,
+            max_relative = eps
+        );
 
         let s = Stack::<MockStackType>::new(&[false, true], vec![0, 4, 0]);
         assert_relative_eq!(s.impure_semitones(), 0.0, max_relative = eps);
-        assert_relative_eq!(s.semitones(), third + 2.0 * octave, max_relative = eps);
+        assert_relative_eq!(
+            s.relative_semitones(),
+            third + 2.0 * octave,
+            max_relative = eps
+        );
 
         let s = Stack::<MockStackType>::new(&[false, true], vec![0, 6, 0]);
         assert_relative_eq!(
@@ -304,7 +323,7 @@ mod test {
             max_relative = eps
         );
         assert_relative_eq!(
-            s.semitones(),
+            s.relative_semitones(),
             2.0 * octave + third + 2.0 * fifth + 2.0 * quarter_comma,
             max_relative = eps
         );
@@ -312,7 +331,7 @@ mod test {
         let s = Stack::<MockStackType>::new(&[true, false], vec![0, 0, 7]);
         assert_relative_eq!(s.impure_semitones(), edo12_third_error, max_relative = eps);
         assert_relative_eq!(
-            s.semitones(),
+            s.relative_semitones(),
             7.0 * third + 7.0 * edo12_third_error,
             max_relative = eps
         );
@@ -324,7 +343,7 @@ mod test {
             max_relative = eps
         );
         assert_relative_eq!(
-            s.semitones(),
+            s.relative_semitones(),
             2.0 * third
                 + 4.0 * octave
                 + fifth

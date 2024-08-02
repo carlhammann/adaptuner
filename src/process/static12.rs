@@ -23,7 +23,6 @@ enum NoteStatus {
 
 pub struct Static12<T: StackType, N: CompleteNeigbourhood<T>> {
     config: Static12Config<T, N>,
-    initial_reference_key: i8,
     reference_stack: Stack<T>,
     reference_key: i8,
     neighbourhood: N,
@@ -46,7 +45,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> Static12<T, N> {
     }
 
     fn tuning_from_stack(&self, stack: &Stack<T>) -> Semitones {
-        stack.semitones() + self.initial_reference_key as Semitones
+        stack.absolute_semitones()
     }
 
     // TODO: This can be made more efficient; we don't need to always recompute everything.
@@ -278,7 +277,6 @@ impl<T: FiveLimitStackType, N: CompleteNeigbourhood<T> + Clone> ProcessState<T> 
 
 #[derive(Clone)]
 pub struct Static12Config<T: StackType, N: CompleteNeigbourhood<T>> {
-    pub initial_reference_key: i8,
     pub initial_neighbourhood: N,
     pub _phantom: PhantomData<T>,
 }
@@ -294,9 +292,8 @@ impl<T: FiveLimitStackType, N: CompleteNeigbourhood<T> + Clone> Config<Static12<
         let no_active_temperaments = vec![false; T::num_temperaments()];
         Static12 {
             config: config.clone(),
-            initial_reference_key: config.initial_reference_key,
             reference_stack: Stack::new(&no_active_temperaments, vec![0; T::num_intervals()]),
-            reference_key: config.initial_reference_key,
+            reference_key: 60,
             neighbourhood: config.initial_neighbourhood.clone(),
             active_temperaments: no_active_temperaments,
             note_statuses,
