@@ -1,3 +1,6 @@
+//! A buggy pitchbend that tries to use more than twelve prich bends in an optimal way.
+//!
+
 use std::{mem::MaybeUninit, sync::mpsc, time::Instant};
 
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
@@ -8,6 +11,13 @@ use crate::{
     interval::{interval::Semitones, stacktype::r#trait::StackType},
     msg,
 };
+
+#[derive(PartialEq, Clone, Copy)]
+enum NoteState {
+    Pressed,
+    Sustained,
+    Off,
+}
 
 #[derive(Clone, Copy)]
 struct NoteInfo {
@@ -29,13 +39,26 @@ struct NoteInfo {
     /// ideal tuning (in the nominal case, exactly to it, whithin the presicion of pitchbend).
     mapped_to: u8,
 
-    /// true iff the note is only held by the pedal
-    sustained: bool,
+    /// note state by _input_ channels (i.e. not the ones we map to here!)
+    state_by_input_channel: [NoteState; 16],
+}
+
+impl NoteInfo {
+    fn active(&self) -> bool {
+        for state in self.state_by_input_channel {
+            if state != NoteState::Off {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 struct ChannelInfo {
-    /// How many notes are currently sounding on this channel
-    usage: u8,
+    /// How many notes are currently sounding on this channel. This is in general smaller than the
+    /// number of notes mapped to a note soundin on this channel, because the same note may sound
+    /// on more than one _input_ channel.
+    usage: usize,
 
     /// the pitch bend value of this channel
     bend: u16,
@@ -50,12 +73,10 @@ pub struct Pitchbend<const NCHANNELS: usize> {
     /// invariant: the info pertaining to `channels[i]` is in `channelinfo[i]`
     channelinfo: [ChannelInfo; NCHANNELS],
 
-    /// which notes are currently active, and on which channel they sound, and which note they map
-    /// to on that channel.
-    active_notes: [Option<NoteInfo>; 128],
+    active_notes: [NoteInfo; 128],
 
-    /// is the sustain pedal held at the moment?
-    sustained: bool,
+    /// is the sustain pedal held at the moment? This information is per _input_ channel.
+    sustain_by_input_channel: [bool; 16],
 
     /// the current bend range
     bend_range: Semitones,
@@ -129,6 +150,7 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend<NCHANNE
                 note,
                 velocity,
                 tuning,
+                channel: input_channel,
                 ..
             } => {
                 let (mapped_to, bend) = mapped_to_and_bend(tuning);
@@ -151,14 +173,17 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend<NCHANNE
                             time,
                         );
 
-                        self.active_notes[note as usize] = Some(NoteInfo {
-                            desired_tuning: tuning,
-                            channel,
-                            channelindex: i,
-                            sustained: false,
-                            mapped_to,
-                        });
-                        self.channelinfo[i].usage += 1;
+                        let mut the_note = self.active_notes[note as usize];
+                        let was_already_active = the_note.active();
+                        the_note.desired_tuning = tuning;
+                        the_note.channel = channel;
+                        the_note.channelindex = i;
+                        the_note.mapped_to = mapped_to;
+                        the_note.state_by_input_channel[input_channel as usize] =
+                            NoteState::Pressed;
+                        if !was_already_active {
+                            self.channelinfo[i].usage += 1;
+                        }
 
                         inserted = true;
                         break;
@@ -190,13 +215,13 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend<NCHANNE
                                 time,
                             );
 
-                            self.active_notes[note as usize] = Some(NoteInfo {
-                                desired_tuning: tuning,
-                                channel,
-                                channelindex: i,
-                                sustained: false,
-                                mapped_to,
-                            });
+                            let mut the_note = self.active_notes[note as usize];
+                            the_note.desired_tuning = tuning;
+                            the_note.channel = channel;
+                            the_note.channelindex = i;
+                            the_note.mapped_to = mapped_to;
+                            the_note.state_by_input_channel[input_channel as usize] =
+                                NoteState::Pressed;
                             self.channelinfo[i].usage = 1;
                             self.channelinfo[i].bend = bend;
 
@@ -234,14 +259,16 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend<NCHANNE
                         time,
                     );
 
-                    self.active_notes[note as usize] = Some(NoteInfo {
-                        desired_tuning: tuning,
-                        channel: closest_channel,
-                        channelindex: closest_channel_index,
-                        sustained: false,
-                        mapped_to,
-                    });
-                    self.channelinfo[closest_channel_index].usage += 1;
+                    let mut the_note = self.active_notes[note as usize];
+                    let was_already_active = the_note.active();
+                    the_note.desired_tuning = tuning;
+                    the_note.channel = closest_channel;
+                    the_note.channelindex = closest_channel_index;
+                    the_note.mapped_to = mapped_to;
+                    the_note.state_by_input_channel[input_channel as usize] = NoteState::Pressed;
+                    if !was_already_active {
+                        self.channelinfo[closest_channel_index].usage += 1;
+                    }
 
                     let m = msg::AfterProcess::DetunedNote {
                         note,
@@ -259,45 +286,38 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend<NCHANNE
 
             msg::AfterProcess::NoteOff {
                 held_by_sustain: _,
-                channel: _,
+                channel: input_channel,
                 note,
                 velocity,
-            } => match self.active_notes[note as usize] {
-                Some(NoteInfo {
-                    channel,
-                    channelindex,
-                    sustained: _,
-                    desired_tuning,
-                    mapped_to,
-                }) => {
+            } => {
+                let mut the_note = self.active_notes[note as usize];
+                if self.sustain_by_input_channel[input_channel as usize] {
+                    the_note.state_by_input_channel[input_channel as usize] = NoteState::Sustained;
+                } else {
+                    the_note.state_by_input_channel[input_channel as usize] = NoteState::Off;
+                }
+                if !the_note.active() {
+                    self.channelinfo[the_note.channelindex].usage = self.channelinfo
+                        [the_note.channelindex]
+                        .usage
+                        .saturating_sub(1);
                     send(
                         MidiMsg::ChannelVoice {
-                            channel,
+                            channel: the_note.channel,
                             msg: ChannelVoiceMsg::NoteOff {
-                                note: mapped_to,
+                                note: the_note.mapped_to,
                                 velocity,
                             },
                         },
                         time,
                     );
-                    if self.sustained {
-                        self.active_notes[note as usize] = Some(NoteInfo {
-                            desired_tuning,
-                            channel,
-                            channelindex,
-                            mapped_to,
-                            sustained: true,
-                        });
-                    } else {
-                        self.active_notes[note as usize] = None;
-                        self.channelinfo[channelindex].usage =
-                            self.channelinfo[channelindex].usage.saturating_sub(1);
-                    }
                 }
-                None => {}
-            },
+            }
 
-            msg::AfterProcess::Sustain { channel: _, value } => {
+            msg::AfterProcess::Sustain {
+                channel: input_channel,
+                value,
+            } => {
                 for i in 0..NCHANNELS {
                     send(
                         MidiMsg::ChannelVoice {
@@ -309,24 +329,18 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend<NCHANNE
                         time,
                     );
                 }
-                self.sustained = value != 0;
+                self.sustain_by_input_channel[input_channel as usize] = value != 0;
                 if value == 0 {
-                    for i in 0..128 {
-                        match self.active_notes[i] {
-                            None => {}
-                            Some(NoteInfo {
-                                desired_tuning: _,
-                                channel: _,
-                                channelindex,
-                                sustained,
-                                mapped_to: _,
-                            }) => {
-                                if sustained {
-                                    self.channelinfo[channelindex].usage =
-                                        self.channelinfo[channelindex].usage.saturating_sub(1);
-                                    self.active_notes[i] = None;
-                                }
-                            }
+                    for note in &mut self.active_notes {
+                        note.state_by_input_channel[input_channel as usize] =
+                            match note.state_by_input_channel[input_channel as usize] {
+                                NoteState::Off => NoteState::Off,
+                                NoteState::Sustained => NoteState::Off,
+                                NoteState::Pressed => NoteState::Pressed,
+                            };
+                        if !note.active() {
+                            self.channelinfo[note.channelindex].usage =
+                                self.channelinfo[note.channelindex].usage.saturating_sub(1);
                         }
                     }
                 }
@@ -348,78 +362,66 @@ impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend<NCHANNE
             }
 
             msg::AfterProcess::Retune { note, tuning, .. } => {
-                match self.active_notes[note as usize] {
-                    None => {}
-                    Some(NoteInfo {
-                        desired_tuning: _,
-                        channelindex,
-                        channel,
-                        sustained: _,
-                        mapped_to,
-                    }) => {
-                        let bend =
-                            bend_from_semitones(self.bend_range, tuning - mapped_to as Semitones);
+                let the_note = self.active_notes[note as usize];
+                if the_note.active() {
+                    let bend = bend_from_semitones(
+                        self.bend_range,
+                        tuning - the_note.mapped_to as Semitones,
+                    );
 
-                        if bend == self.channelinfo[channelindex].bend {
-                            return;
-                        }
+                    if bend == self.channelinfo[the_note.channelindex].bend {
+                        return;
+                    }
 
-                        send(
-                            MidiMsg::ChannelVoice {
-                                channel,
-                                msg: ChannelVoiceMsg::PitchBend { bend },
-                            },
-                            time,
-                        );
+                    send(
+                        MidiMsg::ChannelVoice {
+                            channel: the_note.channel,
+                            msg: ChannelVoiceMsg::PitchBend { bend },
+                        },
+                        time,
+                    );
 
-                        self.channelinfo[channelindex].bend = bend;
+                    self.channelinfo[the_note.channelindex].bend = bend;
 
-                        if (tuning - mapped_to as Semitones).abs() > self.bend_range {
-                            let m = msg::AfterProcess::DetunedNote {
-                                note,
-                                should_be: tuning,
-                                actual: mapped_to as Semitones
-                                    + if tuning > note as Semitones {
-                                        self.bend_range
-                                    } else {
-                                        -self.bend_range
-                                    },
-                                explanation: "Could not re-tune farther than the pitchbend range",
-                            };
-                            // println!("{m:?}");
-                            send_to_ui(m, time);
-                        }
+                    if (tuning - the_note.mapped_to as Semitones).abs() > self.bend_range {
+                        let m = msg::AfterProcess::DetunedNote {
+                            note,
+                            should_be: tuning,
+                            actual: the_note.mapped_to as Semitones
+                                + if tuning > note as Semitones {
+                                    self.bend_range
+                                } else {
+                                    -self.bend_range
+                                },
+                            explanation: "Could not re-tune farther than the pitchbend range",
+                        };
+                        // println!("{m:?}");
+                        send_to_ui(m, time);
+                    }
 
-                        if self.channelinfo[channelindex].usage > 1 {
-                            for other_note in 0..128 {
-                                match self.active_notes[other_note] {
-                                    None => {}
-                                    Some(NoteInfo {
-                                        desired_tuning,
-                                        channelindex: _,
-                                        channel: other_channel,
-                                        mapped_to: other_mapped_to,
-                                        sustained: _,
-                                    }) => {
-                                        if channel == other_channel && other_mapped_to != mapped_to
-                                        {
-                                            let other_bend = bend_from_semitones(
-                                                self.bend_range,
-                                                desired_tuning - other_mapped_to as Semitones,
-                                            );
+                    if self.channelinfo[the_note.channelindex].usage > 1 {
+                        for other_note in 0..128 {
+                            let the_other_note = self.active_notes[other_note];
+                            if the_other_note.active() {
+                                if the_note.channel == the_other_note.channel
+                                    && the_other_note.mapped_to != the_note.mapped_to
+                                {
+                                    let other_bend = bend_from_semitones(
+                                        self.bend_range,
+                                        the_other_note.desired_tuning
+                                            - the_other_note.mapped_to as Semitones,
+                                    );
 
-                                            if bend != other_bend {
-                                                let m = msg::AfterProcess::DetunedNote {
+                                    if bend != other_bend {
+                                        let m = msg::AfterProcess::DetunedNote {
                                                 note: other_note as u8,
-                                                should_be: desired_tuning,
-                                                actual: other_mapped_to as Semitones
+                                                should_be: the_other_note.desired_tuning,
+                                                actual: the_other_note.mapped_to as Semitones
                                                     + semitones_from_bend( self.bend_range, bend),
                                                 explanation: "Detuned because another note on the same channel was re-tuned",
                                             };
-                                                // println!("{m:?}");
-                                                send_to_ui(m, time);
-                                            }
-                                        }
+                                        // println!("{m:?}");
+                                        send_to_ui(m, time);
                                     }
                                 }
                             }
@@ -457,12 +459,24 @@ impl<const NCHANNELS: usize> Config<Pitchbend<NCHANNELS>> for PitchbendConfig<NC
             });
         }
         let channelinfo = unsafe { MaybeUninit::array_assume_init(uninit_channelinfo) };
+
+        let mut uninit_active_notes: [MaybeUninit<NoteInfo>; 128] = MaybeUninit::uninit_array();
+        for i in 0..128 {
+            uninit_active_notes[i].write(NoteInfo {
+                channel: config.channels[0],
+                channelindex: 0,
+                desired_tuning: i as Semitones,
+                mapped_to: i as u8,
+                state_by_input_channel: [NoteState::Off; 16],
+            });
+        }
+        let active_notes = unsafe { MaybeUninit::array_assume_init(uninit_active_notes) };
         Pitchbend {
             channels: config.channels,
             config: config.clone(),
             channelinfo,
-            active_notes: [None; 128],
-            sustained: false,
+            active_notes,
+            sustain_by_input_channel: [false; 16],
             bend_range: config.bend_range,
         }
     }
