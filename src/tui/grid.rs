@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::mpsc, time::Instant};
+use std::{marker::PhantomData, mem::MaybeUninit, sync::mpsc, time::Instant};
 
 use colorous;
 use crossterm::event::{KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
@@ -12,7 +12,7 @@ use crate::{
     interval::{
         interval::Semitones,
         stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, PeriodicStackType, StackCoeff},
+        stacktype::r#trait::{FiveLimitStackType, PeriodicStackType, StackCoeff, StackType},
     },
     msg,
     neighbourhood::AlignedPeriodicNeighbourhood,
@@ -45,9 +45,26 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
 }
 
 #[derive(Copy, Clone, PartialEq)]
-enum NoteOnState {
+enum NoteState {
+    Off,
     Pressed,
     Sustained,
+}
+
+struct NoteInfo<T: StackType> {
+    tuning_stack: Stack<T>,
+    state_by_channel: [NoteState; 16],
+}
+
+impl<T: StackType> NoteInfo<T> {
+    fn inactive(&self) -> bool {
+        for state in self.state_by_channel {
+            if state != NoteState::Off {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 pub struct Grid<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> {
@@ -61,8 +78,8 @@ pub struct Grid<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> {
 
     active_temperaments: Vec<bool>,
 
-    // the stacks are relative to the initial_reference_key
-    active_notes: Vec<(u8, Stack<T>, NoteOnState)>, // TODO: this sometimes does weird things, because we don't track which channel(s) the notes are on
+    active_notes: [NoteInfo<T>; 128],
+    sustain: [bool; 16],
     considered_notes: N,
 
     reference_key: i8,
@@ -93,15 +110,18 @@ impl<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> Grid<T, N> {
         let (mut min_horizontal, mut max_horizontal) = (origin_horizontal, origin_horizontal);
         let (mut min_vertical, mut max_vertical) = (origin_vertical, origin_vertical);
 
-        for (_, stack, _) in &self.active_notes {
-            let hor = stack.coefficients()[horizontal_index];
+        for note in &self.active_notes {
+            if note.inactive() {
+                continue;
+            }
+            let hor = note.tuning_stack.coefficients()[horizontal_index];
             if hor < min_horizontal {
                 min_horizontal = hor;
             }
             if hor > max_horizontal {
                 max_horizontal = hor;
             }
-            let ver = stack.coefficients()[vertical_index];
+            let ver = note.tuning_stack.coefficients()[vertical_index];
             if ver < min_vertical {
                 min_vertical = ver;
             }
@@ -220,18 +240,21 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                 );
             }
         });
-        for (_, the_stack, _) in &self.active_notes {
-            let i = the_stack.coefficients()[self.vertical_index];
-            let j = the_stack.coefficients()[self.horizontal_index];
+        for note in &self.active_notes {
+            if note.inactive() {
+                continue;
+            }
+            let i = note.tuning_stack.coefficients()[self.vertical_index];
+            let j = note.tuning_stack.coefficients()[self.horizontal_index];
             if i < self.min_vertical
                 || i > self.max_vertical
                 || j < self.min_horizontal
                 || j > self.max_horizontal
             {
-                break;
+                continue;
             }
             render_stack(
-                &the_stack,
+                &note.tuning_stack,
                 CellState::On,
                 &self.config.display_config,
                 Rect {
@@ -305,24 +328,10 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
         frame: &mut Frame,
         area: Rect,
     ) {
-        // let draw_frame = |t: &mut Tui, g: &mut Self| {
-        //     let mut frame = t.get_frame();
-        //     g.recalculate_dimensions(&area);
-        //     frame.render_widget(&*g, area);
-        // };
-
-        // let other_draw_fra reference_stack.coefficients()[self.vertical_index];e = || {
-        //     tui.draw(|frame| frame.render_widget(self, frame.size()))
-        // };
-
         let send_to_process =
             |msg: msg::ToProcess, time: Instant| to_process.send((time, msg)).unwrap_or(());
 
         match msg {
-            msg::AfterProcess::Start => {}
-            msg::AfterProcess::Stop => {
-                send_to_process(msg::ToProcess::Stop, time);
-            }
             msg::AfterProcess::CrosstermEvent(e) => match e {
                 crossterm::event::Event::Key(k) => {
                     if k.kind == KeyEventKind::Press {
@@ -387,57 +396,50 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
             }
 
             msg::AfterProcess::TunedNoteOn {
-                note, tuning_stack, ..
-            } => {
-                let mut inserted = false;
-                for (key, stack, _) in &mut self.active_notes {
-                    if *key == *note {
-                        inserted = true;
-                        stack.clone_from(&tuning_stack);
-                        break;
-                    }
-                }
-                if !inserted {
-                    self.active_notes
-                        .push((*note, tuning_stack.clone(), NoteOnState::Pressed));
-                }
-            }
-            msg::AfterProcess::Retune {
-                note, tuning_stack, ..
-            } => {
-                for (key, stack, _) in &mut self.active_notes {
-                    if *key == *note {
-                        stack.clone_from(&tuning_stack);
-                        break;
-                    }
-                }
-            }
-            msg::AfterProcess::NoteOff {
-                held_by_sustain,
-                note,
+                note: i,
+                tuning_stack,
+                channel,
                 ..
             } => {
-                if let Some(index) = self
-                    .active_notes
-                    .iter()
-                    .position(|(key, _, _)| *key == *note)
-                {
-                    if *held_by_sustain {
-                        self.active_notes[index].2 = NoteOnState::Sustained;
-                    } else {
-                        self.active_notes.swap_remove(index);
+                let ith_note = &mut self.active_notes[*i as usize];
+                ith_note.tuning_stack.clone_from(&tuning_stack);
+                ith_note.state_by_channel[*channel as usize] = NoteState::Pressed;
+            }
+            msg::AfterProcess::Retune {
+                note: i,
+                tuning_stack,
+                ..
+            } => {
+                let ith_note = &mut self.active_notes[*i as usize];
+                ith_note.tuning_stack.clone_from(&tuning_stack);
+            }
+            msg::AfterProcess::NoteOff {
+                note: i, channel, ..
+            } => {
+                let ith_note = &mut self.active_notes[*i as usize];
+                let old_state = ith_note.state_by_channel[*channel as usize];
+                ith_note.state_by_channel[*channel as usize] = match old_state {
+                    NoteState::Off => NoteState::Off,
+                    NoteState::Sustained => NoteState::Sustained,
+                    NoteState::Pressed => {
+                        if self.sustain[*channel as usize] {
+                            NoteState::Sustained
+                        } else {
+                            NoteState::Off
+                        }
                     }
-                }
+                };
             }
 
             msg::AfterProcess::Consider { stack } => {
                 self.considered_notes.insert(stack);
             }
-            msg::AfterProcess::Reset => {}
-            msg::AfterProcess::Sustain { value, .. } => {
-                if *value == 0 {
-                    self.active_notes
-                        .retain(|(_, _, s)| *s != NoteOnState::Sustained);
+            msg::AfterProcess::Sustain { value, channel, .. } => {
+                self.sustain[*channel as usize] = *value != 0;
+                for note in &mut self.active_notes {
+                    if note.state_by_channel[*channel as usize] == NoteState::Sustained {
+                        note.state_by_channel[*channel as usize] = NoteState::Off;
+                    }
                 }
             }
 
@@ -467,6 +469,14 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
 {
     fn initialise(config: &Self) -> Grid<T, N> {
         let no_active_temperaments = vec![false; T::num_temperaments()];
+        let mut uninit_active_notes: [MaybeUninit<NoteInfo<T>>; 128] = MaybeUninit::uninit_array();
+        for i in 0..128 {
+            uninit_active_notes[i].write(NoteInfo {
+                state_by_channel: [NoteState::Off; 16],
+                tuning_stack: Stack::new_zero(),
+            });
+        }
+        let active_notes = unsafe { MaybeUninit::array_assume_init(uninit_active_notes) };
         Grid {
             horizontal_index: config.horizontal_index,
             vertical_index: config.vertical_index,
@@ -477,7 +487,8 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
 
             considered_notes: config.initial_neighbourhood.clone(),
 
-            active_notes: Vec::with_capacity(12),
+            active_notes,
+            sustain: [false; 16],
             config: config.clone(),
 
             horizontal_margin: 1,
