@@ -355,16 +355,19 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                                 }
                             }
 
-                            KeyCode::Char('1') => {
-                                let index = 0;
-                                self.active_temperaments[index] = !self.active_temperaments[index];
-                                send_to_process(msg::ToProcess::ToggleTemperament { index }, time);
-                            }
-                            KeyCode::Char('2') => {
-                                let index = 1;
-                                self.active_temperaments[index] = !self.active_temperaments[index];
-                                send_to_process(msg::ToProcess::ToggleTemperament { index }, time);
-                            }
+                            KeyCode::Char(c) => match c.to_digit(10) {
+                                None => {}
+                                Some(ix) => {
+                                    let index = (ix as usize).rem_euclid(T::num_temperaments());
+                                    self.active_temperaments[index] =
+                                        !self.active_temperaments[index];
+                                    send_to_process(
+                                        msg::ToProcess::ToggleTemperament { index },
+                                        time,
+                                    );
+                                }
+                            },
+
                             _ => {}
                         }
                     }
@@ -497,8 +500,7 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
             max_horizontal: 1,
             min_vertical: -1,
             max_vertical: 1,
-            column_width: 0, // this will be changed. I initialise to zero to make division panic
-                             // if not
+            column_width: 0, // this will be changed by [recalculate_dimensions]. I initialise to zero to make division panic if not
         }
     }
 }
