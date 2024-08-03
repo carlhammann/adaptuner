@@ -317,7 +317,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         Err(why) => return Err(format!("couldn't open {}: {}", pattern_path.display(), why).into()),
         Ok(file) => file,
     };
-    let patterns = match serde_json::from_reader(file) {
+    let patterns = match deser_hjson::from_reader(file) {
         Err(why) => return Err(format!("couldn't read {}: {}", pattern_path.display(), why).into()),
         Ok(patterns) => patterns,
     };

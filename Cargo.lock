@@ -10,6 +10,7 @@ dependencies = [
  "colorous",
  "crossterm",
  "ctrlc",
+ "deser-hjson",
  "fractionfree",
  "midi-msg",
  "midir",
@@ -20,7 +21,6 @@ dependencies = [
  "ratatui",
  "serde",
  "serde_derive",
- "serde_json",
 ]
 
 [[package]]
@@ -221,6 +221,15 @@ checksum = "672465ae37dc1bc6380a6547a8883d5dd397b0f1faaad4f265726cc7042a5345"
 dependencies = [
  "nix 0.28.0",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "deser-hjson"
+version = "2.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d94aac4095c08ded7e4b9ba7fc2b2929f11b94bb96897ca188b0f64e01688e1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -597,18 +606,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.72",
-]
-
-[[package]]
-name = "serde_json"
-version = "1.0.122"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "784b6203951c57ff748476b126ccb5e8e2959a5c19e5c617ab1956be3dbc68da"
-dependencies = [
- "itoa",
- "memchr",
- "ryu",
- "serde",
 ]
 
 [[package]]
