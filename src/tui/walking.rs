@@ -8,6 +8,10 @@ use crate::{
     interval::{stack::Stack, stacktype::r#trait::FiveLimitStackType},
     msg,
     notename::NoteNameStyle,
+    process::walking::{
+        PATTERNS_DISABLED, PATTERNS_ENABLED, TOGGLE_PATTERNS, TOGGLE_TEMPER_PATTERN_NEIGHBOURHOODS,
+        UPDATE_KEY_CENTER,
+    },
     tui::r#trait::UIState,
 };
 
@@ -60,15 +64,30 @@ impl<T: FiveLimitStackType> UIState<T> for Walking<T> {
                             }
 
                             KeyCode::Char('p') => {
-                                send_to_process(msg::ToProcess::Special { code: 3 }, time);
+                                send_to_process(
+                                    msg::ToProcess::Special {
+                                        code: TOGGLE_PATTERNS,
+                                    },
+                                    time,
+                                );
                             }
 
                             KeyCode::Char(' ') => {
-                                send_to_process(msg::ToProcess::Special { code: 2 }, time);
+                                send_to_process(
+                                    msg::ToProcess::Special {
+                                        code: UPDATE_KEY_CENTER,
+                                    },
+                                    time,
+                                );
                             }
 
                             KeyCode::Char('t') => {
-                                send_to_process(msg::ToProcess::Special { code: 1 }, time);
+                                send_to_process(
+                                    msg::ToProcess::Special {
+                                        code: TOGGLE_TEMPER_PATTERN_NEIGHBOURHOODS,
+                                    },
+                                    time,
+                                );
                             }
 
                             _ => {}
@@ -78,12 +97,13 @@ impl<T: FiveLimitStackType> UIState<T> for Walking<T> {
                 _ => {}
             },
 
-            msg::AfterProcess::Special { code: 1 } => {
-                self.use_patterns = true;
-            }
-
-            msg::AfterProcess::Special { code: 2 } => {
-                self.use_patterns = false;
+            msg::AfterProcess::Special { code } => {
+                if *code == PATTERNS_ENABLED {
+                    self.use_patterns = true;
+                }
+                if *code == PATTERNS_DISABLED {
+                    self.use_patterns = false;
+                }
             }
 
             _ => {}

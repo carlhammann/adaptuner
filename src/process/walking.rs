@@ -57,6 +57,15 @@ impl<T: StackType> HasActivationStatus for NoteInfo<T> {
     }
 }
 
+// `code`s sent in [Special][msg::AfterProcess::Special] messages by this process.
+pub static PATTERNS_ENABLED: u8 = 0;
+pub static PATTERNS_DISABLED: u8 = 1;
+
+// `code`s received in [Special][msg::ToProcess::Special] messages to this process.
+pub static TOGGLE_PATTERNS: u8 = 0;
+pub static UPDATE_KEY_CENTER: u8 = 1;
+pub static TOGGLE_TEMPER_PATTERN_NEIGHBOURHOODS: u8 = 2;
+
 impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
     // returns true iff the current_fit changed
     fn recompute_fit(
@@ -473,7 +482,11 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
         self.update_all_tunings(time, to_backend);
         send_to_backend(
             msg::AfterProcess::Special {
-                code: if self.use_patterns { 1 } else { 2 },
+                code: if self.use_patterns {
+                    PATTERNS_ENABLED
+                } else {
+                    PATTERNS_DISABLED
+                },
             },
             time,
         );
@@ -490,14 +503,14 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> ProcessState
         to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
     ) {
         match msg {
-            msg::ToProcess::Special { code: 1 } => {
-                self.toggle_temper_pattern_neighbourhoods(time, to_backend)
-            }
-            msg::ToProcess::Special { code: 2 } => {
-                self.update_key_center(time, to_backend);
-            }
-            msg::ToProcess::Special { code: 3 } => {
-                self.toggle_patterns(time, to_backend);
+            msg::ToProcess::Special { code } => {
+                if code == TOGGLE_TEMPER_PATTERN_NEIGHBOURHOODS {
+                    self.toggle_temper_pattern_neighbourhoods(time, to_backend)
+                } else if code == UPDATE_KEY_CENTER {
+                    self.update_key_center(time, to_backend);
+                } else if code == TOGGLE_PATTERNS {
+                    self.toggle_patterns(time, to_backend);
+                }
             }
             msg::ToProcess::Start => self.start(time, to_backend),
             msg::ToProcess::Stop => self.stop(time, to_backend),
@@ -509,7 +522,6 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> ProcessState
             msg::ToProcess::ToggleTemperament { index } => {
                 self.toggle_temperament(time, index, to_backend)
             }
-            _ => {}
         }
     }
 }
