@@ -17,6 +17,10 @@ serde_derive = "1.0.198"
 ctrlc = "3.4.4"
 deser-hjson = "2.2.4"
 serde = "1.0.204"
+eframe = "0.29.1"
+egui = { version = "0.29.1", features = ["color-hex"] }
+epaint = "0.29.1"
+emath = "0.29.1"
 
 [dev-dependencies]
 approx = "0.5.1"
