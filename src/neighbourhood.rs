@@ -310,9 +310,9 @@ pub fn new_fivelimit_neighbourhood<T: FiveLimitStackType + OctavePeriodicStackTy
     for i in (-index)..(12 - index) {
         let (octaves, fifths, thirds) = fivelimit_corridor(width, offset, i);
         let the_stack = &mut stacks[(7 * i).rem_euclid(12) as usize];
-        the_stack.increment_at_index(&active_temperaments, T::octave_index(), octaves);
-        the_stack.increment_at_index(&active_temperaments, T::fifth_index(), fifths);
-        the_stack.increment_at_index(&active_temperaments, T::third_index(), thirds);
+        the_stack.increment_at(&active_temperaments, T::octave_index(), octaves);
+        the_stack.increment_at(&active_temperaments, T::fifth_index(), fifths);
+        the_stack.increment_at(&active_temperaments, T::third_index(), thirds);
     }
     PeriodicCompleteAligned {
         inner: PeriodicComplete {

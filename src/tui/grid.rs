@@ -183,12 +183,12 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
     /// Otherwise, expect bad things to happen!    
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let mut the_stack = self.reference_stack.clone();
-        the_stack.increment_at_index(
+        the_stack.increment_at(
             &self.active_temperaments,
             self.vertical_index,
             self.min_vertical - self.reference_stack.coefficients()[self.vertical_index],
         );
-        the_stack.increment_at_index(
+        the_stack.increment_at(
             &self.active_temperaments,
             self.horizontal_index,
             self.min_horizontal - self.reference_stack.coefficients()[self.horizontal_index],
@@ -208,10 +208,10 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                     },
                     buf,
                 );
-                the_stack.increment_at_index(&self.active_temperaments, self.horizontal_index, 1);
+                the_stack.increment_at(&self.active_temperaments, self.horizontal_index, 1);
             }
-            the_stack.increment_at_index(&self.active_temperaments, self.vertical_index, 1);
-            the_stack.increment_at_index(
+            the_stack.increment_at(&self.active_temperaments, self.vertical_index, 1);
+            the_stack.increment_at(
                 &self.active_temperaments,
                 self.horizontal_index,
                 self.min_horizontal - self.max_horizontal - 1,
@@ -330,7 +330,7 @@ fn render_stack<T: FiveLimitStackType>(
         stack.notename(&config.notenamestyle),
         Style::default(),
     );
-    let deviation = stack.impure_semitones();
+    let deviation = stack.semitones_away_from_pure();
     if !stack.is_pure() {
         buf.set_string(
             area.x,

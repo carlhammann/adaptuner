@@ -229,7 +229,7 @@ impl<T: StackType> Stack<T> {
         60 + self.key_distance()
     }
 
-    /// Like [increment_at_index][StackType::increment_at_index], but acting on several intervals at
+    /// Like [increment_at][Stack::increment_at], but acting on several intervals at
     /// the same time.
     pub fn increment(&mut self, active_temperaments: &[bool], coefficients: &[StackCoeff]) {
         for (i, coeff) in self.coefficients.iter_mut().enumerate() {
@@ -250,7 +250,7 @@ impl<T: StackType> Stack<T> {
     }
 
     /// Add or subtract a few intervals to a `Stack`.
-    pub fn increment_at_index(
+    pub fn increment_at(
         &mut self,
         active_temperaments: &[bool],
         index: usize,
