@@ -12,7 +12,7 @@ use crate::interval::{
 };
 
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
-pub struct ConcreteFiveLimitStackType {}
+pub struct ConcreteFiveLimitStackType {} // TODO: this should only be used in tests
 
 static INTERVALS: LazyLock<[Interval; 3]> = LazyLock::new(|| {
     [
