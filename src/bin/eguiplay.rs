@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use egui::{
     pos2, widgets, Align, Align2, CentralPanel, Context, FontId, Frame, Id, Layout, Sense, Slider,
-    Stroke, TopBottomPanel,
+    TopBottomPanel,
 };
 use emath::{vec2, Pos2, Rect, Vec2};
 use epaint::{Color32, PathStroke, Shape};
@@ -10,7 +10,10 @@ use epaint::{Color32, PathStroke, Shape};
 use adaptuner::{
     interval::{
         stack::Stack,
-        stacktype::{fivelimit::ConcreteFiveLimitStackType, r#trait::StackCoeff},
+        stacktype::{
+            fivelimit::ConcreteFiveLimitStackType,
+            r#trait::{FiveLimitStackType, StackCoeff, StackType},
+        },
     },
     notename::NoteNameStyle,
 };
@@ -23,9 +26,18 @@ fn main() -> eframe::Result {
     )
 }
 
-impl eframe::App for State {
+impl<T> eframe::App for State<T>
+where
+    T: FiveLimitStackType + std::hash::Hash, // TODO remove the hash constraint, when we've found
+                                             // something better to hash than the Stacks
+{
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                widgets::global_theme_preference_switch(ui);
+            });
+        });
+        TopBottomPanel::bottom("slider_panel").show(ctx, |ui| {
             ui.add(
                 Slider::new(&mut self.directions[0].x, -100.0..=100.0)
                     .smart_aim(false)
@@ -41,18 +53,13 @@ impl eframe::App for State {
                     .smart_aim(false)
                     .text("x3"),
             );
-            ui.add(Slider::new(&mut self.max_coeff_dist, 1..=20).text("max distance"));
+            ui.add(Slider::new(&mut self.max_coeff_dist, 0..=20).text("max distance"));
             ui.add(
                 Slider::new(&mut self.zoom, 0.1..=10.0)
                     .smart_aim(false)
                     .logarithmic(true)
                     .text("zoom"),
             );
-
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                //ui.heading("adaptuner");
-                widgets::global_theme_preference_switch(ui);
-            });
         });
         CentralPanel::default().show(ctx, |ui| {
             Frame::canvas(ui.style()).show(ui, |ui| {
@@ -67,20 +74,11 @@ impl eframe::App for State {
                 let mut grid_lines = vec![];
                 let mut grid_text = vec![];
                 let mut lines = vec![];
-                let mut balls = vec![];
                 let mut text = vec![];
 
-                for (_i, (p, c)) in PointsInsideRect::new(
-                    &rect,
-                    &directions,
-                    self.max_coeff_dist,
-                    &rect.center(),
-                    &self.reference,
-                )
-                .enumerate()
-                {
-                    let stack: Stack<ConcreteFiveLimitStackType> =
-                        Stack::new(&vec![false; 2], c.clone());
+                let mut draw_star = |stack: &Stack<T>, p: Pos2| {
+                    //let stack: Stack<ConcreteFiveLimitStackType> =
+                    //    Stack::new(&vec![false; 2], c.clone());
                     ctx.fonts(|fonts| {
                         grid_text.push(Shape::text(
                             fonts,
@@ -92,23 +90,19 @@ impl eframe::App for State {
                         ))
                     });
                     for (i, &d) in directions.iter().enumerate() {
-                        if c[i] < self.reference[i] {
-                            grid_lines.push(Shape::line_segment(
-                                [p, p + d],
-                                PathStroke::new(1.0, ui.style().visuals.gray_out(self.colors[i])),
-                            ));
-                        }
-                        if c[i] > self.reference[i] {
-                            grid_lines.push(Shape::line_segment(
-                                [p, p - d],
-                                PathStroke::new(1.0, ui.style().visuals.gray_out(self.colors[i])),
-                            ));
-                        }
+                        grid_lines.push(Shape::line_segment(
+                            [p, p + d],
+                            PathStroke::new(1.0, ui.style().visuals.gray_out(self.colors[i])),
+                        ));
+                        grid_lines.push(Shape::line_segment(
+                            [p, p - d],
+                            PathStroke::new(1.0, ui.style().visuals.gray_out(self.colors[i])),
+                        ));
                     }
                     if ui
                         .interact(
                             Rect::from_center_size(p, vec2(20.0, 20.0)),
-                            Id::new(c.clone()), // todo this shoudl work without cloning: what's a
+                            Id::new(stack.clone()), // todo this should work without cloning: what's a
                             // good id?
                             Sense::hover(),
                         )
@@ -118,13 +112,8 @@ impl eframe::App for State {
                             [pos2(rect.left(), p.y), pos2(rect.right(), p.y)],
                             PathStroke::new(1.0, ui.style().visuals.weak_text_color()),
                         ));
-                        let mut tmp = p.clone();
-                        let mut tmp_coeff = c.clone();
-                        //balls.push(Shape::circle_filled(
-                        //    tmp,
-                        //    4.0,
-                        //    ui.style().visuals.text_color(),
-                        //));
+                        let mut tmp_coeff = stack.coefficients().to_vec();
+                        let mut start = p.clone();
                         ctx.fonts(|fonts| {
                             text.push(Shape::text(
                                 fonts,
@@ -135,91 +124,128 @@ impl eframe::App for State {
                                 ui.style().visuals.strong_text_color(),
                             ))
                         });
-                        while tmp_coeff != self.reference {
+                        while tmp_coeff != self.reference.coefficients() {
                             for (j, &d) in directions.iter().enumerate() {
-                                if self.reference[j] != tmp_coeff[j] {
-                                    let incr = if self.reference[j] > tmp_coeff[j] {
+                                if self.reference.coefficients()[j] != tmp_coeff[j] {
+                                    let incr = if self.reference.coefficients()[j] > tmp_coeff[j] {
                                         1
                                     } else {
                                         -1
                                     };
-                                    lines.push(Shape::line_segment(
-                                        [tmp, tmp + incr as f32 * d],
-                                        PathStroke::new(4.0, self.colors[j]),
-                                    ));
-                                    tmp += incr as f32 * d;
+                                    let end = start + incr as f32 * d;
+                                    lines.push(tipped_line(start, end, 4.0, self.colors[j]));
+                                    start = end;
                                     tmp_coeff[j] += incr;
                                     break;
                                 }
                             }
-                            balls.push(Shape::circle_filled(
-                                tmp,
-                                4.0,
-                                ui.style().visuals.text_color(),
-                            ));
                         }
                     }
+                };
+
+                for (_i, (p, c)) in PointsInsideRect::new(
+                    &rect,
+                    &directions,
+                    self.max_coeff_dist,
+                    &rect.center(),
+                    &self.active_temperaments,
+                    &self.active,
+                )
+                .enumerate()
+                {
+                    draw_star(&c, p);
                 }
 
                 ui.painter().with_clip_rect(rect).extend(grid_lines);
-                ui.painter().with_clip_rect(rect).extend(grid_text);
                 ui.painter().with_clip_rect(rect).extend(lines);
-                ui.painter().with_clip_rect(rect).extend(balls);
+                ui.painter().with_clip_rect(rect).extend(grid_text);
                 ui.painter().with_clip_rect(rect).extend(text);
             });
         });
     }
 }
 
-struct PointsInsideRect<'a> {
+fn tipped_line(start: Pos2, end: Pos2, width: f32, color: Color32) -> Shape {
+    let v = (end - start).normalized() * width.min(end.distance(start) / 2.0);
+    let w = v.clone().rot90();
+    Shape::convex_polygon(
+        vec![
+            start,
+            start + v + w,
+            end - v + w,
+            end,
+            end - v - w,
+            start + v - w,
+        ],
+        color,
+        PathStroke::NONE,
+    )
+}
+
+struct PointsInsideRect<'a, T: StackType> {
     bounding_box: &'a Rect,
     directions: &'a [Vec2],
     max_coeff_dist: StackCoeff,
-    start_coeff: &'a [StackCoeff],
-    discovered: Vec<(StackCoeff, Vec<StackCoeff>, Pos2)>,
+    active_temperaments: &'a [bool],
+    start_stacks: &'a [Stack<T>],
+    discovered: Vec<(StackCoeff, Stack<T>, Pos2)>,
 }
 
-impl<'a> PointsInsideRect<'a> {
+impl<'a, T: StackType> PointsInsideRect<'a, T> {
     fn new(
         bounding_box: &'a Rect,
         directions: &'a [Vec2],
         max_coeff_dist: StackCoeff,
-        start_pos: &'a Pos2,
-        start_coeff: &'a [StackCoeff],
+        reference_pos: &'a Pos2,
+        active_temperaments: &'a [bool],
+        start_stacks: &'a [Stack<T>],
     ) -> Self {
-        let discovered = vec![(0, start_coeff.to_vec(), start_pos.clone())];
         PointsInsideRect {
             bounding_box,
             directions,
             max_coeff_dist,
-            start_coeff,
-            discovered,
+            active_temperaments,
+            start_stacks,
+            discovered: start_stacks
+                .iter()
+                .map(|s| {
+                    let mut pos = reference_pos.clone();
+                    for (i, &c) in s.coefficients().iter().enumerate() {
+                        pos += c as f32 * directions[i];
+                    }
+                    (0, s.clone(), pos)
+                })
+                .collect(),
         }
     }
 }
 
-impl<'a> Iterator for PointsInsideRect<'a> {
-    type Item = (Pos2, Vec<StackCoeff>);
+impl<'a, T: StackType> Iterator for PointsInsideRect<'a, T> {
+    type Item = (Pos2, Stack<T>);
     fn next(&mut self) -> Option<Self::Item> {
         match self.discovered.pop() {
             None {} => return None,
-            Some((coeff_dist, coeff, pos)) => {
+            Some((coeff_dist, stack, pos)) => {
                 let mut insert_new_coeff = |dimension: usize, up_or_down: bool, direction: Vec2| {
-                    let mut new_coeff_dist = 0;
-                    let n = coeff.len();
-                    let get_coeff = |i| {
+                    let updated_coeff = |i| {
                         if i == dimension {
                             if up_or_down {
-                                coeff[i] + 1
+                                stack.coefficients()[i] + 1
                             } else {
-                                coeff[i] - 1
+                                stack.coefficients()[i] - 1
                             }
                         } else {
-                            coeff[i]
+                            stack.coefficients()[i]
                         }
                     };
-                    for i in 0..n {
-                        new_coeff_dist += (get_coeff(i) - self.start_coeff[i]).abs();
+                    let n = T::num_intervals();
+                    let mut new_coeff_dist = StackCoeff::MAX;
+                    for cs in self.start_stacks.iter() {
+                        let mut tmp = 0;
+                        for i in 0..n {
+                            tmp += (updated_coeff(i) - cs.coefficients()[i]).abs();
+                        }
+                        new_coeff_dist = new_coeff_dist.min(tmp);
                     }
 
                     if new_coeff_dist > coeff_dist && new_coeff_dist <= self.max_coeff_dist {
@@ -231,11 +257,11 @@ impl<'a> Iterator for PointsInsideRect<'a> {
                             } else {
                                 let mut res = Ordering::Equal;
                                 for i in 0..n {
-                                    if c[i] < get_coeff(i) {
+                                    if c.coefficients()[i] < updated_coeff(i) {
                                         res = Ordering::Greater;
                                         break;
                                     }
-                                    if c[i] > get_coeff(i) {
+                                    if c.coefficients()[i] > updated_coeff(i) {
                                         res = Ordering::Less;
                                         break;
                                     }
@@ -247,15 +273,15 @@ impl<'a> Iterator for PointsInsideRect<'a> {
                             Err(index) => {
                                 let mut new_pos = pos.clone();
                                 new_pos += direction;
-                                let mut new_coeff = coeff.clone();
+                                let mut new_stack = stack.clone();
                                 if up_or_down {
-                                    new_coeff[dimension] += 1;
+                                    new_stack.increment_at(self.active_temperaments, dimension, 1);
                                 } else {
-                                    new_coeff[dimension] -= 1;
+                                    new_stack.increment_at(self.active_temperaments, dimension, -1);
                                 }
                                 if self.bounding_box.contains(new_pos) {
                                     self.discovered
-                                        .insert(index, (new_coeff_dist, new_coeff, new_pos));
+                                        .insert(index, (new_coeff_dist, new_stack, new_pos));
                                 }
                             }
                         }
@@ -265,24 +291,26 @@ impl<'a> Iterator for PointsInsideRect<'a> {
                     insert_new_coeff(i, true, v);
                     insert_new_coeff(i, false, -v);
                 }
-                Some((pos, coeff))
+                Some((pos, stack))
             }
         }
     }
 }
 
-struct State {
+struct State<T: StackType> {
     directions: Vec<Vec2>,
     max_coeff_dist: StackCoeff,
     zoom: f32,
     colors: Vec<Color32>,
 
-    reference: Vec<StackCoeff>,
-    //active: Vec<Vec<StackCoeff>>,
+    reference: Stack<T>,
+    active: Vec<Stack<T>>,
+    active_temperaments: Vec<bool>,
 }
 
-impl State {
+impl State<ConcreteFiveLimitStackType> {
     fn new() -> Self {
+        let active_temperaments = vec![false; ConcreteFiveLimitStackType::num_temperaments()];
         State {
             directions: vec![
                 vec2(0.0, -120.0),
@@ -292,8 +320,14 @@ impl State {
             max_coeff_dist: 2,
             zoom: 1.0,
             colors: vec![Color32::RED, Color32::GREEN, Color32::BLUE],
-            reference: vec![1, -1, 1],
-            //active: vec![], //vec![3, 2]],
+
+            reference: Stack::new(&active_temperaments, vec![-1, 2, 0]),
+            active: vec![
+                Stack::new(&active_temperaments, vec![2, -1, 1]),
+                Stack::new(&active_temperaments, vec![0, 0, 0]),
+                Stack::new(&active_temperaments, vec![-1, -1, 0]),
+            ],
+            active_temperaments,
         }
     }
 }

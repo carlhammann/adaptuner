@@ -34,7 +34,7 @@ use crate::interval::{
 /// This is what enables [is_pure][Stack::is_pure]. Even more importantly, we need that
 /// representation for the "rollovers" that happen when a number of tempered intervals add up to
 /// pure intervals.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct Stack<T: StackType> {
     _phantom: PhantomData<T>,
 
