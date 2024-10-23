@@ -21,6 +21,7 @@ eframe = "0.29.1"
 egui = { version = "0.29.1", features = ["color-hex"] }
 epaint = "0.29.1"
 emath = "0.29.1"
+indextree = "4.7.3"
 
 [dev-dependencies]
 approx = "0.5.1"

@@ -1,8 +1,7 @@
 use std::cmp::Ordering;
 
 use egui::{
-    pos2, widgets, Align, Align2, CentralPanel, Context, FontId, Frame, Id, Layout, Sense, Slider,
-    TopBottomPanel,
+    widgets, Align, Align2, CentralPanel, Context, FontId, Frame, Layout, Slider, TopBottomPanel,
 };
 use emath::{vec2, Pos2, Rect, Vec2};
 use epaint::{Color32, PathStroke, Shape};
@@ -16,6 +15,7 @@ use adaptuner::{
         },
     },
     notename::NoteNameStyle,
+    notestore::{TunedNoteStore, Tuning},
 };
 
 fn main() -> eframe::Result {
@@ -71,94 +71,148 @@ where
                     *d = *d * self.zoom;
                 }
 
-                let mut grid_lines = vec![];
-                let mut grid_text = vec![];
+                let mut background_lines = vec![];
+                let mut background_text = vec![];
                 let mut lines = vec![];
                 let mut text = vec![];
 
-                let mut draw_star = |stack: &Stack<T>, p: Pos2| {
-                    //let stack: Stack<ConcreteFiveLimitStackType> =
-                    //    Stack::new(&vec![false; 2], c.clone());
+                let stack_pos = |stack: &Stack<T>| {
+                    let mut res = rect.center();
+                    for (i, &c) in stack.coefficients().iter().enumerate() {
+                        res += self.directions[i] * c as f32;
+                    }
+                    res
+                };
+
+                let mut draw_neighbours = |stack: &Stack<T>| {
+                    let p0 = stack_pos(stack);
+                    for (p, c) in PointsInsideRect::new(
+                        &rect,
+                        &directions,
+                        self.max_coeff_dist,
+                        &p0,
+                        &self.active_temperaments,
+                        stack,
+                    ) {
+                        for (i, &d) in directions.iter().enumerate() {
+                            background_lines.push(Shape::line_segment(
+                                [p, p + d],
+                                PathStroke::new(1.0, ui.style().visuals.gray_out(self.colors[i])),
+                            ));
+                            background_lines.push(Shape::line_segment(
+                                [p, p - d],
+                                PathStroke::new(1.0, ui.style().visuals.gray_out(self.colors[i])),
+                            ));
+                        }
+
+                        ctx.fonts(|fonts| {
+                            background_text.push(Shape::text(
+                                fonts,
+                                p,
+                                Align2::CENTER_CENTER,
+                                c.notename(&NoteNameStyle::JohnstonFiveLimitFull),
+                                FontId::proportional(15.0),
+                                ui.style().visuals.weak_text_color(),
+                            ));
+                        });
+                    }
+                    //if ui
+                    //    .interact(
+                    //        Rect::from_center_size(p, vec2(20.0, 20.0)),
+                    //        Id::new(stack.clone()), // todo this should work without cloning: what's a
+                    //        // good id?
+                    //        Sense::hover(),
+                    //    )
+                    //    .hovered()
+                    //{
+                    //    lines.push(Shape::line_segment(
+                    //        [pos2(rect.left(), p.y), pos2(rect.right(), p.y)],
+                    //        PathStroke::new(1.0, ui.style().visuals.weak_text_color()),
+                    //    ));
+                    //    let mut tmp_coeff = stack.coefficients().to_vec();
+                    //    let mut start = p.clone();
+                    //    ctx.fonts(|fonts| {
+                    //        text.push(Shape::text(
+                    //            fonts,
+                    //            p,
+                    //            Align2::CENTER_CENTER,
+                    //            stack.notename(&NoteNameStyle::JohnstonFiveLimitFull),
+                    //            FontId::proportional(15.0),
+                    //            ui.style().visuals.strong_text_color(),
+                    //        ))
+                    //    });
+                    //    while tmp_coeff != self.reference.coefficients() {
+                    //        for (j, &d) in directions.iter().enumerate() {
+                    //            if self.reference.coefficients()[j] != tmp_coeff[j] {
+                    //                let incr = if self.reference.coefficients()[j] > tmp_coeff[j] {
+                    //                    1
+                    //                } else {
+                    //                    -1
+                    //                };
+                    //                let end = start + incr as f32 * d;
+                    //                lines.push(tipped_line(start, end, 4.0, self.colors[j]));
+                    //                start = end;
+                    //                tmp_coeff[j] += incr;
+                    //                break;
+                    //            }
+                    //        }
+                    //    }
+                    //}
+                };
+
+                let mut hightlight_notename = |stack: &Stack<T>| {
+                    let p = stack_pos(stack);
                     ctx.fonts(|fonts| {
-                        grid_text.push(Shape::text(
+                        text.push(Shape::text(
                             fonts,
                             p,
                             Align2::CENTER_CENTER,
                             stack.notename(&NoteNameStyle::JohnstonFiveLimitFull),
                             FontId::proportional(15.0),
-                            ui.style().visuals.text_color(),
-                        ))
+                            ui.style().visuals.strong_text_color(),
+                        ));
                     });
-                    for (i, &d) in directions.iter().enumerate() {
-                        grid_lines.push(Shape::line_segment(
-                            [p, p + d],
-                            PathStroke::new(1.0, ui.style().visuals.gray_out(self.colors[i])),
-                        ));
-                        grid_lines.push(Shape::line_segment(
-                            [p, p - d],
-                            PathStroke::new(1.0, ui.style().visuals.gray_out(self.colors[i])),
-                        ));
-                    }
-                    if ui
-                        .interact(
-                            Rect::from_center_size(p, vec2(20.0, 20.0)),
-                            Id::new(stack.clone()), // todo this should work without cloning: what's a
-                            // good id?
-                            Sense::hover(),
-                        )
-                        .hovered()
-                    {
-                        lines.push(Shape::line_segment(
-                            [pos2(rect.left(), p.y), pos2(rect.right(), p.y)],
-                            PathStroke::new(1.0, ui.style().visuals.weak_text_color()),
-                        ));
-                        let mut tmp_coeff = stack.coefficients().to_vec();
-                        let mut start = p.clone();
-                        ctx.fonts(|fonts| {
-                            text.push(Shape::text(
-                                fonts,
-                                p,
-                                Align2::CENTER_CENTER,
-                                stack.notename(&NoteNameStyle::JohnstonFiveLimitFull),
-                                FontId::proportional(15.0),
-                                ui.style().visuals.strong_text_color(),
-                            ))
-                        });
-                        while tmp_coeff != self.reference.coefficients() {
-                            for (j, &d) in directions.iter().enumerate() {
-                                if self.reference.coefficients()[j] != tmp_coeff[j] {
-                                    let incr = if self.reference.coefficients()[j] > tmp_coeff[j] {
-                                        1
-                                    } else {
-                                        -1
-                                    };
-                                    let end = start + incr as f32 * d;
-                                    lines.push(tipped_line(start, end, 4.0, self.colors[j]));
-                                    start = end;
-                                    tmp_coeff[j] += incr;
-                                    break;
-                                }
+                };
+
+                let mut draw_path = |width: f32, from: &Stack<T>, to: &Stack<T>| {
+                    let mut tmp_coeff = from.coefficients().to_vec();
+                    let mut start = stack_pos(from);
+                    while tmp_coeff != to.coefficients() {
+                        for (j, &d) in directions.iter().enumerate() {
+                            if to.coefficients()[j] != tmp_coeff[j] {
+                                let incr = if to.coefficients()[j] > tmp_coeff[j] {
+                                    1
+                                } else {
+                                    -1
+                                };
+                                let end = start + incr as f32 * d;
+                                lines.push(tipped_line(start, end, width, self.colors[j]));
+                                start = end;
+                                tmp_coeff[j] += incr;
+                                break;
                             }
                         }
                     }
                 };
 
-                for (_i, (p, c)) in PointsInsideRect::new(
-                    &rect,
-                    &directions,
-                    self.max_coeff_dist,
-                    &rect.center(),
-                    &self.active_temperaments,
-                    &self.active,
-                )
-                .enumerate()
-                {
-                    draw_star(&c, p);
+                for (s, parent) in self.notes.iter_with_parent() {
+                    draw_neighbours(&s.stack);
+                    hightlight_notename(&s.stack);
+                    match parent {
+                        None => {}
+                        Some(t) => {
+                            if s.status.is_on() {
+                                draw_path(4.0, &s.stack, &t.stack)
+                            } else {
+                                draw_path(2.0, &s.stack, &t.stack)
+                            }
+                        }
+                    }
                 }
 
-                ui.painter().with_clip_rect(rect).extend(grid_lines);
+                ui.painter().with_clip_rect(rect).extend(background_lines);
                 ui.painter().with_clip_rect(rect).extend(lines);
-                ui.painter().with_clip_rect(rect).extend(grid_text);
+                ui.painter().with_clip_rect(rect).extend(background_text);
                 ui.painter().with_clip_rect(rect).extend(text);
             });
         });
@@ -187,7 +241,7 @@ struct PointsInsideRect<'a, T: StackType> {
     directions: &'a [Vec2],
     max_coeff_dist: StackCoeff,
     active_temperaments: &'a [bool],
-    start_stacks: &'a [Stack<T>],
+    start_stack: &'a Stack<T>,
     discovered: Vec<(StackCoeff, Stack<T>, Pos2)>,
 }
 
@@ -198,24 +252,21 @@ impl<'a, T: StackType> PointsInsideRect<'a, T> {
         max_coeff_dist: StackCoeff,
         reference_pos: &'a Pos2,
         active_temperaments: &'a [bool],
-        start_stacks: &'a [Stack<T>],
+        start_stack: &'a Stack<T>,
     ) -> Self {
         PointsInsideRect {
             bounding_box,
             directions,
             max_coeff_dist,
             active_temperaments,
-            start_stacks,
-            discovered: start_stacks
-                .iter()
-                .map(|s| {
-                    let mut pos = reference_pos.clone();
-                    for (i, &c) in s.coefficients().iter().enumerate() {
-                        pos += c as f32 * directions[i];
-                    }
-                    (0, s.clone(), pos)
-                })
-                .collect(),
+            start_stack,
+            discovered: {
+                let mut pos = reference_pos.clone();
+                for (i, &c) in start_stack.coefficients().iter().enumerate() {
+                    pos += c as f32 * directions[i];
+                }
+                vec![(0, start_stack.clone(), pos)]
+            },
         }
     }
 }
@@ -239,13 +290,10 @@ impl<'a, T: StackType> Iterator for PointsInsideRect<'a, T> {
                         }
                     };
                     let n = T::num_intervals();
-                    let mut new_coeff_dist = StackCoeff::MAX;
-                    for cs in self.start_stacks.iter() {
-                        let mut tmp = 0;
-                        for i in 0..n {
-                            tmp += (updated_coeff(i) - cs.coefficients()[i]).abs();
-                        }
-                        new_coeff_dist = new_coeff_dist.min(tmp);
+                    let mut new_coeff_dist = 0;
+                    for i in 0..n {
+                        new_coeff_dist +=
+                            (updated_coeff(i) - self.start_stack.coefficients()[i]).abs();
                     }
 
                     if new_coeff_dist > coeff_dist && new_coeff_dist <= self.max_coeff_dist {
@@ -303,14 +351,17 @@ struct State<T: StackType> {
     zoom: f32,
     colors: Vec<Color32>,
 
-    reference: Stack<T>,
-    active: Vec<Stack<T>>,
+    //reference: Stack<T>,
+    //active: Vec<Stack<T>>,
     active_temperaments: Vec<bool>,
+    notes: TunedNoteStore<T>,
 }
 
 impl State<ConcreteFiveLimitStackType> {
     fn new() -> Self {
         let active_temperaments = vec![false; ConcreteFiveLimitStackType::num_temperaments()];
+        let mut notes = TunedNoteStore::new(Stack::new_zero(), Tuning::FromMidiNote(60.0));
+
         State {
             directions: vec![
                 vec2(0.0, -120.0),
@@ -321,13 +372,14 @@ impl State<ConcreteFiveLimitStackType> {
             zoom: 1.0,
             colors: vec![Color32::RED, Color32::GREEN, Color32::BLUE],
 
-            reference: Stack::new(&active_temperaments, vec![-1, 2, 0]),
-            active: vec![
-                Stack::new(&active_temperaments, vec![2, -1, 1]),
-                Stack::new(&active_temperaments, vec![0, 0, 0]),
-                Stack::new(&active_temperaments, vec![-1, -1, 0]),
-            ],
+            //reference: Stack::new(&active_temperaments, vec![-1, 2, 0]),
+            //active: vec![
+            //    Stack::new(&active_temperaments, vec![2, -1, 1]),
+            //    Stack::new(&active_temperaments, vec![0, 0, 0]),
+            //    Stack::new(&active_temperaments, vec![-1, -1, 0]),
+            //],
             active_temperaments,
+            notes,
         }
     }
 }
