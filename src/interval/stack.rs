@@ -290,6 +290,13 @@ impl<T: StackType, P: ops::Deref<Target = Stack<T>>> ops::Add<P> for Stack<T> {
     /// Also, in many applications, [increment][Stack::increment]ing might be the cheaper option,
     /// because it doesn't require you to construct a second [Stack].
     fn add(mut self, x: P) -> Self {
+        self += x;
+        self
+    }
+}
+
+impl<T: StackType, P: ops::Deref<Target = Stack<T>>> ops::AddAssign<P> for Stack<T> {
+    fn add_assign(&mut self, x: P) {
         for (ix, coeff) in self.coefficients.iter_mut().enumerate() {
             *coeff += x.coefficients[ix];
         }
@@ -300,8 +307,6 @@ impl<T: StackType, P: ops::Deref<Target = Stack<T>>> ops::Add<P> for Stack<T> {
             *corr += x.corrections[ix];
         }
         self.normalise();
-
-        self
     }
 }
 

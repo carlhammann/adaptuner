@@ -28,8 +28,7 @@ fn main() -> eframe::Result {
 
 impl<T> eframe::App for State<T>
 where
-    T: FiveLimitStackType + std::hash::Hash, // TODO remove the hash constraint, when we've found
-                                             // something better to hash than the Stacks
+    T: FiveLimitStackType + 'static,
 {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
@@ -76,6 +75,7 @@ where
                 let mut lines = vec![];
                 let mut text = vec![];
 
+                // use this only for "absolute stacks"
                 let stack_pos = |stack: &Stack<T>| {
                     let mut res = rect.center();
                     for (i, &c) in stack.coefficients().iter().enumerate() {
@@ -84,6 +84,7 @@ where
                     res
                 };
 
+                // use this only for "absolute stacks"
                 let mut draw_neighbours = |stack: &Stack<T>| {
                     let p0 = stack_pos(stack);
                     for (p, c) in PointsInsideRect::new(
@@ -195,16 +196,16 @@ where
                     }
                 };
 
-                for (s, parent) in self.notes.iter_with_parent() {
-                    draw_neighbours(&s.stack);
-                    hightlight_notename(&s.stack);
-                    match parent {
+                for ((o, s), parent) in self.notes.iter_with_parent() {
+                    draw_neighbours(s);
+                    hightlight_notename(s);
+                    match parent.and_then(|(_, t)| Some(t)) {
                         None => {}
                         Some(t) => {
-                            if s.status.is_on() {
-                                draw_path(4.0, &s.stack, &t.stack)
+                            if o.is_from_input() {
+                                draw_path(4.0, s, t)
                             } else {
-                                draw_path(2.0, &s.stack, &t.stack)
+                                draw_path(2.0, s, t)
                             }
                         }
                     }
@@ -361,6 +362,8 @@ impl State<ConcreteFiveLimitStackType> {
     fn new() -> Self {
         let active_temperaments = vec![false; ConcreteFiveLimitStackType::num_temperaments()];
         let mut notes = TunedNoteStore::new(Stack::new_zero(), Tuning::FromMidiNote(60.0));
+        //notes.add();
+
 
         State {
             directions: vec![

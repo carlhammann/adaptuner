@@ -2,6 +2,7 @@
 #![feature(maybe_uninit_array_assume_init)]
 pub mod backend;
 pub mod config;
+pub mod hashmaptree;
 pub mod interval;
 pub mod msg;
 pub mod neighbourhood;
