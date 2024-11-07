@@ -3,7 +3,7 @@ use std::{marker::PhantomData, mem::MaybeUninit, sync::mpsc, time::Instant};
 use colorous;
 use crossterm::event::{KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
-    prelude::{Buffer, Color, Frame, Modifier, Rect, Style, Widget},
+    prelude::{Buffer, Color, Frame, Rect, Style, Widget},
     widgets::WidgetRef,
 };
 
@@ -31,8 +31,6 @@ enum CellState {
     Off,
     Considered,
     On,
-    Reference,
-    SecondaryReference,
 }
 
 fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
@@ -86,7 +84,6 @@ pub struct Grid<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> {
 
     reference_key: i8,
     reference_stack: Stack<T>,
-    secondary_reference_stack: Option<Stack<T>>,
 
     horizontal_margin: StackCoeff,
     vertical_margin: StackCoeff,
@@ -113,38 +110,40 @@ impl<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> Grid<T, N> {
         let (mut min_horizontal, mut max_horizontal) = (origin_horizontal, origin_horizontal);
         let (mut min_vertical, mut max_vertical) = (origin_vertical, origin_vertical);
 
-        let mut collect_indices = |stack: &Stack<T>, relative: bool| {
-            let hor = stack.coefficients()[horizontal_index]
-                + if relative { origin_horizontal } else { 0 };
+        for note in &self.active_notes {
+            if note.inactive() {
+                continue;
+            }
+            let hor = note.tuning_stack.coefficients()[horizontal_index];
             if hor < min_horizontal {
                 min_horizontal = hor;
             }
             if hor > max_horizontal {
                 max_horizontal = hor;
             }
-            let ver =
-                stack.coefficients()[vertical_index] + if relative { origin_vertical } else { 0 };
+            let ver = note.tuning_stack.coefficients()[vertical_index];
             if ver < min_vertical {
                 min_vertical = ver;
             }
             if ver > max_vertical {
                 max_vertical = ver;
             }
-        };
-
-        match &self.secondary_reference_stack {
-            Some(stack) => collect_indices(&stack, false),
-            None => {}
-        };
-
-        for note in &self.active_notes {
-            if note.inactive() {
-                continue;
-            }
-            collect_indices(&note.tuning_stack, false);
         }
         self.considered_notes.for_each_stack(|_, stack| {
-            collect_indices(stack, true);
+            let hor = stack.coefficients()[horizontal_index] + origin_horizontal;
+            if hor < min_horizontal {
+                min_horizontal = hor;
+            }
+            if hor > max_horizontal {
+                max_horizontal = hor;
+            }
+            let ver = stack.coefficients()[vertical_index] + origin_vertical;
+            if ver < min_vertical {
+                min_vertical = ver;
+            }
+            if ver > max_vertical {
+                max_vertical = ver;
+            }
         });
 
         max_vertical += self.vertical_margin;
@@ -267,46 +266,6 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                 buf,
             );
         }
-
-        render_stack(
-            &self.reference_stack,
-            CellState::Reference,
-            &self.config.display_config,
-            Rect {
-                x: area.x
-                    + self.column_width
-                        * (self.reference_stack.coefficients()[self.horizontal_index]
-                            - self.min_horizontal) as u16,
-                y: area.y
-                    + 2 * (self.max_vertical
-                        - self.reference_stack.coefficients()[self.vertical_index])
-                        as u16,
-                width: self.column_width,
-                height: 2,
-            },
-            buf,
-        );
-
-        match &self.secondary_reference_stack {
-            None => {}
-            Some(stack) => render_stack(
-                &stack,
-                CellState::SecondaryReference,
-                &self.config.display_config,
-                Rect {
-                    x: area.x
-                        + self.column_width
-                            * (stack.coefficients()[self.horizontal_index] - self.min_horizontal)
-                                as u16,
-                    y: area.y
-                        + 2 * (self.max_vertical - stack.coefficients()[self.vertical_index])
-                            as u16,
-                    width: self.column_width,
-                    height: 2,
-                },
-                buf,
-            ),
-        }
     }
 }
 
@@ -353,15 +312,6 @@ fn render_stack<T: FiveLimitStackType>(
         CellState::On => {
             let f = foreground_for_background(r, g, b);
             Style::from((Color::Rgb(f, f, f), Color::Rgb(r, g, b)))
-        }
-        CellState::Reference => {
-            let f = foreground_for_background(r, g, b);
-            Style::from((Color::Rgb(f, f, f), Color::Rgb(r, g, b))).add_modifier(Modifier::REVERSED)
-        }
-        CellState::SecondaryReference => {
-            let f = foreground_for_background(r, g, b);
-            Style::from((Color::Rgb(f, f, f), Color::Rgb(r, g, b)))
-                .add_modifier(Modifier::ITALIC | Modifier::BOLD)
         }
     };
     buf.set_style(area, style);
@@ -496,15 +446,6 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                 }
             }
 
-            msg::AfterProcess::NotifyFit {
-                reference_stack, ..
-            } => {
-                self.secondary_reference_stack = Some(reference_stack.clone());
-            }
-            msg::AfterProcess::NotifyNoFit => {
-                self.secondary_reference_stack = None;
-            }
-
             _ => {}
         }
         self.recalculate_dimensions(&area);
@@ -545,7 +486,6 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
 
             reference_key: config.initial_reference_key,
             reference_stack: Stack::new(&no_active_temperaments, vec![0; T::num_intervals()]),
-            secondary_reference_stack: None,
             active_temperaments: no_active_temperaments,
 
             considered_notes: config.initial_neighbourhood.clone(),
