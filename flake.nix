@@ -1,86 +1,68 @@
 {
-  description = "adaptuner";
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    flake-utils.url = "github:numtide/flake-utils";
-
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        flake-utils.follows = "flake-utils";
-      };
+      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
   outputs = {
-    self,
     nixpkgs,
-    crane,
-    flake-utils,
     rust-overlay,
     ...
-  }:
-    flake-utils.lib.eachDefaultSystem (system: let
-      pkgs = import nixpkgs {
-        inherit system;
-        overlays = [(import rust-overlay)];
-      };
-      rustNightly = pkgs.rust-bin.selectLatestNightlyWith (toolchain:
-        toolchain.default.override {
-          extensions = ["rust-analyzer"];
-        });
-      craneLib = (crane.mkLib pkgs).overrideToolchain rustNightly;
-      my-crate = craneLib.buildPackage {
-        src = craneLib.cleanCargoSource (craneLib.path ./.);
-        strictDeps = true;
-
+  }: let
+    systems = ["x86_64-linux"];
+    forAllSystems = f:
+      nixpkgs.lib.genAttrs systems
+      (system:
+        f
+        system
+        (
+          import nixpkgs {
+            inherit system;
+            overlays = [(import rust-overlay)];
+          }
+        ));
+    rust-bin = forAllSystems (_: pkgs: pkgs.rust-bin.nightly.latest);
+    rustPlatform = forAllSystems (system: pkgs:
+      pkgs.makeRustPlatform (with rust-bin.${system}; {
+        cargo = minimal;
+        rustc = minimal;
+      }));
+    adaptuner = forAllSystems (system: pkgs:
+      rustPlatform.${system}.buildRustPackage {
+        pname = "adaptuner";
+        version = "0.1.0";
+        src = ./.;
+        cargoLock.lockFile = ./Cargo.lock;
         nativeBuildInputs = with pkgs; [pkg-config];
-        buildInputs =
-          (with pkgs; [gtk4 alsa-lib])
-          ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-            # Additional darwin specific inputs can be set here
-            pkgs.libiconv
-          ];
+        buildInputs = nixpkgs.lib.optionals pkgs.stdenv.isLinux [pkgs.alsa-lib];
+      });
+  in {
+    packages = forAllSystems (system: _: {default = adaptuner.${system};});
 
-        # Additional environment variables can be set directly
-        # MY_CUSTOM_VAR = "some value";
-      };
-    in {
-      checks = {
-        inherit my-crate;
-      };
+    devShells = forAllSystems (system: pkgs: {
+      default = pkgs.mkShell {
+        inputsFrom = [adaptuner.${system}];
 
-      packages.default = my-crate;
+        packages = with pkgs;
+          [
+            fluidsynth
+            vmpk
 
-      apps.default = flake-utils.lib.mkApp {
-        drv = my-crate;
-      };
+            # dev-y
+            rust-bin.${system}.rust-analyzer
+            rust-bin.${system}.rustfmt
+            bacon
+            jq
 
-      devShells.default = craneLib.devShell {
-        # Inherit inputs from checks.
-        checks = self.checks.${system};
-
-        # Extra inputs can be added here; cargo and rustc are provided by default.
-        packages = with pkgs; [
-          fluidsynth
-          vmpk
-          alsa-utils
-
-          # dev-y
-          jq
-
-          # tex
-          texlive.combined.scheme-full
-          latexrun
-        ];
+            # # tex
+            # texlive.combined.scheme-full
+            # latexrun
+          ]
+          ++ nixpkgs.lib.optionals pkgs.stdenv.isLinux [alsa-utils];
       };
     });
+  };
 }
