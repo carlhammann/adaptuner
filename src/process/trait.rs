@@ -1,12 +1,9 @@
-use std::{sync::mpsc, time::Instant};
+use std::{ops::DerefMut, time::Instant};
 
-use crate::{interval::stacktype::r#trait::StackType, msg};
+use crate::{interval::stacktype::r#trait::StackType, msg, notestore::TunedNoteStore};
 
 pub trait ProcessState<T: StackType> {
-    fn handle_msg(
-        &mut self,
-        time: Instant,
-        msg: msg::ToProcess,
-        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-    );
+    fn handle_msg<TS>(&mut self, time: Instant, msg: msg::ToProcess, tuned_store: TS)
+    where
+        TS: DerefMut<Target = TunedNoteStore<T>>;
 }

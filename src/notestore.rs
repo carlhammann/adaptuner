@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::{
     hashmaptree::HashMapTree,
     interval::{interval::Semitones, stack::Stack, stacktype::r#trait::StackType},
@@ -35,6 +37,7 @@ pub struct TunedNoteStore<T: StackType> {
     root: usize,
     root_tuning: Tuning,
     next_unused_reference_number: usize,
+    last_change: Instant,
 }
 
 impl<T: StackType + 'static> TunedNoteStore<T> {
@@ -48,6 +51,7 @@ impl<T: StackType + 'static> TunedNoteStore<T> {
             root: 0,
             root_tuning: reference_tuning,
             next_unused_reference_number: 1,
+            last_change: Instant::now(),
         }
     }
 
