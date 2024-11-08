@@ -12,7 +12,7 @@
     rust-overlay,
     ...
   }: let
-    systems = ["x86_64-linux" "aarch64-darwin" "x86_64-darwin"];
+    systems = ["x86_64-linux" "aarch64-darwin"];
     forAllSystems = f:
       nixpkgs.lib.genAttrs systems
       (system:
@@ -40,7 +40,6 @@
         buildInputs =
           (nixpkgs.lib.optionals pkgs.stdenv.isLinux [pkgs.alsa-lib])
           ++ (nixpkgs.lib.optionals pkgs.stdenv.isDarwin [
-            pkgs.darwin.apple_sdk.frameworks.CoreAudio
             pkgs.darwin.apple_sdk.frameworks.CoreMIDI
           ]);
       });
