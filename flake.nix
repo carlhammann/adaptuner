@@ -37,10 +37,12 @@
         src = ./.;
         cargoLock.lockFile = ./Cargo.lock;
         nativeBuildInputs = with pkgs; [pkg-config];
-        buildInputs = [
-          pkgs.darwin.apple_sdk.frameworks.CoreAudio
-          pkgs.darwin.apple_sdk.frameworks.CoreMIDI
-        ];
+        buildInputs =
+          (nixpkgs.lib.optionals pkgs.stdenv.isLinux [pkgs.alsa-lib])
+          ++ (nixpkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.darwin.apple_sdk.frameworks.CoreAudio
+            pkgs.darwin.apple_sdk.frameworks.CoreMIDI
+          ]);
       });
   in {
     packages = forAllSystems (system: _: {default = adaptuner.${system};});
