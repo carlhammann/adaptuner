@@ -12,7 +12,7 @@
     rust-overlay,
     ...
   }: let
-    systems = ["x86_64-linux"];
+    systems = ["x86_64-linux" "aarch64-darwin"];
     forAllSystems = f:
       nixpkgs.lib.genAttrs systems
       (system:
@@ -37,7 +37,11 @@
         src = ./.;
         cargoLock.lockFile = ./Cargo.lock;
         nativeBuildInputs = with pkgs; [pkg-config];
-        buildInputs = nixpkgs.lib.optionals pkgs.stdenv.isLinux [pkgs.alsa-lib];
+        buildInputs =
+          (nixpkgs.lib.optionals pkgs.stdenv.isLinux [pkgs.alsa-lib])
+          ++ (nixpkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.darwin.apple_sdk.frameworks.CoreMIDI
+          ]);
       });
   in {
     packages = forAllSystems (system: _: {default = adaptuner.${system};});
