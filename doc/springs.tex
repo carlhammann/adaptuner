@@ -1,0 +1,233 @@
+\documentclass{scrartcl}
+
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage[autostyle]{csquotes}
+\usepackage{amsmath, amssymb}
+\usepackage{hyperref}
+
+\begin{document}
+
+Imagine a chord as a system of nodes (the notes of the chord) connected by
+springs (the intervals). The relaxed length of each of the springs corresponds
+to the desired size of its interval.
+
+In the best of all possible cases, the lowest energy configuration of the
+system has each spring at its relaxed length: Every interval has its desired
+size, the chord is \enquote{in tune}. Otherwise, the lowest energy
+configuration describes some tempered version of the chord, where the amount by
+which the individual intervals are out of tune is negotiated by the how stiff
+the springs are. For example, we can make fifths harder to detune than thirds
+by making their springs stiffer. In section \ref{sec:rods}, I also introduce
+rods to the system, which correspond to intervals that may never be detuned
+(octaves, for example?).
+
+Also, in section \ref{sec:fixedsprings}, I describe how to add springs to a
+fixed point. This can be used to anchor the chord to any pitch reference --
+some pre-defined scale, or previously sounding notes, for example.
+
+\section{Nodes connected by springs}
+
+Let's start with a system of nodes connected by springs.
+\begin{enumerate}
+  \item The nodes are constrained so that they can only move on one line.
+    Denote the positions of the nodes by \(x_1,\cdots,x_n\).
+  \item For \(i<j\), there is a spring from node \(i\) to node \(j\).
+    Let \(l_{ij}\) denote its relaxed length, and \(a_{ij}\ge0\) its stiffness.
+\end{enumerate}
+If we let the system move freely, it will tend to the state of lowest
+energy. The energy in all the tensioned springs is given by
+\begin{equation}\label{eq:energy}
+  E(x):=\sum_{i<j}a_{ij}(x_j-x_i-l_{ij})^2\ .
+\end{equation}
+Expanding this as
+\[
+  E(x):=\sum_{i<j}a_{ij}(x_j^2+x_i^2+l_{ij}^2-2x_jx_i-2x_jl_{ij}+2x_il_{ij})\ ,
+\]
+we see that \(E\) can be written as \(E(x)=x\cdot Ax+b\cdot x + c\), where
+\begin{gather*}
+  A_{ij}:=
+  \begin{cases}
+    -a_{ij}\ ,& i<j\\
+    -a_{ji}\ ,& i>j\\
+    \sum_{i<k}a_{ik}+\sum_{i>k}a_{ki}\ ,& i=j
+  \end{cases}\ ,\\
+  b_i:=-2\sum_{i>j}a_{ji}l_{ji}+2\sum_{i<j}a_{ij}l_{ij}\ ,\\
+  c:=\sum_{i<j}a_{ij}l_{ij}^2\ .
+\end{gather*}
+Now, a condition for the \(x\) with minimal energy is \(\nabla
+E(x)=0\), and since
+\[
+  \nabla E(x) = Ax + A^\top x + b = 2Ax + b\ ,
+\]
+finding the minimum amounts to solving the linear system of equations
+\begin{equation}\label{eq:mincond}
+  -Ax=\frac{1}{2}b\ .
+\end{equation}
+However, \(A\) is not invertible (to see this, note that its column
+sum is zero). This makes intuitive sense: The relative positions of
+the nodes are determined by the springs, but their absolute positions
+\(x_i\) are not yet determined. I'll address this problem in section
+\ref{sec:fixedsprings}
+
+\section{Interlude: zero forces}\label{sec:zeroforce}
+
+Let's take another look at the linear system \eqref{eq:mincond}.
+The \(i\)-th row of this system says
+\[
+  -x_i\left(\sum_{i<k}a_{ik}+\sum_{i>k}a_{ki}\right)+\sum_{i<j}a_{ij}x_j+\sum_{i>j}a_{ji}x_j
+  =
+  -\sum_{i>j}a_{ji}l_{ji}+\sum_{i<j}a_{ij}l_{ij}\ ,
+\]
+Reordered, this is
+\[
+  0=
+  \sum_{i<j}a_{ij}(x_j-x_i-l_{ij})
+  + \sum_{i>j}a_{ji}(x_j-x_i+l_{ji})\ .
+\]
+The first sum (over \(i<j\)) describes the forces on node \(i\) due to
+springs \enquote{from the right}: Look at the summand
+\(a_{ij}(x_j-x_i-l_{ij})\)
+\begin{itemize}
+  \item if \(x_i>x_j-l_{ij}\), the summand will be negative, which
+    describes the force pushing the node to the left.
+  \item if \(x_i<x_j-l_{ij}\), the summand will be positive,
+    describing a force pulling the node to the right.
+\end{itemize}
+Similarly, the second sum describes the forces exerted on node \(i\)
+by springs from the left.
+
+In summary, the energy minimality condition \eqref{eq:mincond} has a
+physical interpretation: The sum of forces at each node must be zero.
+This makes intuitive sense. Thus, another way to frame the problem is
+to look at the vector of forces \(f:=-Ax-\frac{1}{2}b\) at each node and
+require \(f=0\).
+
+\section{Adding springs from a fixed point}\label{sec:fixedsprings}
+
+Let's modify our energy \eqref{eq:energy} by adding some springs that
+start at the origin and end at one of the nodes:
+\[
+  E(x):=
+  \sum_{i<j}a_{ij}(x_j-x_i-l_{ij})^2
+  +\sum_ib_i(x_i-p_i)^2
+  \ .
+\]
+Then, we can write \(E(x)=x\cdot Ax+b\cdot x + c\) as above, with
+\begin{gather*}
+  A_{ij}:=
+  \begin{cases}
+    -a_{ij}\ ,& i<j\\
+    -a_{ji}\ ,& i>j\\
+    b_i+\sum_{i<k}a_{ik}+\sum_{i>k}a_{ki}\ ,& i=j
+  \end{cases}\ ,\\
+  b_i:=-2b_ip_i-2\sum_{i>j}a_{ji}l_{ji}+2\sum_{i<j}a_{ij}l_{ij}\ ,\\
+  c:=b_ip_i^2+\sum_{i<j}a_{ij}l_{ij}^2\ .
+\end{gather*}
+Now, \(A\) can have full rank, and the system \eqref{eq:mincond} can
+have a unique solution.
+
+\section{Adding rods}\label{sec:rods}
+
+First, let's simplify notation: In the scenario discussed so far,
+everything boils down to solving a linear system of equations
+\(Ax=b\). In the setting of section \ref{sec:fixedsprings}, the
+system is given by
+\begin{gather*}
+  A_{ij}:=
+  \begin{cases}
+    a_{ij}\ ,& i<j\\
+    a_{ji}\ ,& i>j\\
+    -b_i-\sum_{i<k}a_{ik}-\sum_{i>k}a_{ki}\ ,& i=j
+  \end{cases}\ ,\\
+  b_i:=-b_ip_i-\sum_{i>j}a_{ji}l_{ji}+\sum_{i<j}a_{ij}l_{ij}\ .
+\end{gather*}
+(Note the changed sign/constant factor compared to section
+  \ref{sec:fixedsprings}! This is due to the form of equation
+\eqref{eq:mincond}.)
+
+Assume now that some of the nodes are connected not by springs but by
+(incompressible, non-stretchable) rods. The forces at both ends of
+each rod are the same; each spring attached to one end can be felt at
+both ends. This suggests a way to transform the system of equations,
+adopting the viewpoint of section \ref{sec:zeroforce}, where we noted
+that row \(i\) of the system encodes the condition that the force at
+node \(i\) is zero:
+
+We'll construct a system \(\widetilde Ax=\widetilde b\) from \(Ax=b\) by the
+following method. In order to add a rod from node \(i\) to node
+\(j\):
+\begin{enumerate}
+  \item The force at node \(i\) in the new system must be the sum of
+    forces at nodes \(i\) and \(j\) in the old system, and we still
+    require that it be zero. Thus, the \(i\)-th row of \(\widetilde A\)
+    must be the sum of the \(i\)-th and \(j\)-th rows of \(A\), and
+    \(\widetilde{b_i}:=b_i+b_j\).
+  \item The same could be said about the force at node \(j\), but
+    setting the \(j\)-th row of \(\widetilde A\) to the same sum as
+    the \(i\)-th row would create an underdetermined system. The
+    information missing in that system is the length of the rod. So,
+    let's use the \(j\)-th row to encode the relation
+    \(x_j-x_i=l_{ij}\), where we reuse the symbol \(l_{ij}\) to
+    denote the length of the rod from \(i\) to \(j\). That is,
+    \(b_j:=l_{ij}\), \(\widetilde{A_{ji}}:=-1\), and \(\widetilde{A_{jj}}:=1\).
+\end{enumerate}
+Applying these two steps has the important side-effect that we
+delete force information at node \(j\). This entails two limitations
+when applying them iteratively to many pairs \(i,j\): Once node \(j\)
+has been used as the end point of a rod
+\begin{itemize}
+  \item we cannot use it as the end point of another rod, and
+  \item we cannot use it as the start point of another rod.
+\end{itemize}
+At first, these might seem serious, but note that
+\begin{itemize}
+  \item We don't need \enquote{chains} of rods, since they can be
+    substituted by rods to the lowest node in the chain.
+  \item We don't need triangles of rods, since they'll have to be
+    degenerate, as we require all nodes to lie on one line. Thus, one
+    rod can always be deleted without loss of information.
+\end{itemize}
+So, given any specification of how nodes should be connected by rods,
+we can obtain an equivalent specification that has one or more
+\enquote{base} nodes, from which rods go out other, non-base, nodes,
+and no non-base node is connected to more than one base node.
+
+\section{Calculating with rational matrices}
+
+Let's work with the system \(\widetilde Ax=\widetilde b\) from
+section \ref{sec:rods}, dropping the tildes. For the application of
+interest, we know more:
+\begin{enumerate}
+  \item \label{it:integerstiffness} The
+    stiffnesses \(a_{ij}\) and \(b_i\) are nonnegative
+    integers.
+  \item \label{it:lengthlinearcomb} There exist
+    \(r_1,\ldots,r_m\in\mathbb{R}\) such that the \(l_{ij}\) and
+    \(p_i\) can be written as rational linear combinations of \(r_i\).
+  \item
+    We're interested in expressing the solution \(x_i\) as rational
+    linear combinations of the \(r_i\).
+\end{enumerate} Fix an arbitrary vector
+\(h\) containing all values that the \(l_{ij}\) or the \(p_i\) take. That is:
+\begin{itemize}
+  \item There is a function \(\lambda\) such that for all
+    \(i<j\), \(h_{\lambda(i,j)}=l_{ij}\) and a function
+    \(\pi\) such that for all \(i\), \(h_{\pi(i)}=p_i\).
+  \item  There is a rational matrix \(L\) such that \(h=Lr\), by item
+    \ref{it:lengthlinearcomb}.
+\end{itemize} Further, there is a matrix \(B\) such that \(b=Bh\), given by
+\begin{align*} B_{i,\pi(i)}&:=-b_i\\
+  B_{i,\lambda(i,j)}&:=a_{ij}&\text{if } i<j\\
+  B_{i,\lambda(i,j)}&:=-a_{ji}&\text{if } i>j\\ B_{i,j}&:=0&\text{ everywhere
+  else}
+\end{align*}
+
+We can now calculate \(x=A^{-1}BLr\). That is to say: the rows of \(A^{-1}BL\)
+hold the coefficients of the rational linear combinations we desire.
+(Everything is rational, because item \ref{it:integerstiffness} above
+means that \(A\) and \(B\) are integer matrices.)
+
+\end{document}
+
+% vi: set spell spelllang=en:

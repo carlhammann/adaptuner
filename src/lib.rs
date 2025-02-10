@@ -9,4 +9,5 @@ pub mod neighbourhood;
 pub mod notename;
 pub mod pattern;
 pub mod process;
+pub mod springs;
 pub mod tui;
