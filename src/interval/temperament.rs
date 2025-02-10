@@ -117,7 +117,9 @@ where
     ) -> Result<Temperament<I>, TemperamentErr> {
         let d = tempered.raw_dim()[0];
 
-        let tempered_lu = match fractionfree::lu(tempered) {
+        let mut tempered_lu_pre = tempered.clone(); // TODO update the signgature of this function
+                                                    // to  avoid cloning
+        let tempered_lu = match fractionfree::lu(tempered_lu_pre.view_mut()) {
             Err(fractionfree::LinalgErr::LURankDeficient) => {
                 return Err(TemperamentErr::Indeterminate)
             }
