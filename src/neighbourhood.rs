@@ -86,7 +86,7 @@ pub trait Neighbourhood<T: StackType> {
     fn bounds(&self, axis: usize) -> (StackCoeff, StackCoeff) {
         let (mut min, mut max) = (0, 0);
         self.for_each_stack(|_, stack| {
-            let x = stack.coefficients()[axis];
+            let x = stack.target_coefficients()[axis];
             if x > max {
                 max = x
             }
@@ -131,7 +131,7 @@ impl<T: StackType> Neighbourhood<T> for PeriodicComplete<T> {
         let quot = stack.key_distance().div_euclid(n);
         let rem = stack.key_distance().rem_euclid(n) as usize;
         self.stacks[rem].clone_from(stack);
-        self.stacks[rem].add_mul(-quot, &self.period);
+        self.stacks[rem].scaled_add(-quot, &self.period);
         &self.stacks[rem]
     }
 
@@ -156,7 +156,7 @@ impl<T: StackType> Neighbourhood<T> for PeriodicComplete<T> {
         let quot = offset.div_euclid(n) as StackCoeff;
         let rem = offset.rem_euclid(n) as usize;
         target.clone_from(&self.stacks[rem]);
-        target.add_mul(quot, &self.period);
+        target.scaled_add(quot, &self.period);
         true
     }
 }
@@ -177,12 +177,12 @@ impl<T: StackType> Neighbourhood<T> for PeriodicPartial<T> {
         match self.stacks.get_mut(&rem) {
             None => {
                 let mut the_stack = stack.clone();
-                the_stack.add_mul(-quot, &self.period);
+                the_stack.scaled_add(-quot, &self.period);
                 self.stacks.insert(rem, the_stack);
             }
             Some(target) => {
                 target.clone_from(stack);
-                target.add_mul(-quot, &self.period);
+                target.scaled_add(-quot, &self.period);
             }
         }
         self.stacks.get(&rem).expect("this can't happen: No entry for Stack just inserted into PeriodicPartial neighbourhood")
@@ -214,7 +214,7 @@ impl<T: StackType> Neighbourhood<T> for PeriodicPartial<T> {
             None => false,
             Some(stack) => {
                 target.clone_from(stack);
-                target.add_mul(quot, &self.period);
+                target.scaled_add(quot, &self.period);
                 true
             }
         }

@@ -40,7 +40,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> Static12<T, N> {
         let mut the_stack = self
             .neighbourhood
             .get_relative_stack(key - self.reference_key);
-        the_stack.add_mul(1, &self.reference_stack);
+        the_stack.scaled_add(1, &self.reference_stack);
         the_stack
     }
 
