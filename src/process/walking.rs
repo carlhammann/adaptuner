@@ -130,7 +130,7 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
             Some((index, offset)) => {
                 let pattern_name = self.patterns[*index].name.clone();
                 let mut reference_stack = offset.clone();
-                reference_stack.add_mul(1, &self.key_center_stack);
+                reference_stack.scaled_add(1, &self.key_center_stack);
                 send_to_backend(
                     msg::AfterProcess::NotifyFit {
                         pattern_name,
@@ -156,7 +156,7 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
                 &mut note.tuning_stack,
                 (i as StackCoeff - self.key_center_stack.key_number()) as i8,
             );
-            note.tuning_stack.add_mul(1, &self.key_center_stack);
+            note.tuning_stack.scaled_add(1, &self.key_center_stack);
             note.tuning = note.tuning_stack.absolute_semitones();
         };
 
@@ -178,8 +178,8 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
                     if self.temper_pattern_neighbourhoods {
                         note.tuning_stack.retemper(&self.active_temperaments);
                     }
-                    note.tuning_stack.add_mul(1, relative_reference_stack);
-                    note.tuning_stack.add_mul(1, &self.key_center_stack);
+                    note.tuning_stack.scaled_add(1, relative_reference_stack);
+                    note.tuning_stack.scaled_add(1, &self.key_center_stack);
                     note.tuning = note.tuning_stack.absolute_semitones();
                 } else {
                     tune_using_neighbourhood_and_key_center();
@@ -447,7 +447,7 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
                     &mut self.key_center_stack,
                     reference.key_distance() as i8,
                 );
-                self.key_center_stack.add_mul(1, &self.tmp_work_stack);
+                self.key_center_stack.scaled_add(1, &self.tmp_work_stack);
                 reference.reset_to_zero();
             }
         }

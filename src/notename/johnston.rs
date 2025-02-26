@@ -25,9 +25,9 @@ pub mod fivelimit {
             third_index: usize,
             s: &Stack<T>,
         ) -> Self {
-            let octaves = s.coefficients()[octave_index];
-            let fifths = s.coefficients()[fifth_index];
-            let thirds = s.coefficients()[third_index];
+            let octaves = s.target_coefficients()[octave_index];
+            let fifths = s.target_coefficients()[fifth_index];
+            let thirds = s.target_coefficients()[third_index];
             let ix = 2 + 2 * fifths + thirds;
             NoteName {
                 base: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],

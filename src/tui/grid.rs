@@ -104,8 +104,8 @@ impl<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> Grid<T, N> {
         let horizontal_index = self.horizontal_index;
         let vertical_index = self.vertical_index;
 
-        let origin_horizontal = self.reference_stack.coefficients()[horizontal_index];
-        let origin_vertical = self.reference_stack.coefficients()[vertical_index];
+        let origin_horizontal = self.reference_stack.target_coefficients()[horizontal_index];
+        let origin_vertical = self.reference_stack.target_coefficients()[vertical_index];
 
         let (mut min_horizontal, mut max_horizontal) = (origin_horizontal, origin_horizontal);
         let (mut min_vertical, mut max_vertical) = (origin_vertical, origin_vertical);
@@ -114,14 +114,14 @@ impl<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> Grid<T, N> {
             if note.inactive() {
                 continue;
             }
-            let hor = note.tuning_stack.coefficients()[horizontal_index];
+            let hor = note.tuning_stack.target_coefficients()[horizontal_index];
             if hor < min_horizontal {
                 min_horizontal = hor;
             }
             if hor > max_horizontal {
                 max_horizontal = hor;
             }
-            let ver = note.tuning_stack.coefficients()[vertical_index];
+            let ver = note.tuning_stack.target_coefficients()[vertical_index];
             if ver < min_vertical {
                 min_vertical = ver;
             }
@@ -130,14 +130,14 @@ impl<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> Grid<T, N> {
             }
         }
         self.considered_notes.for_each_stack(|_, stack| {
-            let hor = stack.coefficients()[horizontal_index] + origin_horizontal;
+            let hor = stack.target_coefficients()[horizontal_index] + origin_horizontal;
             if hor < min_horizontal {
                 min_horizontal = hor;
             }
             if hor > max_horizontal {
                 max_horizontal = hor;
             }
-            let ver = stack.coefficients()[vertical_index] + origin_vertical;
+            let ver = stack.target_coefficients()[vertical_index] + origin_vertical;
             if ver < min_vertical {
                 min_vertical = ver;
             }
@@ -185,12 +185,12 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
         the_stack.increment_at_index(
             &self.active_temperaments,
             self.vertical_index,
-            self.min_vertical - self.reference_stack.coefficients()[self.vertical_index],
+            self.min_vertical - self.reference_stack.target_coefficients()[self.vertical_index],
         );
         the_stack.increment_at_index(
             &self.active_temperaments,
             self.horizontal_index,
-            self.min_horizontal - self.reference_stack.coefficients()[self.horizontal_index],
+            self.min_horizontal - self.reference_stack.target_coefficients()[self.horizontal_index],
         );
 
         for i in self.min_vertical..=self.max_vertical {
@@ -218,9 +218,9 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
         }
         self.considered_notes.for_each_stack(|_, relative_stack| {
             the_stack.clone_from(relative_stack);
-            the_stack.add_mul(1, &self.reference_stack);
-            let i = the_stack.coefficients()[self.vertical_index];
-            let j = the_stack.coefficients()[self.horizontal_index];
+            the_stack.scaled_add(1, &self.reference_stack);
+            let i = the_stack.target_coefficients()[self.vertical_index];
+            let j = the_stack.target_coefficients()[self.horizontal_index];
             if !(i < self.min_vertical
                 || i > self.max_vertical
                 || j < self.min_horizontal
@@ -244,8 +244,8 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
             if note.inactive() {
                 continue;
             }
-            let i = note.tuning_stack.coefficients()[self.vertical_index];
-            let j = note.tuning_stack.coefficients()[self.horizontal_index];
+            let i = note.tuning_stack.target_coefficients()[self.vertical_index];
+            let j = note.tuning_stack.target_coefficients()[self.horizontal_index];
             if i < self.min_vertical
                 || i > self.max_vertical
                 || j < self.min_horizontal
@@ -289,7 +289,7 @@ fn render_stack<T: FiveLimitStackType>(
         stack.notename(&config.notenamestyle),
         Style::default(),
     );
-    let deviation = stack.impure_semitones();
+    let deviation = stack.semitones_above_target();
     if !stack.is_pure() {
         buf.set_string(
             area.x,
@@ -380,10 +380,10 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                 }) => {
                     let horizontal_offset = self.min_horizontal
                         + *column as StackCoeff / self.column_width as StackCoeff
-                        - self.reference_stack.coefficients()[self.horizontal_index];
+                        - self.reference_stack.target_coefficients()[self.horizontal_index];
                     let vertical_offset = self.max_vertical
                         - *row as StackCoeff / 2
-                        - self.reference_stack.coefficients()[self.vertical_index];
+                        - self.reference_stack.target_coefficients()[self.vertical_index];
 
                     let mut coefficients = vec![0; T::num_intervals()];
                     coefficients[self.vertical_index] = vertical_offset;
