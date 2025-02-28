@@ -1,32 +1,28 @@
 //! For motivation, see doc/springs.tex
 
 use fractionfree;
-use ndarray::{
-    azip, linalg::general_mat_mul, s, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut1,
-    ArrayViewMut2,
-};
+use ndarray::{azip, linalg::general_mat_mul, s, Array2, ArrayView1, ArrayViewMut2};
+use num_rational::Ratio;
 
-type Coeff = i32;
+use crate::interval::stacktype::r#trait::StackCoeff;
 
 #[derive(Debug)]
 struct Workspace {
-    a: Array2<Coeff>,
-    ainv: Array2<Coeff>,
-    b: Array2<Coeff>,
-    l: Array2<Coeff>,
-    bl: Array2<Coeff>,
-    res_denominators: Array1<Coeff>,
-    res_numerators: Array2<Coeff>,
+    a: Array2<Ratio<StackCoeff>>,
+    ainv: Array2<Ratio<StackCoeff>>,
+    b: Array2<Ratio<StackCoeff>>,
+    l: Array2<Ratio<StackCoeff>>,
+    bl: Array2<Ratio<StackCoeff>>,
+    res: Array2<Ratio<StackCoeff>>,
 }
 
 struct System<'a> {
-    a: ArrayViewMut2<'a, Coeff>,
-    ainv: ArrayViewMut2<'a, Coeff>,
-    b: ArrayViewMut2<'a, Coeff>,
-    l: ArrayViewMut2<'a, Coeff>,
-    bl: ArrayViewMut2<'a, Coeff>,
-    res_denominators: ArrayViewMut1<'a, Coeff>,
-    res_numerators: ArrayViewMut2<'a, Coeff>,
+    a: ArrayViewMut2<'a, Ratio<StackCoeff>>,
+    ainv: ArrayViewMut2<'a, Ratio<StackCoeff>>,
+    b: ArrayViewMut2<'a, Ratio<StackCoeff>>,
+    l: ArrayViewMut2<'a, Ratio<StackCoeff>>,
+    bl: ArrayViewMut2<'a, Ratio<StackCoeff>>,
+    res: ArrayViewMut2<'a, Ratio<StackCoeff>>,
 }
 
 impl Workspace {
@@ -37,8 +33,7 @@ impl Workspace {
             b: Array2::zeros((n_nodes, n_lengths)),
             l: Array2::zeros((n_lengths, n_base_lengths)),
             bl: Array2::zeros((n_nodes, n_base_lengths)),
-            res_denominators: Array1::ones(n_nodes),
-            res_numerators: Array2::zeros((n_nodes, n_base_lengths)),
+            res: Array2::zeros((n_nodes, n_base_lengths)),
         }
     }
 
@@ -50,8 +45,7 @@ impl Workspace {
             self.ainv = Array2::eye(n_nodes);
             self.b = Array2::zeros((n_nodes, n_lengths));
             self.bl = Array2::zeros((n_nodes, n_base_lengths));
-            self.res_denominators = Array1::ones(n_nodes);
-            self.res_numerators = Array2::zeros((n_nodes, n_base_lengths));
+            self.res = Array2::zeros((n_nodes, n_base_lengths));
         }
 
         if n_lengths > self.l.shape()[0] {
@@ -68,10 +62,7 @@ impl Workspace {
             b: self.b.slice_mut(s![..n_nodes, ..n_lengths]),
             l: self.l.slice_mut(s![..n_lengths, ..n_base_lengths]),
             bl: self.bl.slice_mut(s![..n_nodes, ..n_base_lengths]),
-            res_denominators: self.res_denominators.slice_mut(s![..n_nodes]),
-            res_numerators: self
-                .res_numerators
-                .slice_mut(s![..n_nodes, ..n_base_lengths]),
+            res: self.res.slice_mut(s![..n_nodes, ..n_base_lengths]),
         };
         sys.reset();
         sys
@@ -80,9 +71,9 @@ impl Workspace {
 
 impl<'a> System<'a> {
     fn reset(&mut self) {
-        self.a.fill(0);
-        self.b.fill(0);
-        self.l.fill(0);
+        self.a.fill(0.into());
+        self.b.fill(0.into());
+        self.l.fill(0.into());
         // the other members are for intermediate results and will be cleared/initialised by
         // [solve]
     }
@@ -90,15 +81,21 @@ impl<'a> System<'a> {
     /// Expected invariants:
     /// - `0 <= i < n_lengths`
     /// - `coefficients` has lengths `n_base_lengths`
-    fn define_length(&mut self, i: usize, coefficients: &ArrayView1<Coeff>) {
-        self.l.row_mut(i).assign(coefficients);
+    fn define_length(&mut self, i: usize, coefficients: ArrayView1<Ratio<StackCoeff>>) {
+        self.l.row_mut(i).assign(&coefficients);
     }
 
     /// Expected invariants:
     /// - `0 <= start < end < n_nodes`
     /// - `0 <= length < n_lengths`
     /// - called at most once for each pair `start < end`
-    fn add_spring(&mut self, start: usize, end: usize, length: usize, stiffness: Coeff) {
+    fn add_spring(
+        &mut self,
+        start: usize,
+        end: usize,
+        length: usize,
+        stiffness: Ratio<StackCoeff>,
+    ) {
         self.a[[start, end]] = stiffness;
         self.a[[end, start]] = stiffness;
         self.a[[start, start]] -= stiffness;
@@ -117,7 +114,7 @@ impl<'a> System<'a> {
     /// - `0 <= node < n_nodes`
     /// - `0 <= length < n_lengths`
     /// - called at most once for each `node`
-    fn add_fixed_spring(&mut self, node: usize, length: usize, stiffness: Coeff) {
+    fn add_fixed_spring(&mut self, node: usize, length: usize, stiffness: Ratio<StackCoeff>) {
         self.a[[node, node]] -= stiffness;
 
         self.b[[node, length]] -= stiffness;
@@ -132,33 +129,44 @@ impl<'a> System<'a> {
     fn add_rod(&mut self, start: usize, end: usize, length: usize) {
         let (mut start_row, mut end_row) = self.a.multi_slice_mut((s![start, ..], s![end, ..]));
         azip!((a in &mut start_row, b in &end_row) *a += b);
-        azip!((a in &mut end_row) *a = 0);
-        end_row[start] = -1;
-        end_row[end] = 1;
+        azip!((a in &mut end_row) *a = 0.into());
+        end_row[start] = Ratio::from_integer(-1);
+        end_row[end] = Ratio::from_integer(1);
 
         let (mut start_row, mut end_row) = self.b.multi_slice_mut((s![start, ..], s![end, ..]));
         azip!((a in &mut start_row, b in &end_row) *a += b);
-        azip!((a in &mut end_row) *a = 0);
-        end_row[length] = 1;
+        azip!((a in &mut end_row) *a = Ratio::from_integer(0));
+        end_row[length] = Ratio::from_integer(1);
     }
 
-    fn solve(
-        mut self,
-    ) -> Result<(ArrayViewMut1<'a, Coeff>, ArrayViewMut2<'a, Coeff>), fractionfree::LinalgErr> {
+    fn solve(mut self) -> Result<ArrayViewMut2<'a, Ratio<StackCoeff>>, fractionfree::LinalgErr> {
         // Make bl the product b.l
-        general_mat_mul(1, &self.b, &self.l, 0, &mut self.bl);
+        general_mat_mul(
+            Ratio::from_integer(1),
+            &self.b,
+            &self.l,
+            Ratio::from_integer(0),
+            &mut self.bl,
+        );
+
+        // make ainv the inverse of a
         let lu = fractionfree::lu(self.a)?;
-        lu.inverse_inplace(&mut self.res_denominators[0], &mut self.ainv)?;
+        let mut d = Ratio::from_integer(0);
+        lu.inverse_inplace(&mut d, &mut self.ainv)?;
+        self.ainv.map_mut(|x| {
+            *x /= d;
+        });
 
         // Make res the product a^{-1}.b.l
-        general_mat_mul(1, &self.ainv, &self.bl, 0, &mut self.res_numerators);
+        general_mat_mul(
+            Ratio::from_integer(1),
+            &self.ainv,
+            &self.bl,
+            Ratio::from_integer(0),
+            &mut self.res,
+        );
 
-        // normalise
-        let d = self.res_denominators[0];
-        self.res_denominators.fill(d);
-        fractionfree::normalise(&mut self.res_denominators, &mut self.res_numerators)?;
-
-        Ok((self.res_denominators, self.res_numerators))
+        Ok(self.res)
     }
 }
 
@@ -170,23 +178,23 @@ mod test {
     use super::*;
 
     struct SystemSpec {
-        lengths: Array2<Coeff>,
+        lengths: Array2<Ratio<StackCoeff>>,
         n_nodes: usize,
-        springs: Vec<(usize, usize, usize, Coeff)>,
-        fixed_springs: Vec<(usize, usize, Coeff)>,
+        springs: Vec<(usize, usize, usize, Ratio<StackCoeff>)>,
+        fixed_springs: Vec<(usize, usize, Ratio<StackCoeff>)>,
         rods: Vec<(usize, usize, usize)>,
     }
 
     fn initialise_and_solve<'a>(
         workspace: &'a mut Workspace,
         spec: &SystemSpec,
-    ) -> (ArrayViewMut1<'a, Coeff>, ArrayViewMut2<'a, Coeff>) {
+    ) -> ArrayViewMut2<'a, Ratio<StackCoeff>> {
         let n_lengths = spec.lengths.shape()[0];
 
         let mut system = workspace.prepare_system(spec.n_nodes, n_lengths);
 
         for (i, row) in spec.lengths.rows().into_iter().enumerate() {
-            system.define_length(i, &row);
+            system.define_length(i, row);
         }
 
         for (start, end, length, stiffness) in &spec.springs {
@@ -205,24 +213,20 @@ mod test {
         println!("b={}", system.b);
         println!("l={}", system.l);
 
-        let (d, n) = system.solve().unwrap();
+        let res = system.solve().unwrap();
 
-        println!("(d,n)=({},{})", d, n);
+        println!("res={}", res);
 
-        (d, n)
+        res
     }
 
     fn one_case(
         workspace: &mut Workspace,
         spec: &SystemSpec,
-        expected: &(Array1<Coeff>, Array2<Coeff>), // expected to be [normalise]d
+        expected: &Array2<Ratio<StackCoeff>>,
     ) {
-        let (actual_denoms, actual_numers) = initialise_and_solve(workspace, spec); // these are normalised
-        let (expected_denoms, expected_numers) = expected;
-        assert_eq!(
-            (expected_denoms.view(), expected_numers.view()),
-            (actual_denoms.view(), actual_numers.view())
-        )
+        let actual = initialise_and_solve(workspace, spec);
+        assert_eq!(expected.view(), actual.view())
     }
 
     #[test]
@@ -231,160 +235,251 @@ mod test {
             (
                 // one node anchored to the origin
                 SystemSpec {
-                    lengths: arr2(&[[0, 0, 0]]),
+                    lengths: arr2(&[[0.into(), 0.into(), 0.into()]]),
                     n_nodes: 1,
                     springs: vec![],
-                    fixed_springs: vec![(0, 0, 1)],
+                    fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![],
                 },
-                (arr1(&[1]), arr2(&[[0, 0, 0]])),
+                arr2(&[[0.into(), 0.into(), 0.into()]]),
             ),
             (
                 // one node anchored to a point that is not the origin
                 SystemSpec {
-                    lengths: arr2(&[[1, 0, 0]]),
+                    lengths: arr2(&[[1.into(), 0.into(), 0.into()]]),
                     n_nodes: 1,
                     springs: vec![],
-                    fixed_springs: vec![(0, 0, 1)],
+                    fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![],
                 },
-                (arr1(&[1]), arr2(&[[1, 0, 0]])),
+                arr2(&[[1.into(), 0.into(), 0.into()]]),
             ),
             (
                 // one anchored node with one node attached to it
                 SystemSpec {
-                    lengths: arr2(&[[1, 0, 3], [0, 2, 0]]),
+                    lengths: arr2(&[
+                        [1.into(), 0.into(), 3.into()],
+                        [0.into(), 2.into(), 0.into()],
+                    ]),
                     n_nodes: 2,
-                    springs: vec![(0, 1, 1, 1)],
-                    fixed_springs: vec![(0, 0, 1)],
+                    springs: vec![(0, 1, 1, 1.into())],
+                    fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![],
                 },
-                (arr1(&[1, 1]), arr2(&[[1, 0, 3], [1, 2, 3]])),
+                arr2(&[
+                    [1.into(), 0.into(), 3.into()],
+                    [1.into(), 2.into(), 3.into()],
+                ]),
             ),
             (
                 // now, the right node is anchored
                 SystemSpec {
-                    lengths: arr2(&[[1, 0, 3], [0, 2, 0]]),
+                    lengths: arr2(&[
+                        [1.into(), 0.into(), 3.into()],
+                        [0.into(), 2.into(), 0.into()],
+                    ]),
                     n_nodes: 2,
-                    springs: vec![(0, 1, 0, 1)],
-                    fixed_springs: vec![(1, 1, 1)],
+                    springs: vec![(0, 1, 0, 1.into())],
+                    fixed_springs: vec![(1, 1, 1.into())],
                     rods: vec![],
                 },
-                (arr1(&[1, 1]), arr2(&[[-1, 2, -3], [0, 2, 0]])),
+                arr2(&[
+                    [(-1).into(), 2.into(), (-3).into()],
+                    [0.into(), 2.into(), 0.into()],
+                ]),
             ),
             (
                 // three nodes a,b,c, with the a anchored, b attached to a, and c to b
                 SystemSpec {
-                    lengths: arr2(&[[2, 0, 0], [0, 3, 0]]),
+                    lengths: arr2(&[
+                        [2.into(), 0.into(), 0.into()],
+                        [0.into(), 3.into(), 0.into()],
+                    ]),
                     n_nodes: 3,
-                    springs: vec![(0, 1, 0, 1), (1, 2, 1, 1)],
-                    fixed_springs: vec![(0, 0, 1)],
+                    springs: vec![(0, 1, 0, 1.into()), (1, 2, 1, 1.into())],
+                    fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![],
                 },
-                (arr1(&[1, 1, 1]), arr2(&[[2, 0, 0], [4, 0, 0], [4, 3, 0]])),
+                arr2(&[
+                    [2.into(), 0.into(), 0.into()],
+                    [4.into(), 0.into(), 0.into()],
+                    [4.into(), 3.into(), 0.into()],
+                ]),
             ),
             (
                 // three nodes each connected to the other two; all springs have the same length
                 // and stiffness
                 SystemSpec {
-                    lengths: arr2(&[[0, 0, 0], [1, 0, 0]]),
+                    lengths: arr2(&[
+                        [0.into(), 0.into(), 0.into()],
+                        [1.into(), 0.into(), 0.into()],
+                    ]),
                     n_nodes: 3,
-                    springs: vec![(0, 1, 1, 1), (1, 2, 1, 1), (0, 2, 1, 1)],
-                    fixed_springs: vec![(0, 0, 1)],
+                    springs: vec![
+                        (0, 1, 1, 1.into()),
+                        (1, 2, 1, 1.into()),
+                        (0, 2, 1, 1.into()),
+                    ],
+                    fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![],
                 },
-                (arr1(&[1, 3, 3]), arr2(&[[0, 0, 0], [2, 0, 0], [4, 0, 0]])),
+                arr2(&[
+                    [0.into(), 0.into(), 0.into()],
+                    [Ratio::new(2, 3), 0.into(), 0.into()],
+                    [Ratio::new(4, 3), 0.into(), 0.into()],
+                ]),
             ),
             (
                 // three nodes each connected to the other two; the spring connecting the last to
                 // the first node is twice as long as the other two
                 SystemSpec {
-                    lengths: arr2(&[[0, 0, 0], [1, 0, 0], [2, 0, 0]]),
+                    lengths: arr2(&[
+                        [0.into(), 0.into(), 0.into()],
+                        [1.into(), 0.into(), 0.into()],
+                        [2.into(), 0.into(), 0.into()],
+                    ]),
                     n_nodes: 3,
-                    springs: vec![(0, 1, 1, 1), (1, 2, 1, 1), (0, 2, 2, 1)],
-                    fixed_springs: vec![(0, 0, 1)],
+                    springs: vec![
+                        (0, 1, 1, 1.into()),
+                        (1, 2, 1, 1.into()),
+                        (0, 2, 2, 1.into()),
+                    ],
+                    fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![],
                 },
-                (arr1(&[1, 1, 1]), arr2(&[[0, 0, 0], [1, 0, 0], [2, 0, 0]])),
+                arr2(&[
+                    [0.into(), 0.into(), 0.into()],
+                    [1.into(), 0.into(), 0.into()],
+                    [2.into(), 0.into(), 0.into()],
+                ]),
             ),
             (
                 // three nodes each connected to the other two; all springs have the same length,
                 // but the spring connecting the first to the last node is half as strong as the
                 // other two
                 SystemSpec {
-                    lengths: arr2(&[[0, 0, 0], [1, 0, 0]]),
+                    lengths: arr2(&[
+                        [0.into(), 0.into(), 0.into()],
+                        [1.into(), 0.into(), 0.into()],
+                    ]),
                     n_nodes: 3,
-                    springs: vec![(0, 1, 1, 2), (1, 2, 1, 2), (0, 2, 1, 1)],
-                    fixed_springs: vec![(0, 0, 1)],
+                    springs: vec![
+                        (0, 1, 1, 2.into()),
+                        (1, 2, 1, 2.into()),
+                        (0, 2, 1, 1.into()),
+                    ],
+                    fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![],
                 },
-                (arr1(&[1, 4, 2]), arr2(&[[0, 0, 0], [3, 0, 0], [3, 0, 0]])),
+                arr2(&[
+                    [0.into(), 0.into(), 0.into()],
+                    [Ratio::new(3, 4), 0.into(), 0.into()],
+                    [Ratio::new(3, 2), 0.into(), 0.into()],
+                ]),
             ),
             (
                 // a rod with both ends attached to the origin
                 SystemSpec {
-                    lengths: arr2(&[[0, 0, 0], [1, 0, 0]]),
+                    lengths: arr2(&[
+                        [0.into(), 0.into(), 0.into()],
+                        [1.into(), 0.into(), 0.into()],
+                    ]),
                     n_nodes: 2,
                     springs: vec![],
-                    fixed_springs: vec![(0, 0, 1), (1, 0, 1)],
+                    fixed_springs: vec![(0, 0, 1.into()), (1, 0, 1.into())],
                     rods: vec![(0, 1, 1)],
                 },
-                (arr1(&[2, 2]), arr2(&[[-1, 0, 0], [1, 0, 0]])),
+                arr2(&[
+                    [Ratio::new(-1, 2), 0.into(), 0.into()],
+                    [Ratio::new(1, 2), 0.into(), 0.into()],
+                ]),
             ),
             (
                 // three springs of equal strength compressed between the two ends of a rod
                 SystemSpec {
-                    lengths: arr2(&[[0, 0, 0], [1, 0, 0], [7, -13, 5]]),
+                    lengths: arr2(&[
+                        [0.into(), 0.into(), 0.into()],
+                        [1.into(), 0.into(), 0.into()],
+                        [7.into(), (-13).into(), 5.into()],
+                    ]),
                     n_nodes: 4,
-                    springs: vec![(0, 1, 2, 1), (1, 2, 2, 1), (2, 3, 2, 1)],
-                    fixed_springs: vec![(0, 0, 1)],
+                    springs: vec![
+                        (0, 1, 2, 1.into()),
+                        (1, 2, 2, 1.into()),
+                        (2, 3, 2, 1.into()),
+                    ],
+                    fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![(0, 3, 1)],
                 },
-                (
-                    arr1(&[1, 3, 3, 1]),
-                    arr2(&[[0, 0, 0], [1, 0, 0], [2, 0, 0], [1, 0, 0]]),
-                ),
+                arr2(&[
+                    [0.into(), 0.into(), 0.into()],
+                    [Ratio::new(1, 3), 0.into(), 0.into()],
+                    [Ratio::new(2, 3), 0.into(), 0.into()],
+                    [1.into(), 0.into(), 0.into()],
+                ]),
             ),
             (
                 // three springs of unequal strength compressed between the two ends of a rod, the
                 // middle spring is twice as stiff as the other two
                 SystemSpec {
-                    lengths: arr2(&[[0, 0, 0], [1, 0, 0]]),
+                    lengths: arr2(&[
+                        [0.into(), 0.into(), 0.into()],
+                        [1.into(), 0.into(), 0.into()],
+                    ]),
                     n_nodes: 4,
-                    springs: vec![(0, 1, 1, 1), (1, 2, 1, 2), (2, 3, 1, 1)],
-                    fixed_springs: vec![(0, 0, 1)],
+                    springs: vec![
+                        (0, 1, 1, 1.into()),
+                        (1, 2, 1, 2.into()),
+                        (2, 3, 1, 1.into()),
+                    ],
+                    fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![(0, 3, 1)],
                 },
-                (
-                    arr1(&[1, 5, 5, 1]),
-                    arr2(&[[0, 0, 0], [1, 0, 0], [4, 0, 0], [1, 0, 0]]),
-                ),
+                arr2(&[
+                    [0.into(), 0.into(), 0.into()],
+                    [Ratio::new(1, 5), 0.into(), 0.into()],
+                    [Ratio::new(4, 5), 0.into(), 0.into()],
+                    [1.into(), 0.into(), 0.into()],
+                ]),
             ),
             (
                 // Two rods, connected by a spring, with the rod's free ends connected to the
                 // origin. The middle spring will be squashed completely.
                 SystemSpec {
-                    lengths: arr2(&[[0, 0, 0], [1, 0, 0]]),
+                    lengths: arr2(&[
+                        [0.into(), 0.into(), 0.into()],
+                        [1.into(), 0.into(), 0.into()],
+                    ]),
                     n_nodes: 4,
-                    springs: vec![(1, 2, 1, 1)],
-                    fixed_springs: vec![(0, 0, 1), (3, 0, 1)],
+                    springs: vec![(1, 2, 1, 1.into())],
+                    fixed_springs: vec![(0, 0, 1.into()), (3, 0, 1.into())],
                     rods: vec![(0, 1, 1), (2, 3, 1)],
                 },
-                (
-                    arr1(&[1, 1, 1, 1]),
-                    arr2(&[[-1, 0, 0], [0, 0, 0], [0, 0, 0], [1, 0, 0]]),
-                ),
+                arr2(&[
+                    [(-1).into(), 0.into(), 0.into()],
+                    [0.into(), 0.into(), 0.into()],
+                    [0.into(), 0.into(), 0.into()],
+                    [1.into(), 0.into(), 0.into()],
+                ]),
             ),
             (
                 // A triangle of two rods and a spring under tension
                 SystemSpec {
-                    lengths: arr2(&[[0, 0, 0], [1, 0, 0], [3, 0, 0]]),
+                    lengths: arr2(&[
+                        [0.into(), 0.into(), 0.into()],
+                        [1.into(), 0.into(), 0.into()],
+                        [3.into(), 0.into(), 0.into()],
+                    ]),
                     n_nodes: 3,
-                    springs: vec![(1, 2, 1, 1)],
-                    fixed_springs: vec![(0, 0, 1)],
+                    springs: vec![(1, 2, 1, 1.into())],
+                    fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![(0, 1, 1), (0, 2, 2)],
                 },
-                (arr1(&[1, 1, 1]), arr2(&[[0, 0, 0], [1, 0, 0], [3, 0, 0]])),
+                arr2(&[
+                    [0.into(), 0.into(), 0.into()],
+                    [1.into(), 0.into(), 0.into()],
+                    [3.into(), 0.into(), 0.into()],
+                ]),
             ),
         ];
 
