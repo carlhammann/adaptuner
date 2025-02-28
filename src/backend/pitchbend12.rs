@@ -9,7 +9,7 @@ use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg}
 use crate::{
     backend::r#trait::BackendState,
     config::r#trait::Config,
-    interval::{interval::Semitones, stacktype::r#trait::OctavePeriodicStackType},
+    interval::{base::Semitones, stacktype::r#trait::OctavePeriodicStackType},
     msg,
 };
 

@@ -1,4 +1,4 @@
-use crate::interval::{interval::Interval, temperament::Temperament};
+use crate::interval::{base::Interval, temperament::Temperament};
 
 /// The type of integer coefficients used in [Stack][crate::interval::stack::Stack]s.
 pub type StackCoeff = i32;
