@@ -4,7 +4,7 @@ use ndarray::arr2;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
-    interval::{Interval, Semitones},
+    base::{Interval, Semitones},
     stacktype::r#trait::{
         FiveLimitStackType, OctavePeriodicStackType, PeriodicStackType, StackCoeff, StackType,
     },

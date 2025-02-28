@@ -3,8 +3,9 @@ use std::time::Duration;
 use midi_msg::{Channel, MidiMsg};
 
 use crate::interval::{
-    interval::Semitones, stack::Stack, stacktype::r#trait::StackCoeff,
-    stacktype::r#trait::StackType,
+    base::Semitones,
+    stack::Stack,
+    stacktype::r#trait::{StackCoeff, StackType},
 };
 
 #[derive(Debug, PartialEq, Clone)]

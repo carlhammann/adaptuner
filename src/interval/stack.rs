@@ -5,10 +5,10 @@ use num_rational::Ratio;
 use num_traits::Zero;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::interval::stacktype::r#trait::{StackCoeff, StackType};
-
-// TODO: rename interval::interval to interval::base
-use crate::interval::interval::Semitones;
+use crate::interval::{
+    base::Semitones,
+    stacktype::r#trait::{StackCoeff, StackType},
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Stack<T: StackType> {
