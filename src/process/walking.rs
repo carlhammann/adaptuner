@@ -66,7 +66,11 @@ pub static TOGGLE_PATTERNS: u8 = 0;
 pub static UPDATE_KEY_CENTER: u8 = 1;
 pub static TOGGLE_TEMPER_PATTERN_NEIGHBOURHOODS: u8 = 2;
 
-impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N> {
+impl<T, N> Walking<T, N>
+where
+    T: StackType + fmt::Debug + PartialEq,
+    N: CompleteNeigbourhood<T> + Clone,
+{
     // returns true iff the current_fit changed
     fn recompute_fit(
         &mut self,
@@ -493,8 +497,10 @@ impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> Walking<T, N
     }
 }
 
-impl<T: StackType + fmt::Debug, N: CompleteNeigbourhood<T> + Clone> ProcessState<T>
-    for Walking<T, N>
+impl<T, N> ProcessState<T> for Walking<T, N>
+where
+    T: StackType + fmt::Debug + PartialEq,
+    N: CompleteNeigbourhood<T> + Clone,
 {
     fn handle_msg(
         &mut self,

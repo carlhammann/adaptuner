@@ -17,6 +17,7 @@ serde_derive = "1.0.198"
 ctrlc = "3.4.4"
 deser-hjson = "2.2.4"
 serde = "1.0.204"
+num-rational = {version = "0.4.2", features = ["serde"]}
 
 [dev-dependencies]
 approx = "0.5.1"
