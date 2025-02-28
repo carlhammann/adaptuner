@@ -1,67 +1,56 @@
-//! Treating the idea of "tempering intervals" in the abstract setting. A [Temperament] is
-//! basically an explanation of how stacks of tempered intervals relate to stacks of pure
-//! intervals, where "stacks" are integer linear combinations.
+//! Treating the idea of "tempering intervals" in the abstract setting. A [Temperament] is a
+//! specification of how stacks of tempered intervals relate to stacks of pure intervals.
 
 use fractionfree;
-use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut1};
 use num_integer::Integer;
-use num_traits::Signed;
-use std::{error::Error, fmt, ops};
+use num_rational::Ratio;
+use num_traits::NumAssign;
+use std::{error::Error, fmt};
 
 /// A description of a temperament, i.e. "how much you detune" some intervals.
 ///
 /// Assume we're working in a setting with `D` base intervals (octaves, fifths, thirds,
 /// sevenths...) which we conceive of as "pure". Sometimes, we want to describe a slightly detuned
-/// version of this set of intervals. How much we detune the intervals, in terms of fractions of
-/// linear combinations of the base intervals, is what an element of this type encodes.
-#[derive(Debug, Clone, PartialEq)]
+/// version of this set of intervals. How much we detune the intervals, in terms of rational linear
+/// combinations of the base intervals, is what an element of this type encodes.
+#[derive(Debug, Clone)]
 pub struct Temperament<I> {
     pub name: String,
 
     /// a `D x D` matrix. The i-th row describes the "comma" by which the i-th interval is
-    /// detuned. The comma is given as a linear combination of base intervals, and the
+    /// detuned. The comma is given as a rational combination of base intervals, and the
     /// coefficients of that linear combination are what the row contains.
-    commas: Array2<I>,
-
-    /// Often, you don't detune the interval with the whole comma, but only with a fraction
-    /// thereof. This vector stores the denominators of these fractions.
-    denominators: Array1<I>,
+    adjustments: Array2<Ratio<I>>,
 }
 
 impl<I> Temperament<I>
 where
-    I: Copy
-        + ops::Div<Output = I>
-        + ops::DivAssign
-        + ops::AddAssign
-        + ops::SubAssign
-        + Signed
-        + Integer
-        + 'static,
+    I: Copy + NumAssign + Integer + std::fmt::Display + 'static,
 {
-    /// the number of base intervals
-    pub fn dimension(&self) -> usize {
-        self.denominators.len()
-    }
-
-    /// The error "tempered out" by the `i`-th interval, given as (the coefficients of) a linear
+    /// The error "tempered out" by the `i`-th interval, given as (the coefficients of) a rational
     /// combination of pure intervals.
-    ///
-    /// This may not be the actual adjustment that has to be applied to an individual interval; in
-    /// order obtain that, divide by the `i`-th [denominator][Temperament::denominator].
-    ///
-    /// The following invariants always hold:
-    ///
-    /// * `gcd(x.denominator(i), x.comma(i)[0], ..., x.comma(i)[D]) == 1`
-    ///
-    /// * `denominator(i) > 0`
-    pub fn comma(&self, i: usize) -> ArrayView1<I> {
-        self.commas.slice(s![i, ..])
+    pub fn comma(&self, i: usize) -> ArrayView1<Ratio<I>> {
+        self.adjustments.slice(s![i, ..])
     }
 
-    /// See the documentation of [comma][Temperament::comma].
-    pub fn denominator(&self, i: usize) -> I {
-        self.denominators[i]
+    /// The adjustment applied by the temperament to a stack of pure invervals with the given
+    /// coefficients.
+    pub fn adjustment(&self, coefficients: ArrayView1<I>) -> Array1<Ratio<I>> {
+        let mut output = Array1::zeros(coefficients.raw_dim());
+        self.add_adjustment(coefficients, output.view_mut());
+        output
+    }
+
+    /// Like [Self::adjustment], only with an output argument that will be mutated. The adjustment
+    /// will be added to whatever is already in `output`.
+    pub fn add_adjustment(&self, coefficients: ArrayView1<I>, mut output: ArrayViewMut1<Ratio<I>>) {
+        let d = coefficients.len();
+        for i in 0..d {
+            for j in 0..d {
+                output[i] += &self.adjustments[[j, i]] * coefficients[j];
+            }
+        }
     }
 
     /// Compute the [Temperament] of `D` intervals from `D` pairwise identifications of notes.
@@ -83,43 +72,41 @@ where
     /// ```
     /// # use ndarray::{arr1, arr2};
     /// # use adaptuner::interval::temperament::*;
+    /// # use num_rational::Ratio;
     /// # fn main () {
     /// let tempered = arr2(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]);
     /// let pure     = arr2(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]);
     ///
-    /// let t = Temperament::new(String::from("name of temperament"), tempered, pure.view()).unwrap();
+    /// let t = Temperament::new(String::from("name of temperament"), tempered.view(), pure.view()).unwrap();
     ///
-    /// assert_eq!(t.comma(0), arr1(&[0, 0, 0]).view());
-    /// assert_eq!(t.comma(1), arr1(&[2, -4, 1]).view());
-    /// assert_eq!(t.comma(2), arr1(&[0, 0, 0]).view());
-    ///
-    /// assert_eq!(t.denominator(0), 1);
-    /// assert_eq!(t.denominator(1), 4);
-    /// assert_eq!(t.denominator(2), 1);
+    /// assert_eq!(t.adjustment(arr1(&[1, 0, 0]).view()),
+    ///            arr1(&[Ratio::from_integer(0), Ratio::from_integer(0), Ratio::from_integer(0)]));
+    /// assert_eq!(t.adjustment(arr1(&[0, 1, 0]).view()),
+    ///            arr1(&[Ratio::new(2, 4), Ratio::new(-4, 4), Ratio::new(1, 4)]));
+    /// assert_eq!(t.adjustment(arr1(&[0, 0, 1]).view()),
+    ///            arr1(&[Ratio::from_integer(0), Ratio::from_integer(0), Ratio::from_integer(0)]));
     /// # }
     ///```
     /// The first rows of `tempered` and `pure` encode the constraint that four tempered fifths should
-    /// be e
-    /// qual to two pure octaves plus one pure third. The other two rows rows say that tempered
+    /// be equal to two pure octaves plus one pure third. The other two rows rows say that tempered
     /// octaves and thirds should be equal to their pure counterparts. Thus, the temperament described
     /// by `tempered` and `pure` is: "Make four fifths the same size as two octaves and a third, and
     /// don't detune octaves and thirds". This is, of course, the definition of quarter-comma meantone.
     ///
-    /// The output confirms this: We see that the only non-zero [comma][Temperament::comma] is the
-    /// one corresponding to the second base interval (the fifths), and that the error that is
-    /// tempered is "2 octaves - 4 fifts + 1 third" (which is exactly the definition of a syntonic
-    /// comma downwards). The corresponding [denominator][Temperament::denominator] says that this
-    /// error is distributed between four fifths.
+    /// The output confirms this: We see that the only non-zero
+    /// [adjustment][Temperament::adjustment] is the one corresponding to the second base interval
+    /// (the fifths), and that the error that is tempered is "1/4 of (2 octaves - 4 fifts + 1
+    /// third)" (which is exactly the definition of a quarter syntonic comma downwards).
     pub fn new(
         name: String,
-        tempered: Array2<I>,
+        tempered: ArrayView2<I>,
         pure: ArrayView2<I>,
     ) -> Result<Temperament<I>, TemperamentErr> {
-        let d = tempered.raw_dim()[0];
+        let mut tmp = Array2::from_shape_fn(tempered.raw_dim(), |(i, j)| {
+            Ratio::from_integer(tempered[[i, j]])
+        });
 
-        let mut tempered_lu_pre = tempered.clone(); // TODO update the signgature of this function
-                                                    // to  avoid cloning
-        let tempered_lu = match fractionfree::lu(tempered_lu_pre.view_mut()) {
+        let tempered_lu = match fractionfree::lu(tmp.view_mut()) {
             Err(fractionfree::LinalgErr::LURankDeficient) => {
                 return Err(TemperamentErr::Indeterminate)
             }
@@ -127,21 +114,23 @@ where
             Ok(x) => x,
         };
 
-        let (det, adj) = tempered_lu.inverse()?;
+        // initialisation of these two doesn't matter.
+        let mut tempered_inv = Array2::zeros(tempered.raw_dim());
+        let mut d = Ratio::from_integer(I::zero());
+        tempered_lu.inverse_inplace(&mut d, &mut tempered_inv.view_mut())?;
+        tempered_inv.map_mut(|x| {
+            *x /= d;
+        });
 
-        let mut e = adj.dot(&pure);
-        for i in 0..d {
-            e[[i, i]] -= det;
-        }
+        tmp = Array2::from_shape_fn(tempered.raw_dim(), |(i, j)| {
+            Ratio::from_integer(pure[[i, j]])
+        });
+        let mut adjustments = tempered_inv.dot(&tmp);
+        adjustments.diag_mut().map_mut(|x| {
+            *x -= Ratio::from_integer(I::one());
+        });
 
-        let mut k = Array1::from_elem(d, det);
-        fractionfree::normalise(&mut k.view_mut(), &mut e.view_mut())?;
-
-        Ok(Temperament {
-            name,
-            commas: e,
-            denominators: k,
-        })
+        Ok(Temperament { name, adjustments })
     }
 }
 
