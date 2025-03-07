@@ -7,7 +7,7 @@ use num_rational::Ratio;
 use crate::interval::stacktype::r#trait::StackCoeff;
 
 #[derive(Debug)]
-struct Workspace {
+pub struct Workspace {
     a: Array2<Ratio<StackCoeff>>,
     ainv: Array2<Ratio<StackCoeff>>,
     b: Array2<Ratio<StackCoeff>>,
@@ -16,7 +16,7 @@ struct Workspace {
     res: Array2<Ratio<StackCoeff>>,
 }
 
-struct System<'a> {
+pub struct System<'a> {
     a: ArrayViewMut2<'a, Ratio<StackCoeff>>,
     ainv: ArrayViewMut2<'a, Ratio<StackCoeff>>,
     b: ArrayViewMut2<'a, Ratio<StackCoeff>>,
@@ -26,7 +26,7 @@ struct System<'a> {
 }
 
 impl Workspace {
-    fn new(n_nodes: usize, n_lengths: usize, n_base_lengths: usize) -> Self {
+    pub fn new(n_nodes: usize, n_lengths: usize, n_base_lengths: usize) -> Self {
         Workspace {
             a: Array2::zeros((n_nodes, n_nodes)),
             ainv: Array2::eye(n_nodes),
@@ -37,9 +37,12 @@ impl Workspace {
         }
     }
 
-    fn prepare_system(&mut self, n_nodes: usize, n_lengths: usize) -> System {
-        let n_base_lengths = self.l.shape()[1];
-
+    pub fn prepare_system(
+        &mut self,
+        n_nodes: usize,
+        n_lengths: usize,
+        n_base_lengths: usize,
+    ) -> System {
         if n_nodes > self.a.shape()[0] {
             self.a = Array2::zeros((n_nodes, n_nodes));
             self.ainv = Array2::eye(n_nodes);
@@ -50,10 +53,19 @@ impl Workspace {
 
         if n_lengths > self.l.shape()[0] {
             if n_nodes <= self.a.shape()[0] {
-                // we already resized this above:
                 self.b = Array2::zeros((n_nodes, n_lengths));
             }
             self.l = Array2::zeros((n_lengths, n_base_lengths));
+        }
+
+        if n_base_lengths > self.l.shape()[1] {
+            if n_nodes <= self.a.shape()[0] {
+                self.bl = Array2::zeros((n_nodes, n_base_lengths));
+                self.res = Array2::zeros((n_nodes, n_base_lengths));
+            }
+            if n_lengths <= self.l.shape()[0] {
+                self.l = Array2::zeros((n_lengths, n_base_lengths));
+            }
         }
 
         let mut sys = System {
@@ -81,7 +93,7 @@ impl<'a> System<'a> {
     /// Expected invariants:
     /// - `0 <= i < n_lengths`
     /// - `coefficients` has lengths `n_base_lengths`
-    fn define_length(&mut self, i: usize, coefficients: ArrayView1<Ratio<StackCoeff>>) {
+    pub fn define_length(&mut self, i: usize, coefficients: ArrayView1<Ratio<StackCoeff>>) {
         self.l.row_mut(i).assign(&coefficients);
     }
 
@@ -89,7 +101,7 @@ impl<'a> System<'a> {
     /// - `0 <= start < end < n_nodes`
     /// - `0 <= length < n_lengths`
     /// - called at most once for each pair `start < end`
-    fn add_spring(
+    pub fn add_spring(
         &mut self,
         start: usize,
         end: usize,
@@ -114,7 +126,7 @@ impl<'a> System<'a> {
     /// - `0 <= node < n_nodes`
     /// - `0 <= length < n_lengths`
     /// - called at most once for each `node`
-    fn add_fixed_spring(&mut self, node: usize, length: usize, stiffness: Ratio<StackCoeff>) {
+    pub fn add_fixed_spring(&mut self, node: usize, length: usize, stiffness: Ratio<StackCoeff>) {
         self.a[[node, node]] -= stiffness;
 
         self.b[[node, length]] -= stiffness;
@@ -126,7 +138,7 @@ impl<'a> System<'a> {
     /// - called at most once for each value of `end`, and then that value of `end` may never again be an
     ///   argument in the `start` or `end` position.
     /// - called after [add_fixed_spring] and [add_spring]
-    fn add_rod(&mut self, start: usize, end: usize, length: usize) {
+    pub fn add_rod(&mut self, start: usize, end: usize, length: usize) {
         let (mut start_row, mut end_row) = self.a.multi_slice_mut((s![start, ..], s![end, ..]));
         azip!((a in &mut start_row, b in &end_row) *a += b);
         azip!((a in &mut end_row) *a = 0.into());
@@ -139,7 +151,14 @@ impl<'a> System<'a> {
         end_row[length] = Ratio::from_integer(1);
     }
 
-    fn solve(mut self) -> Result<ArrayViewMut2<'a, Ratio<StackCoeff>>, fractionfree::LinalgErr> {
+    /// Will write the solution to `self.res`
+    pub fn solve(
+        mut self,
+    ) -> Result<ArrayViewMut2<'a, Ratio<StackCoeff>>, fractionfree::LinalgErr> {
+        println!("a:\n {}\n\n", self.a);
+        println!("b:\n {}\n\n", self.b);
+        println!("l:\n {}\n\n", self.l);
+
         // Make bl the product b.l
         general_mat_mul(
             Ratio::from_integer(1),
@@ -172,7 +191,7 @@ impl<'a> System<'a> {
 
 #[cfg(test)]
 mod test {
-    use ndarray::{arr1, arr2};
+    use ndarray::arr2;
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -190,8 +209,9 @@ mod test {
         spec: &SystemSpec,
     ) -> ArrayViewMut2<'a, Ratio<StackCoeff>> {
         let n_lengths = spec.lengths.shape()[0];
+        let n_base_lengths = spec.lengths.shape()[1];
 
-        let mut system = workspace.prepare_system(spec.n_nodes, n_lengths);
+        let mut system = workspace.prepare_system(spec.n_nodes, n_lengths, n_base_lengths);
 
         for (i, row) in spec.lengths.rows().into_iter().enumerate() {
             system.define_length(i, row);
@@ -230,18 +250,18 @@ mod test {
     }
 
     #[test]
-    fn foo() {
+    fn test_result_lengths() {
         let cases = [
             (
                 // one node anchored to the origin
                 SystemSpec {
-                    lengths: arr2(&[[0.into(), 0.into(), 0.into()]]),
+                    lengths: arr2(&[[0.into()]]),
                     n_nodes: 1,
                     springs: vec![],
                     fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![],
                 },
-                arr2(&[[0.into(), 0.into(), 0.into()]]),
+                arr2(&[[0.into()]]),
             ),
             (
                 // one node anchored to a point that is not the origin
@@ -310,10 +330,7 @@ mod test {
                 // three nodes each connected to the other two; all springs have the same length
                 // and stiffness
                 SystemSpec {
-                    lengths: arr2(&[
-                        [0.into(), 0.into(), 0.into()],
-                        [1.into(), 0.into(), 0.into()],
-                    ]),
+                    lengths: arr2(&[[0.into()], [1.into()]]),
                     n_nodes: 3,
                     springs: vec![
                         (0, 1, 1, 1.into()),
@@ -323,11 +340,7 @@ mod test {
                     fixed_springs: vec![(0, 0, 1.into())],
                     rods: vec![],
                 },
-                arr2(&[
-                    [0.into(), 0.into(), 0.into()],
-                    [Ratio::new(2, 3), 0.into(), 0.into()],
-                    [Ratio::new(4, 3), 0.into(), 0.into()],
-                ]),
+                arr2(&[[0.into()], [Ratio::new(2, 3)], [Ratio::new(4, 3)]]),
             ),
             (
                 // three nodes each connected to the other two; the spring connecting the last to
