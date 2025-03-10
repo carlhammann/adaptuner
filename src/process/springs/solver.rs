@@ -1,14 +1,16 @@
 //! For motivation, see doc/springs.tex
 
-use fractionfree;
-use ndarray::{azip, linalg::general_mat_mul, s, Array2, ArrayView1, ArrayViewMut2};
+use ndarray::{
+    azip, linalg::general_mat_mul, s, Array1, Array2, ArrayView1, ArrayViewMut1, ArrayViewMut2,
+};
 use num_rational::Ratio;
 
-use crate::interval::stacktype::r#trait::StackCoeff;
+use crate::{interval::stacktype::r#trait::StackCoeff, util::lu};
 
 #[derive(Debug)]
 pub struct Workspace {
     a: Array2<Ratio<StackCoeff>>,
+    perm: Array1<usize>,
     ainv: Array2<Ratio<StackCoeff>>,
     b: Array2<Ratio<StackCoeff>>,
     l: Array2<Ratio<StackCoeff>>,
@@ -18,6 +20,7 @@ pub struct Workspace {
 
 pub struct System<'a> {
     a: ArrayViewMut2<'a, Ratio<StackCoeff>>,
+    perm: ArrayViewMut1<'a, usize>,
     ainv: ArrayViewMut2<'a, Ratio<StackCoeff>>,
     b: ArrayViewMut2<'a, Ratio<StackCoeff>>,
     l: ArrayViewMut2<'a, Ratio<StackCoeff>>,
@@ -29,6 +32,7 @@ impl Workspace {
     pub fn new(n_nodes: usize, n_lengths: usize, n_base_lengths: usize) -> Self {
         Workspace {
             a: Array2::zeros((n_nodes, n_nodes)),
+            perm: Array1::zeros(n_nodes + 1),
             ainv: Array2::eye(n_nodes),
             b: Array2::zeros((n_nodes, n_lengths)),
             l: Array2::zeros((n_lengths, n_base_lengths)),
@@ -45,6 +49,7 @@ impl Workspace {
     ) -> System {
         if n_nodes > self.a.shape()[0] {
             self.a = Array2::zeros((n_nodes, n_nodes));
+            self.perm = Array1::zeros(n_nodes + 1);
             self.ainv = Array2::eye(n_nodes);
             self.b = Array2::zeros((n_nodes, n_lengths));
             self.bl = Array2::zeros((n_nodes, n_base_lengths));
@@ -70,6 +75,7 @@ impl Workspace {
 
         let mut sys = System {
             a: self.a.slice_mut(s![..n_nodes, ..n_nodes]),
+            perm: self.perm.slice_mut(s![..(n_nodes + 1)]),
             ainv: self.ainv.slice_mut(s![..n_nodes, ..n_nodes]),
             b: self.b.slice_mut(s![..n_nodes, ..n_lengths]),
             l: self.l.slice_mut(s![..n_lengths, ..n_base_lengths]),
@@ -152,9 +158,7 @@ impl<'a> System<'a> {
     }
 
     /// Will write the solution to `self.res`
-    pub fn solve(
-        mut self,
-    ) -> Result<ArrayViewMut2<'a, Ratio<StackCoeff>>, fractionfree::LinalgErr> {
+    pub fn solve(mut self) -> Result<ArrayViewMut2<'a, Ratio<StackCoeff>>, lu::LUErr> {
         println!("a:\n {}\n\n", self.a);
         println!("b:\n {}\n\n", self.b);
         println!("l:\n {}\n\n", self.l);
@@ -169,12 +173,8 @@ impl<'a> System<'a> {
         );
 
         // make ainv the inverse of a
-        let lu = fractionfree::lu(self.a)?;
-        let mut d = Ratio::from_integer(0);
-        lu.inverse_inplace(&mut d, &mut self.ainv)?;
-        self.ainv.map_mut(|x| {
-            *x /= d;
-        });
+        let lu = lu::lu(self.a, self.perm)?;
+        lu.inverse_inplace(&mut self.ainv);
 
         // Make res the product a^{-1}.b.l
         general_mat_mul(
