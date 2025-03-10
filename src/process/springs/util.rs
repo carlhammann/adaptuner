@@ -12,6 +12,12 @@ use crate::interval::{
     stacktype::r#trait::{StackCoeff, StackType},
 };
 
+pub enum Connector {
+    Spring,
+    Rod,
+    None,
+}
+
 #[derive(Hash, PartialEq, Eq, Debug)]
 enum ConnectedKeys {
     FixedSpring(usize),
@@ -75,9 +81,10 @@ enum KeyOrDistance {
 
 struct Workspace<T: StackType> {
     _phantom: PhantomData<T>,
+    memo_intervals: bool,
+    memo_note_anchors: bool,
     key_distances: Array2<KeyDistance>,
-    candidate_intervals:
-        HashMap<KeyOrDistance, (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>)>,
+    candidates: HashMap<KeyOrDistance, (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>)>,
     current_connections: BTreeMap<ConnectedKeys, IntervalInfo>,
     pub best_solution: Array2<Ratio<StackCoeff>>,
     pub best_energy: Semitones,
@@ -88,42 +95,50 @@ impl<T: StackType> Workspace<T> {
     /// - `initial_n_keys`: How many simultaneously sounding keys do you expect this workspace to
     ///    be used for? Choosing a big value will potentially prevent re-allocations, at the cost of
     ///    wasting space.
-    pub fn new(initial_n_keys: usize) -> Self {
+    /// - `memo_intervals` and `memo_notes`: Should sizes of intervals or "anchor" posisitions of
+    ///    notes be remembered between successive calls of [Self::compute_best_solution]?
+    pub fn new(initial_n_keys: usize, memo_intervals: bool, memo_note_anchors: bool) -> Self {
         Workspace {
             _phantom: PhantomData,
+            memo_intervals,
+            memo_note_anchors,
             key_distances: Array2::zeros((initial_n_keys, initial_n_keys)),
-            candidate_intervals: HashMap::new(),
+            candidates: HashMap::new(),
             current_connections: BTreeMap::new(),
             best_solution: Array2::zeros((initial_n_keys, T::num_intervals())),
             best_energy: Semitones::MAX,
         }
     }
 
-    /// expected invariants:
-    /// - `keys` is sorted by ascending key number, and each key number occurs at most once
-    pub fn compute_best_solution<'a, RP, PC>(
+    ///  The ordering of `keys` matters: Notes that come earlier (and the intervals between them)
+    ///  are more "stable" in the sense that alternative tunings are less likely to be picked
+    pub fn compute_best_solution<'a, WC, AP, PI, PN>(
         &mut self,
-        keys: &[(
-            KeyNumber,
-            Option<(
-                ArrayView2<'a, Ratio<StackCoeff>>,
-                ArrayView1<'a, Ratio<StackCoeff>>,
-            )>,
-        )],
-        rodp: RP,
-        provide_candidates: PC,
+        keys: &[KeyNumber],
+        is_note_anchored: AP,
+        which_connector: WC,
+        provide_candidate_intervals: PI,
+        provide_candidate_notes: PN,
         solver_workspace: &mut solver::Workspace,
     ) -> Result<(), fractionfree::LinalgErr>
     where
-        RP: Fn(KeyDistance) -> bool,
-        PC: Fn(KeyDistance) -> (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>),
+        WC: Fn(KeyNumber, KeyNumber) -> Connector,
+        AP: Fn(KeyNumber) -> bool,
+        PI: Fn(KeyDistance) -> (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>),
+        PN: Fn(KeyNumber) -> (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>),
     {
-        self.collect_rod_and_spring_key_distances(&keys, rodp);
-        let next_index = self.collect_relative_intervals_and_connections(provide_candidates);
-        self.collect_anchored_intervals_and_connections(next_index, &keys);
+        self.collect_rod_and_spring_key_distances(&keys, which_connector);
+        let next_index =
+            self.collect_relative_intervals_and_connections(provide_candidate_intervals);
+        self.collect_anchored_intervals_and_connections(
+            next_index,
+            keys,
+            is_note_anchored,
+            provide_candidate_notes,
+        );
 
         println!("current_connections:\n {:?}\n\n", self.current_connections);
-        println!("candidate_intervals:\n {:?}\n\n", self.candidate_intervals);
+        println!("candidate_intervals:\n {:?}\n\n", self.candidates);
 
         self.best_energy = Semitones::MAX;
 
@@ -142,7 +157,7 @@ impl<T: StackType> Workspace<T> {
     fn prepare_next_candidate(&mut self) -> bool {
         for (_, conn) in self.current_connections.iter_mut() {
             let keydist = &conn.key_or_distance;
-            let (intervals, _) = &self.candidate_intervals[keydist];
+            let (intervals, _) = &self.candidates[keydist];
             let max_ix = intervals.shape()[0] - 1;
             if conn.current_candidate_index < max_ix {
                 conn.current_candidate_index += 1;
@@ -178,7 +193,7 @@ impl<T: StackType> Workspace<T> {
                     println!("add_rod({}, {}, {})", i, j, conn.index);
 
                     let (candidate_lengths,_) = self
-                        .candidate_intervals
+                        .candidates
                         .get(&conn.key_or_distance)
                         .expect("solve_current_candidate: no candidate intervals found for rod key distance. This should never happen.");
 
@@ -187,7 +202,7 @@ impl<T: StackType> Workspace<T> {
                 }
                 ConnectedKeys::Spring(i, j) => {
                     let (candidate_lengths, candidate_stiffnesses) = self
-                        .candidate_intervals
+                        .candidates
                         .get(&conn.key_or_distance)
                         .expect("solve_current_candidate: no candidate intervals found for spring key distance. This should never happen.");
 
@@ -200,7 +215,7 @@ impl<T: StackType> Workspace<T> {
                 }
                 ConnectedKeys::FixedSpring(i) => {
                     let (candidate_lengths, candidate_stiffnesses) = self
-                        .candidate_intervals
+                        .candidates
                         .get(&conn.key_or_distance)
                         .expect("solve_current_candidate: no candidate intervals found for fixed spring key. This should never happen.");
 
@@ -217,6 +232,9 @@ impl<T: StackType> Workspace<T> {
         let solution = system.solve()?;
 
         let energy = self.energy_in(solution.view());
+
+        println!("solution:\n{}", solution);
+        println!("energy: {}\n\n\n", energy);
 
         // `self.best_solution.shape()[1]` and `solution.shape()[1]` are always equal to `T::num_intervals()`.
         if self.best_solution.shape()[0] < solution.shape()[0] {
@@ -276,7 +294,7 @@ impl<T: StackType> Workspace<T> {
 
         let target_length_and_stiffness = |d: &KeyOrDistance, i: usize| {
             let (intervals, stiffnesses) = self
-                .candidate_intervals
+                .candidates
                 .get(d)
                 .expect("energy_in: no candidate intervals found for key distance. This should never happen.");
             let length = compute_length(intervals.row(i));
@@ -293,7 +311,7 @@ impl<T: StackType> Workspace<T> {
                     let (l, s) = target_length_and_stiffness(d, ci);
                     if s != Ratio::ZERO {
                         res += *s.numer() as Semitones / *s.denom() as Semitones
-                            * (l - self.get_relative_semitones_in(*i, *j, solution));
+                            * (l - self.get_relative_semitones_in(*i, *j, solution)).powi(2);
                     }
                 }
                 ConnectedKeys::FixedSpring(i) => {
@@ -302,7 +320,7 @@ impl<T: StackType> Workspace<T> {
                     let (l, s) = target_length_and_stiffness(d, ci);
                     if s != Ratio::ZERO {
                         res += *s.numer() as Semitones / *s.denom() as Semitones
-                            * (l - self.get_semitones_in(*i, solution));
+                            * (l - self.get_semitones_in(*i, solution)).powi(2);
                     }
                 }
             }
@@ -312,15 +330,72 @@ impl<T: StackType> Workspace<T> {
     }
 
     /// expected invariants:
+    /// - start_index must be the return value of [Self::collect_relative_intervals_and_connections].
+    /// - entries of `keys` are unique
+    fn collect_anchored_intervals_and_connections<AP, PN>(
+        &mut self,
+        start_index: usize,
+        keys: &[KeyNumber],
+        is_note_anchored: AP,
+        provide_candidate_notes: PN,
+    ) where
+        AP: Fn(KeyNumber) -> bool,
+        PN: Fn(KeyNumber) -> (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>),
+    {
+        let mut index = start_index;
+
+        if !self.memo_note_anchors {
+            self.candidates.retain(|k, _| match k {
+                KeyOrDistance::Distance(_) => true,
+                KeyOrDistance::Key(_) => false,
+            });
+        }
+
+        for (i, &k) in keys.iter().enumerate() {
+            if is_note_anchored(k) {
+                self.current_connections.insert(
+                    ConnectedKeys::FixedSpring(i),
+                    IntervalInfo {
+                        index,
+                        key_or_distance: KeyOrDistance::Key(k),
+                        current_candidate_index: 0,
+                    },
+                );
+                index += 1;
+
+                if self.memo_note_anchors {
+                    if !self.candidates.contains_key(&KeyOrDistance::Key(k)) {
+                        self.candidates
+                            .insert(KeyOrDistance::Key(k), provide_candidate_notes(k));
+                    }
+                } else {
+                    self.candidates
+                        .insert(KeyOrDistance::Key(k), provide_candidate_notes(k));
+                }
+            }
+        }
+    }
+
+    /// expected invariants:
     /// -  [Self::collect_rod_and_spring_key_distances] was called before
     ///
     /// Returns 1 plus the highest [IntervalInfo::index] that it used. This can be used to
     /// continue adding the anchored connections with [Self::collect_anchored_intervals_and_connections].
-    fn collect_relative_intervals_and_connections<F>(&mut self, provide_candidates: F) -> usize
+    fn collect_relative_intervals_and_connections<F>(
+        &mut self,
+        provide_candidate_intervals: F,
+    ) -> usize
     where
         F: Fn(KeyDistance) -> (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>),
     {
         self.current_connections.clear();
+
+        if !self.memo_intervals {
+            self.candidates.retain(|k, _| match k {
+                KeyOrDistance::Distance(_) => false,
+                KeyOrDistance::Key(_) => true,
+            });
+        }
 
         let mut index = 0;
         let mut insert_connection = |d: KeyDistance, keys: ConnectedKeys| {
@@ -334,12 +409,14 @@ impl<T: StackType> Workspace<T> {
             );
             index += 1;
 
-            if !self
-                .candidate_intervals
-                .contains_key(&KeyOrDistance::Distance(d))
-            {
-                self.candidate_intervals
-                    .insert(KeyOrDistance::Distance(d), provide_candidates(d));
+            if self.memo_intervals {
+                if !self.candidates.contains_key(&KeyOrDistance::Distance(d)) {
+                    self.candidates
+                        .insert(KeyOrDistance::Distance(d), provide_candidate_intervals(d));
+                }
+            } else {
+                self.candidates
+                    .insert(KeyOrDistance::Distance(d), provide_candidate_intervals(d));
             }
         };
 
@@ -361,50 +438,6 @@ impl<T: StackType> Workspace<T> {
         index
     }
 
-    /// expected invariants:
-    /// - start_index must be the return value of [Self::collect_relative_intervals_and_connections].
-    /// - `keys` is sorted by ascending KeyNumber, and its entries are unique by key number
-    fn collect_anchored_intervals_and_connections(
-        &mut self,
-        start_index: usize,
-        keys: &[(
-            KeyNumber,
-            Option<(ArrayView2<Ratio<StackCoeff>>, ArrayView1<Ratio<StackCoeff>>)>,
-        )],
-    ) {
-        let mut index = start_index;
-
-        // we can delete the entries for absolute note positions; they'll be different from time to time.
-        // The sizes of intervals remain the same, so we keep them. (note that in
-        // [Self::collect_relative_intervals_and_connections], we don't overwrite!)
-        self.candidate_intervals.retain(|k, _| match k {
-            KeyOrDistance::Distance(_) => true,
-            KeyOrDistance::Key(_) => false,
-        });
-
-        for (i, (k, candidates)) in keys.iter().enumerate() {
-            match candidates {
-                None => {}
-                Some((intervals, stiffnesses)) => {
-                    self.current_connections.insert(
-                        ConnectedKeys::FixedSpring(i),
-                        IntervalInfo {
-                            index,
-                            key_or_distance: KeyOrDistance::Key(*k),
-                            current_candidate_index: 0,
-                        },
-                    );
-                    index += 1;
-
-                    self.candidate_intervals.insert(
-                        KeyOrDistance::Key(*k),
-                        (intervals.to_owned(), stiffnesses.to_owned()),
-                    );
-                }
-            }
-        }
-    }
-
     /// meanings of the arguments:
     /// - `keys` contains MIDI key number of currently sounding keys (or in any case, keys that should
     ///    be "considered together")
@@ -412,10 +445,11 @@ impl<T: StackType> Workspace<T> {
     ///    interval of that size should be realized by a rod.
     ///
     /// expected invariants:
-    /// - the entries of `keys` are unique, and sorted by ascending MIDI key number
+    /// - the entries of `keys` are unique
     ///
     /// provided invariants:
-    /// -
+    /// - TODO write something about how the ordering of `keys` affects the results of
+    ///   [Self::compute_best_solution]. For now, see the comment there.
     /// - Within the square matrix of size `keys.len()` in `self.key_distances`,
     ///   - the upper triangle contains the key distances of rods that should be added: for
     ///     `i<j` the rod's length is in `key_distances[[i,j]]`.
@@ -424,9 +458,9 @@ impl<T: StackType> Workspace<T> {
     ///   - the rod distances are such that every node is only the endpoint of at most one rod, and every
     ///     node that is an endpoint is not a start point of a rod (this is the expected invariant of
     ///     [solver::System::add_rod])
-    fn collect_rod_and_spring_key_distances<X, RP>(&mut self, keys: &[(KeyNumber, X)], rodp: RP)
+    fn collect_rod_and_spring_key_distances<WC>(&mut self, keys: &[KeyNumber], which_connector: WC)
     where
-        RP: Fn(KeyDistance) -> bool,
+        WC: Fn(KeyNumber, KeyNumber) -> Connector,
     {
         let n = keys.len();
         if n > self.key_distances.shape()[0] {
@@ -438,16 +472,19 @@ impl<T: StackType> Workspace<T> {
         // key distances for rods in the upper half, springs in the lower half
         for i in 0..n {
             for j in (i + 1)..n {
-                let d = keys[j].0 as KeyDistance - keys[i].0 as KeyDistance;
-                if rodp(d) {
-                    self.key_distances[[i, j]] = d;
-                } else {
-                    self.key_distances[[j, i]] = d;
+                let d = keys[j] as KeyDistance - keys[i] as KeyDistance;
+                match which_connector(keys[i], keys[j]) {
+                    Connector::Rod => self.key_distances[[i, j]] = d,
+                    Connector::Spring => self.key_distances[[j, i]] = d,
+                    Connector::None => {}
                 }
             }
         }
 
-        //println!("before normalise:\n{}", distances);
+        println!(
+            "before normalise:\n{}",
+            self.key_distances.slice(s![..n, ..n])
+        );
 
         // normalise the rod configuration.
         //
@@ -487,25 +524,31 @@ impl<T: StackType> Workspace<T> {
 #[cfg(test)]
 mod test {
     use ndarray::{arr1, arr2, s};
+    use num_traits::Euclid;
     use pretty_assertions::assert_eq;
+
+    use crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
 
     use super::*;
 
     #[test]
     fn test_rod_and_spring_key_distances() {
         type Irrelevant = crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
-        let mut ws = Workspace::<Irrelevant>::new(1);
+        let mut ws = Workspace::<Irrelevant>::new(1, true, true);
 
-        ws.collect_rod_and_spring_key_distances(&[(0, ()), (1, ()), (2, ()), (3, ())], |_| true);
+        ws.collect_rod_and_spring_key_distances(&[0, 1, 2, 3], |_, _| Connector::Rod);
         assert_eq!(
             ws.key_distances.slice(s![..4, ..4]),
             arr2(&[[0, 1, 2, 3], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0],])
         );
 
-        ws.collect_rod_and_spring_key_distances(
-            &[(0, ()), (1, ()), (2, ()), (3, ()), (4, ()), (5, ())],
-            |d| d % 2 == 0,
-        );
+        ws.collect_rod_and_spring_key_distances(&[0, 1, 2, 3, 4, 5], |i, j| {
+            if (j - i) % 2 == 0 {
+                Connector::Rod
+            } else {
+                Connector::Spring
+            }
+        });
         assert_eq!(
             ws.key_distances.slice(s![..6, ..6]),
             arr2(&[
@@ -518,8 +561,13 @@ mod test {
             ])
         );
 
-        ws.collect_rod_and_spring_key_distances(&[(0, ()), (5, ()), (7, ()), (12, ())], |d| {
-            (d % 12 == 0) | (d % 7 == 0)
+        ws.collect_rod_and_spring_key_distances(&[0, 5, 7, 12], |i, j| {
+            let d = j - i;
+            if (d % 12 == 0) | (d % 7 == 0) {
+                Connector::Rod
+            } else {
+                Connector::Spring
+            }
         });
         assert_eq!(
             ws.key_distances.slice(s![..4, ..4]),
@@ -529,104 +577,312 @@ mod test {
 
     #[test]
     fn test_compute_best_solution() {
-        type Irrelevant = crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
-        let mut ws = Workspace::<Irrelevant>::new(1);
-        let mut sws = solver::Workspace::new(1, 1, 1);
+        let mut ws = Workspace::<ConcreteFiveLimitStackType>::new(1, true, false);
+        let mut solver_workspace = solver::Workspace::new(1, 1, 1);
 
-        ws.compute_best_solution(
-            &[(
-                0,
-                Some((
-                    arr2(&[[0.into(), 0.into(), 0.into()]]).view(),
-                    arr1(&[1.into()]).view(),
-                )),
-            )],
-            |_| true,
-            |_| panic!("this should not be called"),
-            &mut sws,
-        )
-        .unwrap();
-        assert_eq!(ws.best_solution, arr2(&[[0.into(), 0.into(), 0.into()]]));
+        let provide_candidate_intervals = |d: KeyDistance| {
+            let octaves = Ratio::new((d as StackCoeff).div_euclid(12), 1);
+            let pitch_class = d.rem_euclid(12);
 
-        ws.compute_best_solution(
-            &[
-                (
-                    0,
-                    Some((
-                        arr2(&[[0.into(), 0.into(), 0.into()]]).view(),
-                        arr1(&[1.into()]).view(),
-                    )),
+            match pitch_class {
+                0 => (arr2(&[[octaves, 0.into(), 0.into()]]), arr1(&[1.into()])),
+                1 => (
+                    arr2(&[
+                        [octaves + 1, (-1).into(), (-1).into()], // diatonic semitone
+                        [octaves, (-1).into(), 2.into()],        // chromatic semitone
+                    ]),
+                    arr1(&[
+                        Ratio::new(1, 2 * 3 * 4 * 5),
+                        Ratio::new(1, 2 * 3 * 4 * 5 * 4 * 5),
+                    ]),
                 ),
-                (1, None),
-            ],
-            |_| false,
-            |_| (arr2(&[[2.into(), 3.into(), 5.into()]]), arr1(&[1.into()])),
-            &mut sws,
+                2 => (
+                    arr2(&[
+                        [octaves - 1, 2.into(), 0.into()],    // major whole tone 9/8
+                        [octaves + 1, (-2).into(), 1.into()], // minor whole tone 10/9
+                    ]),
+                    arr1(&[
+                        Ratio::new(1, 2 * 3 * 2 * 3),
+                        Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                    ]),
+                ),
+                3 => (
+                    arr2(&[[octaves, 1.into(), (-1).into()]]), // minor third
+                    arr1(&[Ratio::new(1, 2 * 3 * 4 * 5)]),
+                ),
+                4 => (
+                    arr2(&[[octaves, 0.into(), 1.into()]]), // major third
+                    arr1(&[Ratio::new(1, 4 * 5)]),
+                ),
+                5 => (
+                    arr2(&[[octaves + 1, (-1).into(), 0.into()]]), // fourth
+                    arr1(&[Ratio::new(1, 2 * 3)]),
+                ),
+                6 => (
+                    arr2(&[
+                        [octaves - 1, 2.into(), 1.into()], // tritone as major tone plus major third
+                        [octaves, 2.into(), (-2).into()], // tritone as chromatic semitone below fifth
+                    ]),
+                    arr1(&[
+                        Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                        Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5 * 4 * 5),
+                    ]),
+                ),
+                7 => (
+                    arr2(&[[octaves, 1.into(), 0.into()]]), // fifth
+                    arr1(&[Ratio::new(1, 2 * 3)]),
+                ),
+                8 => (
+                    arr2(&[[octaves + 1, 0.into(), (-1).into()]]), // minor sixth
+                    arr1(&[Ratio::new(1, 4 * 5)]),
+                ),
+                9 => (
+                    arr2(&[[octaves + 1, (-1).into(), 1.into()]]), // major sixth
+                    arr1(&[Ratio::new(1, 2 * 3 * 4 * 5)]),
+                ),
+                10 => (
+                    arr2(&[
+                        [octaves + 2, (-2).into(), 0.into()], // minor seventh as stack of two fourths
+                        [octaves, 2.into(), (-1).into()], // minor seventh as fifth plus minor third
+                    ]),
+                    arr1(&[
+                        Ratio::new(1, 2 * 3 * 2 * 3),
+                        Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                    ]),
+                ),
+                11 => (
+                    arr2(&[
+                        [octaves, 1.into(), 1.into()], // major seventh as fifth plus major third
+                    ]),
+                    arr1(&[Ratio::new(1, 2 * 3 * 4 * 5)]),
+                ),
+                _ => unreachable!(),
+            }
+        };
+
+        let provide_candidate_notes = |i| provide_candidate_intervals(i as KeyDistance - 60);
+
+        // if nothing else is given, the first option is picked
+        ws.compute_best_solution(
+            &[60, 66],
+            |i| i == 60,
+            |_, _| Connector::Spring,
+            provide_candidate_intervals,
+            provide_candidate_notes,
+            &mut solver_workspace,
         )
         .unwrap();
-        assert_eq!(ws.best_energy, 0.0);
         assert_eq!(
             ws.best_solution,
             arr2(&[
                 [0.into(), 0.into(), 0.into()],
-                [2.into(), 3.into(), 5.into()]
+                [(-1).into(), 2.into(), 1.into()], // tritone as major tone plus major third
             ])
         );
+        assert_eq!(ws.best_energy, 0.0);
 
+        // no new interval, so `provide_candidate_intervals` is never called.
         ws.compute_best_solution(
-            &[
-                (0, None),
-                (
-                    1,
-                    Some((
-                        arr2(&[[0.into(), 0.into(), 0.into()]]).view(),
-                        arr1(&[1.into()]).view(),
-                    )),
-                ),
-            ],
-            |_| true,
-            |_| panic!("this should not be called"),
-            &mut sws,
+            &[60, 66],
+            |i| i == 60,
+            |_, _| Connector::Spring,
+            |_| panic!("This should not be called"),
+            provide_candidate_notes,
+            &mut solver_workspace,
         )
         .unwrap();
-        assert_eq!(ws.best_energy, 0.0);
-        assert_eq!(
-            ws.best_solution,
-            arr2(&[
-                [(-2).into(), (-3).into(), (-5).into()],
-                [0.into(), 0.into(), 0.into()],
-            ])
-        );
-
-        ws.compute_best_solution(
-            &[
-                (
-                    0,
-                    Some((
-                        arr2(&[[0.into(), 0.into(), 0.into()]]).view(),
-                        arr1(&[1.into()]).view(),
-                    )),
-                ),
-                (
-                    1,
-                    Some((
-                        arr2(&[[2.into(), 3.into(), 5.into()]]).view(),
-                        arr1(&[1.into()]).view(),
-                    )),
-                ),
-            ],
-            |_| false,
-            |_| panic!("this should not be called"),
-            &mut sws,
-        )
-        .unwrap();
-        assert_eq!(ws.best_energy, 0.0);
         assert_eq!(
             ws.best_solution,
             arr2(&[
                 [0.into(), 0.into(), 0.into()],
-                [2.into(), 3.into(), 5.into()],
+                [(-1).into(), 2.into(), 1.into()], // tritone as major tone plus major third
             ])
         );
+        assert_eq!(ws.best_energy, 0.0);
+
+        // The three notes C,D,E: Because they are mentioned in this order, the interval C-D will
+        // be the major tone. See the next example as well.
+        ws.compute_best_solution(
+            &[60, 62, 64],
+            |i| i == 60,
+            |_, _| Connector::Spring,
+            provide_candidate_intervals,
+            provide_candidate_notes,
+            &mut solver_workspace,
+        )
+        .unwrap();
+        assert_eq!(
+            ws.best_solution,
+            arr2(&[
+                [0.into(), 0.into(), 0.into()],
+                [(-1).into(), 2.into(), 0.into()],
+                [0.into(), 0.into(), 1.into()]
+            ])
+        );
+        assert_eq!(ws.best_energy, 0.0);
+
+        // This is the same as before, but illustrates the relevance of the order in the `keys`
+        // argument: Now, the tuning that makes the step from C to D a minor tone is preferred.
+        //
+        // Generally, intervals between notes that are mentioned early are less likely to have the
+        // alternative sizes.
+        ws.compute_best_solution(
+            &[64, 62, 60],
+            |i| i == 60,
+            |_, _| Connector::Spring,
+            provide_candidate_intervals,
+            provide_candidate_notes,
+            &mut solver_workspace,
+        )
+        .unwrap();
+        assert_eq!(
+            ws.best_solution,
+            arr2(&[
+                [0.into(), 0.into(), 1.into()],
+                [1.into(), (-2).into(), 1.into()],
+                [0.into(), 0.into(), 0.into()],
+            ])
+        );
+        assert_eq!(ws.best_energy, 0.0);
+
+        // D-flat major seventh on C
+        ws.compute_best_solution(
+            &[60, 61, 65, 68],
+            |i| i == 60,
+            |_, _| Connector::Spring,
+            provide_candidate_intervals,
+            provide_candidate_notes,
+            &mut solver_workspace,
+        )
+        .unwrap();
+        assert_eq!(
+            ws.best_solution,
+            arr2(&[
+                [0.into(), 0.into(), 0.into()],
+                [1.into(), (-1).into(), (-1).into()], // diatonic semitone
+                [1.into(), (-1).into(), 0.into()],
+                [1.into(), 0.into(), (-1).into()],
+            ])
+        );
+        assert_eq!(ws.best_energy, 0.0);
+
+        // D minor seventh on C
+        ws.compute_best_solution(
+            &[60, 62, 66, 70],
+            |i| i == 60,
+            |_, _| Connector::Spring,
+            provide_candidate_intervals,
+            provide_candidate_notes,
+            &mut solver_workspace,
+        )
+        .unwrap();
+        assert_eq!(
+            ws.best_solution,
+            arr2(&[
+                [0.into(), 0.into(), 0.into()],
+                [(-1).into(), 2.into(), 0.into()],
+                [(-1).into(), 2.into(), 1.into()],
+                [(-1).into(), 3.into(), 0.into()],
+            ])
+        );
+        assert_eq!(ws.best_energy, 0.0);
+
+        //
+        //
+        //ws.compute_best_solution(
+        //    &[(
+        //        0,
+        //        Some((
+        //            arr2(&[[0.into(), 0.into(), 0.into()]]).view(),
+        //            arr1(&[1.into()]).view(),
+        //        )),
+        //    )],
+        //    |_| true,
+        //    |_| panic!("this should not be called"),
+        //    &mut sws,
+        //)
+        //.unwrap();
+        //assert_eq!(ws.best_solution, arr2(&[[0.into(), 0.into(), 0.into()]]));
+        //
+        //ws.compute_best_solution(
+        //    &[
+        //        (
+        //            0,
+        //            Some((
+        //                arr2(&[[0.into(), 0.into(), 0.into()]]).view(),
+        //                arr1(&[1.into()]).view(),
+        //            )),
+        //        ),
+        //        (1, None),
+        //    ],
+        //    |_| false,
+        //    |_| (arr2(&[[2.into(), 3.into(), 5.into()]]), arr1(&[1.into()])),
+        //    &mut sws,
+        //)
+        //.unwrap();
+        //assert_eq!(ws.best_energy, 0.0);
+        //assert_eq!(
+        //    ws.best_solution,
+        //    arr2(&[
+        //        [0.into(), 0.into(), 0.into()],
+        //        [2.into(), 3.into(), 5.into()]
+        //    ])
+        //);
+        //
+        //ws.compute_best_solution(
+        //    &[
+        //        (0, None),
+        //        (
+        //            1,
+        //            Some((
+        //                arr2(&[[0.into(), 0.into(), 0.into()]]).view(),
+        //                arr1(&[1.into()]).view(),
+        //            )),
+        //        ),
+        //    ],
+        //    |_| true,
+        //    |_| panic!("this should not be called"),
+        //    &mut sws,
+        //)
+        //.unwrap();
+        //assert_eq!(ws.best_energy, 0.0);
+        //assert_eq!(
+        //    ws.best_solution,
+        //    arr2(&[
+        //        [(-2).into(), (-3).into(), (-5).into()],
+        //        [0.into(), 0.into(), 0.into()],
+        //    ])
+        //);
+        //
+        //ws.compute_best_solution(
+        //    &[
+        //        (
+        //            0,
+        //            Some((
+        //                arr2(&[[0.into(), 0.into(), 0.into()]]).view(),
+        //                arr1(&[1.into()]).view(),
+        //            )),
+        //        ),
+        //        (
+        //            1,
+        //            Some((
+        //                arr2(&[[2.into(), 3.into(), 5.into()]]).view(),
+        //                arr1(&[1.into()]).view(),
+        //            )),
+        //        ),
+        //    ],
+        //    |_| false,
+        //    |_| panic!("this should not be called"),
+        //    &mut sws,
+        //)
+        //.unwrap();
+        //assert_eq!(ws.best_energy, 0.0);
+        //assert_eq!(
+        //    ws.best_solution,
+        //    arr2(&[
+        //        [0.into(), 0.into(), 0.into()],
+        //        [2.into(), 3.into(), 5.into()],
+        //    ])
+        //);
     }
 }

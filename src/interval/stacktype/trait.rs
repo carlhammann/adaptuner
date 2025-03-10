@@ -1,7 +1,7 @@
 use crate::interval::{base::Interval, temperament::Temperament};
 
 /// The type of integer coefficients used in [Stack][crate::interval::stack::Stack]s.
-pub type StackCoeff = i32;
+pub type StackCoeff = i64;
 
 /// A description of the [Interval]s and [Temperament]s that may be used in a [Stack][crate::interval::stack::Stack]
 pub trait StackType: Copy {
