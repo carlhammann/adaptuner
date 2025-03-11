@@ -1,8 +1,10 @@
 //! LU decomposition with minimal trait bounds
 
-use std::ops::{DivAssign, Mul, MulAssign, SubAssign};
+use std::ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign};
 
-use ndarray::{s, ArrayView1, ArrayViewMut1, ArrayViewMut2, Zip};
+use ndarray::{s, ArrayViewMut1, ArrayViewMut2, Zip};
+use num_integer::Integer;
+use num_rational::Ratio;
 use num_traits::{One, Signed, Zero};
 
 #[derive(Debug)]
@@ -12,34 +14,66 @@ pub enum LUErr {
     MatrixDegenerate,
 }
 
-// This function changes `a`, so that it contain the matrices `L-E` and `U` s.t. `A=(L-E)+U` and `PA=LU`, where `P` is a permutation matrix that can be obtained from `perm`
-//
-// some encoding of the LU decomposition of
 pub struct LU<'a, T> {
     a: ArrayViewMut2<'a, T>,
     perm: ArrayViewMut1<'a, usize>,
 }
 
-/// invariants:
+/// Like [lu], only with a pre-set `better_pivot` argument that prefers simpler fractions
+pub fn lu_rational<'a, T>(
+    a: ArrayViewMut2<'a, Ratio<T>>,
+    perm: ArrayViewMut1<'a, usize>,
+) -> Result<LU<'a, Ratio<T>>, LUErr>
+where
+    T: Signed + Integer + RemAssign + DivAssign + MulAssign + SubAssign + AddAssign + Clone,
+{
+    let better_pivot = |a: &Ratio<T>, b: &Ratio<T>| {
+        if a.is_zero() {
+            return false;
+        }
+        if b.is_zero() {
+            return true;
+        }
+
+        use std::cmp::Ordering::{Equal, Less};
+        match (
+            a.denom().abs().cmp(&b.denom().abs()),
+            a.numer().abs().cmp(&b.numer().abs()),
+        ) {
+            (Less, Less) => return true,
+            (Equal, Less) => return true,
+            (Less, Equal) => return true,
+            _ => return false,
+        }
+    };
+    lu(a, perm, better_pivot)
+}
+
+/// input:
 /// - `a` is a square matrix of dimension `n`
 /// - `perm` has length `n+1`
+/// - `better_pivot(a,b)` returns true iff `a` is a better pivot than `b`. The pivot is a number you want to divide by, so:
+///   - Zero can never be a better pivot.
+///   - For floating point numbers, bigger pivots (in absolute value) are better: dividing by a big number prevents blow-up.
+///   - For rational numbers small denominators and numerators are preferrable.
+///   - ...
 ///
 /// output:
 /// The content of the input arguments is overwritten with a compact representation of the LU
 /// decomposition of `a`. The returned [LU] struct contains references to the same memory, and it
 /// is advisable to only use the methods of that struct to access the contents.
-pub fn lu<'a, T>(
+pub fn lu<'a, T, P>(
     mut a: ArrayViewMut2<'a, T>,
     mut perm: ArrayViewMut1<'a, usize>,
+    better_pivot: P,
 ) -> Result<LU<'a, T>, LUErr>
 where
     T: Zero
-        + Signed
-        + PartialOrd
         + for<'x> SubAssign<&'x T>
         + for<'x> MulAssign<&'x T>
         + for<'x> DivAssign<&'x T>
         + Clone,
+    P: Fn(&T, &T) -> bool,
 {
     let n = a.shape()[0];
 
@@ -67,9 +101,8 @@ where
         pivot = T::zero();
         i_pivot = i;
         for k in i..n {
-            let tmp = a[[k, i]].abs();
-            if tmp > pivot {
-                pivot = tmp;
+            if better_pivot(&a[[k, i]], &pivot) {
+                pivot.clone_from(&a[[k, i]]);
                 i_pivot = k;
             }
         }
@@ -245,7 +278,7 @@ mod test {
 
         let mut p = Array1::zeros(5);
 
-        let lu = lu(a.view_mut(), p.view_mut()).unwrap();
+        let lu = lu_rational(a.view_mut(), p.view_mut()).unwrap();
 
         let mut actual = Array2::zeros((4, 4));
 
