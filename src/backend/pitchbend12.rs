@@ -271,7 +271,7 @@ pub struct Pitchbend12Config {
 
 impl Config<Pitchbend12> for Pitchbend12Config {
     fn initialise(config: &Self) -> Pitchbend12 {
-        let mut uninit_active_notes: [MaybeUninit<NoteInfo>; 128] = MaybeUninit::uninit_array();
+        let mut uninit_active_notes = [const { MaybeUninit::<NoteInfo>::uninit() }; 128];
         for i in 0..128 {
             uninit_active_notes[i].write(NoteInfo {
                 desired_tuning: i as Semitones,
