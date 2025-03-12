@@ -280,12 +280,14 @@ impl<T: StackType> Workspace<T> {
 
     /// Return the fractional MIDI note number of the `i`-th currently considered note, as
     /// prescribed by the current best solution.
+    ///
+    /// The origin is middle C, MIDI note number 60.0
     pub fn get_semitones(&self, i: usize) -> Semitones {
         self.get_semitones_in(i, self.best_solution.view())
     }
 
     fn get_semitones_in(&self, i: usize, solution: ArrayView2<Ratio<StackCoeff>>) -> Semitones {
-        let mut res = 0.0;
+        let mut res = 60.0;
         for (j, c) in solution.row(i).iter().enumerate() {
             res += T::intervals()[j].semitones * *c.numer() as Semitones / *c.denom() as Semitones;
         }
@@ -352,7 +354,7 @@ impl<T: StackType> Workspace<T> {
                     let (l, s) = target_length_and_stiffness(d, ci);
                     if s != Ratio::ZERO {
                         res += *s.numer() as Semitones / *s.denom() as Semitones
-                            * (l - self.get_semitones_in(*i, solution)).powi(2);
+                            * (60.0 + l - self.get_semitones_in(*i, solution)).powi(2);
                     }
                 }
             }
@@ -598,6 +600,7 @@ impl<T: StackType> Workspace<T> {
 #[cfg(test)]
 mod test {
     use ndarray::{arr1, arr2, s};
+    use num_traits::Float;
     use pretty_assertions::assert_eq;
 
     use crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
@@ -916,7 +919,7 @@ mod test {
         assert!(ws.best_energy() < epsilon);
         assert!(ws.relaxed());
 
-        // a single note: this first option is choosen
+        // a single note: the first option is choosen
         ws.compute_best_solution(
             &[69],
             |i| i == 69,
@@ -964,14 +967,87 @@ mod test {
             &mut solver_workspace,
         )
         .unwrap();
-        //assert_eq!(
-        //    ws.best_solution(),
-        //    arr2(&[
-        //        [0.into(), 0.into(), 0.into()],
-        //        [1.into(), (-1).into(), (-1).into()],
-        //        [(-1).into(), 2.into(), 0.into()],
-        //    ])
-        //);
+        assert!(ws.best_energy() > epsilon);
+        assert!(!ws.relaxed());
+
+        // 69 chord with rods for fifhts
+        ws.compute_best_solution(
+            &[60, 62, 64, 67, 69],
+            |i| i == 60,
+            |i, j| {
+                if j - i == 7 {
+                    Connector::Rod
+                } else {
+                    Connector::Spring
+                }
+            },
+            provide_candidate_intervals,
+            provide_candidate_notes,
+            &mut solver_workspace,
+        )
+        .unwrap();
+
+        //C-D fifth
+        assert_eq!(
+            ws.best_solution().row(0),
+            arr1(&[0.into(), 0.into(), 0.into()])
+        );
+        assert_eq!(
+            ws.best_solution().row(3),
+            arr1(&[0.into(), 1.into(), 0.into()])
+        );
+
+        // D-A fifth:
+        let mut delta = ws.best_solution().row(4).to_owned();
+        delta.scaled_add((-1).into(), &ws.best_solution().row(1));
+        assert_eq!(delta, arr1(&[0.into(), 1.into(), 0.into()]));
+
+        // the D is between a minor and a major tone higher than C:
+        let majortone = 12.0 * (9.0 as Semitones / 8.0).log2();
+        let minortone = 12.0 * (10.0 as Semitones / 9.0).log2();
+        assert!(ws.get_semitones(1) < 60.0 + majortone);
+        assert!(ws.get_semitones(1) > 60.0 + minortone);
+
+        // the distance between E and D is also between a major and minor tone:
+        assert!(ws.get_relative_semitones(1, 2) < majortone);
+        assert!(ws.get_relative_semitones(1, 2) > minortone);
+
+        // the distance betwen C and D is the same as between G and A:
+        assert_eq!(
+            ws.get_relative_semitones(0, 1),
+            ws.get_relative_semitones(3, 4)
+        );
+
+        assert!(ws.best_energy() > epsilon);
+        assert!(!ws.relaxed());
+
+        // 69 chord with rods for fifhts and fourths. This forces a pythagorean third. Failing at
+        //    the moment because of the way I reduce rod configurations
+        ws.compute_best_solution(
+            &[60, 62, 64, 67, 69],
+            |i| i == 60,
+            |i, j| {
+                if (j - i == 5) | (j - i == 7) {
+                    Connector::Rod
+                } else {
+                    Connector::Spring
+                }
+            },
+            provide_candidate_intervals,
+            provide_candidate_notes,
+            &mut solver_workspace,
+        )
+        .unwrap();
+        assert_eq!(
+            ws.best_solution(),
+            arr2(&[
+                [0.into(), 0.into(), 0.into()],
+                [(-1).into(), 2.into(), 0.into()],
+                [0.into(), 0.into(), 1.into()],
+                [0.into(), 1.into(), 0.into()],
+                [(-1).into(), 3.into(), 0.into()],
+            ])
+        );
         assert!(ws.best_energy() > epsilon);
         assert!(!ws.relaxed());
     }
