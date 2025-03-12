@@ -32,7 +32,7 @@ impl Workspace {
     pub fn new(n_nodes: usize, n_lengths: usize, n_base_lengths: usize) -> Self {
         Workspace {
             a: Array2::zeros((n_nodes, n_nodes)),
-            perm: Array1::zeros(n_nodes + 1),
+            perm: Array1::zeros(n_nodes),
             ainv: Array2::eye(n_nodes),
             b: Array2::zeros((n_nodes, n_lengths)),
             l: Array2::zeros((n_lengths, n_base_lengths)),
@@ -49,7 +49,7 @@ impl Workspace {
     ) -> System {
         if n_nodes > self.a.shape()[0] {
             self.a = Array2::zeros((n_nodes, n_nodes));
-            self.perm = Array1::zeros(n_nodes + 1);
+            self.perm = Array1::zeros(n_nodes);
             self.ainv = Array2::eye(n_nodes);
             self.b = Array2::zeros((n_nodes, n_lengths));
             self.bl = Array2::zeros((n_nodes, n_base_lengths));
@@ -75,7 +75,7 @@ impl Workspace {
 
         let mut sys = System {
             a: self.a.slice_mut(s![..n_nodes, ..n_nodes]),
-            perm: self.perm.slice_mut(s![..(n_nodes + 1)]),
+            perm: self.perm.slice_mut(s![..n_nodes]),
             ainv: self.ainv.slice_mut(s![..n_nodes, ..n_nodes]),
             b: self.b.slice_mut(s![..n_nodes, ..n_lengths]),
             l: self.l.slice_mut(s![..n_lengths, ..n_base_lengths]),
