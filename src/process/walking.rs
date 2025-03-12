@@ -546,7 +546,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + Clone> Config<Walking<T, N>>
     for WalkingConfig<T, N>
 {
     fn initialise(config: &Self) -> Walking<T, N> {
-        let mut uninit_current_notes: [MaybeUninit<NoteInfo<T>>; 128] = MaybeUninit::uninit_array();
+        let mut uninit_current_notes = [const { MaybeUninit::<NoteInfo<T>>::uninit() } ; 128];
         for i in 0..128 {
             uninit_current_notes[i].write(NoteInfo {
                 state_per_channel: [NoteState::Off; 16],

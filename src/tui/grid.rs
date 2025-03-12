@@ -356,7 +356,7 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                             }
 
                             KeyCode::Char(c) => match c.to_digit(10) {
-                                None => {}
+                                None {} => {}
                                 Some(ix) => {
                                     let index = (ix as usize).rem_euclid(T::num_temperaments());
                                     self.active_temperaments[index] =
@@ -472,7 +472,7 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
 {
     fn initialise(config: &Self) -> Grid<T, N> {
         let no_active_temperaments = vec![false; T::num_temperaments()];
-        let mut uninit_active_notes: [MaybeUninit<NoteInfo<T>>; 128] = MaybeUninit::uninit_array();
+        let mut uninit_active_notes = [const { MaybeUninit::<NoteInfo<T>>:: uninit() } ; 128];
         for i in 0..128 {
             uninit_active_notes[i].write(NoteInfo {
                 state_by_channel: [NoteState::Off; 16],

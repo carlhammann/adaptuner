@@ -443,8 +443,7 @@ pub struct PitchbendConfig<const NCHANNELS: usize> {
 
 impl<const NCHANNELS: usize> Config<Pitchbend<NCHANNELS>> for PitchbendConfig<NCHANNELS> {
     fn initialise(config: &Self) -> Pitchbend<NCHANNELS> {
-        let mut uninit_channelinfo: [MaybeUninit<ChannelInfo>; NCHANNELS] =
-            MaybeUninit::uninit_array();
+        let mut uninit_channelinfo = [const { MaybeUninit::<ChannelInfo>::uninit() }; NCHANNELS];
         for i in 0..NCHANNELS {
             uninit_channelinfo[i].write(ChannelInfo {
                 bend: 8192,
@@ -453,7 +452,7 @@ impl<const NCHANNELS: usize> Config<Pitchbend<NCHANNELS>> for PitchbendConfig<NC
         }
         let channelinfo = unsafe { MaybeUninit::array_assume_init(uninit_channelinfo) };
 
-        let mut uninit_active_notes: [MaybeUninit<NoteInfo>; 128] = MaybeUninit::uninit_array();
+        let mut uninit_active_notes = [const { MaybeUninit::<NoteInfo>::uninit() }; 128];
         for i in 0..128 {
             uninit_active_notes[i].write(NoteInfo {
                 channel: config.channels[0],
