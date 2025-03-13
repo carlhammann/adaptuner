@@ -44,6 +44,9 @@ struct RodInfo {
 type KeyDistance = i8;
 type KeyNumber = u8;
 
+/// A description of a rod (i.e. a non-detuneable interval) in terms of an association list of key
+/// distances of the sub-intervals it is composed of and the multiplicities of these intervals.
+///
 /// invariants:
 /// - length at least 1
 /// - the key distances are always positive
@@ -79,8 +82,9 @@ impl<T: StackType> Workspace<T> {
     /// - `initial_n_keys`: How many simultaneously sounding keys do you expect this workspace to
     ///    be used for? Choosing a big value will potentially prevent re-allocations, at the cost of
     ///    wasting space.
-    /// - `memo_intervals` and `memo_notes`: Should sizes of intervals or "anchor" posisitions of
-    ///    notes be remembered between successive calls of [Self::compute_best_solution]?
+    /// - `memo_springs`, `memo_anchors` and `memo_rodss`: Should sizes, anchor posisitions (and
+    ///    their stiffnesses) and the lengths of rods be remembered between successive
+    ///    calls to [Self::compute_best_solution]?
     pub fn new(
         initial_n_keys: usize,
         memo_springs: bool,
@@ -121,8 +125,38 @@ impl<T: StackType> Workspace<T> {
         self.relaxed
     }
 
-    ///  The ordering of `keys` matters: Notes that come later (and the springs between them)
-    ///  are more "stable" in the sense that alternative tunings are less likely to be picked
+    /// meanings of arguments:
+    ///
+    /// - `keys`: a list of MIDI key number of currently soundingi keys (or at least, keys that you
+    ///   want to consider together)
+    /// - `is_note_anchored` returns true iff the note with the given MIDI key number should be
+    ///   attached to a "fixed spring". Use this if you have a "tuning reference" for the note.
+    /// - `which_connector` returns the kind of connection that should be used between the notes
+    ///   with the two given key numbers. The connection can be one of:
+    ///   - [Connector::None]: The tuning of the two notes is not (directly) related.
+    ///   - [Connector::Rod]: The two notes must be tuned a specific interval apart.
+    ///   - [Connector::Spring]: The tuning of the notes is related, but the interval between them
+    ///     is flexible; it may be detuned if necessary.
+    /// - `provide_candidate_springs` returns for each key distance several options for detune-able
+    ///   intervals that might be used to instantiate the key distance. These are given as
+    ///   - a matrix `L` in which each row contains the coefficients of a linear combination of
+    ///     base intervals of the stack type [T].
+    ///   - a vector in which the `i`-th entry describes the stiffness (i.e. how hard to detune) of
+    ///     the interval described by the `i`-th row of `L`.
+    /// - `provide_candidate_anchors` does the same for absolute positions of notes.
+    /// - `provide_rods` does the same for non-detuneable intervals.
+    /// - `solver_workspace` is where the actual calculations happen.
+    ///
+    /// invariants:
+    ///
+    /// - The entris of `keys` must be unique.
+    /// - The ordering of `keys` matters: Notes that come later (and the springs between them) are
+    ///   more "stable" in the sense that alternative tunings are less likely to be picked.
+    /// - The `provide_*``functions are only called when needed. In particular if the corresponding
+    ///  `memo_*` argments were set to true in [Self::new], any spring, rod, or anchor candidates
+    ///  will be computed at most once for each key number or key didstance. There are internal
+    ///  fields in [Self] that (can) keep track of everything seen before, even between successive
+    ///  calls to this function.
     pub fn compute_best_solution<'a, WC, AP, PS, PA, PR>(
         &mut self,
         keys: &[KeyNumber],
@@ -163,8 +197,7 @@ impl<T: StackType> Workspace<T> {
         Ok(())
     }
 
-    /// returns true iff there is a new candidate. In that case, call [Self::solve_current_candidate]
-    /// again to start solving the new candidate.
+    /// returns true iff there is a new candidate.
     fn prepare_next_candidate(&mut self) -> bool {
         for (_, v) in self.current_anchors.iter_mut() {
             let max_ix = self
@@ -201,10 +234,6 @@ impl<T: StackType> Workspace<T> {
         return false;
     }
 
-    /// expected invariants:
-    /// - `self.key_distances` has been filled with [collect_rod_and_spring_key_distances].
-    /// - `self.candidate_intervals`, `self.current_lengths`, and `self.current_connections` have been initialised with
-    ///   [Self::collect_relative_intervals_and_connections] or updated with [Self::prepare_next_candidate].
     fn solve_current_candidate(
         &mut self,
         solver_workspace: &mut solver::Workspace,
@@ -384,9 +413,7 @@ impl<T: StackType> Workspace<T> {
         true
     }
 
-    /// expected invariants:
-    /// - start_index must be the return value of [Self::collect_intervals].
-    /// - entries of `keys` are unique
+    /// start_index must be the return value of [Self::collect_intervals].
     fn collect_anchors<AP, PA>(
         &mut self,
         start_index: usize,
@@ -424,8 +451,9 @@ impl<T: StackType> Workspace<T> {
         }
     }
 
-    /// Returns 1 plus the highest [IntervalInfo::index] that it used. This can be used to
-    /// continue adding the anchored connections with [Self::collect_anchored_intervals_and_connections].
+    /// Returns 1 plus the highest [SpringInfo::solver_length_index] of
+    /// [RodInfo::solver_length_index] that it used. This can be used to continue adding the
+    /// anchored connections with [Self::collect_anchors].
     fn collect_intervals<WC, PS, PR>(
         &mut self,
         keys: &[KeyNumber],
