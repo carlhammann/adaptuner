@@ -154,13 +154,6 @@ impl<T: StackType> Workspace<T> {
             provide_candidate_anchors,
         );
 
-        println!("current_springs:\n {:?}\n\n", self.current_springs);
-        println!("current_anchors:\n {:?}\n\n", self.current_anchors);
-        println!("current_rods:\n {:?}\n\n", self.current_rods);
-        println!("memoed_springs:\n {:?}\n\n", self.memoed_springs);
-        println!("memoed_anchors:\n {:?}\n\n", self.memoed_anchors);
-        println!("memoed_rods:\n {:?}\n\n", self.memoed_rods);
-
         self.best_energy = Semitones::MAX;
 
         self.solve_current_candidate(solver_workspace)?;
@@ -233,10 +226,6 @@ impl<T: StackType> Workspace<T> {
 
             let stiffness = candidate_stiffnesses[v.current_candidate_index];
             system.add_fixed_spring(*k, v.solver_length_index, stiffness);
-            println!(
-                "add_fixed_spring({}, {}, {})",
-                k, v.solver_length_index, stiffness
-            );
 
             let length = candidate_lengths.row(v.current_candidate_index);
             system.define_length(v.solver_length_index, length);
@@ -250,10 +239,6 @@ impl<T: StackType> Workspace<T> {
 
             let stiffness = candidate_stiffnesses[v.current_candidate_index];
             system.add_spring(*i, *j, v.solver_length_index, stiffness);
-            println!(
-                "add_spring({}, {}, {}, {})",
-                i, j, v.solver_length_index, stiffness
-            );
 
             let length = candidate_lengths.row(v.current_candidate_index);
             system.define_length(v.solver_length_index, length);
@@ -261,7 +246,6 @@ impl<T: StackType> Workspace<T> {
 
         for ((i, j), v) in self.current_rods.iter() {
             system.add_rod(*i, *j, v.solver_length_index);
-            println!("add_rod({}, {}, {})", i, j, v.solver_length_index);
 
             let length = self
                 .memoed_rods
@@ -276,9 +260,6 @@ impl<T: StackType> Workspace<T> {
 
         let energy = self.energy_in(solution.view());
         let relaxed = self.relaxed_in(solution.view());
-
-        println!("solution:\n{}", solution);
-        println!("energy: {}\n\n\n", energy);
 
         // `self.best_solution.shape()[1]` and `solution.shape()[1]` are always equal to `T::num_intervals()`.
         if self.best_solution.shape()[0] < solution.shape()[0] {
@@ -506,11 +487,6 @@ impl<T: StackType> Workspace<T> {
             }
         }
 
-        println!("current_rods, unnormalised");
-        for ((i, j), s) in self.current_rods.iter() {
-            println!("({}, {}): {:?}", i, j, s);
-        }
-
         let add_to_rodspec = |a: &mut RodSpec, d: KeyDistance, c: StackCoeff| {
             let mut d = d;
             let mut c = c;
@@ -602,11 +578,6 @@ impl<T: StackType> Workspace<T> {
         for v in self.current_rods.values_mut() {
             v.solver_length_index = solver_length_index;
             solver_length_index += 1;
-        }
-
-        println!("current_rods, normalised:");
-        for ((i, j), s) in self.current_rods.iter() {
-            println!("({}, {}): {:?}", i, j, s);
         }
 
         for spec in self.current_rods.values() {
