@@ -159,10 +159,6 @@ impl<'a> System<'a> {
 
     /// Will write the solution to `self.res`
     pub fn solve(mut self) -> Result<ArrayViewMut2<'a, Ratio<StackCoeff>>, lu::LUErr> {
-        println!("a:\n {}\n\n", self.a);
-        println!("b:\n {}\n\n", self.b);
-        println!("l:\n {}\n\n", self.l);
-
         // Make bl the product b.l
         general_mat_mul(
             Ratio::from_integer(1),
@@ -229,13 +225,7 @@ mod test {
             system.add_rod(*start, *end, *length);
         }
 
-        println!("a={}", system.a);
-        println!("b={}", system.b);
-        println!("l={}", system.l);
-
         let res = system.solve().unwrap();
-
-        println!("res={}", res);
 
         res
     }
