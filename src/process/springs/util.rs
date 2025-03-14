@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    marker::PhantomData,
-};
+use std::collections::{BTreeMap, HashMap};
 
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 use num_rational::Ratio;
@@ -10,6 +7,7 @@ use super::solver;
 use crate::{
     interval::{
         base::Semitones,
+        stack::Stack,
         stacktype::r#trait::{StackCoeff, StackType},
     },
     util::lu,
@@ -53,22 +51,14 @@ type KeyNumber = u8;
 /// - sorted by ascending key distance
 type RodSpec = Vec<(KeyDistance, StackCoeff)>;
 
-#[derive(PartialEq, Eq, Hash, Debug)]
-enum MemoKey {
-    Key(KeyNumber),
-    Distance(KeyDistance),
-    Rod(RodSpec),
-}
-
-struct Workspace<T: StackType> {
-    _phantom: PhantomData<T>,
+pub struct Workspace<T: StackType> {
     n_keys: usize,
     memo_springs: bool,
     memo_anchors: bool,
     memo_rods: bool,
-    memoed_springs: HashMap<KeyDistance, (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>)>,
-    memoed_anchors: HashMap<KeyNumber, (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>)>,
-    memoed_rods: HashMap<RodSpec, Array1<Ratio<StackCoeff>>>,
+    memoed_springs: HashMap<KeyDistance, Vec<(Stack<T>, Ratio<StackCoeff>)>>,
+    memoed_anchors: HashMap<KeyNumber, Vec<(Stack<T>, Ratio<StackCoeff>)>>,
+    memoed_rods: HashMap<RodSpec, Stack<T>>,
     current_springs: BTreeMap<(usize, usize), SpringInfo>,
     current_anchors: BTreeMap<usize, AnchorInfo>,
     current_rods: HashMap<(usize, usize), RodInfo>,
@@ -92,7 +82,6 @@ impl<T: StackType> Workspace<T> {
         memo_rods: bool,
     ) -> Self {
         Workspace {
-            _phantom: PhantomData,
             n_keys: 0,
             memo_springs,
             memo_anchors,
@@ -138,18 +127,15 @@ impl<T: StackType> Workspace<T> {
     ///   - [Connector::Spring]: The tuning of the notes is related, but the interval between them
     ///     is flexible; it may be detuned if necessary.
     /// - `provide_candidate_springs` returns for each key distance several options for detune-able
-    ///   intervals that might be used to instantiate the key distance. These are given as
-    ///   - a matrix `L` in which each row contains the coefficients of a linear combination of
-    ///     base intervals of the stack type [T].
-    ///   - a vector in which the `i`-th entry describes the stiffness (i.e. how hard to detune) of
-    ///     the interval described by the `i`-th row of `L`.
+    ///   intervals that might be used to instantiate the key distance. These are given as a
+    ///   [Stack] together with a "stiffness" (i.e. how hard to detune)
     /// - `provide_candidate_anchors` does the same for absolute positions of notes.
     /// - `provide_rods` does the same for non-detuneable intervals.
     /// - `solver_workspace` is where the actual calculations happen.
     ///
     /// invariants:
     ///
-    /// - The entris of `keys` must be unique.
+    /// - The entries of `keys` must be unique.
     /// - The ordering of `keys` matters: Notes that come later (and the springs between them) are
     ///   more "stable" in the sense that alternative tunings are less likely to be picked.
     /// - The `provide_*``functions are only called when needed. In particular if the corresponding
@@ -164,22 +150,22 @@ impl<T: StackType> Workspace<T> {
         which_connector: WC,
         provide_candidate_springs: PS,
         provide_candidate_anchors: PA,
-        provide_rods: PR,
+        provide_rod: PR,
         solver_workspace: &mut solver::Workspace,
     ) -> Result<(), lu::LUErr>
     where
         WC: Fn(KeyNumber, KeyNumber) -> Connector,
         AP: Fn(KeyNumber) -> bool,
-        PS: Fn(KeyDistance) -> (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>),
-        PA: Fn(KeyNumber) -> (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>),
-        PR: Fn(&RodSpec) -> Array1<Ratio<StackCoeff>>,
+        PS: Fn(KeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>,
+        PA: Fn(KeyNumber) -> Vec<(Stack<T>, Ratio<StackCoeff>)>,
+        PR: Fn(&RodSpec) -> Stack<T>,
     {
         self.n_keys = keys.len();
         let next_index = self.collect_intervals(
             keys,
             which_connector,
             provide_candidate_springs,
-            provide_rods,
+            provide_rod,
         );
         self.collect_anchors(
             next_index,
@@ -204,8 +190,7 @@ impl<T: StackType> Workspace<T> {
                 .memoed_anchors
                 .get(&v.memo_key)
                 .expect("prepeare_next_candidate: found no candidates for anchor")
-                .0
-                .shape()[0]
+                .len()
                 - 1;
             if v.current_candidate_index < max_ix {
                 v.current_candidate_index += 1;
@@ -220,8 +205,7 @@ impl<T: StackType> Workspace<T> {
                 .memoed_springs
                 .get(&v.memo_key)
                 .expect("prepeare_next_candidate: found no candidates for spring")
-                .0
-                .shape()[0]
+                .len()
                 - 1;
             if v.current_candidate_index < max_ix {
                 v.current_candidate_index += 1;
@@ -245,32 +229,26 @@ impl<T: StackType> Workspace<T> {
 
         let mut system = solver_workspace.prepare_system(n_nodes, n_lengths, n_base_lengths);
 
-        // Rods must be added after (fixed and relative) springs.
+        // Rods must be added after anchors and springs (this is an invariant of
+        // [solver::System::add_rod])
 
         for (k, v) in self.current_anchors.iter() {
-            let (candidate_lengths, candidate_stiffnesses) = self
-                .memoed_anchors
-                .get(&v.memo_key)
-                .expect("solve_current_candidate: no candidate intervals found for fixed spring.");
-
-            let stiffness = candidate_stiffnesses[v.current_candidate_index];
-            system.add_fixed_spring(*k, v.solver_length_index, stiffness);
-
-            let length = candidate_lengths.row(v.current_candidate_index);
-            system.define_length(v.solver_length_index, length);
+            let (position, stiffness) =
+                &self.memoed_anchors.get(&v.memo_key).expect(
+                    "solve_current_candidate: no candidate intervals found for fixed spring.",
+                )[v.current_candidate_index];
+            system.add_fixed_spring(*k, v.solver_length_index, *stiffness);
+            system.define_length(v.solver_length_index, position.actual_coefficients());
         }
 
         for ((i, j), v) in self.current_springs.iter() {
-            let (candidate_lengths, candidate_stiffnesses) = self
+            let (length, stiffness) = &self
                 .memoed_springs
                 .get(&v.memo_key)
-                .expect("solve_current_candidate: no candidate intervals found for spring.");
-
-            let stiffness = candidate_stiffnesses[v.current_candidate_index];
-            system.add_spring(*i, *j, v.solver_length_index, stiffness);
-
-            let length = candidate_lengths.row(v.current_candidate_index);
-            system.define_length(v.solver_length_index, length);
+                .expect("solve_current_candidate: no candidate intervals found for spring.")
+                [v.current_candidate_index];
+            system.add_spring(*i, *j, v.solver_length_index, *stiffness);
+            system.define_length(v.solver_length_index, length.actual_coefficients());
         }
 
         for ((i, j), v) in self.current_rods.iter() {
@@ -279,8 +257,8 @@ impl<T: StackType> Workspace<T> {
             let length = self
                 .memoed_rods
                 .get(&v.memo_key)
-                .expect("solve_current_candidate: no interval found for rod.")
-                .view();
+                .expect("solve_current_candidate: no stack found for rod.")
+                .actual_coefficients();
 
             system.define_length(v.solver_length_index, length);
         }
@@ -328,7 +306,7 @@ impl<T: StackType> Workspace<T> {
         self.get_semitones(j) - self.get_semitones(i)
     }
 
-    pub fn get_relative_semitones_in(
+    fn get_relative_semitones_in(
         &self,
         i: usize,
         j: usize,
@@ -336,6 +314,20 @@ impl<T: StackType> Workspace<T> {
     ) -> Semitones {
         self.get_semitones_in(j, solution) - self.get_semitones_in(i, solution)
     }
+
+    ///// Return the possible [Stack::target] coefficients the `i`-th note is tuned to in the current solution.
+    //pub fn get_targets(&self, i: usize) -> Array1<StackCoeff> {
+    //    todo!()
+    //}
+
+    ///// Return the [Stack] the `i`-th note is tuned to, in the current best solution.
+    //pub fn get_stack(&self, i: usize) -> Stack<T> {
+    //    self.get_stack_in(i, self.best_solution.view())
+    //}
+    //
+    //fn get_stack_in(&self, i: usize, solution: ArrayView2<Ratio<StackCoeff>>) -> Stack<T> {
+    //    Stack::from_target_and_actual(self.get_target(i), solution.row(i).to_owned())
+    //}
 
     /// Compute the energy stored in tensioned springs (== detuned intervals or notes) in the
     /// provided solution.
@@ -355,28 +347,26 @@ impl<T: StackType> Workspace<T> {
         let mut res = 0.0;
 
         for ((i, j), v) in self.current_springs.iter() {
-            let (ls, ss) = self
+            let (stack, stiffness) = &self
                 .memoed_springs
                 .get(&v.memo_key)
-                .expect("energy_in: no candidate intervals found for spring.");
-            let l = compute_length(ls.row(v.current_candidate_index));
-            let s = ss[v.current_candidate_index];
-            if s != Ratio::ZERO {
-                res += *s.numer() as Semitones / *s.denom() as Semitones
-                    * (l - self.get_relative_semitones_in(*i, *j, solution)).powi(2);
+                .expect("energy_in: no candidates found for spring.")[v.current_candidate_index];
+            let length = compute_length(stack.actual_coefficients());
+            if *stiffness != Ratio::ZERO {
+                res += *stiffness.numer() as Semitones / *stiffness.denom() as Semitones
+                    * (length - self.get_relative_semitones_in(*i, *j, solution)).powi(2);
             }
         }
 
         for (k, v) in self.current_anchors.iter() {
-            let (ps, ss) = self
+            let (stack, stiffness) = &self
                 .memoed_anchors
                 .get(&v.memo_key)
-                .expect("energy_in: no candidates found for anchor.");
-            let p = 60.0 + compute_length(ps.row(v.current_candidate_index));
-            let s = ss[v.current_candidate_index];
-            if s != Ratio::ZERO {
-                res += *s.numer() as Semitones / *s.denom() as Semitones
-                    * (p - self.get_semitones_in(*k, solution)).powi(2);
+                .expect("energy_in: no candidates found for anchor.")[v.current_candidate_index];
+            let position = 60.0 + compute_length(stack.actual_coefficients());
+            if *stiffness != Ratio::ZERO {
+                res += *stiffness.numer() as Semitones / *stiffness.denom() as Semitones
+                    * (position - self.get_semitones_in(*k, solution)).powi(2);
             }
         }
 
@@ -387,24 +377,24 @@ impl<T: StackType> Workspace<T> {
     /// intervals or notes) in the provided solution.
     fn relaxed_in(&self, solution: ArrayView2<Ratio<StackCoeff>>) -> bool {
         for (i, v) in self.current_anchors.iter() {
-            let (ps, _) = self
+            let (stack, _) = &self
                 .memoed_anchors
                 .get(&v.memo_key)
-                .expect("relaxed_in: no candidates found for anchor.");
+                .expect("relaxed_in: no candidates found for anchor.")[v.current_candidate_index];
             for k in 0..T::num_intervals() {
-                if ps[[v.current_candidate_index, k]] != solution[[*i, k]] {
+                if stack.actual_coefficients()[k] != solution[[*i, k]] {
                     return false;
                 }
             }
         }
 
         for ((i, j), v) in self.current_springs.iter() {
-            let (ls, _) = self
+            let (stack, _) = &self
                 .memoed_springs
                 .get(&v.memo_key)
-                .expect("relaxed_in: no candidates found for spring.");
+                .expect("relaxed_in: no candidates found for spring.")[v.current_candidate_index];
             for k in 0..T::num_intervals() {
-                if ls[[v.current_candidate_index, k]] != solution[[*j, k]] - solution[[*i, k]] {
+                if stack.actual_coefficients()[k] != solution[[*j, k]] - solution[[*i, k]] {
                     return false;
                 }
             }
@@ -422,7 +412,7 @@ impl<T: StackType> Workspace<T> {
         provide_candidate_anchors: PA,
     ) where
         AP: Fn(KeyNumber) -> bool,
-        PA: Fn(KeyNumber) -> (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>),
+        PA: Fn(KeyNumber) -> Vec<(Stack<T>, Ratio<StackCoeff>)>,
     {
         self.current_anchors.clear();
 
@@ -459,12 +449,12 @@ impl<T: StackType> Workspace<T> {
         keys: &[KeyNumber],
         which_connector: WC,
         provide_candidate_springs: PS,
-        provide_rods: PR,
+        provide_rod: PR,
     ) -> usize
     where
         WC: Fn(KeyNumber, KeyNumber) -> Connector,
-        PS: Fn(KeyDistance) -> (Array2<Ratio<StackCoeff>>, Array1<Ratio<StackCoeff>>),
-        PR: Fn(&RodSpec) -> Array1<Ratio<StackCoeff>>,
+        PS: Fn(KeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>,
+        PR: Fn(&RodSpec) -> Stack<T>,
     {
         self.current_rods.clear();
         self.current_springs.clear();
@@ -610,8 +600,8 @@ impl<T: StackType> Workspace<T> {
 
         for spec in self.current_rods.values() {
             if !self.memoed_rods.contains_key(&spec.memo_key) {
-                let coeffs = provide_rods(&spec.memo_key);
-                self.memoed_rods.insert(spec.memo_key.clone(), coeffs);
+                self.memoed_rods
+                    .insert(spec.memo_key.clone(), provide_rod(&spec.memo_key));
             }
         }
 
@@ -624,7 +614,9 @@ mod test {
     use ndarray::{arr1, arr2, s};
     use pretty_assertions::assert_eq;
 
-    use crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
+    use crate::interval::stacktype::{
+        fivelimit::ConcreteFiveLimitStackType, r#trait::FiveLimitStackType,
+    };
 
     use super::*;
 
@@ -637,7 +629,7 @@ mod test {
             &[0, 1, 2, 3],
             |_, _| Connector::Rod,
             |_| panic!("This will not be called, since there are no springs!"),
-            |_| arr1(&[]), // irrelevant
+            |_| Stack::new_zero(), // irrelevant
         );
         assert_eq!(
             {
@@ -665,8 +657,8 @@ mod test {
                     Connector::Spring
                 }
             },
-            |_| (arr2(&[[]]), arr1(&[])), // irrelevant
-            |_| arr1(&[]),                // irrelevant
+            |_| vec![],            // irrelevant
+            |_| Stack::new_zero(), // irrelevant
         );
         assert_eq!(
             {
@@ -696,8 +688,8 @@ mod test {
                     Connector::Spring
                 }
             },
-            |_| (arr2(&[[]]), arr1(&[])), // irrelevant
-            |_| arr1(&[]),                // irrelevant
+            |_| vec![],            // irrelevant
+            |_| Stack::new_zero(), // irrelevant
         );
         assert_eq!(
             {
@@ -725,87 +717,85 @@ mod test {
         let mut solver_workspace = solver::Workspace::new(1, 1, 1);
 
         let provide_candidate_springs = |d: KeyDistance| {
-            let octaves = Ratio::new((d as StackCoeff).div_euclid(12), 1);
+            let octaves = (d as StackCoeff).div_euclid(12);
             let pitch_class = d.rem_euclid(12);
 
             match pitch_class {
-                0 => (arr2(&[[octaves, 0.into(), 0.into()]]), arr1(&[1.into()])),
-                1 => (
-                    arr2(&[
-                        [octaves + 1, (-1).into(), (-1).into()], // diatonic semitone
-                        [octaves, (-1).into(), 2.into()],        // chromatic semitone
-                    ]),
-                    arr1(&[
+                0 => vec![(Stack::from_target(vec![octaves, 0, 0]), 1.into())],
+                1 => vec![
+                    (
+                        Stack::from_target(vec![octaves + 1, (-1), (-1)]), // diatonic semitone
                         Ratio::new(1, 2 * 3 * 4 * 5),
+                    ),
+                    (
+                        Stack::from_target(vec![octaves, (-1), 2]), // chromatic semitone
                         Ratio::new(1, 2 * 3 * 4 * 5 * 4 * 5),
-                    ]),
-                ),
-                2 => (
-                    arr2(&[
-                        [octaves - 1, 2.into(), 0.into()],    // major whole tone 9/8
-                        [octaves + 1, (-2).into(), 1.into()], // minor whole tone 10/9
-                    ]),
-                    arr1(&[
+                    ),
+                ],
+                2 => vec![
+                    (
+                        Stack::from_target(vec![octaves - 1, 2, 0]), // major whole tone 9/8
                         Ratio::new(1, 2 * 3 * 2 * 3),
+                    ),
+                    (
+                        Stack::from_target(vec![octaves + 1, (-2), 1]), // minor whole tone 10/9
                         Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
-                    ]),
-                ),
-                3 => (
-                    arr2(&[[octaves, 1.into(), (-1).into()]]), // minor third
-                    arr1(&[Ratio::new(1, 2 * 3 * 4 * 5)]),
-                ),
-                4 => (
-                    arr2(&[[octaves, 0.into(), 1.into()]]), // major third
-                    arr1(&[Ratio::new(1, 4 * 5)]),
-                ),
-                5 => (
-                    arr2(&[[octaves + 1, (-1).into(), 0.into()]]), // fourth
-                    arr1(&[Ratio::new(1, 2 * 3)]),
-                ),
-                6 => (
-                    arr2(&[
-                        [octaves - 1, 2.into(), 1.into()], // tritone as major tone plus major third
-                        [octaves, 2.into(), (-2).into()], // tritone as chromatic semitone below fifth
-                    ]),
-                    arr1(&[
+                    ),
+                ],
+                3 => vec![(
+                    Stack::from_target(vec![octaves, 1, (-1)]), // minor third
+                    Ratio::new(1, 2 * 3 * 4 * 5),
+                )],
+                4 => vec![(
+                    Stack::from_target(vec![octaves, 0, 1]), // major third
+                    Ratio::new(1, 4 * 5),
+                )],
+                5 => vec![(
+                    Stack::from_target(vec![octaves + 1, (-1), 0]), // fourth
+                    Ratio::new(1, 2 * 3),
+                )],
+                6 => vec![
+                    (
+                        Stack::from_target(vec![octaves - 1, 2, 1]), // tritone as major tone plus major third
                         Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                    ),
+                    (
+                        Stack::from_target(vec![octaves, 2, (-2)]), // tritone as chromatic semitone below fifth
                         Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5 * 4 * 5),
-                    ]),
-                ),
-                7 => (
-                    arr2(&[[octaves, 1.into(), 0.into()]]), // fifth
-                    arr1(&[Ratio::new(1, 2 * 3)]),
-                ),
-                8 => (
-                    arr2(&[[octaves + 1, 0.into(), (-1).into()]]), // minor sixth
-                    arr1(&[Ratio::new(1, 4 * 5)]),
-                ),
-                9 => (
-                    arr2(&[
-                        [octaves + 1, (-1).into(), 1.into()], // major sixth
-                        [octaves - 1, 3.into(), 0.into()],    // major tone plus fifth
-                    ]),
-                    arr1(&[
+                    ),
+                ],
+                7 => vec![(
+                    Stack::from_target(vec![octaves, 1, 0]), // fifth
+                    Ratio::new(1, 2 * 3),
+                )],
+                8 => vec![(
+                    Stack::from_target(vec![octaves + 1, 0, (-1)]), // minor sixth
+                    Ratio::new(1, 4 * 5),
+                )],
+                9 => vec![
+                    (
+                        Stack::from_target(vec![octaves + 1, (-1), 1]), // major sixth
                         Ratio::new(1, 2 * 3 * 4 * 5),
+                    ),
+                    (
+                        Stack::from_target(vec![octaves - 1, 3, 0]), // major tone plus fifth
                         Ratio::new(1, 2 * 3 * 2 * 3 * 2 * 3),
-                    ]),
-                ),
-                10 => (
-                    arr2(&[
-                        [octaves + 2, (-2).into(), 0.into()], // minor seventh as stack of two fourths
-                        [octaves, 2.into(), (-1).into()], // minor seventh as fifth plus minor third
-                    ]),
-                    arr1(&[
+                    ),
+                ],
+                10 => vec![
+                    (
+                        Stack::from_target(vec![octaves + 2, (-2), 0]), // minor seventh as stack of two fourths
                         Ratio::new(1, 2 * 3 * 2 * 3),
+                    ),
+                    (
+                        Stack::from_target(vec![octaves, 2, (-1)]), // minor seventh as fifth plus minor third
                         Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
-                    ]),
-                ),
-                11 => (
-                    arr2(&[
-                        [octaves, 1.into(), 1.into()], // major seventh as fifth plus major third
-                    ]),
-                    arr1(&[Ratio::new(1, 2 * 3 * 4 * 5)]),
-                ),
+                    ),
+                ],
+                11 => vec![(
+                    Stack::from_target(vec![octaves, 1, 1]), // major seventh as fifth plus major third
+                    Ratio::new(1, 2 * 3 * 4 * 5),
+                )],
                 _ => unreachable!(),
             }
         };
@@ -1041,7 +1031,7 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |s| match s[..] {
-                [(7, n)] => arr1(&[0.into(), n.into(), 0.into()]),
+                [(7, n)] => Stack::from_pure_interval(ConcreteFiveLimitStackType::fifth_index(), n),
                 _ => unreachable!(),
             },
             &mut solver_workspace,
@@ -1096,9 +1086,18 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |s| match s[..] {
-                [(7, n)] => arr1(&[0.into(), n.into(), 0.into()]),
-                [(5, n)] => arr1(&[n.into(), (-n).into(), 0.into()]),
-                [(5, n), (7, m)] => arr1(&[n.into(), (m - n).into(), 0.into()]),
+                [(7, n)] => Stack::from_temperaments_and_target(
+                    &[false, false],
+                    vec![0.into(), n.into(), 0.into()],
+                ),
+                [(5, n)] => Stack::from_temperaments_and_target(
+                    &[false, false],
+                    vec![n.into(), (-n).into(), 0.into()],
+                ),
+                [(5, n), (7, m)] => Stack::from_temperaments_and_target(
+                    &[false, false],
+                    vec![n.into(), (m - n).into(), 0.into()],
+                ),
                 _ => unreachable!(),
             },
             &mut solver_workspace,
