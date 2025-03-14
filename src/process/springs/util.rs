@@ -1086,18 +1086,9 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |s| match s[..] {
-                [(7, n)] => Stack::from_temperaments_and_target(
-                    &[false, false],
-                    vec![0.into(), n.into(), 0.into()],
-                ),
-                [(5, n)] => Stack::from_temperaments_and_target(
-                    &[false, false],
-                    vec![n.into(), (-n).into(), 0.into()],
-                ),
-                [(5, n), (7, m)] => Stack::from_temperaments_and_target(
-                    &[false, false],
-                    vec![n.into(), (m - n).into(), 0.into()],
-                ),
+                [(7, n)] => Stack::from_target(vec![0.into(), n.into(), 0.into()]),
+                [(5, n)] => Stack::from_target(vec![n.into(), (-n).into(), 0.into()]),
+                [(5, n), (7, m)] => Stack::from_target(vec![n.into(), (m - n).into(), 0.into()]),
                 _ => unreachable!(),
             },
             &mut solver_workspace,

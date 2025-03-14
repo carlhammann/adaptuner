@@ -18,7 +18,10 @@ pub struct Stack<T: StackType> {
 }
 
 impl<T: StackType> Stack<T> {
-    pub fn from_target_and_actual(target: Array1<StackCoeff>, actual: Array1<Ratio<StackCoeff>>)  -> Self {
+    pub fn from_target_and_actual(
+        target: Array1<StackCoeff>,
+        actual: Array1<Ratio<StackCoeff>>,
+    ) -> Self {
         Stack {
             _phantom: PhantomData,
             target,
@@ -26,7 +29,24 @@ impl<T: StackType> Stack<T> {
         }
     }
 
-    pub fn from_temperaments_and_target(active_temperaments: &[bool], coefficients: Vec<StackCoeff>) -> Self {
+    /// actual will be initialised to the same as target
+    pub fn from_target(target: Vec<StackCoeff>) -> Self {
+        let actual = Array1::from_shape_fn(target.len(), |i| Ratio::from_integer(target[i]));
+        Stack {
+            _phantom: PhantomData,
+            target: target.into(),
+            actual,
+        }
+    }
+
+    pub fn raw(self) -> (Array1<StackCoeff>, Array1<Ratio<StackCoeff>>) {
+        (self.target, self.actual)
+    }
+
+    pub fn from_temperaments_and_target(
+        active_temperaments: &[bool],
+        coefficients: Vec<StackCoeff>,
+    ) -> Self {
         let mut actual =
             Array1::from_shape_fn(coefficients.len(), |i| Ratio::from_integer(coefficients[i]));
         for (t, &active) in active_temperaments.iter().enumerate() {
@@ -50,11 +70,11 @@ impl<T: StackType> Stack<T> {
         }
     }
 
-    pub fn from_pure_interval(interval_index: usize) -> Self {
+    pub fn from_pure_interval(interval_index: usize, multiplier: StackCoeff) -> Self {
         let mut target = Array1::zeros(T::num_intervals());
-        target[interval_index] = 1;
+        target[interval_index] = multiplier;
         let mut actual = Array1::zeros(T::num_intervals());
-        actual[interval_index] = Ratio::from_integer(1);
+        actual[interval_index] = Ratio::from_integer(multiplier);
         Stack {
             _phantom: PhantomData,
             target,
@@ -197,7 +217,8 @@ mod test {
         let eps = 0.00000000001; // just an arbitrary small number
 
         // all four combinations of temperaments for a single third:
-        let s = Stack::<MockStackType>::from_temperaments_and_target(&[false, false], vec![0, 0, 1]);
+        let s =
+            Stack::<MockStackType>::from_temperaments_and_target(&[false, false], vec![0, 0, 1]);
         assert_relative_eq!(s.semitones(), third, max_relative = eps);
         assert_relative_eq!(s.semitones_above_target(), 0.0, max_relative = eps);
 
@@ -222,7 +243,8 @@ mod test {
         );
 
         // all four combinations of temperaments for a single fifth:
-        let s = Stack::<MockStackType>::from_temperaments_and_target(&[false, false], vec![0, 1, 0]);
+        let s =
+            Stack::<MockStackType>::from_temperaments_and_target(&[false, false], vec![0, 1, 0]);
         assert_relative_eq!(s.semitones(), fifth, max_relative = eps);
         assert_relative_eq!(s.semitones_above_target(), 0.0, max_relative = eps);
 

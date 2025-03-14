@@ -317,7 +317,7 @@ pub fn new_fivelimit_neighbourhood<T: FiveLimitStackType + OctavePeriodicStackTy
     PeriodicCompleteAligned {
         inner: PeriodicComplete {
             stacks,
-            period: Stack::from_pure_interval(T::period_index()),
+            period: Stack::from_pure_interval(T::period_index(), 1),
         },
     }
 }
@@ -348,61 +348,59 @@ mod test {
 
     #[test]
     fn test_test_insert_retrieve() {
-        let period = Stack::<MockStackType>::from_temperaments_and_target(&[false; 2], vec![1, 0, 0]);
-        let no_active_temperaments = vec![false; MockStackType::num_temperaments()];
+        let period = Stack::<MockStackType>::from_target(vec![1, 0, 0]);
         let mut neigh = PeriodicPartial {
-            stacks: [(9, Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, 4, 123]))].into(),
+            stacks: [(9, Stack::from_target(vec![1, 4, 123]))].into(),
             period,
         };
         assert_eq!(
             neigh.try_get_relative_stack(9 + 12),
-            Some(Stack::from_temperaments_and_target(&no_active_temperaments, vec![2, 4, 123]))
+            Some(Stack::from_target(vec![2, 4, 123]))
         );
 
-        neigh.insert(&Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 3, 0]));
+        neigh.insert(&Stack::from_target(vec![0, 3, 0]));
         assert_eq!(
             neigh.try_get_relative_stack(9),
-            Some(Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, 0]))
+            Some(Stack::from_target(vec![-1, 3, 0]))
         );
         assert_eq!(
             neigh.try_get_relative_stack(-3),
-            Some(Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 3, 0]))
+            Some(Stack::from_target(vec![-2, 3, 0]))
         );
 
         // the next two are a regression test
-        neigh.insert(&Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -2, 0]));
+        neigh.insert(&Stack::from_target(vec![1, -2, 0]));
         assert_eq!(
             neigh.stacks.get(&10),
-            Some(&Stack::from_temperaments_and_target(&no_active_temperaments, vec![2, -2, 0]))
+            Some(&Stack::from_target(vec![2, -2, 0]))
         );
         assert_eq!(
             neigh.try_get_relative_stack(10),
-            Some(Stack::from_temperaments_and_target(&no_active_temperaments, vec![2, -2, 0]))
+            Some(Stack::from_target(vec![2, -2, 0]))
         );
     }
 
     #[test]
     fn test_new_fivelimit_neighbourhood() {
-        let period = Stack::<MockStackType>::from_temperaments_and_target(&[false; 2], vec![1, 0, 0]);
-        let no_active_temperaments = vec![false; MockStackType::num_temperaments()];
+        let period = Stack::<MockStackType>::from_target(vec![1, 0, 0]);
 
         assert_eq!(
             new_fivelimit_neighbourhood(&[false; 2], 12, 0, 0),
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-4, 7, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-5, 9, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 4, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-6, 11, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-3, 6, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-4, 8, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-5, 10, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 5, 0]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![-4, 7, 0]),
+                        Stack::from_target(vec![-1, 2, 0]),
+                        Stack::from_target(vec![-5, 9, 0]),
+                        Stack::from_target(vec![-2, 4, 0]),
+                        Stack::from_target(vec![-6, 11, 0]),
+                        Stack::from_target(vec![-3, 6, 0]),
+                        Stack::from_target(vec![0, 1, 0]),
+                        Stack::from_target(vec![-4, 8, 0]),
+                        Stack::from_target(vec![-1, 3, 0]),
+                        Stack::from_target(vec![-5, 10, 0]),
+                        Stack::from_target(vec![-2, 5, 0]),
                     ],
                     period: period.clone(),
                 }
@@ -414,18 +412,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, -1, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -3, 3]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, -1, 3]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -2, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -1, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -2, 3]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 1]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![0, -1, 2]),
+                        Stack::from_target(vec![-1, 2, 0]),
+                        Stack::from_target(vec![1, -3, 3]),
+                        Stack::from_target(vec![0, 0, 1]),
+                        Stack::from_target(vec![0, -1, 3]),
+                        Stack::from_target(vec![1, -2, 2]),
+                        Stack::from_target(vec![0, 1, 0]),
+                        Stack::from_target(vec![0, 0, 2]),
+                        Stack::from_target(vec![1, -1, 1]),
+                        Stack::from_target(vec![1, -2, 3]),
+                        Stack::from_target(vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -437,18 +435,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 3, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-3, 5, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 4, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 3, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 4, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 1]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![-2, 3, 1]),
+                        Stack::from_target(vec![-1, 2, 0]),
+                        Stack::from_target(vec![-3, 5, 1]),
+                        Stack::from_target(vec![-2, 4, 0]),
+                        Stack::from_target(vec![-2, 3, 2]),
+                        Stack::from_target(vec![-1, 2, 1]),
+                        Stack::from_target(vec![0, 1, 0]),
+                        Stack::from_target(vec![-2, 4, 1]),
+                        Stack::from_target(vec![-1, 3, 0]),
+                        Stack::from_target(vec![-1, 2, 2]),
+                        Stack::from_target(vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -460,18 +458,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 3, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 1, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 3, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 1]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![-2, 3, 1]),
+                        Stack::from_target(vec![-1, 2, 0]),
+                        Stack::from_target(vec![-1, 1, 2]),
+                        Stack::from_target(vec![0, 0, 1]),
+                        Stack::from_target(vec![-2, 3, 2]),
+                        Stack::from_target(vec![-1, 2, 1]),
+                        Stack::from_target(vec![0, 1, 0]),
+                        Stack::from_target(vec![0, 0, 2]),
+                        Stack::from_target(vec![-1, 3, 0]),
+                        Stack::from_target(vec![-1, 2, 2]),
+                        Stack::from_target(vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -483,18 +481,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 3, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 1, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, -1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 1]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![-2, 3, 1]),
+                        Stack::from_target(vec![-1, 2, 0]),
+                        Stack::from_target(vec![-1, 1, 2]),
+                        Stack::from_target(vec![0, 0, 1]),
+                        Stack::from_target(vec![-1, 3, -1]),
+                        Stack::from_target(vec![-1, 2, 1]),
+                        Stack::from_target(vec![0, 1, 0]),
+                        Stack::from_target(vec![0, 0, 2]),
+                        Stack::from_target(vec![-1, 3, 0]),
+                        Stack::from_target(vec![-1, 2, 2]),
+                        Stack::from_target(vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -506,18 +504,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 3, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 1, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, -1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 2, -1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 1]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![-2, 3, 1]),
+                        Stack::from_target(vec![-1, 2, 0]),
+                        Stack::from_target(vec![-1, 1, 2]),
+                        Stack::from_target(vec![0, 0, 1]),
+                        Stack::from_target(vec![-1, 3, -1]),
+                        Stack::from_target(vec![-1, 2, 1]),
+                        Stack::from_target(vec![0, 1, 0]),
+                        Stack::from_target(vec![0, 0, 2]),
+                        Stack::from_target(vec![-1, 3, 0]),
+                        Stack::from_target(vec![0, 2, -1]),
+                        Stack::from_target(vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -529,18 +527,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 3, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, -1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, -1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 2, -1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 1]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![-2, 3, 1]),
+                        Stack::from_target(vec![-1, 2, 0]),
+                        Stack::from_target(vec![0, 1, -1]),
+                        Stack::from_target(vec![0, 0, 1]),
+                        Stack::from_target(vec![-1, 3, -1]),
+                        Stack::from_target(vec![-1, 2, 1]),
+                        Stack::from_target(vec![0, 1, 0]),
+                        Stack::from_target(vec![0, 0, 2]),
+                        Stack::from_target(vec![-1, 3, 0]),
+                        Stack::from_target(vec![0, 2, -1]),
+                        Stack::from_target(vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -552,18 +550,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-2, 3, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, -1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, -1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, 0, -1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 3, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 2, -1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 1]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![-2, 3, 1]),
+                        Stack::from_target(vec![-1, 2, 0]),
+                        Stack::from_target(vec![0, 1, -1]),
+                        Stack::from_target(vec![0, 0, 1]),
+                        Stack::from_target(vec![-1, 3, -1]),
+                        Stack::from_target(vec![-1, 2, 1]),
+                        Stack::from_target(vec![0, 1, 0]),
+                        Stack::from_target(vec![1, 0, -1]),
+                        Stack::from_target(vec![-1, 3, 0]),
+                        Stack::from_target(vec![0, 2, -1]),
+                        Stack::from_target(vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -575,18 +573,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, -1, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 1, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, -1, 3]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -1, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 2, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 1]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![0, -1, 2]),
+                        Stack::from_target(vec![-1, 2, 0]),
+                        Stack::from_target(vec![-1, 1, 2]),
+                        Stack::from_target(vec![0, 0, 1]),
+                        Stack::from_target(vec![0, -1, 3]),
+                        Stack::from_target(vec![-1, 2, 1]),
+                        Stack::from_target(vec![0, 1, 0]),
+                        Stack::from_target(vec![0, 0, 2]),
+                        Stack::from_target(vec![1, -1, 1]),
+                        Stack::from_target(vec![-1, 2, 2]),
+                        Stack::from_target(vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -598,18 +596,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, -1, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -2, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![-1, 1, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, -1, 3]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -2, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -1, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -2, 3]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 1, 1]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![0, -1, 2]),
+                        Stack::from_target(vec![1, -2, 1]),
+                        Stack::from_target(vec![-1, 1, 2]),
+                        Stack::from_target(vec![0, 0, 1]),
+                        Stack::from_target(vec![0, -1, 3]),
+                        Stack::from_target(vec![1, -2, 2]),
+                        Stack::from_target(vec![0, 1, 0]),
+                        Stack::from_target(vec![0, 0, 2]),
+                        Stack::from_target(vec![1, -1, 1]),
+                        Stack::from_target(vec![1, -2, 3]),
+                        Stack::from_target(vec![0, 1, 1]),
                     ],
                     period: period.clone(),
                 }
@@ -621,18 +619,18 @@ mod test {
             PeriodicCompleteAligned {
                 inner: PeriodicComplete {
                     stacks: vec![
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 0]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, -1, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -2, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -3, 3]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, -1, 3]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -2, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![2, -3, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![0, 0, 2]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -1, 1]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![1, -2, 3]),
-                        Stack::from_temperaments_and_target(&no_active_temperaments, vec![2, -3, 2]),
+                        Stack::from_target(vec![0, 0, 0]),
+                        Stack::from_target(vec![0, -1, 2]),
+                        Stack::from_target(vec![1, -2, 1]),
+                        Stack::from_target(vec![1, -3, 3]),
+                        Stack::from_target(vec![0, 0, 1]),
+                        Stack::from_target(vec![0, -1, 3]),
+                        Stack::from_target(vec![1, -2, 2]),
+                        Stack::from_target(vec![2, -3, 1]),
+                        Stack::from_target(vec![0, 0, 2]),
+                        Stack::from_target(vec![1, -1, 1]),
+                        Stack::from_target(vec![1, -2, 3]),
+                        Stack::from_target(vec![2, -3, 2]),
                     ],
                     period: period.clone(),
                 }

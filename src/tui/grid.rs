@@ -471,7 +471,6 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
     Config<Grid<T, N>> for GridConfig<T, N>
 {
     fn initialise(config: &Self) -> Grid<T, N> {
-        let no_active_temperaments = vec![false; T::num_temperaments()];
         let mut uninit_active_notes = [const { MaybeUninit::<NoteInfo<T>>:: uninit() } ; 128];
         for i in 0..128 {
             uninit_active_notes[i].write(NoteInfo {
@@ -485,8 +484,8 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
             vertical_index: config.vertical_index,
 
             reference_key: config.initial_reference_key,
-            reference_stack: Stack::from_temperaments_and_target(&no_active_temperaments, vec![0; T::num_intervals()]),
-            active_temperaments: no_active_temperaments,
+            reference_stack: Stack::from_target(vec![0; T::num_intervals()]),
+            active_temperaments: vec![false; T::num_temperaments()],
 
             considered_notes: config.initial_neighbourhood.clone(),
 
