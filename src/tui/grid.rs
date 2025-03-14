@@ -485,7 +485,7 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
             vertical_index: config.vertical_index,
 
             reference_key: config.initial_reference_key,
-            reference_stack: Stack::new(&no_active_temperaments, vec![0; T::num_intervals()]),
+            reference_stack: Stack::from_temperaments_and_target(&no_active_temperaments, vec![0; T::num_intervals()]),
             active_temperaments: no_active_temperaments,
 
             considered_notes: config.initial_neighbourhood.clone(),

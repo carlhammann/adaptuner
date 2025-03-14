@@ -77,7 +77,7 @@ impl From<SimplePatternConfig> for Pattern<ConcreteFiveLimitStackType> {
                     .neighbourhood
                     .into_iter()
                     .map(|(offset, coeffs)| {
-                        (offset, Stack::new(&no_active_temperaments, coeffs.to_vec()))
+                        (offset, Stack::from_temperaments_and_target(&no_active_temperaments, coeffs.to_vec()))
                     })
                     .collect(),
                 period: octave,

@@ -367,7 +367,7 @@ where
         let send_to_backend =
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
-        let mut stack = Stack::new(&self.active_temperaments, coefficients);
+        let mut stack = Stack::from_temperaments_and_target(&self.active_temperaments, coefficients);
         let normalised_stack = self.neighbourhood.insert(&stack);
         stack.clone_from(normalised_stack);
         match &mut self.current_fit {
