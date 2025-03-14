@@ -133,7 +133,7 @@ pub mod fivelimit {
 
             for (coeffs, name) in examples.iter() {
                 assert_eq!(
-                    NoteName::new(&Stack::<MockStackType>::new(
+                    NoteName::new(&Stack::<MockStackType>::from_temperaments_and_target(
                         &[false, false],
                         coeffs.to_vec()
                     ))

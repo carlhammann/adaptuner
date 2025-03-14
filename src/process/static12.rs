@@ -218,7 +218,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> Static12<T, N> {
         let send_to_backend =
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
-        let mut stack = Stack::new(&self.active_temperaments, coefficients);
+        let mut stack = Stack::from_temperaments_and_target(&self.active_temperaments, coefficients);
 
         let normalised_stack = self.neighbourhood.insert(&stack);
 
@@ -292,7 +292,7 @@ impl<T: FiveLimitStackType, N: CompleteNeigbourhood<T> + Clone> Config<Static12<
         let no_active_temperaments = vec![false; T::num_temperaments()];
         Static12 {
             config: config.clone(),
-            reference_stack: Stack::new(&no_active_temperaments, vec![0; T::num_intervals()]),
+            reference_stack: Stack::from_temperaments_and_target(&no_active_temperaments, vec![0; T::num_intervals()]),
             reference_key: 60,
             neighbourhood: config.initial_neighbourhood.clone(),
             active_temperaments: no_active_temperaments,

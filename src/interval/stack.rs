@@ -18,7 +18,15 @@ pub struct Stack<T: StackType> {
 }
 
 impl<T: StackType> Stack<T> {
-    pub fn new(active_temperaments: &[bool], coefficients: Vec<StackCoeff>) -> Self {
+    pub fn from_target_and_actual(target: Array1<StackCoeff>, actual: Array1<Ratio<StackCoeff>>)  -> Self {
+        Stack {
+            _phantom: PhantomData,
+            target,
+            actual,
+        }
+    }
+
+    pub fn from_temperaments_and_target(active_temperaments: &[bool], coefficients: Vec<StackCoeff>) -> Self {
         let mut actual =
             Array1::from_shape_fn(coefficients.len(), |i| Ratio::from_integer(coefficients[i]));
         for (t, &active) in active_temperaments.iter().enumerate() {
@@ -56,6 +64,10 @@ impl<T: StackType> Stack<T> {
 
     pub fn target_coefficients(&self) -> ArrayView1<StackCoeff> {
         self.target.view()
+    }
+
+    pub fn actual_coefficients(&self) -> ArrayView1<Ratio<StackCoeff>> {
+        self.actual.view()
     }
 
     pub fn scaled_add<P: ops::Deref<Target = Stack<T>>>(&mut self, scalar: StackCoeff, other: P) {
@@ -185,15 +197,15 @@ mod test {
         let eps = 0.00000000001; // just an arbitrary small number
 
         // all four combinations of temperaments for a single third:
-        let s = Stack::<MockStackType>::new(&[false, false], vec![0, 0, 1]);
+        let s = Stack::<MockStackType>::from_temperaments_and_target(&[false, false], vec![0, 0, 1]);
         assert_relative_eq!(s.semitones(), third, max_relative = eps);
         assert_relative_eq!(s.semitones_above_target(), 0.0, max_relative = eps);
 
-        let s = Stack::<MockStackType>::new(&[false, true], vec![0, 0, 1]);
+        let s = Stack::<MockStackType>::from_temperaments_and_target(&[false, true], vec![0, 0, 1]);
         assert_relative_eq!(s.semitones(), third, max_relative = eps);
         assert_relative_eq!(s.semitones_above_target(), 0.0, max_relative = eps);
 
-        let s = Stack::<MockStackType>::new(&[true, false], vec![0, 0, 1]);
+        let s = Stack::<MockStackType>::from_temperaments_and_target(&[true, false], vec![0, 0, 1]);
         assert_relative_eq!(s.semitones(), 4.0, max_relative = eps);
         assert_relative_eq!(
             s.semitones_above_target(),
@@ -201,7 +213,7 @@ mod test {
             max_relative = eps
         );
 
-        let s = Stack::<MockStackType>::new(&[true, true], vec![0, 0, 1]);
+        let s = Stack::<MockStackType>::from_temperaments_and_target(&[true, true], vec![0, 0, 1]);
         assert_relative_eq!(s.semitones(), 4.0, max_relative = eps);
         assert_relative_eq!(
             s.semitones_above_target(),
@@ -210,11 +222,11 @@ mod test {
         );
 
         // all four combinations of temperaments for a single fifth:
-        let s = Stack::<MockStackType>::new(&[false, false], vec![0, 1, 0]);
+        let s = Stack::<MockStackType>::from_temperaments_and_target(&[false, false], vec![0, 1, 0]);
         assert_relative_eq!(s.semitones(), fifth, max_relative = eps);
         assert_relative_eq!(s.semitones_above_target(), 0.0, max_relative = eps);
 
-        let s = Stack::<MockStackType>::new(&[false, true], vec![0, 1, 0]);
+        let s = Stack::<MockStackType>::from_temperaments_and_target(&[false, true], vec![0, 1, 0]);
         assert_relative_eq!(
             s.semitones(),
             fifth + quarter_comma_down,
@@ -226,7 +238,7 @@ mod test {
             max_relative = eps
         );
 
-        let s = Stack::<MockStackType>::new(&[true, false], vec![0, 1, 0]);
+        let s = Stack::<MockStackType>::from_temperaments_and_target(&[true, false], vec![0, 1, 0]);
         assert_relative_eq!(s.semitones(), 7.0, max_relative = eps);
         assert_relative_eq!(
             s.semitones_above_target(),
@@ -234,7 +246,7 @@ mod test {
             max_relative = eps
         );
 
-        let s = Stack::<MockStackType>::new(&[true, true], vec![0, 1, 0]);
+        let s = Stack::<MockStackType>::from_temperaments_and_target(&[true, true], vec![0, 1, 0]);
         assert_relative_eq!(
             s.semitones(),
             fifth + quarter_comma_down + edo12_fifth_error,
@@ -258,7 +270,7 @@ mod test {
 
         let eps = 0.00000000001; // just an arbitrary small number
 
-        let s = Stack::<MockStackType>::new(&[false, true], vec![0, 4, 0]);
+        let s = Stack::<MockStackType>::from_temperaments_and_target(&[false, true], vec![0, 4, 0]);
         assert_relative_eq!(s.semitones(), 2.0 * octave + third, max_relative = eps);
         assert_relative_eq!(
             s.semitones_above_target(),
@@ -268,7 +280,7 @@ mod test {
         assert!(s.is_pure());
         assert!(!s.is_target());
 
-        let s = Stack::<MockStackType>::new(&[true, false], vec![0, 0, 4]);
+        let s = Stack::<MockStackType>::from_temperaments_and_target(&[true, false], vec![0, 0, 4]);
         assert_relative_eq!(
             s.semitones(),
             octave + third + edo12_third_error,
