@@ -67,8 +67,7 @@ pub struct SimplePatternConfig {
 
 impl From<SimplePatternConfig> for Pattern<ConcreteFiveLimitStackType> {
     fn from(simple: SimplePatternConfig) -> Self {
-        let octave = Stack::from_pure_interval(ConcreteFiveLimitStackType::period_index());
-        let no_active_temperaments = vec![false; ConcreteFiveLimitStackType::num_temperaments()];
+        let octave = Stack::from_pure_interval(ConcreteFiveLimitStackType::period_index(), 1);
         Pattern {
             name: simple.name,
             keyshape: simple.keyshape,
@@ -76,9 +75,7 @@ impl From<SimplePatternConfig> for Pattern<ConcreteFiveLimitStackType> {
                 stacks: simple
                     .neighbourhood
                     .into_iter()
-                    .map(|(offset, coeffs)| {
-                        (offset, Stack::from_temperaments_and_target(&no_active_temperaments, coeffs.to_vec()))
-                    })
+                    .map(|(offset, coeffs)| (offset, Stack::from_target(coeffs.to_vec())))
                     .collect(),
                 period: octave,
             }),
@@ -169,7 +166,7 @@ pub fn init_walking_config(
             special_config: tui::walking::WalkingConfig {
                 notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
                 initial_key_center: Stack::new_zero(),
-                use_patterns:true,
+                use_patterns: true,
             },
             _phantom: PhantomData,
         },
