@@ -10,11 +10,23 @@ use crate::interval::{
     stacktype::r#trait::{StackCoeff, StackType},
 };
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Stack<T: StackType> {
     _phantom: PhantomData<T>,
-    target: Array1<StackCoeff>,
-    actual: Array1<Ratio<StackCoeff>>,
+    pub target: Array1<StackCoeff>,
+    pub actual: Array1<Ratio<StackCoeff>>,
+}
+
+pub trait ScaledAdd<S> {
+    fn scaled_add<P: ops::Deref<Target = Self>>(&mut self, scalar: S, other: P);
+}
+
+impl<T: StackType> ScaledAdd<StackCoeff> for Stack<T> {
+    fn scaled_add<P: ops::Deref<Target = Stack<T>>>(&mut self, scalar: StackCoeff, other: P) {
+        self.target.scaled_add(scalar, &other.target);
+        self.actual
+            .scaled_add(Ratio::from_integer(scalar), &other.actual);
+    }
 }
 
 impl<T: StackType> Stack<T> {
@@ -88,12 +100,6 @@ impl<T: StackType> Stack<T> {
 
     pub fn actual_coefficients(&self) -> ArrayView1<Ratio<StackCoeff>> {
         self.actual.view()
-    }
-
-    pub fn scaled_add<P: ops::Deref<Target = Stack<T>>>(&mut self, scalar: StackCoeff, other: P) {
-        self.target.scaled_add(scalar, &other.target);
-        self.actual
-            .scaled_add(Ratio::from_integer(scalar), &other.actual);
     }
 
     pub fn increment_at_index(
@@ -284,7 +290,7 @@ mod test {
     #[test]
     fn test_rollovers() {
         let octave = 12.0;
-        let fifth = 12.0 * (3.0 / 2.0 as Semitones).log2();
+        //let fifth = 12.0 * (3.0 / 2.0 as Semitones).log2();
         let third = 12.0 * (5.0 / 4.0 as Semitones).log2();
 
         let quarter_comma_down = 12.0 * (80.0 / 81.0 as Semitones).log2() / 4.0;

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
-    stack::Stack,
+    stack::{ScaledAdd, Stack},
     stacktype::r#trait::{
         FiveLimitStackType, OctavePeriodicStackType, PeriodicStackType, StackCoeff, StackType,
     },

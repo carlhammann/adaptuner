@@ -11,7 +11,7 @@ use crate::{
     config::r#trait::Config,
     interval::{
         base::Semitones,
-        stack::Stack,
+        stack::{ScaledAdd, Stack},
         stacktype::r#trait::{FiveLimitStackType, PeriodicStackType, StackCoeff, StackType},
     },
     msg,
