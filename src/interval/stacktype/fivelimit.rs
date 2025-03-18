@@ -11,7 +11,7 @@ use crate::interval::{
     temperament::Temperament,
 };
 
-#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Hash, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct ConcreteFiveLimitStackType {}
 
 static INTERVALS: LazyLock<[Interval; 3]> = LazyLock::new(|| {

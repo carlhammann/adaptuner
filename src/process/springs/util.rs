@@ -1,4 +1,8 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    hash::Hash,
+    ops,
+};
 
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 use num_rational::Ratio;
@@ -7,7 +11,7 @@ use super::solver;
 use crate::{
     interval::{
         base::Semitones,
-        stack::Stack,
+        stack::{ScaledAdd, Stack},
         stacktype::r#trait::{StackCoeff, StackType},
     },
     util::lu,
@@ -51,6 +55,114 @@ type KeyNumber = u8;
 /// - sorted by ascending key distance
 type RodSpec = Vec<(KeyDistance, StackCoeff)>;
 
+#[derive(Debug, Clone)]
+pub enum OneOrMany<T> {
+    One(T),
+    Many(HashSet<T>),
+}
+
+impl<T: Eq + Hash> PartialEq for OneOrMany<T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (OneOrMany::One(x), OneOrMany::One(y)) => x == y,
+            (OneOrMany::Many(xs), OneOrMany::Many(ys)) => xs.is_subset(ys) & ys.is_subset(xs),
+            _ => false,
+        }
+    }
+}
+
+impl<T: Eq + Hash> Eq for OneOrMany<T> {}
+
+enum OneOrManyIter<'a, T> {
+    One { elem: &'a T, used: bool },
+    Many(std::collections::hash_set::Iter<'a, T>),
+}
+
+impl<'a, T> Iterator for OneOrManyIter<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::One { elem, used } => {
+                if *used {
+                    None
+                } else {
+                    *used = true;
+                    Some(elem)
+                }
+            }
+            Self::Many(xs) => xs.next(),
+        }
+    }
+}
+
+impl<T: Hash + Eq + Clone> OneOrMany<T> {
+    fn iter(&self) -> OneOrManyIter<T> {
+        match self {
+            OneOrMany::Many(xs) => OneOrManyIter::Many(xs.iter()),
+            OneOrMany::One(x) => OneOrManyIter::One {
+                elem: x,
+                used: false,
+            },
+        }
+    }
+}
+
+impl<T: Hash + Eq> OneOrMany<T> {
+    fn extend(&mut self, mut other: Self) {
+        match (&mut *self, &mut other) {
+            (OneOrMany::One(_), _) => {}
+            (_, OneOrMany::One(_)) => *self = other,
+            (OneOrMany::Many(xs), OneOrMany::Many(ys)) => {
+                for y in ys.drain() {
+                    xs.insert(y);
+                }
+            }
+        }
+    }
+}
+
+impl<S, T> ScaledAdd<S> for OneOrMany<T>
+where
+    S: Copy,
+    T: Hash + Eq + Clone + ScaledAdd<S>,
+{
+    fn scaled_add<P: ops::Deref<Target = Self>>(&mut self, scalar: S, other: P) {
+        match (&mut *self, &*other) {
+            (OneOrMany::One(x), OneOrMany::One(y)) => {
+                x.scaled_add(scalar, y);
+            }
+            (OneOrMany::One(x), OneOrMany::Many(ys)) => {
+                let mut xs = HashSet::new();
+                for y in ys.iter() {
+                    let mut tmp = x.clone();
+                    tmp.scaled_add(scalar, y);
+                    xs.insert(tmp);
+                }
+                *self = OneOrMany::Many(xs);
+            }
+            (OneOrMany::Many(xs), OneOrMany::One(y)) => {
+                let mut new_xs = HashSet::new();
+                for mut x in xs.drain() {
+                    x.scaled_add(scalar, y);
+                    new_xs.insert(x);
+                }
+                *xs = new_xs;
+            }
+            (OneOrMany::Many(xs), OneOrMany::Many(ys)) => {
+                let mut new_xs = HashSet::new();
+                for x in xs.drain() {
+                    for y in ys.iter() {
+                        let mut xplusy = x.clone();
+                        xplusy.scaled_add(scalar, y);
+                        new_xs.insert(xplusy);
+                    }
+                }
+                *xs = new_xs;
+            }
+        }
+    }
+}
+
 pub struct Workspace<T: StackType> {
     n_keys: usize,
     memo_springs: bool,
@@ -59,15 +171,30 @@ pub struct Workspace<T: StackType> {
     memoed_springs: HashMap<KeyDistance, Vec<(Stack<T>, Ratio<StackCoeff>)>>,
     memoed_anchors: HashMap<KeyNumber, Vec<(Stack<T>, Ratio<StackCoeff>)>>,
     memoed_rods: HashMap<RodSpec, Stack<T>>,
-    current_springs: BTreeMap<(usize, usize), SpringInfo>,
+    current_springs: BTreeMap<(usize, usize), SpringInfo>, // invariant: the key pairs are sorted ascendingly
     current_anchors: BTreeMap<usize, AnchorInfo>,
-    current_rods: HashMap<(usize, usize), RodInfo>,
-    best_solution: Array2<Ratio<StackCoeff>>,
-    best_energy: Semitones, // May not be exactly zero even if `relaxed` is true, due to floating point imprecisions
+    current_rods: HashMap<(usize, usize), RodInfo>, // invariant: the key pairs are sorted ascendingly
+    current_solution: Array2<Ratio<StackCoeff>>,
+    current_energy: Semitones, // May not be exactly zero even if `relaxed` is true, due to floating point imprecisions
     relaxed: bool,
+
+    // In the `current_*` maps, above, there is at most one spring or rod connecting a pair of
+    // notes (or anchoring a note). However, these might "want" to push the notes to different
+    // places. Hence, the `current_solution` can be understood as a compromise between different
+    // possible tunings. The following hold all the tunings that this compromise happens between.
+    //
+    // That is, if the solution is `relaxed`, the information here is redundant with the solution.
+    // (In fact, it won't be computed then.)
+    current_interval_options: HashMap<(usize, usize), OneOrMany<Stack<T>>>,
+    interval_options_are_up_to_date: bool,
+    current_anchor_options: HashMap<usize, HashSet<Stack<T>>>,
+    anchor_options_are_up_to_date: bool,
+
+    tmp_one: OneOrMany<Stack<T>>, // will always be a [OneOrMany::One]
+    tmp_set: HashSet<Stack<T>>,
 }
 
-impl<T: StackType> Workspace<T> {
+impl<T: StackType + Hash + Eq> Workspace<T> {
     /// meanings of arguments:
     /// - `initial_n_keys`: How many simultaneously sounding keys do you expect this workspace to
     ///    be used for? Choosing a big value will potentially prevent re-allocations, at the cost of
@@ -92,24 +219,29 @@ impl<T: StackType> Workspace<T> {
             current_springs: BTreeMap::new(),
             current_anchors: BTreeMap::new(),
             current_rods: HashMap::new(),
-            best_solution: Array2::zeros((initial_n_keys, T::num_intervals())),
-            best_energy: Semitones::MAX,
+            current_solution: Array2::zeros((initial_n_keys, T::num_intervals())),
+            current_energy: Semitones::MAX,
             relaxed: false,
+
+            current_interval_options: HashMap::new(),
+            interval_options_are_up_to_date: false,
+            current_anchor_options: HashMap::new(),
+            anchor_options_are_up_to_date: false,
+
+            tmp_one: OneOrMany::One(Stack::new_zero()),
+            tmp_set: HashSet::new(),
         }
     }
 
-    /// Call [Self::compute_best_solution] first.
-    pub fn best_solution(&self) -> ArrayView2<Ratio<StackCoeff>> {
-        self.best_solution
+    pub fn current_solution(&self) -> ArrayView2<Ratio<StackCoeff>> {
+        self.current_solution
             .slice(s![..self.n_keys, ..T::num_intervals()])
     }
 
-    /// Call [Self::compute_best_solution] first.
-    pub fn best_energy(&self) -> Semitones {
-        self.best_energy
+    pub fn current_energy(&self) -> Semitones {
+        self.current_energy
     }
 
-    /// Call [Self::compute_best_solution] first.
     pub fn relaxed(&self) -> bool {
         self.relaxed
     }
@@ -174,7 +306,12 @@ impl<T: StackType> Workspace<T> {
             provide_candidate_anchors,
         );
 
-        self.best_energy = Semitones::MAX;
+        self.current_energy = Semitones::MAX;
+
+        // `self.best_solution.shape()[1]` always equals `T::num_intervals()`.
+        if self.current_solution.shape()[0] < self.n_keys {
+            self.current_solution = Array2::zeros((self.n_keys, T::num_intervals()));
+        }
 
         self.solve_current_candidate(solver_workspace)?;
         while !self.relaxed & self.prepare_next_candidate() {
@@ -194,6 +331,7 @@ impl<T: StackType> Workspace<T> {
                 - 1;
             if v.current_candidate_index < max_ix {
                 v.current_candidate_index += 1;
+                self.anchor_options_are_up_to_date = false;
                 return true;
             } else {
                 v.current_candidate_index = 0;
@@ -209,6 +347,8 @@ impl<T: StackType> Workspace<T> {
                 - 1;
             if v.current_candidate_index < max_ix {
                 v.current_candidate_index += 1;
+                self.anchor_options_are_up_to_date = false;
+                self.interval_options_are_up_to_date = false;
                 return true;
             } else {
                 v.current_candidate_index = 0;
@@ -268,16 +408,11 @@ impl<T: StackType> Workspace<T> {
         let energy = self.energy_in(solution.view());
         let relaxed = self.relaxed_in(solution.view());
 
-        // `self.best_solution.shape()[1]` and `solution.shape()[1]` are always equal to `T::num_intervals()`.
-        if self.best_solution.shape()[0] < solution.shape()[0] {
-            self.best_solution = Array2::zeros(solution.raw_dim());
-        }
-
-        if relaxed | (energy < self.best_energy) {
-            self.best_solution
+        if relaxed | (energy < self.current_energy) {
+            self.current_solution
                 .slice_mut(s![..self.n_keys, ..T::num_intervals()])
                 .assign(&solution);
-            self.best_energy = energy;
+            self.current_energy = energy;
             self.relaxed = relaxed;
         }
 
@@ -285,11 +420,11 @@ impl<T: StackType> Workspace<T> {
     }
 
     /// Return the fractional MIDI note number of the `i`-th currently considered note, as
-    /// prescribed by the current best solution.
+    /// prescribed by the current solution.
     ///
     /// The origin is middle C, MIDI note number 60.0
     pub fn get_semitones(&self, i: usize) -> Semitones {
-        self.get_semitones_in(i, self.best_solution.view())
+        self.get_semitones_in(i, self.current_solution.view())
     }
 
     fn get_semitones_in(&self, i: usize, solution: ArrayView2<Ratio<StackCoeff>>) -> Semitones {
@@ -301,7 +436,7 @@ impl<T: StackType> Workspace<T> {
     }
 
     /// Return the size of the interval from the `i`-th to the `j`-th currently considered note, as
-    /// a fractional MIDI note number, as prescribed by the current best solution.
+    /// a fractional MIDI note number, as prescribed by the current solution.
     pub fn get_relative_semitones(&self, i: usize, j: usize) -> Semitones {
         self.get_semitones(j) - self.get_semitones(i)
     }
@@ -315,19 +450,270 @@ impl<T: StackType> Workspace<T> {
         self.get_semitones_in(j, solution) - self.get_semitones_in(i, solution)
     }
 
-    ///// Return the possible [Stack::target] coefficients the `i`-th note is tuned to in the current solution.
-    //pub fn get_targets(&self, i: usize) -> Array1<StackCoeff> {
-    //    todo!()
-    //}
+    /// Returns a list [Stack] the that the `i`-th note could be interpreted as in the current
+    /// solution. If [Self::relaxed()], the returned set has size exactly one, otherwise it may
+    /// be bigger: Different springs might have "wanted" the note to end up in different places.
+    ///
+    /// The `self` argument is mutable because some internal computation may be needed. Nothing
+    /// else (like, say the current solution) will change through calling this function.
+    pub fn get_anchor_options(&mut self, i: usize) -> &HashSet<Stack<T>> {
+        if self.relaxed {
+            self.tmp_set.clear();
+            let actual = self.current_solution.row(i).to_owned();
+            let target = Array1::from_shape_fn(T::num_intervals(), |i| actual[i].to_integer());
+            self.tmp_set
+                .insert(Stack::from_target_and_actual(target, actual));
+            &self.tmp_set
+        } else {
+            if !self.interval_options_are_up_to_date {
+                self.update_interval_options();
+            }
+            if !self.anchor_options_are_up_to_date {
+                self.update_anchor_options();
+            }
+            &self.current_anchor_options[&i]
+        }
+    }
 
-    ///// Return the [Stack] the `i`-th note is tuned to, in the current best solution.
-    //pub fn get_stack(&self, i: usize) -> Stack<T> {
-    //    self.get_stack_in(i, self.best_solution.view())
-    //}
-    //
-    //fn get_stack_in(&self, i: usize, solution: ArrayView2<Ratio<StackCoeff>>) -> Stack<T> {
-    //    Stack::from_target_and_actual(self.get_target(i), solution.row(i).to_owned())
-    //}
+    /// Like [Self::get_possible_stacks], only for intervals.
+    pub fn get_interval_options(&mut self, i: usize, j: usize) -> &OneOrMany<Stack<T>> {
+        if self.relaxed {
+            match &mut self.tmp_one {
+                OneOrMany::One(Stack { target, actual, .. }) => {
+                    actual.assign(&self.current_solution.row(j));
+                    actual.scaled_add((-1).into(), &self.current_solution.row(i));
+                    for (i, v) in actual.iter().enumerate() {
+                        target[i] = v.to_integer();
+                    }
+                }
+                _ => unreachable!("get_interval_options: tmp_one is of the wrong shape!"),
+            }
+            &self.tmp_one
+        } else {
+            if !self.interval_options_are_up_to_date {
+                self.update_interval_options();
+            }
+            &self.current_interval_options[&(i, j)]
+        }
+    }
+
+    fn update_anchor_options(&mut self) {
+        if !self.interval_options_are_up_to_date {
+            self.update_interval_options();
+        }
+
+        self.current_anchor_options.clear();
+        self.current_anchor_options.reserve(self.n_keys);
+        for i in 0..self.n_keys {
+            self.current_anchor_options.insert(i, HashSet::new());
+        }
+
+        for (&i, k) in self.current_anchors.iter() {
+            let anchor = &self
+                .memoed_anchors
+                .get(&k.memo_key)
+                .expect("update_anchor_options: no stack found for anchor")
+                [k.current_candidate_index]
+                .0;
+            self.current_anchor_options
+                .get_mut(&i)
+                .unwrap() //this is ok, we added the empty set above.
+                .insert(anchor.clone());
+            for j in 0..i {
+                for dist in self.current_interval_options[&(j, i)].iter() {
+                    let mut other = anchor.clone();
+                    other.scaled_add(-1, dist);
+                    self.current_anchor_options
+                        .get_mut(&j)
+                        .unwrap() // this is ok, we added the empty set above.
+                        .insert(other);
+                }
+            }
+            for j in (i + 1)..self.n_keys {
+                for dist in self.current_interval_options[&(i, j)].iter() {
+                    let mut other = anchor.clone();
+                    other.scaled_add(1, dist);
+                    self.current_anchor_options
+                        .get_mut(&j)
+                        .unwrap() // this is ok, we added the empty set above.
+                        .insert(other);
+                }
+            }
+        }
+
+        self.anchor_options_are_up_to_date = true;
+    }
+
+    fn update_interval_options(&mut self) {
+        self.current_interval_options.clear();
+
+        for ((i, j), k) in self.current_springs.iter() {
+            let (stack, _) = &self
+                .memoed_springs
+                .get(&k.memo_key)
+                .expect("update_interval_options: no stack found for spring")
+                [k.current_candidate_index];
+            self.current_interval_options
+                .insert((*i, *j), OneOrMany::Many([stack.clone()].into()));
+        }
+
+        // it's important to add rods later: in case we're in the strange situation where both a
+        // rod and a spring connect the same two notes, we will want to keep the rod since it holds
+        // definite information
+        for ((i, j), k) in self.current_rods.iter() {
+            let stack = self
+                .memoed_rods
+                .get(&k.memo_key)
+                .expect("update_interval_options: no stack found for rod");
+            self.current_interval_options
+                .insert((*i, *j), OneOrMany::One(stack.clone()));
+        }
+
+        //println!("\n\n\n");
+        //for ((i, j), v) in self.current_interval_options.iter() {
+        //    //println!("({}, {}): {:?}", i, j, v);
+        //    match &v {
+        //        OneOrMany::Many(xs) => {
+        //            println!("many {i} {j}:");
+        //            for x in xs {
+        //                println!("    {} keys with {}", x.key_distance(), x.target);
+        //            }
+        //        }
+        //        _ => unreachable!(),
+        //    }
+        //}
+
+        for i in 0..self.n_keys {
+            for j in (i + 1)..self.n_keys {
+                for k in (j + 1)..self.n_keys {
+                    //println!("{} {} {}", i, j, k);
+                    match (
+                        self.current_interval_options.get(&(i, j)),
+                        self.current_interval_options.get(&(j, k)),
+                        self.current_interval_options.get(&(i, k)),
+                    ) {
+                        (None {}, None {}, None {}) => {}
+                        (Some(_), None {}, None {}) => {}
+                        (None {}, Some(_), None {}) => {}
+                        (None {}, None {}, Some(_)) => {}
+                        (Some(a), Some(b), None {}) => {
+                            //println!("a,b da");
+                            let mut c = a.clone();
+                            c.scaled_add(1, b);
+                            self.current_interval_options.insert((i, k), c);
+                        }
+                        (Some(a), None {}, Some(c)) => {
+                            //println!("a,c da");
+                            let mut b = c.clone();
+                            b.scaled_add(-1, a);
+                            self.current_interval_options.insert((j, k), b);
+                        }
+                        (None {}, Some(b), Some(c)) => {
+                            //println!("b,c da");
+                            let mut a = c.clone();
+                            a.scaled_add(-1, b);
+                            self.current_interval_options.insert((i, j), a);
+                        }
+                        (Some(_), Some(_), Some(_)) => {
+                            //println!("alle da");
+                            let mut a = self.current_interval_options.remove(&(i, j)).unwrap();
+                            let mut b = self.current_interval_options.remove(&(j, k)).unwrap();
+                            let mut c = self.current_interval_options.remove(&(i, k)).unwrap();
+                            //match &a {
+                            //    OneOrMany::Many(xs) => {
+                            //        println!("a, {i} {j}");
+                            //        for x in xs {
+                            //            println!(
+                            //                "        {} keys with {}",
+                            //                x.key_distance(),
+                            //                x.target
+                            //            );
+                            //        }
+                            //    }
+                            //    _ => unreachable!(),
+                            //}
+                            //match &b {
+                            //    OneOrMany::Many(xs) => {
+                            //        println!("b, {j} {k}:");
+                            //        for x in xs {
+                            //            println!(
+                            //                "        {} keys with {}",
+                            //                x.key_distance(),
+                            //                x.target
+                            //            );
+                            //        }
+                            //    }
+                            //    _ => unreachable!(),
+                            //}
+                            //match &c {
+                            //    OneOrMany::Many(xs) => {
+                            //        println!("c, {i} {k}:");
+                            //        for x in xs {
+                            //            println!(
+                            //                "        {} keys with {}",
+                            //                x.key_distance(),
+                            //                x.target
+                            //            );
+                            //        }
+                            //    }
+                            //    _ => unreachable!(),
+                            //}
+
+                            let mut new_a = None;
+                            let mut new_b = None;
+                            let mut new_c = None;
+                            match a {
+                                OneOrMany::One(_) => {}
+                                OneOrMany::Many(_) => {
+                                    let mut x = c.clone();
+                                    x.scaled_add(-1, &b);
+                                    new_a = Some(x);
+                                }
+                            }
+                            match b {
+                                OneOrMany::One(_) => {}
+                                OneOrMany::Many(_) => {
+                                    let mut x = c.clone();
+                                    x.scaled_add(-1, &a);
+                                    //match &x {
+                                    //    OneOrMany::Many(xs) => {
+                                    //        println!("new_b:");
+                                    //        for x in xs {
+                                    //            println!(
+                                    //                "        {} keys with {}",
+                                    //                x.key_distance(),
+                                    //                x.target
+                                    //            );
+                                    //        }
+                                    //    }
+                                    //    _ => unreachable!(),
+                                    //}
+                                    new_b = Some(x);
+                                }
+                            }
+                            match c {
+                                OneOrMany::One(_) => {}
+                                OneOrMany::Many(_) => {
+                                    let mut x = a.clone();
+                                    x.scaled_add(1, &b);
+                                    new_c = Some(x);
+                                }
+                            }
+
+                            new_a.map(|x| a.extend(x));
+                            new_b.map(|x| b.extend(x));
+                            new_c.map(|x| c.extend(x));
+                            self.current_interval_options.insert((i, j), a);
+                            self.current_interval_options.insert((j, k), b);
+                            self.current_interval_options.insert((i, k), c);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.interval_options_are_up_to_date = true;
+    }
 
     /// Compute the energy stored in tensioned springs (== detuned intervals or notes) in the
     /// provided solution.
@@ -611,7 +997,7 @@ impl<T: StackType> Workspace<T> {
 
 #[cfg(test)]
 mod test {
-    use ndarray::{arr1, arr2, s};
+    use ndarray::{arr1, arr2};
     use pretty_assertions::assert_eq;
 
     use crate::interval::stacktype::{
@@ -816,14 +1202,30 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            ws.best_solution(),
+            ws.current_solution(),
             arr2(&[
                 [0.into(), 0.into(), 0.into()],
                 [(-1).into(), 2.into(), 1.into()], // tritone as major tone plus major third
             ])
         );
-        assert!(ws.best_energy() < epsilon);
+        assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed());
+        assert_eq!(
+            ws.get_anchor_options(0),
+            &([Stack::from_target(vec![0, 0, 0])].into())
+        );
+        assert_eq!(
+            ws.get_anchor_options(1),
+            &([Stack::from_target(vec![-1, 2, 1])].into())
+        );
+        assert_eq!(
+            ws.get_interval_options(0, 1),
+            &OneOrMany::One(Stack::from_target(vec![-1, 2, 1]))
+        );
+        assert_eq!(
+            ws.get_interval_options(1, 0),
+            &OneOrMany::One(Stack::from_target(vec![1, -2, -1]))
+        );
 
         // no new interval, so `provide_candidate_intervals` is never called.
         ws.compute_best_solution(
@@ -837,13 +1239,13 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            ws.best_solution(),
+            ws.current_solution(),
             arr2(&[
                 [0.into(), 0.into(), 0.into()],
                 [(-1).into(), 2.into(), 1.into()], // tritone as major tone plus major third
             ])
         );
-        assert!(ws.best_energy() < epsilon);
+        assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed);
 
         // C major triad
@@ -858,14 +1260,14 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            ws.best_solution(),
+            ws.current_solution(),
             arr2(&[
                 [0.into(), 0.into(), 0.into()],
                 [0.into(), 0.into(), 1.into()],
                 [0.into(), 1.into(), 0.into()],
             ])
         );
-        assert!(ws.best_energy() < epsilon);
+        assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed());
 
         // E major triad
@@ -880,15 +1282,39 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            ws.best_solution(),
+            ws.current_solution(),
             arr2(&[
                 [0.into(), 0.into(), 1.into()],
                 [0.into(), 0.into(), 2.into()],
                 [0.into(), 1.into(), 1.into()],
             ])
         );
-        assert!(ws.best_energy() < epsilon);
+        assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed());
+        assert_eq!(
+            ws.get_anchor_options(0),
+            &([Stack::from_target(vec![0, 0, 1])].into())
+        );
+        assert_eq!(
+            ws.get_anchor_options(1),
+            &([Stack::from_target(vec![0, 0, 2])].into())
+        );
+        assert_eq!(
+            ws.get_anchor_options(2),
+            &([Stack::from_target(vec![0, 1, 1])].into())
+        );
+        assert_eq!(
+            ws.get_interval_options(0, 2),
+            &OneOrMany::One(Stack::from_target(vec![0, 1, 0]))
+        );
+        assert_eq!(
+            ws.get_interval_options(0, 1),
+            &OneOrMany::One(Stack::from_target(vec![0, 0, 1]))
+        );
+        assert_eq!(
+            ws.get_interval_options(1, 0),
+            &OneOrMany::One(Stack::from_target(vec![0, 0, -1]))
+        );
 
         // The three notes C,D,E: Because they are mentioned in this order, the interval C-D will
         // be the major tone. See the next example as well.
@@ -903,14 +1329,14 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            ws.best_solution(),
+            ws.current_solution(),
             arr2(&[
                 [0.into(), 0.into(), 1.into()],
                 [(-1).into(), 2.into(), 0.into()],
                 [0.into(), 0.into(), 0.into()],
             ])
         );
-        assert!(ws.best_energy() < epsilon);
+        assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed());
 
         // This is the same as before, but illustrates the relevance of the order in the `keys`
@@ -929,14 +1355,14 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            ws.best_solution(),
+            ws.current_solution(),
             arr2(&[
                 [0.into(), 0.into(), 0.into()],
                 [1.into(), (-2).into(), 1.into()],
                 [0.into(), 0.into(), 1.into()],
             ])
         );
-        assert!(ws.best_energy() < epsilon);
+        assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed());
 
         // D-flat major seventh on C
@@ -951,7 +1377,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            ws.best_solution(),
+            ws.current_solution(),
             arr2(&[
                 [0.into(), 0.into(), 0.into()],
                 [1.into(), (-1).into(), (-1).into()], // diatonic semitone
@@ -959,7 +1385,7 @@ mod test {
                 [1.into(), 0.into(), (-1).into()],
             ])
         );
-        assert!(ws.best_energy() < epsilon);
+        assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed());
 
         // D dominant seventh on C
@@ -974,7 +1400,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            ws.best_solution(),
+            ws.current_solution(),
             arr2(&[
                 [0.into(), 0.into(), 0.into()],
                 [(-1).into(), 2.into(), 0.into()],
@@ -982,7 +1408,7 @@ mod test {
                 [(-1).into(), 3.into(), 0.into()],
             ])
         );
-        assert!(ws.best_energy() < epsilon);
+        assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed());
 
         // a single note: the first option is choosen
@@ -997,10 +1423,10 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            ws.best_solution(),
+            ws.current_solution(),
             arr2(&[[1.into(), (-1).into(), 1.into()],])
         );
-        assert!(ws.best_energy() < epsilon);
+        assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed());
 
         // 69 chord cannot be in tune
@@ -1014,7 +1440,7 @@ mod test {
             &mut solver_workspace,
         )
         .unwrap();
-        assert!(ws.best_energy() > epsilon);
+        assert!(ws.current_energy() > epsilon);
         assert!(!ws.relaxed());
 
         // 69 chord with rods for fifhts
@@ -1040,17 +1466,17 @@ mod test {
 
         //C-D fifth
         assert_eq!(
-            ws.best_solution().row(0),
+            ws.current_solution().row(0),
             arr1(&[0.into(), 0.into(), 0.into()])
         );
         assert_eq!(
-            ws.best_solution().row(3),
+            ws.current_solution().row(3),
             arr1(&[0.into(), 1.into(), 0.into()])
         );
 
         // D-A fifth:
-        let mut delta = ws.best_solution().row(4).to_owned();
-        delta.scaled_add((-1).into(), &ws.best_solution().row(1));
+        let mut delta = ws.current_solution().row(4).to_owned();
+        delta.scaled_add((-1).into(), &ws.current_solution().row(1));
         assert_eq!(delta, arr1(&[0.into(), 1.into(), 0.into()]));
 
         // the D is between a minor and a major tone higher than C:
@@ -1069,7 +1495,7 @@ mod test {
             ws.get_relative_semitones(3, 4)
         );
 
-        assert!(ws.best_energy() > epsilon);
+        assert!(ws.current_energy() > epsilon);
         assert!(!ws.relaxed());
 
         // 69 chord with rods for fifhts and fourths. This forces a pythagorean third.
@@ -1095,7 +1521,7 @@ mod test {
         )
         .unwrap();
         assert_eq!(
-            ws.best_solution(),
+            ws.current_solution(),
             arr2(&[
                 [0.into(), 0.into(), 0.into()],
                 [(-1).into(), 2.into(), 0.into()],
@@ -1104,7 +1530,85 @@ mod test {
                 [(-1).into(), 3.into(), 0.into()],
             ])
         );
-        assert!(ws.best_energy() > epsilon);
+        assert!(ws.current_energy() > epsilon);
         assert!(!ws.relaxed());
+    }
+
+    #[test]
+    fn test_interval_and_anchor_options() {
+        let mut ws = Workspace::<ConcreteFiveLimitStackType>::new(1, false, false, false);
+        let mut solver_workspace = solver::Workspace::new(1, 1, 1);
+
+        let epsilon = 0.00000000000000001; // just a very small number. I don't care precisely.
+
+        // a third cannot be two major tones.
+        ws.compute_best_solution(
+            &[60, 62, 64],
+            |i| i == 60,
+            |_, _| Connector::Spring,
+            |d| match d {
+                2 => vec![(Stack::from_target(vec![-1, 2, 0]), 1.into())],
+                4 => vec![(Stack::from_target(vec![0, 0, 1]), 1.into())],
+                _ => unreachable!(),
+            },
+            |_| vec![(Stack::from_target(vec![0, 0, 0]), 1.into())],
+            |_| panic!("This will never be called, since there are no rods"),
+            &mut solver_workspace,
+        )
+        .unwrap();
+        assert!(!ws.relaxed());
+        assert!(ws.current_energy() > epsilon);
+
+        assert_eq!(
+            ws.get_interval_options(0, 1),
+            &OneOrMany::Many(
+                [
+                    Stack::from_target(vec![-1, 2, 0]),
+                    Stack::from_target(vec![1, -2, 1])
+                ]
+                .into()
+            )
+        );
+        assert_eq!(
+            ws.get_interval_options(1, 2),
+            &OneOrMany::Many(
+                [
+                    Stack::from_target(vec![-1, 2, 0]),
+                    Stack::from_target(vec![1, -2, 1])
+                ]
+                .into()
+            )
+        );
+        assert_eq!(
+            ws.get_interval_options(0, 2),
+            &OneOrMany::Many(
+                [
+                    Stack::from_target(vec![0, 0, 1]),
+                    Stack::from_target(vec![-2, 4, 0])
+                ]
+                .into()
+            )
+        );
+
+        assert_eq!(
+            ws.get_anchor_options(0),
+            &([Stack::from_target(vec![0, 0, 0])].into())
+        );
+        assert_eq!(
+            ws.get_anchor_options(1),
+            &([
+                Stack::from_target(vec![-1, 2, 0]),
+                Stack::from_target(vec![1, -2, 1])
+            ]
+            .into())
+        );
+        assert_eq!(
+            ws.get_anchor_options(2),
+            &([
+                Stack::from_target(vec![0, 0, 1]),
+                Stack::from_target(vec![-2, 4, 0])
+            ]
+            .into())
+        );
     }
 }
