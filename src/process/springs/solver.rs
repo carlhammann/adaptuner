@@ -170,7 +170,7 @@ impl<'a> System<'a> {
 
         // make ainv the inverse of a
         let lu = lu::lu_rational(self.a, self.perm)?;
-        lu.inverse_inplace(&mut self.ainv);
+        lu.inverse_inplace(&mut self.ainv)?;
 
         // Make res the product a^{-1}.b.l
         general_mat_mul(

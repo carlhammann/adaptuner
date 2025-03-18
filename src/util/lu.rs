@@ -41,9 +41,9 @@ where
             a.denom().abs().cmp(&b.denom().abs()),
             a.numer().abs().cmp(&b.numer().abs()),
         ) {
-            (Less, Less) => return true,
-            (Equal, Less) => return true,
-            (Less, Equal) => return true,
+            (Less {}, Less {}) => return true,
+            (Equal {}, Less {}) => return true,
+            (Less {}, Equal {}) => return true,
             _ => return false,
         }
     };
@@ -145,7 +145,7 @@ where
 impl<'a, T> LU<'a, T> {
     /// invariants: `inv` is at least as big as the original matrix. (Only the top left will be
     /// overwritten with the inverse if it is bigger.)
-    pub fn inverse_inplace(&self, inv: &mut ArrayViewMut2<T>)
+    pub fn inverse_inplace(&self, inv: &mut ArrayViewMut2<T>) -> Result<(), LUErr>
     where
         T: Clone
             + for<'x> SubAssign<&'x T>
@@ -155,6 +155,11 @@ impl<'a, T> LU<'a, T> {
             + One,
     {
         let n = self.a.shape()[0];
+        if self.a[[n - 1, n - 1]].is_zero() {
+            // This check suffices to ascertain that the determinant is nonzero; all other diagonal
+            // elements of self.a are non-zero because [lu] would have thrown an error otherwise.
+            return Err(LUErr::MatrixDegenerate);
+        }
         let mut tmp = T::zero();
         for j in 0..n {
             for i in 0..n {
@@ -180,6 +185,8 @@ impl<'a, T> LU<'a, T> {
                 inv[[i, j]] /= &self.a[[i, i]];
             }
         }
+
+        Ok(())
     }
 }
 
@@ -285,7 +292,7 @@ mod test {
 
         let mut actual = Array2::zeros((4, 4));
 
-        lu.inverse_inplace(&mut actual.view_mut());
+        lu.inverse_inplace(&mut actual.view_mut()).unwrap();
 
         assert_eq!(actual, expected);
     }
