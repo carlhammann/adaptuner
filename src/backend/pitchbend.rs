@@ -1,7 +1,7 @@
 //! A buggy pitchbend that tries to use more than twelve prich bends in an optimal way.
 //!
 
-use std::{mem::MaybeUninit, sync::mpsc, time::Instant};
+use std::{hash::Hash, mem::MaybeUninit, sync::mpsc, time::Instant};
 
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -92,7 +92,7 @@ fn semitones_from_bend(bend_range: Semitones, bend: u16) -> Semitones {
     (bend as Semitones - 8192.0) / 8191.0 * bend_range
 }
 
-impl<const NCHANNELS: usize, T: StackType> BackendState<T> for Pitchbend<NCHANNELS> {
+impl<const NCHANNELS: usize, T: StackType + Eq + Hash> BackendState<T> for Pitchbend<NCHANNELS> {
     fn handle_msg(
         &mut self,
         time: Instant,

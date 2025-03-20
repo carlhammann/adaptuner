@@ -1,6 +1,8 @@
-use std::time::Duration;
+use std::{hash::Hash, collections::HashSet, time::Duration};
 
 use midi_msg::{Channel, MidiMsg};
+use ndarray::Array1;
+use num_rational::Ratio;
 
 use crate::interval::{
     base::Semitones,
@@ -9,7 +11,7 @@ use crate::interval::{
 };
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum AfterProcess<T: StackType> {
+pub enum AfterProcess<T: StackType + Eq + Hash> {
     Start,
     Stop,
     Reset,
@@ -57,7 +59,9 @@ pub enum AfterProcess<T: StackType> {
     Retune {
         note: u8,
         tuning: Semitones,
-        tuning_stack: Stack<T>,
+        tuning_stack_actual: Array1<Ratio<StackCoeff>>, // TODO: these should be Arc or something
+        // similar
+        tuning_stack_targets: HashSet<Stack<T>>,
     },
     SetReference {
         key: u8,

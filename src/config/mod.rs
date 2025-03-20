@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{hash::Hash, marker::PhantomData};
 
 use midi_msg::Channel;
 use serde_derive::{Deserialize, Serialize};
@@ -43,7 +43,7 @@ pub enum MidiPortConfig {
 
 pub struct CompleteConfig<T, P, PCONFIG, B, BCONFIG, U, UCONFIG>
 where
-    T: StackType,
+    T: StackType + Eq + Hash,
     P: ProcessState<T>,
     PCONFIG: Config<P>,
     B: BackendState<T>,

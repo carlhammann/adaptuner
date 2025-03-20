@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant};
+use std::{hash::Hash, sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -9,7 +9,7 @@ use crate::{
 
 pub struct OnlyForward {}
 
-impl<T: StackType> BackendState<T> for OnlyForward {
+impl<T: StackType + Eq + Hash> BackendState<T> for OnlyForward {
     fn handle_msg(
         &mut self,
         time: Instant,

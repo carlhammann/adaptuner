@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::mpsc, time::Instant};
+use std::{hash::Hash, marker::PhantomData, sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -35,7 +35,7 @@ pub struct Static12<T: StackType, N: CompleteNeigbourhood<T>> {
 /// piano) will be muted and only be used to set the `reference_key` (and `reference_stack`).
 static CUTOFF_KEY: i8 = 33;
 
-impl<T: StackType, N: CompleteNeigbourhood<T>> Static12<T, N> {
+impl<T: StackType + Eq + Hash, N: CompleteNeigbourhood<T>> Static12<T, N> {
     fn calculate_tuning_stack(&self, key: i8) -> Stack<T> {
         let mut the_stack = self
             .neighbourhood
@@ -71,7 +71,8 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> Static12<T, N> {
                         msg::AfterProcess::Retune {
                             note: i as u8,
                             tuning,
-                            tuning_stack,
+                            tuning_stack_actual: tuning_stack.actual.clone(),
+                            tuning_stack_targets: [tuning_stack].into()
                         },
                         time,
                     );
@@ -231,7 +232,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> Static12<T, N> {
     }
 }
 
-impl<T: FiveLimitStackType, N: CompleteNeigbourhood<T> + Clone> Static12<T, N> {
+impl<T: FiveLimitStackType + Eq + Hash, N: CompleteNeigbourhood<T> + Clone> Static12<T, N> {
     fn reset(&mut self, time: Instant, to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>) {
         let send_to_backend =
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
@@ -249,7 +250,7 @@ impl<T: FiveLimitStackType, N: CompleteNeigbourhood<T> + Clone> Static12<T, N> {
     }
 }
 
-impl<T: FiveLimitStackType, N: CompleteNeigbourhood<T> + Clone> ProcessState<T> for Static12<T, N> {
+impl<T: FiveLimitStackType + Eq + Hash, N: CompleteNeigbourhood<T> + Clone> ProcessState<T> for Static12<T, N> {
     fn handle_msg(
         &mut self,
         time: Instant,

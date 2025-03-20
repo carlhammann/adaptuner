@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant};
+use std::{hash::Hash, sync::mpsc, time::Instant};
 
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
@@ -30,7 +30,7 @@ impl<T: FiveLimitStackType> Walking<T> {
     }
 }
 
-impl<T: FiveLimitStackType> UIState<T> for Walking<T> {
+impl<T: FiveLimitStackType + Eq + Hash> UIState<T> for Walking<T> {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -111,7 +111,7 @@ impl<T: FiveLimitStackType> UIState<T> for Walking<T> {
         frame.render_widget(
             Line::from({
                 let mut str = match &self.current_fit {
-                    None => format!(
+                    None {} => format!(
                         "key center: {}, no current fit",
                         self.key_center.notename(&self.notenamestyle)
                     ),

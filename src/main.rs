@@ -2,6 +2,7 @@ use std::{
     env,
     error::Error,
     fs::File,
+    hash::Hash,
     io::{stdin, stdout, Write},
     path::Path,
     sync::{
@@ -35,7 +36,7 @@ fn start_process<T, STATE, CONFIG>(
     backend_tx: mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
 ) -> thread::JoinHandle<()>
 where
-    T: StackType + Send + Sync + 'static,
+    T: StackType + Send + Sync + 'static + Eq + Hash,
     STATE: ProcessState<T>,
     CONFIG: Config<STATE> + Send + Sync + 'static,
 {
@@ -61,7 +62,7 @@ fn start_ui<T, STATE, CONFIG>(
     mut tui: Tui,
 ) -> thread::JoinHandle<()>
 where
-    T: StackType + Send + Sync + 'static,
+    T: StackType + Send + Sync + 'static + Eq + Hash,
     STATE: UIState<T>,
     CONFIG: Config<STATE> + Send + Sync + 'static,
 {
@@ -99,7 +100,7 @@ fn start_backend<T, STATE, CONFIG>(
     midi_tx: mpsc::Sender<(Instant, Vec<u8>)>,
 ) -> thread::JoinHandle<()>
 where
-    T: StackType + Send + Sync + 'static,
+    T: StackType + Send + Sync + 'static + Eq + Hash,
     STATE: BackendState<T>,
     CONFIG: Config<STATE> + Send + Sync + 'static,
 {
@@ -138,7 +139,7 @@ fn run<T, P, PCONFIG, B, BCONFIG, U, UCONFIG>(
     config: CompleteConfig<T, P, PCONFIG, B, BCONFIG, U, UCONFIG>,
 ) -> Result<(), Box<dyn Error>>
 where
-    T: StackType + Sync + Send + 'static + Clone,
+    T: StackType + Sync + Send + 'static + Clone + Eq + Hash,
     P: ProcessState<T>,
     PCONFIG: Config<P> + Send + Sync + 'static,
     B: BackendState<T>,
