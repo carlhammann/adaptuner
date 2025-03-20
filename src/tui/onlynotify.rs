@@ -1,4 +1,4 @@
-use std::{fmt, io::stdout, sync::mpsc, time::Instant};
+use std::{fmt, hash::Hash, io::stdout, sync::mpsc, time::Instant};
 
 use crossterm::{
     event::DisableMouseCapture,
@@ -13,7 +13,7 @@ use crate::{
 
 pub struct OnlyNotify {}
 
-impl<T: StackType + fmt::Debug> UIState<T> for OnlyNotify {
+impl<T: StackType + fmt::Debug + Eq + Hash> UIState<T> for OnlyNotify {
     fn handle_msg(
         &mut self,
         _time: Instant,
