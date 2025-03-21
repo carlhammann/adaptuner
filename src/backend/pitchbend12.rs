@@ -116,19 +116,19 @@ impl<T: OctavePeriodicStackType + Eq + Hash> BackendState<T> for Pitchbend12 {
 
             msg::AfterProcess::Stop => {}
 
-            msg::AfterProcess::TunedNoteOn {
+            msg::AfterProcess::NoteOn {
                 channel,
                 note,
                 velocity,
-                tuning,
+                //tuning,
                 ..
             } => {
                 let mut the_note = self.active_notes[note as usize];
-                the_note.desired_tuning = tuning;
+                //the_note.desired_tuning = tuning;
                 the_note.state_by_input_channel[channel as usize] = NoteState::Pressed;
                 let channel_index = note as usize % 12;
-                let old_bend = self.bends[channel_index];
-                let bend = self.bend_from_semitones(tuning - note as Semitones);
+                //let old_bend = self.bends[channel_index];
+                //let bend = self.bend_from_semitones(tuning - note as Semitones);
                 send(
                     MidiMsg::ChannelVoice {
                         channel: self.channels[channel_index],
@@ -136,27 +136,27 @@ impl<T: OctavePeriodicStackType + Eq + Hash> BackendState<T> for Pitchbend12 {
                     },
                     time,
                 );
-                if old_bend != bend {
-                    send(
-                        MidiMsg::ChannelVoice {
-                            channel: self.channels[channel_index],
-                            msg: ChannelVoiceMsg::PitchBend { bend },
-                        },
-                        time,
-                    );
-                    self.bends[channel_index] = bend;
-                }
-                if (tuning - note as Semitones).abs() > self.bend_range {
-                    send_to_ui(
-                        msg::AfterProcess::DetunedNote {
-                            note,
-                            actual: note as Semitones + self.semitones_from_bend(bend),
-                            should_be: tuning,
-                            explanation: "Exceeded bend range",
-                        },
-                        time,
-                    );
-                }
+                //if old_bend != bend {
+                //    send(
+                //        MidiMsg::ChannelVoice {
+                //            channel: self.channels[channel_index],
+                //            msg: ChannelVoiceMsg::PitchBend { bend },
+                //        },
+                //        time,
+                //    );
+                //    self.bends[channel_index] = bend;
+                //}
+                //if (tuning - note as Semitones).abs() > self.bend_range {
+                //    send_to_ui(
+                //        msg::AfterProcess::DetunedNote {
+                //            note,
+                //            actual: note as Semitones + self.semitones_from_bend(bend),
+                //            should_be: tuning,
+                //            explanation: "Exceeded bend range",
+                //        },
+                //        time,
+                //    );
+                //}
             }
 
             msg::AfterProcess::NoteOff {

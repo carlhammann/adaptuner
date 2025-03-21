@@ -4,7 +4,7 @@ use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
     config::r#trait::Config,
-    interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
+    interval::stacktype::r#trait::StackType,
     msg,
     process::r#trait::ProcessState,
 };
@@ -31,12 +31,10 @@ impl OnlyForward {
                     msg: ChannelVoiceMsg::NoteOn { note, velocity },
                 } => {
                     send_to_backend(
-                        msg::AfterProcess::TunedNoteOn {
+                        msg::AfterProcess::NoteOn {
                             channel,
                             note,
                             velocity,
-                            tuning: note as Semitones,
-                            tuning_stack: Stack::new_zero(),
                         },
                         time,
                     );

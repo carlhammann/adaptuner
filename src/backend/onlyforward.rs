@@ -23,7 +23,7 @@ impl<T: StackType + Eq + Hash> BackendState<T> for OnlyForward {
             msg::AfterProcess::Start => {}
             msg::AfterProcess::Stop => {}
             msg::AfterProcess::Reset => {}
-            msg::AfterProcess::TunedNoteOn {
+            msg::AfterProcess::NoteOn {
                 channel,
                 note,
                 velocity,

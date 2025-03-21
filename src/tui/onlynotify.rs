@@ -29,7 +29,8 @@ impl<T: StackType + fmt::Debug + Eq + Hash> UIState<T> for OnlyNotify {
                 disable_raw_mode().expect("Could not disable raw mode");
             }
             msg::AfterProcess::Notify { line } => println!("{}", line),
-            _ => {} //println!("raw message received by UI: {:?}", msg),
+            msg::AfterProcess::BackendLatency { .. } => {}
+            _ => println!("raw message received by UI: {:?}", msg),
         }
     }
 }
