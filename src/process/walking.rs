@@ -1,4 +1,11 @@
-use std::{hash::Hash, fmt, marker::PhantomData, mem::MaybeUninit, sync::mpsc, time::Instant};
+use std::{
+    fmt,
+    hash::Hash,
+    marker::PhantomData,
+    mem::MaybeUninit,
+    sync::{mpsc, Arc},
+    time::Instant,
+};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -216,7 +223,7 @@ where
                     note: i,
                     tuning: note.tuning,
                     tuning_stack_actual: note.tuning_stack.actual.clone(),
-                    tuning_stack_targets: [note.tuning_stack.clone()].into(),
+                    tuning_stack_targets: Arc::new([note.tuning_stack.clone()].into()),
                 },
                 time,
             );

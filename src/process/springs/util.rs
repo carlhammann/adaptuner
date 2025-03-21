@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     hash::Hash,
     ops,
+    sync::Arc,
 };
 
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
@@ -43,8 +44,8 @@ struct RodInfo {
     memo_key: RodSpec,
 }
 
-type KeyDistance = i8;
-type KeyNumber = u8;
+pub type KeyDistance = i8;
+pub type KeyNumber = u8;
 
 /// A description of a rod (i.e. a non-detuneable interval) in terms of an association list of key
 /// distances of the sub-intervals it is composed of and the multiplicities of these intervals.
@@ -53,7 +54,7 @@ type KeyNumber = u8;
 /// - length at least 1
 /// - the key distances are always positive
 /// - sorted by ascending key distance
-type RodSpec = Vec<(KeyDistance, StackCoeff)>;
+pub type RodSpec = Vec<(KeyDistance, StackCoeff)>;
 
 #[derive(Debug, Clone)]
 pub enum OneOrMany<T> {
@@ -185,13 +186,10 @@ pub struct Workspace<T: StackType> {
     //
     // That is, if the solution is `relaxed`, the information here is redundant with the solution.
     // (In fact, it won't be computed then.)
-    current_interval_options: HashMap<(usize, usize), OneOrMany<Stack<T>>>,
+    current_interval_options: HashMap<(usize, usize), Arc<OneOrMany<Stack<T>>>>,
     interval_options_are_up_to_date: bool,
-    current_anchor_options: HashMap<usize, HashSet<Stack<T>>>,
+    current_anchor_options: HashMap<usize, Arc<HashSet<Stack<T>>>>,
     anchor_options_are_up_to_date: bool,
-
-    tmp_one: OneOrMany<Stack<T>>, // will always be a [OneOrMany::One]
-    tmp_set: HashSet<Stack<T>>,
 }
 
 impl<T: StackType + Hash + Eq> Workspace<T> {
@@ -227,9 +225,6 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
             interval_options_are_up_to_date: false,
             current_anchor_options: HashMap::new(),
             anchor_options_are_up_to_date: false,
-
-            tmp_one: OneOrMany::One(Stack::new_zero()),
-            tmp_set: HashSet::new(),
         }
     }
 
@@ -454,50 +449,38 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
     /// solution. If [Self::relaxed()], the returned set has size exactly one, otherwise it may
     /// be bigger: Different springs might have "wanted" the note to end up in different places.
     ///
-    /// The `self` argument is mutable because some internal computation may be needed. Nothing
-    /// else (like, say the current solution) will change through calling this function.
-    pub fn get_anchor_options(&mut self, i: usize) -> &HashSet<Stack<T>> {
+    /// Call [Self::update_anchor_options] before calling this function and after some function
+    /// like [Self::compute_best_solution].
+    pub fn get_anchor_options(&self, i: usize) -> Arc<HashSet<Stack<T>>> {
         if self.relaxed {
-            self.tmp_set.clear();
             let actual = self.current_solution.row(i).to_owned();
             let target = Array1::from_shape_fn(T::num_intervals(), |i| actual[i].to_integer());
-            self.tmp_set
-                .insert(Stack::from_target_and_actual(target, actual));
-            &self.tmp_set
+            Arc::new(HashSet::from([Stack::from_target_and_actual(
+                target, actual,
+            )]))
         } else {
-            if !self.interval_options_are_up_to_date {
-                self.update_interval_options();
-            }
-            if !self.anchor_options_are_up_to_date {
-                self.update_anchor_options();
-            }
-            &self.current_anchor_options[&i]
+            self.current_anchor_options[&i].clone()
         }
     }
 
     /// Like [Self::get_possible_stacks], only for intervals.
-    pub fn get_interval_options(&mut self, i: usize, j: usize) -> &OneOrMany<Stack<T>> {
+    ///
+    /// Call [Self::update_anchor_options] before calling this function and after some function
+    /// like [Self::compute_best_solution].
+    pub fn get_interval_options(&mut self, i: usize, j: usize) -> Arc<OneOrMany<Stack<T>>> {
         if self.relaxed {
-            match &mut self.tmp_one {
-                OneOrMany::One(Stack { target, actual, .. }) => {
-                    actual.assign(&self.current_solution.row(j));
-                    actual.scaled_add((-1).into(), &self.current_solution.row(i));
-                    for (i, v) in actual.iter().enumerate() {
-                        target[i] = v.to_integer();
-                    }
-                }
-                _ => unreachable!("get_interval_options: tmp_one is of the wrong shape!"),
-            }
-            &self.tmp_one
+            let mut actual = self.current_solution.row(j).to_owned();
+            actual.scaled_add((-1).into(), &self.current_solution.row(i));
+            let target = Array1::from_shape_fn(T::num_intervals(), |i| actual[i].to_integer());
+            Arc::new(OneOrMany::One(Stack::from_target_and_actual(
+                target, actual,
+            )))
         } else {
-            if !self.interval_options_are_up_to_date {
-                self.update_interval_options();
-            }
-            &self.current_interval_options[&(i, j)]
+            self.current_interval_options[&(i, j)].clone()
         }
     }
 
-    fn update_anchor_options(&mut self) {
+    pub fn update_anchor_options(&mut self) {
         if !self.interval_options_are_up_to_date {
             self.update_interval_options();
         }
@@ -505,7 +488,8 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
         self.current_anchor_options.clear();
         self.current_anchor_options.reserve(self.n_keys);
         for i in 0..self.n_keys {
-            self.current_anchor_options.insert(i, HashSet::new());
+            self.current_anchor_options
+                .insert(i, Arc::new(HashSet::new()));
         }
 
         for (&i, k) in self.current_anchors.iter() {
@@ -515,17 +499,16 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                 .expect("update_anchor_options: no stack found for anchor")
                 [k.current_candidate_index]
                 .0;
-            self.current_anchor_options
-                .get_mut(&i)
-                .unwrap() //this is ok, we added the empty set above.
+            // All of this `unwrap()` here and further on is ok, we added the empty set above.
+            Arc::get_mut(self.current_anchor_options.get_mut(&i).unwrap())
+                .unwrap()
                 .insert(anchor.clone());
             for j in 0..i {
                 for dist in self.current_interval_options[&(j, i)].iter() {
                     let mut other = anchor.clone();
                     other.scaled_add(-1, dist);
-                    self.current_anchor_options
-                        .get_mut(&j)
-                        .unwrap() // this is ok, we added the empty set above.
+                    Arc::get_mut(self.current_anchor_options.get_mut(&j).unwrap())
+                        .unwrap()
                         .insert(other);
                 }
             }
@@ -533,9 +516,8 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                 for dist in self.current_interval_options[&(i, j)].iter() {
                     let mut other = anchor.clone();
                     other.scaled_add(1, dist);
-                    self.current_anchor_options
-                        .get_mut(&j)
-                        .unwrap() // this is ok, we added the empty set above.
+                    Arc::get_mut(self.current_anchor_options.get_mut(&j).unwrap())
+                        .unwrap()
                         .insert(other);
                 }
             }
@@ -544,7 +526,7 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
         self.anchor_options_are_up_to_date = true;
     }
 
-    fn update_interval_options(&mut self) {
+    pub fn update_interval_options(&mut self) {
         self.current_interval_options.clear();
 
         for ((i, j), k) in self.current_springs.iter() {
@@ -554,7 +536,7 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                 .expect("update_interval_options: no stack found for spring")
                 [k.current_candidate_index];
             self.current_interval_options
-                .insert((*i, *j), OneOrMany::Many([stack.clone()].into()));
+                .insert((*i, *j), Arc::new(OneOrMany::Many([stack.clone()].into())));
         }
 
         // it's important to add rods later: in case we're in the strange situation where both a
@@ -566,7 +548,7 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                 .get(&k.memo_key)
                 .expect("update_interval_options: no stack found for rod");
             self.current_interval_options
-                .insert((*i, *j), OneOrMany::One(stack.clone()));
+                .insert((*i, *j), Arc::new(OneOrMany::One(stack.clone())));
         }
 
         //println!("\n\n\n");
@@ -598,27 +580,39 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                         (None {}, None {}, Some(_)) => {}
                         (Some(a), Some(b), None {}) => {
                             //println!("a,b da");
-                            let mut c = a.clone();
-                            c.scaled_add(1, b);
-                            self.current_interval_options.insert((i, k), c);
+                            let mut c = (**a).clone();
+                            c.scaled_add(1, &**b);
+                            self.current_interval_options.insert((i, k), Arc::new(c));
                         }
                         (Some(a), None {}, Some(c)) => {
                             //println!("a,c da");
-                            let mut b = c.clone();
-                            b.scaled_add(-1, a);
-                            self.current_interval_options.insert((j, k), b);
+                            let mut b = (**c).clone();
+                            b.scaled_add(-1, &**a);
+                            self.current_interval_options.insert((j, k), Arc::new(b));
                         }
                         (None {}, Some(b), Some(c)) => {
                             //println!("b,c da");
-                            let mut a = c.clone();
-                            a.scaled_add(-1, b);
-                            self.current_interval_options.insert((i, j), a);
+                            let mut a = (**c).clone();
+                            a.scaled_add(-1, &**b);
+                            self.current_interval_options.insert((i, j), Arc::new(a));
                         }
                         (Some(_), Some(_), Some(_)) => {
                             //println!("alle da");
-                            let mut a = self.current_interval_options.remove(&(i, j)).unwrap();
-                            let mut b = self.current_interval_options.remove(&(j, k)).unwrap();
-                            let mut c = self.current_interval_options.remove(&(i, k)).unwrap();
+
+                            // All of this into_inner is OK, we only added the entris above.
+                            let mut a = Arc::into_inner(
+                                self.current_interval_options.remove(&(i, j)).unwrap(),
+                            )
+                            .unwrap();
+                            let mut b = Arc::into_inner(
+                                self.current_interval_options.remove(&(j, k)).unwrap(),
+                            )
+                            .unwrap();
+                            let mut c = Arc::into_inner(
+                                self.current_interval_options.remove(&(i, k)).unwrap(),
+                            )
+                            .unwrap();
+
                             //match &a {
                             //    OneOrMany::Many(xs) => {
                             //        println!("a, {i} {j}");
@@ -659,9 +653,9 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                             //    _ => unreachable!(),
                             //}
 
-                            let mut new_a = None;
-                            let mut new_b = None;
-                            let mut new_c = None;
+                            let mut new_a: Option<OneOrMany<Stack<T>>> = None;
+                            let mut new_b: Option<OneOrMany<Stack<T>>> = None;
+                            let mut new_c: Option<OneOrMany<Stack<T>>> = None;
                             match a {
                                 OneOrMany::One(_) => {}
                                 OneOrMany::Many(_) => {
@@ -675,26 +669,13 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                                 OneOrMany::Many(_) => {
                                     let mut x = c.clone();
                                     x.scaled_add(-1, &a);
-                                    //match &x {
-                                    //    OneOrMany::Many(xs) => {
-                                    //        println!("new_b:");
-                                    //        for x in xs {
-                                    //            println!(
-                                    //                "        {} keys with {}",
-                                    //                x.key_distance(),
-                                    //                x.target
-                                    //            );
-                                    //        }
-                                    //    }
-                                    //    _ => unreachable!(),
-                                    //}
                                     new_b = Some(x);
                                 }
                             }
                             match c {
                                 OneOrMany::One(_) => {}
                                 OneOrMany::Many(_) => {
-                                    let mut x = a.clone();
+                                    let mut x = (a).clone();
                                     x.scaled_add(1, &b);
                                     new_c = Some(x);
                                 }
@@ -703,9 +684,9 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                             new_a.map(|x| a.extend(x));
                             new_b.map(|x| b.extend(x));
                             new_c.map(|x| c.extend(x));
-                            self.current_interval_options.insert((i, j), a);
-                            self.current_interval_options.insert((j, k), b);
-                            self.current_interval_options.insert((i, k), c);
+                            self.current_interval_options.insert((i, j), Arc::new(a));
+                            self.current_interval_options.insert((j, k), Arc::new(b));
+                            self.current_interval_options.insert((i, k), Arc::new(c));
                         }
                     }
                 }
@@ -1211,20 +1192,20 @@ mod test {
         assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed());
         assert_eq!(
-            ws.get_anchor_options(0),
-            &([Stack::from_target(vec![0, 0, 0])].into())
+            *ws.get_anchor_options(0),
+            [Stack::from_target(vec![0, 0, 0])].into()
         );
         assert_eq!(
-            ws.get_anchor_options(1),
-            &([Stack::from_target(vec![-1, 2, 1])].into())
+            *ws.get_anchor_options(1),
+            [Stack::from_target(vec![-1, 2, 1])].into()
         );
         assert_eq!(
-            ws.get_interval_options(0, 1),
-            &OneOrMany::One(Stack::from_target(vec![-1, 2, 1]))
+            *ws.get_interval_options(0, 1),
+            OneOrMany::One(Stack::from_target(vec![-1, 2, 1]))
         );
         assert_eq!(
-            ws.get_interval_options(1, 0),
-            &OneOrMany::One(Stack::from_target(vec![1, -2, -1]))
+            *ws.get_interval_options(1, 0),
+            OneOrMany::One(Stack::from_target(vec![1, -2, -1]))
         );
 
         // no new interval, so `provide_candidate_intervals` is never called.
@@ -1292,28 +1273,28 @@ mod test {
         assert!(ws.current_energy() < epsilon);
         assert!(ws.relaxed());
         assert_eq!(
-            ws.get_anchor_options(0),
-            &([Stack::from_target(vec![0, 0, 1])].into())
+            *ws.get_anchor_options(0),
+            [Stack::from_target(vec![0, 0, 1])].into()
         );
         assert_eq!(
-            ws.get_anchor_options(1),
-            &([Stack::from_target(vec![0, 0, 2])].into())
+            *ws.get_anchor_options(1),
+            [Stack::from_target(vec![0, 0, 2])].into()
         );
         assert_eq!(
-            ws.get_anchor_options(2),
-            &([Stack::from_target(vec![0, 1, 1])].into())
+            *ws.get_anchor_options(2),
+            [Stack::from_target(vec![0, 1, 1])].into()
         );
         assert_eq!(
-            ws.get_interval_options(0, 2),
-            &OneOrMany::One(Stack::from_target(vec![0, 1, 0]))
+            *ws.get_interval_options(0, 2),
+            OneOrMany::One(Stack::from_target(vec![0, 1, 0]))
         );
         assert_eq!(
-            ws.get_interval_options(0, 1),
-            &OneOrMany::One(Stack::from_target(vec![0, 0, 1]))
+            *ws.get_interval_options(0, 1),
+            OneOrMany::One(Stack::from_target(vec![0, 0, 1]))
         );
         assert_eq!(
-            ws.get_interval_options(1, 0),
-            &OneOrMany::One(Stack::from_target(vec![0, 0, -1]))
+            *ws.get_interval_options(1, 0),
+            OneOrMany::One(Stack::from_target(vec![0, 0, -1]))
         );
 
         // The three notes C,D,E: Because they are mentioned in this order, the interval C-D will
@@ -1559,9 +1540,10 @@ mod test {
         assert!(!ws.relaxed());
         assert!(ws.current_energy() > epsilon);
 
+        ws.update_interval_options();
         assert_eq!(
-            ws.get_interval_options(0, 1),
-            &OneOrMany::Many(
+            *ws.get_interval_options(0, 1),
+            OneOrMany::Many(
                 [
                     Stack::from_target(vec![-1, 2, 0]),
                     Stack::from_target(vec![1, -2, 1])
@@ -1570,8 +1552,8 @@ mod test {
             )
         );
         assert_eq!(
-            ws.get_interval_options(1, 2),
-            &OneOrMany::Many(
+            *ws.get_interval_options(1, 2),
+            OneOrMany::Many(
                 [
                     Stack::from_target(vec![-1, 2, 0]),
                     Stack::from_target(vec![1, -2, 1])
@@ -1580,8 +1562,8 @@ mod test {
             )
         );
         assert_eq!(
-            ws.get_interval_options(0, 2),
-            &OneOrMany::Many(
+            *ws.get_interval_options(0, 2),
+            OneOrMany::Many(
                 [
                     Stack::from_target(vec![0, 0, 1]),
                     Stack::from_target(vec![-2, 4, 0])
@@ -1590,25 +1572,26 @@ mod test {
             )
         );
 
+        ws.update_anchor_options();
         assert_eq!(
-            ws.get_anchor_options(0),
-            &([Stack::from_target(vec![0, 0, 0])].into())
+            *ws.get_anchor_options(0),
+            [Stack::from_target(vec![0, 0, 0])].into()
         );
         assert_eq!(
-            ws.get_anchor_options(1),
-            &([
+            *ws.get_anchor_options(1),
+            [
                 Stack::from_target(vec![-1, 2, 0]),
                 Stack::from_target(vec![1, -2, 1])
             ]
-            .into())
+            .into()
         );
         assert_eq!(
-            ws.get_anchor_options(2),
-            &([
+            *ws.get_anchor_options(2),
+            [
                 Stack::from_target(vec![0, 0, 1]),
                 Stack::from_target(vec![-2, 4, 0])
             ]
-            .into())
+            .into()
         );
     }
 }
