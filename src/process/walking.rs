@@ -288,16 +288,16 @@ where
                         [channel as usize] = NoteState::Pressed;
                     let fit_changed = self.recompute_fit(time, to_backend);
 
-                    self.update_tuning(new_key_number);
+                    //self.update_tuning(new_key_number);
                     send_to_backend(
-                        msg::AfterProcess::TunedNoteOn {
+                        msg::AfterProcess::NoteOn {
                             channel,
                             note: new_key_number,
                             velocity,
-                            tuning: self.current_notes[new_key_number as usize].tuning,
-                            tuning_stack: self.current_notes[new_key_number as usize]
-                                .tuning_stack
-                                .clone(),
+                            //tuning: self.current_notes[new_key_number as usize].tuning,
+                            //tuning_stack: self.current_notes[new_key_number as usize]
+                            //    .tuning_stack
+                            //    .clone(),
                         },
                         time,
                     );

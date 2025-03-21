@@ -400,14 +400,14 @@ impl<
                 self.reference_stack.clone_from(&stack);
             }
 
-            msg::AfterProcess::TunedNoteOn {
+            msg::AfterProcess::NoteOn {
                 note: i,
-                tuning_stack,
+                //tuning_stack,
                 channel,
                 ..
             } => {
                 let ith_note = &mut self.active_notes[*i as usize];
-                ith_note.tuning_stack.clone_from(&tuning_stack);
+                //ith_note.tuning_stack.clone_from(&tuning_stack);
                 ith_note.state_by_channel[*channel as usize] = NoteState::Pressed;
             }
             msg::AfterProcess::Retune {
