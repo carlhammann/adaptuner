@@ -1,40 +1,283 @@
-//use std::{sync::mpsc, time::Instant};
-//
-//use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
-//
-//use crate::{
-//    interval::{stack::Stack, stacktype::r#trait::StackType},
-//    msg,
-//    neighbourhood::CompleteNeigbourhood,
-//    process::{r#trait::ProcessState, springs::solver::*},
-//};
-//
-//pub struct State<T: StackType, N: CompleteNeigbourhood<T>> {
-//    active_temperaments: Vec<bool>,
-//    neighbourhood: N,
-//    key_center: Stack<T>,
-//    reference: Stack<T>,
-//}
-//
-//impl<T: StackType, N: CompleteNeigbourhood<T>> ProcessState<T> for State<T, N> {
-//    fn handle_msg(
-//        &mut self,
-//        time: Instant,
-//        msg: msg::ToProcess,
-//        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-//    ) {
-//        match msg {
-//            msg::ToProcess::Start => {}
-//            msg::ToProcess::Stop => {}
-//            msg::ToProcess::Reset => {}
-//            msg::ToProcess::IncomingMidi { bytes } => match MidiMsg::from_midi(&bytes) {
-//                Err(err) => send_to_backend(msg::AfterProcess::MidiParseErr(err.to_string()), time),
-//                Ok((msg, _nbtyes)) => match msg {},
-//            },
-//
-//            msg::ToProcess::Consider { coefficients: _ } => {}
-//            msg::ToProcess::ToggleTemperament { index: _ } => {}
-//            msg::ToProcess::Special { code: _ } => {}
-//        }
-//    }
-//}
+use std::{hash::Hash, sync::mpsc, time::Instant};
+
+use midi_msg::{ChannelVoiceMsg, MidiMsg};
+use num_rational::Ratio;
+
+use super::{
+    solver,
+    util::{self, Connector, KeyDistance, KeyNumber, RodSpec},
+};
+use crate::{
+    interval::{
+        stack::Stack,
+        stacktype::{
+            fivelimit::ConcreteFiveLimitStackType,
+            r#trait::{StackCoeff, StackType},
+        },
+    },
+    msg,
+    process::r#trait::ProcessState,
+};
+
+pub struct State<T: StackType, P: Provider<T>> {
+    active_keys: Vec<u8>, // sorted descendingly
+    solver: solver::Workspace,
+    workspace: util::Workspace<T>,
+    provider: P,
+}
+
+pub trait Provider<T: StackType> {
+    fn candidate_springs(&self, d: KeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
+    fn candidate_anchors(&self, k: KeyNumber) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
+    fn rod(&self, d: &RodSpec) -> Stack<T>;
+    fn which_connector(&self, i: KeyNumber, j: KeyNumber) -> Connector;
+}
+
+pub struct ConcreteFiveLimitProvider {}
+
+impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
+    fn candidate_springs(
+        &self,
+        d: KeyDistance,
+    ) -> Vec<(Stack<ConcreteFiveLimitStackType>, Ratio<StackCoeff>)> {
+        let octaves = (d as StackCoeff).div_euclid(12);
+        let pitch_class = d.rem_euclid(12);
+
+        match pitch_class {
+            0 => vec![(Stack::from_target(vec![octaves, 0, 0]), 1.into())],
+            1 => vec![
+                (
+                    Stack::from_target(vec![octaves + 1, (-1), (-1)]), // diatonic semitone
+                    Ratio::new(1, 2 * 3 * 4 * 5),
+                ),
+                (
+                    Stack::from_target(vec![octaves, (-1), 2]), // chromatic semitone
+                    Ratio::new(1, 2 * 3 * 4 * 5 * 4 * 5),
+                ),
+            ],
+            2 => vec![
+                (
+                    Stack::from_target(vec![octaves - 1, 2, 0]), // major whole tone 9/8
+                    Ratio::new(1, 2 * 3 * 2 * 3),
+                ),
+                (
+                    Stack::from_target(vec![octaves + 1, (-2), 1]), // minor whole tone 10/9
+                    Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                ),
+            ],
+            3 => vec![(
+                Stack::from_target(vec![octaves, 1, (-1)]), // minor third
+                Ratio::new(1, 2 * 3 * 4 * 5),
+            )],
+            4 => vec![(
+                Stack::from_target(vec![octaves, 0, 1]), // major third
+                Ratio::new(1, 4 * 5),
+            )],
+            5 => vec![(
+                Stack::from_target(vec![octaves + 1, (-1), 0]), // fourth
+                Ratio::new(1, 2 * 3),
+            )],
+            6 => vec![
+                (
+                    Stack::from_target(vec![octaves - 1, 2, 1]), // tritone as major tone plus major third
+                    Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                ),
+                (
+                    Stack::from_target(vec![octaves, 2, (-2)]), // tritone as chromatic semitone below fifth
+                    Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5 * 4 * 5),
+                ),
+            ],
+            7 => vec![(
+                Stack::from_target(vec![octaves, 1, 0]), // fifth
+                Ratio::new(1, 2 * 3),
+            )],
+            8 => vec![(
+                Stack::from_target(vec![octaves + 1, 0, (-1)]), // minor sixth
+                Ratio::new(1, 4 * 5),
+            )],
+            9 => vec![
+                (
+                    Stack::from_target(vec![octaves + 1, (-1), 1]), // major sixth
+                    Ratio::new(1, 2 * 3 * 4 * 5),
+                ),
+                (
+                    Stack::from_target(vec![octaves - 1, 3, 0]), // major tone plus fifth
+                    Ratio::new(1, 2 * 3 * 2 * 3 * 2 * 3),
+                ),
+            ],
+            10 => vec![
+                (
+                    Stack::from_target(vec![octaves + 2, (-2), 0]), // minor seventh as stack of two fourths
+                    Ratio::new(1, 2 * 3 * 2 * 3),
+                ),
+                (
+                    Stack::from_target(vec![octaves, 2, (-1)]), // minor seventh as fifth plus minor third
+                    Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                ),
+            ],
+            11 => vec![(
+                Stack::from_target(vec![octaves, 1, 1]), // major seventh as fifth plus major third
+                Ratio::new(1, 2 * 3 * 4 * 5),
+            )],
+            _ => unreachable!(),
+        }
+    }
+
+    fn candidate_anchors(
+        &self,
+        k: KeyNumber,
+    ) -> Vec<(Stack<ConcreteFiveLimitStackType>, Ratio<StackCoeff>)> {
+        self.candidate_springs(k as KeyDistance - 60)
+    }
+
+    fn rod(&self, d: &RodSpec) -> Stack<ConcreteFiveLimitStackType> {
+        match d[..] {
+            [(12, n)] => Stack::from_target(vec![n, 0, 0]),
+            _ => unreachable!(),
+        }
+    }
+
+    fn which_connector(&self, i: KeyNumber, j: KeyNumber) -> Connector {
+        if (i as i8 - j as i8).abs() % 12 == 0 {
+            Connector::Rod
+        } else {
+            Connector::Spring
+        }
+    }
+}
+
+impl<T: StackType + Hash + Eq, P: Provider<T>> State<T, P> {
+    fn retune(
+        &mut self,
+        time: Instant,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+    ) {
+        let send_to_backend =
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+
+        match self.workspace.compute_best_solution(
+            &self.active_keys,
+            |k| k == self.active_keys[0],
+            |i, j| self.provider.which_connector(i, j),
+            |d| self.provider.candidate_springs(d),
+            |k| self.provider.candidate_anchors(k),
+            |d| self.provider.rod(d),
+            &mut self.solver,
+        ) {
+            Ok(()) => {}
+            Err(e) => send_to_backend(
+                msg::AfterProcess::Notify {
+                    line: format!("{:?}", e),
+                },
+                time,
+            ),
+        };
+
+        self.workspace.update_anchor_options();
+        let solution = self.workspace.current_solution();
+        for (i, r) in solution.rows().into_iter().enumerate() {
+            send_to_backend(
+                msg::AfterProcess::Retune {
+                    note: self.active_keys[i],
+                    tuning: self.workspace.get_semitones(i),
+
+                    tuning_stack_actual: r.to_owned(),
+                    tuning_stack_targets: self.workspace.get_anchor_options(i),
+                },
+                time,
+            );
+        }
+    }
+}
+
+impl<T: StackType + Eq + Hash, P: Provider<T>> State<T, P> {
+    fn handle_midi(
+        &mut self,
+        time: Instant,
+        bytes: &[u8],
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+    ) {
+        let send_to_backend =
+            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+
+        match MidiMsg::from_midi(&bytes) {
+            Err(e) => send_to_backend(msg::AfterProcess::MidiParseErr(e.to_string()), time),
+            Ok((msg, _number_of_bytes_parsed)) => match msg {
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: ChannelVoiceMsg::NoteOn { note, velocity },
+                } => {
+                    send_to_backend(
+                        msg::AfterProcess::NoteOn {
+                            channel,
+                            note,
+                            velocity,
+                        },
+                        time,
+                    );
+                    if !self.active_keys.contains(&note) {
+                        self.active_keys.push(note);
+                        self.active_keys.sort_by(|a, b| a.cmp(b).reverse());
+                        self.retune(time, to_backend);
+                    }
+                }
+
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: ChannelVoiceMsg::NoteOff { note, velocity },
+                } => {
+                    send_to_backend(
+                        msg::AfterProcess::NoteOff {
+                            held_by_sustain: false, // TODO.
+                            channel,
+                            note,
+                            velocity,
+                        },
+                        time,
+                    );
+                    match self.active_keys.iter().position(|x| *x == note) {
+                        None {} => {}
+                        Some(i) => {
+                            self.active_keys.remove(i);
+                            self.retune(time, to_backend);
+                        }
+                    }
+                }
+
+                //MidiMsg::ChannelVoice {
+                //    channel,
+                //    msg:
+                //        ChannelVoiceMsg::ControlChange {
+                //            control: ControlChange::Hold(value),
+                //        },
+                //} => {}
+                //MidiMsg::ChannelVoice {
+                //    channel,
+                //    msg: ChannelVoiceMsg::ProgramChange { program },
+                //} => {
+                //    send_to_backend(msg::AfterProcess::ProgramChange { channel, program }, time);
+                //}
+                _ => send_to_backend(msg::AfterProcess::ForwardMidi { msg }, time),
+            },
+        }
+    }
+}
+
+impl<T: StackType + Eq + Hash, P: Provider<T>> ProcessState<T> for State<T, P> {
+    fn handle_msg(
+        &mut self,
+        time: Instant,
+        msg: msg::ToProcess,
+        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+    ) {
+        match msg {
+            msg::ToProcess::Start => {}
+            msg::ToProcess::Stop => {}
+            msg::ToProcess::Reset => {}
+            msg::ToProcess::IncomingMidi { bytes } => self.handle_midi(time, &bytes, to_backend),
+            msg::ToProcess::Consider { coefficients: _ } => {}
+            msg::ToProcess::ToggleTemperament { index: _ } => {}
+            msg::ToProcess::Special { code: _ } => {}
+        }
+    }
+}

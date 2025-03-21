@@ -459,6 +459,9 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                 target, actual,
             )]))
         } else {
+        if !self.anchor_options_are_up_to_date {
+            panic!("get_anchor_options: options are not up to date");
+        }
             self.current_anchor_options[&i].clone()
         }
     }
@@ -476,6 +479,9 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                 target, actual,
             )))
         } else {
+        if !self.interval_options_are_up_to_date {
+            panic!("get_interval_options: options are not up to date");
+        }
             self.current_interval_options[&(i, j)].clone()
         }
     }

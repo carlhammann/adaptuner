@@ -31,13 +31,18 @@ pub enum AfterProcess<T: StackType + Eq + Hash> {
 
     CrosstermEvent(crossterm::event::Event),
 
-    TunedNoteOn {
+    NoteOn {
         channel: Channel,
         note: u8,
         velocity: u8,
-        tuning: Semitones,
-        tuning_stack: Stack<T>,
     },
+    //TunedNoteOn {
+    //    channel: Channel,
+    //    note: u8,
+    //    velocity: u8,
+    //    tuning: Semitones,
+    //    tuning_stack: Stack<T>,
+    //},
     NoteOff {
         held_by_sustain: bool,
         channel: Channel,
