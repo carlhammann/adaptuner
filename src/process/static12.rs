@@ -1,4 +1,9 @@
-use std::{hash::Hash, marker::PhantomData, sync::mpsc, time::Instant};
+use std::{
+    hash::Hash,
+    marker::PhantomData,
+    sync::{mpsc, Arc},
+    time::Instant,
+};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -72,7 +77,7 @@ impl<T: StackType + Eq + Hash, N: CompleteNeigbourhood<T>> Static12<T, N> {
                             note: i as u8,
                             tuning,
                             tuning_stack_actual: tuning_stack.actual.clone(),
-                            tuning_stack_targets: [tuning_stack].into()
+                            tuning_stack_targets: Arc::new([tuning_stack].into()),
                         },
                         time,
                     );
@@ -250,7 +255,9 @@ impl<T: FiveLimitStackType + Eq + Hash, N: CompleteNeigbourhood<T> + Clone> Stat
     }
 }
 
-impl<T: FiveLimitStackType + Eq + Hash, N: CompleteNeigbourhood<T> + Clone> ProcessState<T> for Static12<T, N> {
+impl<T: FiveLimitStackType + Eq + Hash, N: CompleteNeigbourhood<T> + Clone> ProcessState<T>
+    for Static12<T, N>
+{
     fn handle_msg(
         &mut self,
         time: Instant,

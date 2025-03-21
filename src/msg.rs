@@ -1,4 +1,4 @@
-use std::{hash::Hash, collections::HashSet, time::Duration};
+use std::{collections::HashSet, hash::Hash, sync::Arc, time::Duration};
 
 use midi_msg::{Channel, MidiMsg};
 use ndarray::Array1;
@@ -59,9 +59,8 @@ pub enum AfterProcess<T: StackType + Eq + Hash> {
     Retune {
         note: u8,
         tuning: Semitones,
-        tuning_stack_actual: Array1<Ratio<StackCoeff>>, // TODO: these should be Arc or something
-        // similar
-        tuning_stack_targets: HashSet<Stack<T>>,
+        tuning_stack_actual: Array1<Ratio<StackCoeff>>,
+        tuning_stack_targets: Arc<HashSet<Stack<T>>>,
     },
     SetReference {
         key: u8,
