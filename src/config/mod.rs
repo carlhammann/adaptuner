@@ -16,16 +16,16 @@ use crate::{
             r#trait::{PeriodicStackType, StackCoeff, StackType},
         },
     },
-    neighbourhood,
-    neighbourhood::{new_fivelimit_neighbourhood, PeriodicPartial, SomeNeighbourhood},
+    neighbourhood::{self, new_fivelimit_neighbourhood, PeriodicPartial, SomeNeighbourhood},
     notename::NoteNameStyle,
     pattern::{KeyShape, Pattern},
     process::{
         r#trait::ProcessState,
+        springs::{self, fixed::FooConfig},
         walking::{Walking, WalkingConfig},
     },
-    tui,
     tui::{
+        self,
         grid::{DisplayConfig, GridConfig},
         latencyreporter::LatencyReporterConfig,
         onlynotify::{OnlyNotify, OnlyNotifyConfig},
@@ -211,6 +211,123 @@ pub fn init_walking_debug_config(
             initial_neighbourhood: initial_neighbourhood.clone(),
             patterns: patterns.into_iter().map(From::from).collect(),
             consider_played: false,
+        },
+        backend_config: Pitchbend12Config {
+            channels: [
+                Channel::Ch1,
+                Channel::Ch2,
+                Channel::Ch3,
+                Channel::Ch4,
+                Channel::Ch5,
+                Channel::Ch6,
+                Channel::Ch7,
+                Channel::Ch8,
+                Channel::Ch9,
+                Channel::Ch11,
+                Channel::Ch12,
+                Channel::Ch13,
+            ],
+            bend_range: 2.0,
+        },
+        ui_config: OnlyNotifyConfig {},
+        _phantom: PhantomData,
+    }
+}
+
+pub fn init_fixed_spring_config(
+    initial_neighbourhood_width: StackCoeff,
+    initial_neighbourhood_index: StackCoeff,
+    initial_neighbourhood_offset: StackCoeff,
+    //patterns: Vec<SimplePatternConfig>,
+) -> CompleteConfig<
+    ConcreteFiveLimitStackType,
+    springs::fixed::State<ConcreteFiveLimitStackType, springs::fixed::ConcreteFiveLimitProvider>,
+    springs::fixed::FooConfig,
+    Pitchbend12,
+    Pitchbend12Config,
+    WrappedGrid<
+        ConcreteFiveLimitStackType,
+        neighbourhood::PeriodicCompleteAligned<ConcreteFiveLimitStackType>,
+        tui::walking::Walking<ConcreteFiveLimitStackType>,
+    >,
+    WrappedGridConfig<
+        ConcreteFiveLimitStackType,
+        neighbourhood::PeriodicCompleteAligned<ConcreteFiveLimitStackType>,
+        tui::walking::Walking<ConcreteFiveLimitStackType>,
+        tui::walking::WalkingConfig<ConcreteFiveLimitStackType>,
+    >,
+> {
+    let no_active_temperaments = vec![false; ConcreteFiveLimitStackType::num_temperaments()];
+    let initial_neighbourhood = new_fivelimit_neighbourhood(
+        &no_active_temperaments,
+        initial_neighbourhood_width,
+        initial_neighbourhood_index,
+        initial_neighbourhood_offset,
+    );
+    CompleteConfig {
+        midi_port_config: MidiPortConfig::AskAtStartup,
+        process_config: FooConfig {
+            initial_n_keys: 10,
+            initial_n_lengths: 90,
+        },
+        backend_config: Pitchbend12Config {
+            channels: [
+                Channel::Ch1,
+                Channel::Ch2,
+                Channel::Ch3,
+                Channel::Ch4,
+                Channel::Ch5,
+                Channel::Ch6,
+                Channel::Ch7,
+                Channel::Ch8,
+                Channel::Ch9,
+                Channel::Ch11,
+                Channel::Ch12,
+                Channel::Ch13,
+            ],
+            bend_range: 2.0,
+        },
+        ui_config: WrappedGridConfig {
+            gridconfig: GridConfig {
+                display_config: DisplayConfig {
+                    notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
+                    color_range: 0.2,
+                    gradient: colorous::CIVIDIS,
+                },
+                initial_reference_key: 60,
+                initial_neighbourhood,
+                horizontal_index: 1,
+                vertical_index: 2,
+                fifth_index: 1,
+                third_index: 2,
+                _phantom: PhantomData,
+            },
+            latencyreporterconfig: LatencyReporterConfig { nsamples: 20 },
+            special_config: tui::walking::WalkingConfig {
+                notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
+                initial_key_center: Stack::new_zero(),
+                use_patterns: true,
+            },
+            _phantom: PhantomData,
+        },
+        _phantom: PhantomData,
+    }
+}
+
+pub fn init_fixed_spring_debug_config() -> CompleteConfig<
+    ConcreteFiveLimitStackType,
+    springs::fixed::State<ConcreteFiveLimitStackType, springs::fixed::ConcreteFiveLimitProvider>,
+    springs::fixed::FooConfig,
+    Pitchbend12,
+    Pitchbend12Config,
+    OnlyNotify,
+    OnlyNotifyConfig,
+> {
+    CompleteConfig {
+        midi_port_config: MidiPortConfig::AskAtStartup,
+        process_config: FooConfig {
+            initial_n_keys: 10,
+            initial_n_lengths: 90,
         },
         backend_config: Pitchbend12Config {
             channels: [
