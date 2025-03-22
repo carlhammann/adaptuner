@@ -304,31 +304,32 @@ where
 }
 
 pub fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = env::args().collect();
+    //let args: Vec<String> = env::args().collect();
     let initial_neighbourhood_width = 4;
     let initial_neighbourhood_index = 5;
     let initial_neighbourhood_offset = 1;
 
-    if args.len() != 2 {
-        return Err("expected exactly one argument: the path of the pattern file".into());
-    }
+    //if args.len() != 2 {
+    //    return Err("expected exactly one argument: the path of the pattern file".into());
+    //}
 
-    let pattern_path = Path::new(&args[1]);
-    let file = match File::open(pattern_path) {
-        Err(why) => return Err(format!("couldn't open {}: {}", pattern_path.display(), why).into()),
-        Ok(file) => file,
-    };
-    let patterns = match deser_hjson::from_reader(file) {
-        Err(why) => return Err(format!("couldn't read {}: {}", pattern_path.display(), why).into()),
-        Ok(patterns) => patterns,
-    };
+    //let pattern_path = Path::new(&args[1]);
+    //let file = match File::open(pattern_path) {
+    //    Err(why) => return Err(format!("couldn't open {}: {}", pattern_path.display(), why).into()),
+    //    Ok(file) => file,
+    //};
+    //let patterns = match deser_hjson::from_reader(file) {
+    //    Err(why) => return Err(format!("couldn't read {}: {}", pattern_path.display(), why).into()),
+    //    Ok(patterns) => patterns,
+    //};
 
-    let the_config = config::init_walking_config(
-        initial_neighbourhood_width,
-        initial_neighbourhood_index,
-        initial_neighbourhood_offset,
-        patterns,
-    );
+    //let the_config = config::init_fixed_spring_config(
+    //    initial_neighbourhood_width,
+    //    initial_neighbourhood_index,
+    //    initial_neighbourhood_offset,
+    //);
+
+    let the_config = config::init_fixed_spring_debug_config();
 
     run(the_config)
 }

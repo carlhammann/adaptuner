@@ -1,4 +1,9 @@
-use std::{hash::Hash, sync::mpsc, time::Instant};
+use std::{
+    collections::HashSet,
+    hash::Hash,
+    sync::{mpsc, Arc},
+    time::Instant,
+};
 
 use midi_msg::{ChannelVoiceMsg, MidiMsg};
 use num_rational::Ratio;
@@ -8,6 +13,7 @@ use super::{
     util::{self, Connector, KeyDistance, KeyNumber, RodSpec},
 };
 use crate::{
+    config::r#trait::Config,
     interval::{
         stack::Stack,
         stacktype::{
@@ -133,20 +139,23 @@ impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
     fn rod(&self, d: &RodSpec) -> Stack<ConcreteFiveLimitStackType> {
         match d[..] {
             [(12, n)] => Stack::from_target(vec![n, 0, 0]),
-            _ => unreachable!(),
+            _ => {
+                println!("{d:?}");
+                panic!();
+            }
         }
     }
 
     fn which_connector(&self, i: KeyNumber, j: KeyNumber) -> Connector {
-        if (i as i8 - j as i8).abs() % 12 == 0 {
-            Connector::Rod
+        if (i as KeyDistance - j as KeyDistance).abs() % 12 == 0 {
+            Connector::Rod(vec![(12, (j as StackCoeff - i as StackCoeff) / 12)])
         } else {
             Connector::Spring
         }
     }
 }
 
-impl<T: StackType + Hash + Eq, P: Provider<T>> State<T, P> {
+impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
     fn retune(
         &mut self,
         time: Instant,
@@ -173,7 +182,8 @@ impl<T: StackType + Hash + Eq, P: Provider<T>> State<T, P> {
             ),
         };
 
-        self.workspace.update_anchor_options();
+        let dummy: Arc<HashSet<_>> = Arc::new([Stack::new_zero()].into());
+        //self.workspace.update_anchor_options();
         let solution = self.workspace.current_solution();
         for (i, r) in solution.rows().into_iter().enumerate() {
             send_to_backend(
@@ -182,7 +192,8 @@ impl<T: StackType + Hash + Eq, P: Provider<T>> State<T, P> {
                     tuning: self.workspace.get_semitones(i),
 
                     tuning_stack_actual: r.to_owned(),
-                    tuning_stack_targets: self.workspace.get_anchor_options(i),
+                    //tuning_stack_targets: self.workspace.get_anchor_options(i),
+                    tuning_stack_targets: dummy.clone(),
                 },
                 time,
             );
@@ -190,7 +201,7 @@ impl<T: StackType + Hash + Eq, P: Provider<T>> State<T, P> {
     }
 }
 
-impl<T: StackType + Eq + Hash, P: Provider<T>> State<T, P> {
+impl<T: StackType + Eq + Hash + std::fmt::Debug, P: Provider<T>> State<T, P> {
     fn handle_midi(
         &mut self,
         time: Instant,
@@ -239,7 +250,9 @@ impl<T: StackType + Eq + Hash, P: Provider<T>> State<T, P> {
                         None {} => {}
                         Some(i) => {
                             self.active_keys.remove(i);
-                            self.retune(time, to_backend);
+                            //if self.active_keys.len() > 0 {
+                            //    self.retune(time, to_backend);
+                            //}
                         }
                     }
                 }
@@ -263,7 +276,7 @@ impl<T: StackType + Eq + Hash, P: Provider<T>> State<T, P> {
     }
 }
 
-impl<T: StackType + Eq + Hash, P: Provider<T>> ProcessState<T> for State<T, P> {
+impl<T: StackType + Eq + Hash + std::fmt::Debug, P: Provider<T>> ProcessState<T> for State<T, P> {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -278,6 +291,22 @@ impl<T: StackType + Eq + Hash, P: Provider<T>> ProcessState<T> for State<T, P> {
             msg::ToProcess::Consider { coefficients: _ } => {}
             msg::ToProcess::ToggleTemperament { index: _ } => {}
             msg::ToProcess::Special { code: _ } => {}
+        }
+    }
+}
+
+pub struct FooConfig {
+    pub initial_n_keys: usize,
+    pub initial_n_lengths: usize,
+}
+
+impl Config<State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider>> for FooConfig {
+    fn initialise(config: &Self) -> State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider> {
+        State {
+            active_keys: vec![],
+            solver: solver::Workspace::new(config.initial_n_keys, config.initial_n_lengths, 3),
+            workspace: util::Workspace::new(config.initial_n_keys, true, true, true),
+            provider: ConcreteFiveLimitProvider {},
         }
     }
 }
