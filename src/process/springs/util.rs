@@ -20,7 +20,7 @@ use crate::{
 
 pub enum Connector {
     Spring,
-    Rod,
+    Rod(RodSpec),
     None,
 }
 
@@ -192,7 +192,7 @@ pub struct Workspace<T: StackType> {
     anchor_options_are_up_to_date: bool,
 }
 
-impl<T: StackType + Hash + Eq> Workspace<T> {
+impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
     /// meanings of arguments:
     /// - `initial_n_keys`: How many simultaneously sounding keys do you expect this workspace to
     ///    be used for? Choosing a big value will potentially prevent re-allocations, at the cost of
@@ -309,6 +309,8 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
         }
 
         self.solve_current_candidate(solver_workspace)?;
+        self.anchor_options_are_up_to_date = false;
+        self.interval_options_are_up_to_date = false;
         while !self.relaxed & self.prepare_next_candidate() {
             self.solve_current_candidate(solver_workspace)?;
         }
@@ -459,9 +461,9 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                 target, actual,
             )]))
         } else {
-        if !self.anchor_options_are_up_to_date {
-            panic!("get_anchor_options: options are not up to date");
-        }
+            if !self.anchor_options_are_up_to_date {
+                panic!("get_anchor_options: options are not up to date");
+            }
             self.current_anchor_options[&i].clone()
         }
     }
@@ -479,17 +481,31 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                 target, actual,
             )))
         } else {
-        if !self.interval_options_are_up_to_date {
-            panic!("get_interval_options: options are not up to date");
-        }
+            if !self.interval_options_are_up_to_date {
+                panic!("get_interval_options: options are not up to date");
+            }
             self.current_interval_options[&(i, j)].clone()
         }
     }
 
     pub fn update_anchor_options(&mut self) {
+        //println!("n: {}", self.n_keys);
+        //println!(
+        //    "solution: {}",
+        //    self.current_solution
+        //        .slice(s![..self.n_keys, ..T::num_intervals()])
+        //);
+        //println!("relaxed: {}", self.relaxed);
+        //println!("energy: {}", self.current_energy);
         if !self.interval_options_are_up_to_date {
+            //println!("updating intervals ...");
             self.update_interval_options();
+            //println!("... finished updating intervals");
         }
+        //println!(
+        //    "current_interval_options (updated): {:?}",
+        //    self.current_interval_options
+        //);
 
         self.current_anchor_options.clear();
         self.current_anchor_options.reserve(self.n_keys);
@@ -541,6 +557,7 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                 .get(&k.memo_key)
                 .expect("update_interval_options: no stack found for spring")
                 [k.current_candidate_index];
+            //println!("spring from {i} to {j}: {:?}", stack);
             self.current_interval_options
                 .insert((*i, *j), Arc::new(OneOrMany::Many([stack.clone()].into())));
         }
@@ -553,28 +570,14 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                 .memoed_rods
                 .get(&k.memo_key)
                 .expect("update_interval_options: no stack found for rod");
+            //println!("rod from {i} to {j}: {:?}", stack);
             self.current_interval_options
                 .insert((*i, *j), Arc::new(OneOrMany::One(stack.clone())));
         }
 
-        //println!("\n\n\n");
-        //for ((i, j), v) in self.current_interval_options.iter() {
-        //    //println!("({}, {}): {:?}", i, j, v);
-        //    match &v {
-        //        OneOrMany::Many(xs) => {
-        //            println!("many {i} {j}:");
-        //            for x in xs {
-        //                println!("    {} keys with {}", x.key_distance(), x.target);
-        //            }
-        //        }
-        //        _ => unreachable!(),
-        //    }
-        //}
-
         for i in 0..self.n_keys {
             for j in (i + 1)..self.n_keys {
                 for k in (j + 1)..self.n_keys {
-                    //println!("{} {} {}", i, j, k);
                     match (
                         self.current_interval_options.get(&(i, j)),
                         self.current_interval_options.get(&(j, k)),
@@ -585,26 +588,21 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                         (None {}, Some(_), None {}) => {}
                         (None {}, None {}, Some(_)) => {}
                         (Some(a), Some(b), None {}) => {
-                            //println!("a,b da");
                             let mut c = (**a).clone();
                             c.scaled_add(1, &**b);
                             self.current_interval_options.insert((i, k), Arc::new(c));
                         }
                         (Some(a), None {}, Some(c)) => {
-                            //println!("a,c da");
                             let mut b = (**c).clone();
                             b.scaled_add(-1, &**a);
                             self.current_interval_options.insert((j, k), Arc::new(b));
                         }
                         (None {}, Some(b), Some(c)) => {
-                            //println!("b,c da");
                             let mut a = (**c).clone();
                             a.scaled_add(-1, &**b);
                             self.current_interval_options.insert((i, j), Arc::new(a));
                         }
                         (Some(_), Some(_), Some(_)) => {
-                            //println!("alle da");
-
                             // All of this into_inner is OK, we only added the entris above.
                             let mut a = Arc::into_inner(
                                 self.current_interval_options.remove(&(i, j)).unwrap(),
@@ -618,46 +616,6 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                                 self.current_interval_options.remove(&(i, k)).unwrap(),
                             )
                             .unwrap();
-
-                            //match &a {
-                            //    OneOrMany::Many(xs) => {
-                            //        println!("a, {i} {j}");
-                            //        for x in xs {
-                            //            println!(
-                            //                "        {} keys with {}",
-                            //                x.key_distance(),
-                            //                x.target
-                            //            );
-                            //        }
-                            //    }
-                            //    _ => unreachable!(),
-                            //}
-                            //match &b {
-                            //    OneOrMany::Many(xs) => {
-                            //        println!("b, {j} {k}:");
-                            //        for x in xs {
-                            //            println!(
-                            //                "        {} keys with {}",
-                            //                x.key_distance(),
-                            //                x.target
-                            //            );
-                            //        }
-                            //    }
-                            //    _ => unreachable!(),
-                            //}
-                            //match &c {
-                            //    OneOrMany::Many(xs) => {
-                            //        println!("c, {i} {k}:");
-                            //        for x in xs {
-                            //            println!(
-                            //                "        {} keys with {}",
-                            //                x.key_distance(),
-                            //                x.target
-                            //            );
-                            //        }
-                            //    }
-                            //    _ => unreachable!(),
-                            //}
 
                             let mut new_a: Option<OneOrMany<Stack<T>>> = None;
                             let mut new_b: Option<OneOrMany<Stack<T>>> = None;
@@ -862,14 +820,14 @@ impl<T: StackType + Hash + Eq> Workspace<T> {
                         );
                         solver_length_index += 1;
                     }
-                    Connector::Rod => {
-                        let d = keys[j] as KeyDistance - keys[i] as KeyDistance;
+                    Connector::Rod(spec) => {
+                        //let d = keys[j] as KeyDistance - keys[i] as KeyDistance;
                         self.current_rods.insert(
                             (i, j),
                             RodInfo {
-                                memo_key: vec![(d, 1)],
+                                memo_key: spec, //vec![if d < 0 { (-d, -1) } else { (d, 1) }],
                                 solver_length_index: 0, // This is a dummy initialisation. Will be
-                                                        // updated with something sensible later!
+                                                // updated with something sensible later!
                             },
                         );
                     }
@@ -1000,7 +958,7 @@ mod test {
 
         ws.collect_intervals(
             &[0, 1, 2, 3],
-            |_, _| Connector::Rod,
+            |i, j| Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)]),
             |_| panic!("This will not be called, since there are no springs!"),
             |_| Stack::new_zero(), // irrelevant
         );
@@ -1025,7 +983,7 @@ mod test {
             &[0, 1, 2, 3, 4, 5],
             |i, j| {
                 if (j - i) % 2 == 0 {
-                    Connector::Rod
+                    Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)])
                 } else {
                     Connector::Spring
                 }
@@ -1056,7 +1014,7 @@ mod test {
             |i, j| {
                 let d = j - i;
                 if (d % 12 == 0) | (d % 7 == 0) {
-                    Connector::Rod
+                    Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)])
                 } else {
                     Connector::Spring
                 }
@@ -1436,7 +1394,7 @@ mod test {
             |i| i == 60,
             |i, j| {
                 if j - i == 7 {
-                    Connector::Rod
+                    Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)])
                 } else {
                     Connector::Spring
                 }
@@ -1491,7 +1449,7 @@ mod test {
             |i| i == 60,
             |i, j| {
                 if (j - i == 5) | (j - i == 7) {
-                    Connector::Rod
+                    Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)])
                 } else {
                     Connector::Spring
                 }
