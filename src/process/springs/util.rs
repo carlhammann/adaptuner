@@ -8,7 +8,7 @@ use std::{
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 use num_rational::Ratio;
 
-use super::solver;
+use super::solver::Solver;
 use crate::{
     interval::{
         base::Semitones,
@@ -258,7 +258,7 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
     ///   [Stack] together with a "stiffness" (i.e. how hard to detune)
     /// - `provide_candidate_anchors` does the same for absolute positions of notes.
     /// - `provide_rods` does the same for non-detuneable intervals.
-    /// - `solver_workspace` is where the actual calculations happen.
+    /// - `solver` is where the actual calculations happen.
     ///
     /// invariants:
     ///
@@ -278,7 +278,7 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
         provide_candidate_springs: PS,
         provide_candidate_anchors: PA,
         provide_rod: PR,
-        solver_workspace: &mut solver::Workspace,
+        solver: &mut Solver,
     ) -> Result<(), lu::LUErr>
     where
         WC: Fn(KeyNumber, KeyNumber) -> Connector,
@@ -308,11 +308,11 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
             self.current_solution = Array2::zeros((self.n_keys, T::num_intervals()));
         }
 
-        self.solve_current_candidate(solver_workspace)?;
+        self.solve_current_candidate(solver)?;
         self.anchor_options_are_up_to_date = false;
         self.interval_options_are_up_to_date = false;
         while !self.relaxed & self.prepare_next_candidate() {
-            self.solve_current_candidate(solver_workspace)?;
+            self.solve_current_candidate(solver)?;
         }
         Ok(())
     }
@@ -357,14 +357,14 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
 
     fn solve_current_candidate(
         &mut self,
-        solver_workspace: &mut solver::Workspace,
+        solver: &mut Solver,
     ) -> Result<(), lu::LUErr> {
         let n_nodes = self.n_keys;
         let n_lengths =
             self.current_springs.len() + self.current_anchors.len() + self.current_rods.len();
         let n_base_lengths = T::num_intervals();
 
-        solver_workspace.prepare_system(n_nodes, n_lengths, n_base_lengths);
+        solver.prepare_system(n_nodes, n_lengths, n_base_lengths);
 
         // Rods must be added after anchors and springs (this is an invariant of
         // [solver::Workspace::add_rod])
@@ -374,8 +374,8 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
                 &self.memoed_anchors.get(&v.memo_key).expect(
                     "solve_current_candidate: no candidate intervals found for fixed spring.",
                 )[v.current_candidate_index];
-            solver_workspace.add_fixed_spring(*k, v.solver_length_index, *stiffness);
-            solver_workspace.define_length(v.solver_length_index, position.actual_coefficients());
+            solver.add_fixed_spring(*k, v.solver_length_index, *stiffness);
+            solver.define_length(v.solver_length_index, position.actual_coefficients());
         }
 
         for ((i, j), v) in self.current_springs.iter() {
@@ -384,12 +384,12 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
                 .get(&v.memo_key)
                 .expect("solve_current_candidate: no candidate intervals found for spring.")
                 [v.current_candidate_index];
-            solver_workspace.add_spring(*i, *j, v.solver_length_index, *stiffness);
-            solver_workspace.define_length(v.solver_length_index, length.actual_coefficients());
+            solver.add_spring(*i, *j, v.solver_length_index, *stiffness);
+            solver.define_length(v.solver_length_index, length.actual_coefficients());
         }
 
         for ((i, j), v) in self.current_rods.iter() {
-            solver_workspace.add_rod(*i, *j, v.solver_length_index);
+            solver.add_rod(*i, *j, v.solver_length_index);
 
             let length = self
                 .memoed_rods
@@ -397,10 +397,10 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
                 .expect("solve_current_candidate: no stack found for rod.")
                 .actual_coefficients();
 
-            solver_workspace.define_length(v.solver_length_index, length);
+            solver.define_length(v.solver_length_index, length);
         }
 
-        let solution = solver_workspace.solve()?;
+        let solution = solver.solve()?;
 
         let energy = self.energy_in(solution.view());
         let relaxed = self.relaxed_in(solution.view());
@@ -1045,7 +1045,7 @@ mod test {
     #[test]
     fn test_compute_best_solution() {
         let mut ws = Workspace::<ConcreteFiveLimitStackType>::new(1, true, true, true);
-        let mut solver_workspace = solver::Workspace::new(1, 1, 1);
+        let mut solver = Solver::new(1, 1, 1);
 
         let provide_candidate_springs = |d: KeyDistance| {
             let octaves = (d as StackCoeff).div_euclid(12);
@@ -1143,7 +1143,7 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert_eq!(
@@ -1180,7 +1180,7 @@ mod test {
             |_| panic!("This should not be called"),
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert_eq!(
@@ -1201,7 +1201,7 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert_eq!(
@@ -1223,7 +1223,7 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert_eq!(
@@ -1270,7 +1270,7 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert_eq!(
@@ -1296,7 +1296,7 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert_eq!(
@@ -1318,7 +1318,7 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert_eq!(
@@ -1341,7 +1341,7 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert_eq!(
@@ -1364,7 +1364,7 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert_eq!(
@@ -1382,7 +1382,7 @@ mod test {
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert!(ws.current_energy() > epsilon);
@@ -1405,7 +1405,7 @@ mod test {
                 [(7, n)] => Stack::from_pure_interval(ConcreteFiveLimitStackType::fifth_index(), n),
                 _ => unreachable!(),
             },
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
 
@@ -1462,7 +1462,7 @@ mod test {
                 [(5, n), (7, m)] => Stack::from_target(vec![n.into(), (m - n).into(), 0.into()]),
                 _ => unreachable!(),
             },
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert_eq!(
@@ -1482,7 +1482,7 @@ mod test {
     #[test]
     fn test_interval_and_anchor_options() {
         let mut ws = Workspace::<ConcreteFiveLimitStackType>::new(1, false, false, false);
-        let mut solver_workspace = solver::Workspace::new(1, 1, 1);
+        let mut solver = Solver::new(1, 1, 1);
 
         let epsilon = 0.00000000000000001; // just a very small number. I don't care precisely.
 
@@ -1498,7 +1498,7 @@ mod test {
             },
             |_| vec![(Stack::from_target(vec![0, 0, 0]), 1.into())],
             |_| panic!("This will never be called, since there are no rods"),
-            &mut solver_workspace,
+            &mut solver,
         )
         .unwrap();
         assert!(!ws.relaxed());
