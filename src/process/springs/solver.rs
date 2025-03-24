@@ -8,7 +8,7 @@ use num_rational::Ratio;
 use crate::{interval::stacktype::r#trait::StackCoeff, util::lu};
 
 #[derive(Debug)]
-pub struct Workspace {
+pub struct Solver {
     n_nodes: usize,
     n_lengths: usize,
     n_base_lengths: usize,
@@ -21,9 +21,9 @@ pub struct Workspace {
     res: Array2<Ratio<StackCoeff>>,
 }
 
-impl Workspace {
+impl Solver {
     pub fn new(n_nodes: usize, n_lengths: usize, n_base_lengths: usize) -> Self {
-        Workspace {
+        Solver {
             n_nodes,
             n_lengths,
             n_base_lengths,
@@ -185,7 +185,7 @@ mod test {
     }
 
     fn initialise_and_solve<'a>(
-        workspace: &'a mut Workspace,
+        workspace: &'a mut Solver,
         spec: &SystemSpec,
     ) -> ArrayView2<'a, Ratio<StackCoeff>> {
         let n_lengths = spec.lengths.shape()[0];
@@ -213,7 +213,7 @@ mod test {
     }
 
     fn one_case(
-        workspace: &mut Workspace,
+        workspace: &mut Solver,
         spec: &SystemSpec,
         expected: &Array2<Ratio<StackCoeff>>,
     ) {
@@ -471,7 +471,7 @@ mod test {
         let n_nodes_initial = 1;
         let n_lengths_initial = 1;
         let n_base_lengths = 3;
-        let mut workspace = Workspace::new(n_nodes_initial, n_lengths_initial, n_base_lengths);
+        let mut workspace = Solver::new(n_nodes_initial, n_lengths_initial, n_base_lengths);
 
         for (spec, expected) in cases.iter() {
             one_case(&mut workspace, spec, expected);

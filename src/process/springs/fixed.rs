@@ -9,7 +9,7 @@ use midi_msg::{ChannelVoiceMsg, MidiMsg};
 use num_rational::Ratio;
 
 use super::{
-    solver,
+    solver::Solver,
     util::{self, Connector, KeyDistance, KeyNumber, RodSpec},
 };
 use crate::{
@@ -27,7 +27,7 @@ use crate::{
 
 pub struct State<T: StackType, P: Provider<T>> {
     active_keys: Vec<u8>, // sorted descendingly
-    solver: solver::Workspace,
+    solver: Solver,
     workspace: util::Workspace<T>,
     provider: P,
 }
