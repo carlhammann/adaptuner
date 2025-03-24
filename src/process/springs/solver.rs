@@ -1,7 +1,7 @@
 //! For motivation, see doc/springs.tex
 
 use ndarray::{
-    azip, linalg::general_mat_mul, s, Array1, Array2, ArrayView1, ArrayViewMut1, ArrayViewMut2,
+    azip, linalg::general_mat_mul, s, Array1, Array2, ArrayView1, ArrayView2,
 };
 use num_rational::Ratio;
 
@@ -9,6 +9,9 @@ use crate::{interval::stacktype::r#trait::StackCoeff, util::lu};
 
 #[derive(Debug)]
 pub struct Workspace {
+    n_nodes: usize,
+    n_lengths: usize,
+    n_base_lengths: usize,
     a: Array2<Ratio<StackCoeff>>,
     perm: Array1<usize>,
     ainv: Array2<Ratio<StackCoeff>>,
@@ -18,19 +21,12 @@ pub struct Workspace {
     res: Array2<Ratio<StackCoeff>>,
 }
 
-pub struct System<'a> {
-    a: ArrayViewMut2<'a, Ratio<StackCoeff>>,
-    perm: ArrayViewMut1<'a, usize>,
-    ainv: ArrayViewMut2<'a, Ratio<StackCoeff>>,
-    b: ArrayViewMut2<'a, Ratio<StackCoeff>>,
-    l: ArrayViewMut2<'a, Ratio<StackCoeff>>,
-    bl: ArrayViewMut2<'a, Ratio<StackCoeff>>,
-    res: ArrayViewMut2<'a, Ratio<StackCoeff>>,
-}
-
 impl Workspace {
     pub fn new(n_nodes: usize, n_lengths: usize, n_base_lengths: usize) -> Self {
         Workspace {
+            n_nodes,
+            n_lengths,
+            n_base_lengths,
             a: Array2::zeros((n_nodes, n_nodes)),
             perm: Array1::zeros(n_nodes),
             ainv: Array2::eye(n_nodes),
@@ -41,12 +37,7 @@ impl Workspace {
         }
     }
 
-    pub fn prepare_system(
-        &mut self,
-        n_nodes: usize,
-        n_lengths: usize,
-        n_base_lengths: usize,
-    ) -> System {
+    pub fn prepare_system(&mut self, n_nodes: usize, n_lengths: usize, n_base_lengths: usize) {
         if n_nodes > self.a.shape()[0] {
             self.a = Array2::zeros((n_nodes, n_nodes));
             self.perm = Array1::zeros(n_nodes);
@@ -73,27 +64,15 @@ impl Workspace {
             }
         }
 
-        let mut sys = System {
-            a: self.a.slice_mut(s![..n_nodes, ..n_nodes]),
-            perm: self.perm.slice_mut(s![..n_nodes]),
-            ainv: self.ainv.slice_mut(s![..n_nodes, ..n_nodes]),
-            b: self.b.slice_mut(s![..n_nodes, ..n_lengths]),
-            l: self.l.slice_mut(s![..n_lengths, ..n_base_lengths]),
-            bl: self.bl.slice_mut(s![..n_nodes, ..n_base_lengths]),
-            res: self.res.slice_mut(s![..n_nodes, ..n_base_lengths]),
-        };
-        sys.reset();
-        sys
-    }
-}
+        self.n_nodes = n_nodes;
+        self.n_lengths = n_lengths;
+        self.n_base_lengths = n_base_lengths;
 
-impl<'a> System<'a> {
-    fn reset(&mut self) {
-        self.a.fill(0.into());
-        self.b.fill(0.into());
-        self.l.fill(0.into());
-        // the other members are for intermediate results and will be cleared/initialised by
-        // [solve]
+        self.a.slice_mut(s![..n_nodes, ..n_nodes]).fill(0.into());
+        self.b.slice_mut(s![..n_nodes, ..n_lengths]).fill(0.into());
+        self.l
+            .slice_mut(s![..n_lengths, ..n_base_lengths])
+            .fill(0.into());
     }
 
     /// Expected invariants:
@@ -134,7 +113,6 @@ impl<'a> System<'a> {
     /// - called at most once for each `node`
     pub fn add_fixed_spring(&mut self, node: usize, length: usize, stiffness: Ratio<StackCoeff>) {
         self.a[[node, node]] -= stiffness;
-
         self.b[[node, length]] -= stiffness;
     }
 
@@ -157,31 +135,37 @@ impl<'a> System<'a> {
         end_row[length] = Ratio::from_integer(1);
     }
 
-    /// Will write the solution to `self.res`
-    pub fn solve(mut self) -> Result<ArrayViewMut2<'a, Ratio<StackCoeff>>, lu::LUErr> {
+    pub fn solve(&mut self) -> Result<ArrayView2<Ratio<StackCoeff>>, lu::LUErr> {
+        //println!("{}", self.a);
+
         // Make bl the product b.l
         general_mat_mul(
             Ratio::from_integer(1),
-            &self.b,
-            &self.l,
+            &self.b.slice(s![..self.n_nodes, ..self.n_lengths]),
+            &self.l.slice(s![..self.n_lengths, ..self.n_base_lengths]),
             Ratio::from_integer(0),
-            &mut self.bl,
+            &mut self.bl.slice_mut(s![..self.n_nodes, ..self.n_base_lengths]),
         );
 
         // make ainv the inverse of a
-        let lu = lu::lu_rational(self.a, self.perm)?;
-        lu.inverse_inplace(&mut self.ainv)?;
+        let lu = lu::lu_rational(
+            self.a.slice_mut(s![..self.n_nodes, ..self.n_nodes]),
+            self.perm.slice_mut(s![..self.n_nodes]),
+        )?;
+        lu.inverse_inplace(&mut self.ainv.slice_mut(s![..self.n_nodes, ..self.n_nodes]))?;
 
         // Make res the product a^{-1}.b.l
         general_mat_mul(
             Ratio::from_integer(1),
-            &self.ainv,
-            &self.bl,
+            &self.ainv.slice(s![..self.n_nodes, ..self.n_nodes]),
+            &self.bl.slice(s![..self.n_nodes, ..self.n_base_lengths]),
             Ratio::from_integer(0),
-            &mut self.res,
+            &mut self
+                .res
+                .slice_mut(s![..self.n_nodes, ..self.n_base_lengths]),
         );
 
-        Ok(self.res)
+        Ok(self.res.slice(s![..self.n_nodes, ..self.n_base_lengths]))
     }
 }
 
@@ -203,31 +187,29 @@ mod test {
     fn initialise_and_solve<'a>(
         workspace: &'a mut Workspace,
         spec: &SystemSpec,
-    ) -> ArrayViewMut2<'a, Ratio<StackCoeff>> {
+    ) -> ArrayView2<'a, Ratio<StackCoeff>> {
         let n_lengths = spec.lengths.shape()[0];
         let n_base_lengths = spec.lengths.shape()[1];
 
-        let mut system = workspace.prepare_system(spec.n_nodes, n_lengths, n_base_lengths);
+        workspace.prepare_system(spec.n_nodes, n_lengths, n_base_lengths);
 
         for (i, row) in spec.lengths.rows().into_iter().enumerate() {
-            system.define_length(i, row);
+            workspace.define_length(i, row);
         }
 
         for (start, end, length, stiffness) in &spec.springs {
-            system.add_spring(*start, *end, *length, *stiffness);
+            workspace.add_spring(*start, *end, *length, *stiffness);
         }
 
         for (node, length, stiffness) in &spec.fixed_springs {
-            system.add_fixed_spring(*node, *length, *stiffness);
+            workspace.add_fixed_spring(*node, *length, *stiffness);
         }
 
         for (start, end, length) in &spec.rods {
-            system.add_rod(*start, *end, *length);
+            workspace.add_rod(*start, *end, *length);
         }
 
-        let res = system.solve().unwrap();
-
-        res
+        workspace.solve().unwrap()
     }
 
     fn one_case(

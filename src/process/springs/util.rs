@@ -364,18 +364,18 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
             self.current_springs.len() + self.current_anchors.len() + self.current_rods.len();
         let n_base_lengths = T::num_intervals();
 
-        let mut system = solver_workspace.prepare_system(n_nodes, n_lengths, n_base_lengths);
+        solver_workspace.prepare_system(n_nodes, n_lengths, n_base_lengths);
 
         // Rods must be added after anchors and springs (this is an invariant of
-        // [solver::System::add_rod])
+        // [solver::Workspace::add_rod])
 
         for (k, v) in self.current_anchors.iter() {
             let (position, stiffness) =
                 &self.memoed_anchors.get(&v.memo_key).expect(
                     "solve_current_candidate: no candidate intervals found for fixed spring.",
                 )[v.current_candidate_index];
-            system.add_fixed_spring(*k, v.solver_length_index, *stiffness);
-            system.define_length(v.solver_length_index, position.actual_coefficients());
+            solver_workspace.add_fixed_spring(*k, v.solver_length_index, *stiffness);
+            solver_workspace.define_length(v.solver_length_index, position.actual_coefficients());
         }
 
         for ((i, j), v) in self.current_springs.iter() {
@@ -384,12 +384,12 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
                 .get(&v.memo_key)
                 .expect("solve_current_candidate: no candidate intervals found for spring.")
                 [v.current_candidate_index];
-            system.add_spring(*i, *j, v.solver_length_index, *stiffness);
-            system.define_length(v.solver_length_index, length.actual_coefficients());
+            solver_workspace.add_spring(*i, *j, v.solver_length_index, *stiffness);
+            solver_workspace.define_length(v.solver_length_index, length.actual_coefficients());
         }
 
         for ((i, j), v) in self.current_rods.iter() {
-            system.add_rod(*i, *j, v.solver_length_index);
+            solver_workspace.add_rod(*i, *j, v.solver_length_index);
 
             let length = self
                 .memoed_rods
@@ -397,10 +397,10 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
                 .expect("solve_current_candidate: no stack found for rod.")
                 .actual_coefficients();
 
-            system.define_length(v.solver_length_index, length);
+            solver_workspace.define_length(v.solver_length_index, length);
         }
 
-        let solution = system.solve()?;
+        let solution = solver_workspace.solve()?;
 
         let energy = self.energy_in(solution.view());
         let relaxed = self.relaxed_in(solution.view());
