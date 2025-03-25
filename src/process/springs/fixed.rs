@@ -189,14 +189,13 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
         let send_to_backend =
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
-        match self.workspace.compute_best_intervals(
+        match self.workspace.best_intervals(
             &self.active_keys,
             |k, i, j| self.provider.which_connector(k, i, j),
             |d| self.provider.candidate_springs(d),
             |d| self.provider.rod(d),
             &mut self.solver,
         ) {
-            Ok(()) => {}
             Err(e) => {
                 send_to_backend(
                     msg::AfterProcess::Notify {
@@ -206,66 +205,46 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
                 );
                 return;
             }
-        }
+            Ok((interval_solution, interval_relaxed, interval_energy)) => {
+                match self.workspace.best_anchoring(
+                    interval_solution,
+                    &self.active_keys,
+                    &[0],
+                    |k| self.provider.candidate_anchors(k),
+                    &mut self.solver,
+                ) {
+                    Err(e) => {
+                        send_to_backend(
+                            msg::AfterProcess::Notify {
+                                line: format!("while computing the optimal anchors: {:?}", e),
+                            },
+                            time,
+                        );
+                        return;
+                    }
+                    Ok((solution, anchor_relaxed, anchor_energy)) => {
 
-        let springs_relaxed = self.workspace.relaxed();
-        let springs_energy = self.workspace.current_energy();
 
-        match self.workspace.compute_best_anchoring(
-            &[0],
-            |k| self.provider.candidate_anchors(k),
-            &mut self.solver,
-        ) {
-            Ok(()) => {}
-            Err(e) => {
-                send_to_backend(
-                    msg::AfterProcess::Notify {
-                        line: format!("while computing the optimal absolute position: {:?}", e),
-                    },
-                    time,
-                );
-                return;
+                        let dummy: Arc<HashSet<_>> = Arc::new([Stack::new_zero()].into());
+                        //if !self.workspace.relaxed() {
+                        //    self.workspace.update_anchor_options();
+                        //}
+                        for (i, r) in solution.rows().into_iter().enumerate() {
+                            send_to_backend(
+                                msg::AfterProcess::Retune {
+                                    note: self.active_keys[i],
+                                    tuning: self.workspace.get_semitones(solution.view(), i),
+
+                                    tuning_stack_actual: r.to_owned(),
+                                    //tuning_stack_targets: self.workspace.get_anchor_options(i),
+                                    tuning_stack_targets: dummy.clone(),
+                                },
+                                time,
+                            );
+                        }
+                    }
+                }
             }
-        }
-        
-        let anchors_relaxed = self.workspace.relaxed();
-        let anchors_energy = self.workspace.current_energy();
-
-        match self.workspace.compute_best_solution(
-            &self.active_keys,
-            |k| k == *self.active_keys.last().unwrap(),
-            |k, i, j| self.provider.which_connector(k, i, j),
-            |d| self.provider.candidate_springs(d),
-            |k| self.provider.candidate_anchors(k),
-            |d| self.provider.rod(d),
-            &mut self.solver,
-        ) {
-            Ok(()) => {}
-            Err(e) => send_to_backend(
-                msg::AfterProcess::Notify {
-                    line: format!("{:?}", e),
-                },
-                time,
-            ),
-        };
-
-        let dummy: Arc<HashSet<_>> = Arc::new([Stack::new_zero()].into());
-        //if !self.workspace.relaxed() {
-        //    self.workspace.update_anchor_options();
-        //}
-        let solution = self.workspace.current_solution();
-        for (i, r) in solution.rows().into_iter().enumerate() {
-            send_to_backend(
-                msg::AfterProcess::Retune {
-                    note: self.active_keys[i],
-                    tuning: self.workspace.get_semitones(i),
-
-                    tuning_stack_actual: r.to_owned(),
-                    //tuning_stack_targets: self.workspace.get_anchor_options(i),
-                    tuning_stack_targets: dummy.clone(),
-                },
-                time,
-            );
         }
     }
 }
