@@ -323,13 +323,13 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     //    Ok(patterns) => patterns,
     //};
 
-    //let the_config = config::init_fixed_spring_config(
-    //    initial_neighbourhood_width,
-    //    initial_neighbourhood_index,
-    //    initial_neighbourhood_offset,
-    //);
+    let the_config = config::init_fixed_spring_config(
+        initial_neighbourhood_width,
+        initial_neighbourhood_index,
+        initial_neighbourhood_offset,
+    );
 
-    let the_config = config::init_fixed_spring_debug_config();
+    //let the_config = config::init_fixed_spring_debug_config();
 
     run(the_config)
 }
