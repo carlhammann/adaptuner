@@ -13,7 +13,7 @@ use crate::{
 pub struct LatencyReporter {
     values: Vec<Duration>,
     next_to_update: usize,
-    mean: u128,
+    mean: Duration,
 }
 
 impl<T: StackType + Eq + Hash> UIState<T> for LatencyReporter {
@@ -30,14 +30,14 @@ impl<T: StackType + Eq + Hash> UIState<T> for LatencyReporter {
                 let n = self.values.len();
                 self.values[self.next_to_update] = *since_input;
                 self.next_to_update = (self.next_to_update + 1) % n;
-                self.mean = self.values.iter().map(|x| x.as_micros()).sum::<u128>() / n as u128;
+                self.mean = self.values.iter().sum::<Duration>() / n.try_into().unwrap();
             }
             _ => {}
         }
         let n = self.values.len();
         frame.render_widget(
             Line::from(format!(
-                "mean MIDI latency (last {n} events): {} µs",
+                "mean MIDI latency (last {n} events): {:#?}",
                 self.mean
             )),
             area,
@@ -55,7 +55,7 @@ impl Config<LatencyReporter> for LatencyReporterConfig {
         LatencyReporter {
             values: vec![Duration::new(0, 0); config.nsamples],
             next_to_update: 0,
-            mean: 0,
+            mean: Duration::ZERO,
         }
     }
 }
