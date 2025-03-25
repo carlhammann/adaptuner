@@ -36,7 +36,7 @@ pub trait Provider<T: StackType> {
     fn candidate_springs(&self, d: KeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
     fn candidate_anchors(&self, k: KeyNumber) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
     fn rod(&self, d: &RodSpec) -> Stack<T>;
-    fn which_connector(&self, i: KeyNumber, j: KeyNumber) -> Connector;
+    fn which_connector(&self, keys: &[KeyNumber], i: usize, j: usize) -> Connector;
 }
 
 pub struct ConcreteFiveLimitProvider {}
@@ -54,76 +54,76 @@ impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
             1 => vec![
                 (
                     Stack::from_target(vec![octaves + 1, (-1), (-1)]), // diatonic semitone
-                    Ratio::new(1, 2 * 3 * 4 * 5),
+                    Ratio::new(1, 3 * 5),
                 ),
                 (
                     Stack::from_target(vec![octaves, (-1), 2]), // chromatic semitone
-                    Ratio::new(1, 2 * 3 * 4 * 5 * 4 * 5),
+                    Ratio::new(1, 3 * 5 * 5),
                 ),
             ],
             2 => vec![
                 (
                     Stack::from_target(vec![octaves - 1, 2, 0]), // major whole tone 9/8
-                    Ratio::new(1, 2 * 3 * 2 * 3),
+                    Ratio::new(1, 3 * 3),
                 ),
                 (
                     Stack::from_target(vec![octaves + 1, (-2), 1]), // minor whole tone 10/9
-                    Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                    Ratio::new(1, 3 * 3 * 5),
                 ),
             ],
             3 => vec![(
                 Stack::from_target(vec![octaves, 1, (-1)]), // minor third
-                Ratio::new(1, 2 * 3 * 4 * 5),
+                Ratio::new(1, 3 * 5),
             )],
             4 => vec![(
                 Stack::from_target(vec![octaves, 0, 1]), // major third
-                Ratio::new(1, 4 * 5),
+                Ratio::new(1, 5),
             )],
             5 => vec![(
                 Stack::from_target(vec![octaves + 1, (-1), 0]), // fourth
-                Ratio::new(1, 2 * 3),
+                Ratio::new(1, 3),
             )],
             6 => vec![
                 (
                     Stack::from_target(vec![octaves - 1, 2, 1]), // tritone as major tone plus major third
-                    Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                    Ratio::new(1, 3 * 3 * 5),
                 ),
                 (
                     Stack::from_target(vec![octaves, 2, (-2)]), // tritone as chromatic semitone below fifth
-                    Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5 * 4 * 5),
+                    Ratio::new(1, 3 * 3 * 5 * 5),
                 ),
             ],
             7 => vec![(
                 Stack::from_target(vec![octaves, 1, 0]), // fifth
-                Ratio::new(1, 2 * 3),
+                Ratio::new(1, 3),
             )],
             8 => vec![(
                 Stack::from_target(vec![octaves + 1, 0, (-1)]), // minor sixth
-                Ratio::new(1, 4 * 5),
+                Ratio::new(1, 5),
             )],
             9 => vec![
                 (
                     Stack::from_target(vec![octaves + 1, (-1), 1]), // major sixth
-                    Ratio::new(1, 2 * 3 * 4 * 5),
+                    Ratio::new(1, 3 * 5),
                 ),
                 (
                     Stack::from_target(vec![octaves - 1, 3, 0]), // major tone plus fifth
-                    Ratio::new(1, 2 * 3 * 2 * 3 * 2 * 3),
+                    Ratio::new(1, 3 * 3 * 3),
                 ),
             ],
             10 => vec![
                 (
                     Stack::from_target(vec![octaves + 2, (-2), 0]), // minor seventh as stack of two fourths
-                    Ratio::new(1, 2 * 3 * 2 * 3),
+                    Ratio::new(1, 3 * 3),
                 ),
                 (
                     Stack::from_target(vec![octaves, 2, (-1)]), // minor seventh as fifth plus minor third
-                    Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                    Ratio::new(1, 3 * 3 * 5),
                 ),
             ],
             11 => vec![(
                 Stack::from_target(vec![octaves, 1, 1]), // major seventh as fifth plus major third
-                Ratio::new(1, 2 * 3 * 4 * 5),
+                Ratio::new(1, 3 * 5),
             )],
             _ => unreachable!(),
         }
@@ -146,12 +146,37 @@ impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
         }
     }
 
-    fn which_connector(&self, i: KeyNumber, j: KeyNumber) -> Connector {
-        if (i as KeyDistance - j as KeyDistance).abs() % 12 == 0 {
-            Connector::Rod(vec![(12, (j as StackCoeff - i as StackCoeff) / 12)])
-        } else {
-            Connector::Spring
+    fn which_connector(&self, keys: &[KeyNumber], i: usize, j: usize) -> Connector {
+        //let d = (keys[i] as KeyDistance - keys[j] as KeyDistance).abs();
+        let class = (keys[i] as KeyDistance - keys[j] as KeyDistance).abs() % 12;
+
+        // octaves
+        if class == 0 {
+            return Connector::Rod(vec![(
+                12,
+                (keys[j] as StackCoeff - keys[i] as StackCoeff) / 12,
+            )]);
         }
+
+        if keys.len() <= 5 {
+            // This means at most 32 interval candidates. That's manageable.
+            return Connector::Spring;
+        }
+
+        //if i == 0 {
+        //    return Connector::Spring;
+        //}
+
+        if i + 1 == j {
+            return Connector::Spring;
+        }
+
+        // fifths, minor thirds, major thirds, and major seconds (and their octave complements)
+        if [7, 5, 3, 9, 4, 8, 2, 10].contains(&class) {
+            return Connector::Spring;
+        }
+
+        Connector::None
     }
 }
 
@@ -164,10 +189,52 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
         let send_to_backend =
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
+        match self.workspace.compute_best_intervals(
+            &self.active_keys,
+            |k, i, j| self.provider.which_connector(k, i, j),
+            |d| self.provider.candidate_springs(d),
+            |d| self.provider.rod(d),
+            &mut self.solver,
+        ) {
+            Ok(()) => {}
+            Err(e) => {
+                send_to_backend(
+                    msg::AfterProcess::Notify {
+                        line: format!("while computing the optimal intervals: {:?}", e),
+                    },
+                    time,
+                );
+                return;
+            }
+        }
+
+        let springs_relaxed = self.workspace.relaxed();
+        let springs_energy = self.workspace.current_energy();
+
+        match self.workspace.compute_best_anchoring(
+            &[0],
+            |k| self.provider.candidate_anchors(k),
+            &mut self.solver,
+        ) {
+            Ok(()) => {}
+            Err(e) => {
+                send_to_backend(
+                    msg::AfterProcess::Notify {
+                        line: format!("while computing the optimal absolute position: {:?}", e),
+                    },
+                    time,
+                );
+                return;
+            }
+        }
+        
+        let anchors_relaxed = self.workspace.relaxed();
+        let anchors_energy = self.workspace.current_energy();
+
         match self.workspace.compute_best_solution(
             &self.active_keys,
-            |k| k == self.active_keys[0],
-            |i, j| self.provider.which_connector(i, j),
+            |k| k == *self.active_keys.last().unwrap(),
+            |k, i, j| self.provider.which_connector(k, i, j),
             |d| self.provider.candidate_springs(d),
             |k| self.provider.candidate_anchors(k),
             |d| self.provider.rod(d),
@@ -183,7 +250,9 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
         };
 
         let dummy: Arc<HashSet<_>> = Arc::new([Stack::new_zero()].into());
-        //self.workspace.update_anchor_options();
+        //if !self.workspace.relaxed() {
+        //    self.workspace.update_anchor_options();
+        //}
         let solution = self.workspace.current_solution();
         for (i, r) in solution.rows().into_iter().enumerate() {
             send_to_backend(
@@ -250,9 +319,9 @@ impl<T: StackType + Eq + Hash + std::fmt::Debug, P: Provider<T>> State<T, P> {
                         None {} => {}
                         Some(i) => {
                             self.active_keys.remove(i);
-                            //if self.active_keys.len() > 0 {
-                            //    self.retune(time, to_backend);
-                            //}
+                            if self.active_keys.len() > 0 {
+                                self.retune(time, to_backend);
+                            }
                         }
                     }
                 }
@@ -304,7 +373,7 @@ impl Config<State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider>> for Fo
     fn initialise(config: &Self) -> State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider> {
         State {
             active_keys: vec![],
-            solver: solver::Workspace::new(config.initial_n_keys, config.initial_n_lengths, 3),
+            solver: Solver::new(config.initial_n_keys, config.initial_n_lengths, 3),
             workspace: util::Workspace::new(config.initial_n_keys, true, true, true),
             provider: ConcreteFiveLimitProvider {},
         }

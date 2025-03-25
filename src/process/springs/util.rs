@@ -3,6 +3,7 @@ use std::{
     hash::Hash,
     ops,
     sync::Arc,
+    time::Instant,
 };
 
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
@@ -47,8 +48,7 @@ struct RodInfo {
 pub type KeyDistance = i8;
 pub type KeyNumber = u8;
 
-/// A description of a rod (i.e. a non-detuneable interval) in terms of an association list of key
-/// distances of the sub-intervals it is composed of and the multiplicities of these intervals.
+/// An association list of key distances of the sub-intervals and multiplicities of these intervals.
 ///
 /// invariants:
 /// - length at least 1
@@ -166,6 +166,7 @@ where
 
 pub struct Workspace<T: StackType> {
     n_keys: usize,
+    keys: Vec<KeyNumber>,
     memo_springs: bool,
     memo_anchors: bool,
     memo_rods: bool,
@@ -208,6 +209,7 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
     ) -> Self {
         Workspace {
             n_keys: 0,
+            keys: Vec::with_capacity(initial_n_keys),
             memo_springs,
             memo_anchors,
             memo_rods,
@@ -270,7 +272,7 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
     ///  will be computed at most once for each key number or key didstance. There are internal
     ///  fields in [Self] that (can) keep track of everything seen before, even between successive
     ///  calls to this function.
-    pub fn compute_best_solution<'a, WC, AP, PS, PA, PR>(
+    pub fn compute_best_solution<WC, AP, PS, PA, PR>(
         &mut self,
         keys: &[KeyNumber],
         is_note_anchored: AP,
@@ -281,25 +283,34 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
         solver: &mut Solver,
     ) -> Result<(), lu::LUErr>
     where
-        WC: Fn(KeyNumber, KeyNumber) -> Connector,
+        WC: Fn(&[KeyNumber], usize, usize) -> Connector,
         AP: Fn(KeyNumber) -> bool,
         PS: Fn(KeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>,
         PA: Fn(KeyNumber) -> Vec<(Stack<T>, Ratio<StackCoeff>)>,
         PR: Fn(&RodSpec) -> Stack<T>,
     {
         self.n_keys = keys.len();
-        let next_index = self.collect_intervals(
-            keys,
-            which_connector,
-            provide_candidate_springs,
-            provide_rod,
-        );
-        self.collect_anchors(
-            next_index,
-            keys,
-            is_note_anchored,
-            provide_candidate_anchors,
-        );
+        self.keys.clear();
+        self.keys.extend_from_slice(keys);
+
+        let next_index =
+            self.collect_intervals(which_connector, provide_candidate_springs, provide_rod);
+        self.collect_anchors(next_index, is_note_anchored, provide_candidate_anchors);
+
+        //println!("\n\n\n{:?}", keys);
+        ////println!("springs");
+        ////for ((i, j), _) in self.current_springs.iter() {
+        ////    println!("{i} {j}");
+        ////}
+        //println!("n_springs: {}", self.current_springs.len());
+        //let mut big_n: usize = 1;
+        //for (_, v) in self.current_springs.iter() {
+        //    big_n *= self.memoed_springs[&v.memo_key].len();
+        //}
+        //for (_, v) in self.current_anchors.iter() {
+        //    big_n *= self.memoed_anchors[&v.memo_key].len();
+        //}
+        //println!("I have to try at most {big_n}");
 
         self.current_energy = Semitones::MAX;
 
@@ -308,22 +319,234 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
             self.current_solution = Array2::zeros((self.n_keys, T::num_intervals()));
         }
 
+        //let mut small_n = 1;
+
         self.solve_current_candidate(solver)?;
         self.anchor_options_are_up_to_date = false;
         self.interval_options_are_up_to_date = false;
         while !self.relaxed & self.prepare_next_candidate() {
             self.solve_current_candidate(solver)?;
+            //small_n += 1;
         }
+
+        //println!("I tried {small_n}");
         Ok(())
     }
 
-    /// returns true iff there is a new candidate.
+    /// This function anchors the position of the first key to the zero [Stack], and then tries to
+    /// find the optimal intervals, given the connectors specified by the other arguments, which
+    /// have the same meaning as for [Self::compute_best_solution].
+    ///
+    /// Changes [Self::current_energy] and [Self::relaxed]. These will pertain only to the state of
+    /// non-anchor springs.
+    ///
+    /// Invariants:
+    /// - won't touch [Self::current_anchors] and [Self::memoed_anchors]
+    /// - will touch [Self::current_springs], [Self::current_rods], [Self::memoed_springs],
+    ///   [Self::memoed_rods]
+    pub fn compute_best_intervals<WC, PS, PR>(
+        &mut self,
+        keys: &[KeyNumber],
+        which_connector: WC,
+        provide_candidate_springs: PS,
+        provide_rod: PR,
+        solver: &mut Solver,
+    ) -> Result<(), lu::LUErr>
+    where
+        WC: Fn(&[KeyNumber], usize, usize) -> Connector,
+        PS: Fn(KeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>,
+        PR: Fn(&RodSpec) -> Stack<T>,
+    {
+        self.n_keys = keys.len();
+        self.keys.clear();
+        self.keys.extend_from_slice(keys);
+
+        let anchor_length_index =
+            self.collect_intervals(which_connector, provide_candidate_springs, provide_rod);
+
+        let n_nodes = self.n_keys;
+        let n_lengths = anchor_length_index + 2;
+        let n_base_lengths = T::num_intervals();
+        let zero_coeffs = Array1::zeros(n_base_lengths);
+        let mut next_try = true;
+
+        while next_try {
+            solver.prepare_system(n_nodes, n_lengths, n_base_lengths);
+
+            // Rods must be added after anchors and springs (this is an invariant of
+            // [solver::Workspace::add_rod])
+
+            solver.define_length(anchor_length_index, zero_coeffs.view());
+            solver.add_fixed_spring(0, anchor_length_index, 1.into());
+
+            for ((i, j), v) in self.current_springs.iter() {
+                let (length, stiffness) = &self
+                    .memoed_springs
+                    .get(&v.memo_key)
+                    .expect("compute_best_intervals: no candidate intervals found for spring.")
+                    [v.current_candidate_index];
+                solver.add_spring(*i, *j, v.solver_length_index, *stiffness);
+                solver.define_length(v.solver_length_index, length.actual_coefficients());
+            }
+
+            for ((i, j), v) in self.current_rods.iter() {
+                solver.add_rod(*i, *j, v.solver_length_index);
+
+                let length = self
+                    .memoed_rods
+                    .get(&v.memo_key)
+                    .expect("compute_best_intervals: no stack found for rod.")
+                    .actual_coefficients();
+
+                solver.define_length(v.solver_length_index, length);
+            }
+
+            let ping = Instant::now();
+            let solution = solver.solve()?;
+            let pong = Instant::now();
+            //println!("solve time: {:?}", pong.duration_since(ping));
+
+            let energy = self.interval_energy_in(solution.view());
+            let relaxed = self.interval_relaxed_in(solution.view());
+
+            if relaxed | (energy < self.current_energy) {
+                self.current_solution
+                    .slice_mut(s![..self.n_keys, ..T::num_intervals()])
+                    .assign(&solution);
+                self.current_energy = energy;
+                self.relaxed = relaxed;
+            }
+
+            if relaxed {
+                break;
+            }
+
+            next_try = self.prepare_next_spring_candidate();
+        }
+
+        Ok(())
+    }
+
+    /// This function "freezes" the intervals of the current solution and adds anchors to the
+    /// specied notes. It then tries to find the best position given these anchors, while leaving
+    /// the intervals unchanged.
+    ///
+    /// Changes [Self::current_energy] and [Self::relaxed]. These will pertain only to the state of
+    /// anchor springs.
+    ///
+    /// invariants:
+    ///
+    /// - won't touch [Self::current_springs], [Self::current_rods], [Self::memoed_springs],
+    ///   [Self::memoed_rods]
+    /// - will touch [Self::current_anchors] and [Self::memoed_anchors]
+    pub fn compute_best_anchoring<PA>(
+        &mut self,
+        anchored_key_indices: &[usize],
+        provide_candidate_anchors: PA,
+        solver: &mut Solver,
+    ) -> Result<(), lu::LUErr>
+    where
+        PA: Fn(KeyNumber) -> Vec<(Stack<T>, Ratio<StackCoeff>)>,
+    {
+        //let mut rod_coeffs: Vec<Array1<Ratio<StackCoeff>>> = Vec::with_capacity(self.n_keys - 1);
+
+        let mut solver_length_index = self.n_keys - 1;
+
+        self.current_anchors.clear();
+        if !self.memo_anchors {
+            self.memoed_anchors.clear();
+        }
+        for i in anchored_key_indices {
+            let k = self.keys[*i];
+
+            if !self.memoed_anchors.contains_key(&k) {
+                self.memoed_anchors.insert(k, provide_candidate_anchors(k));
+            }
+
+            self.current_anchors.insert(
+                *i,
+                AnchorInfo {
+                    current_candidate_index: 0,
+                    memo_key: k,
+                    solver_length_index,
+                },
+            );
+            solver_length_index += 1;
+        }
+
+        let n_nodes = self.n_keys;
+        let n_lengths = solver_length_index;
+        let n_base_lengths = T::num_intervals();
+
+        self.relaxed = false;
+        self.current_energy = Semitones::MAX;
+        let mut next_try = true;
+
+        let mut tmp = Array1::zeros(T::num_intervals());
+
+        while next_try {
+            solver.prepare_system(n_nodes, n_lengths, n_base_lengths);
+
+            // Rods must be added after anchors (this is an invariant of [solver::Workspace::add_rod])
+            for (k, v) in self.current_anchors.iter() {
+                let (position, stiffness) = &self.memoed_anchors.get(&v.memo_key).expect(
+                    "compute_best_anchoring: no candidate intervals found for fixed spring.",
+                )[v.current_candidate_index];
+                solver.add_fixed_spring(*k, v.solver_length_index, *stiffness);
+                solver.define_length(v.solver_length_index, position.actual_coefficients());
+            }
+
+            for i in 1..self.n_keys {
+                tmp.assign(&self.current_solution.row(i));
+                tmp.scaled_add((-1).into(), &self.current_solution.row(0));
+                solver.define_length(i - 1, tmp.view());
+                solver.add_rod(0, i, i - 1);
+            }
+
+            let ping = Instant::now();
+            let solution = solver.solve()?;
+            let pong = Instant::now();
+            //println!("solve time: {:?}", pong.duration_since(ping));
+
+            let energy = self.anchor_energy_in(solution.view());
+            let relaxed = self.anchor_relaxed_in(solution.view());
+
+            if relaxed | (energy < self.current_energy) {
+                self.current_solution
+                    .slice_mut(s![..self.n_keys, ..T::num_intervals()])
+                    .assign(&solution);
+                self.current_energy = energy;
+                self.relaxed = relaxed;
+            }
+
+            if relaxed {
+                break;
+            }
+
+            next_try = self.prepare_next_anchor_candidate();
+        }
+
+        Ok(())
+    }
+
+    /// returns true iff there is a new candidate. Will try to change anchors first and then
+    /// springs
     fn prepare_next_candidate(&mut self) -> bool {
+        let anchors_changed = self.prepare_next_anchor_candidate();
+        if anchors_changed {
+            true
+        } else {
+            self.prepare_next_spring_candidate()
+        }
+    }
+
+    /// like [Self::prepare_next_candidate], but only takes into account anchor springs
+    fn prepare_next_anchor_candidate(&mut self) -> bool {
         for (_, v) in self.current_anchors.iter_mut() {
             let max_ix = self
                 .memoed_anchors
                 .get(&v.memo_key)
-                .expect("prepeare_next_candidate: found no candidates for anchor")
+                .expect("prepeare_next_anchor_candidate: found no candidates for anchor")
                 .len()
                 - 1;
             if v.current_candidate_index < max_ix {
@@ -335,11 +558,17 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
             }
         }
 
+        return false;
+    }
+
+    /// like [Self::prepare_next_candidate], but only takes into account interval (i.e.
+    /// non-anchor) springs
+    fn prepare_next_spring_candidate(&mut self) -> bool {
         for (_, v) in self.current_springs.iter_mut() {
             let max_ix = self
                 .memoed_springs
                 .get(&v.memo_key)
-                .expect("prepeare_next_candidate: found no candidates for spring")
+                .expect("prepeare_next_spring_candidate: found no candidates for spring")
                 .len()
                 - 1;
             if v.current_candidate_index < max_ix {
@@ -355,10 +584,7 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
         return false;
     }
 
-    fn solve_current_candidate(
-        &mut self,
-        solver: &mut Solver,
-    ) -> Result<(), lu::LUErr> {
+    fn solve_current_candidate(&mut self, solver: &mut Solver) -> Result<(), lu::LUErr> {
         let n_nodes = self.n_keys;
         let n_lengths =
             self.current_springs.len() + self.current_anchors.len() + self.current_rods.len();
@@ -400,7 +626,10 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
             solver.define_length(v.solver_length_index, length);
         }
 
+        let ping = Instant::now();
         let solution = solver.solve()?;
+        let pong = Instant::now();
+        //println!("solve time: {:?}", pong.duration_since(ping));
 
         let energy = self.energy_in(solution.view());
         let relaxed = self.relaxed_in(solution.view());
@@ -666,6 +895,11 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
     /// Don't compare this number to zero to find out if there are detunings; use
     /// [Self::relaxed_in] for that purpose!
     fn energy_in(&self, solution: ArrayView2<Ratio<StackCoeff>>) -> Semitones {
+        self.anchor_energy_in(solution) + self.interval_energy_in(solution)
+    }
+
+    /// like [Self::energy_in], but only takes into account interval (i.e. non-anchor) springs.
+    fn interval_energy_in(&self, solution: ArrayView2<Ratio<StackCoeff>>) -> Semitones {
         let compute_length = |coeffs: ArrayView1<Ratio<StackCoeff>>| {
             let mut res = 0.0;
             for (j, c) in coeffs.iter().enumerate() {
@@ -689,11 +923,28 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
             }
         }
 
+        res
+    }
+
+    /// like [Self::energy_in], but only takes into account the anchor springs.
+    fn anchor_energy_in(&self, solution: ArrayView2<Ratio<StackCoeff>>) -> Semitones {
+        let compute_length = |coeffs: ArrayView1<Ratio<StackCoeff>>| {
+            let mut res = 0.0;
+            for (j, c) in coeffs.iter().enumerate() {
+                res +=
+                    T::intervals()[j].semitones * *c.numer() as Semitones / *c.denom() as Semitones;
+            }
+            res
+        };
+
+        let mut res = 0.0;
+
         for (k, v) in self.current_anchors.iter() {
             let (stack, stiffness) = &self
                 .memoed_anchors
                 .get(&v.memo_key)
-                .expect("energy_in: no candidates found for anchor.")[v.current_candidate_index];
+                .expect("anchor_energy_in: no candidates found for anchor.")
+                [v.current_candidate_index];
             let position = 60.0 + compute_length(stack.actual_coefficients());
             if *stiffness != Ratio::ZERO {
                 res += *stiffness.numer() as Semitones / *stiffness.denom() as Semitones
@@ -707,6 +958,11 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
     /// returns true iff all springs have their relaxed length (that is: there are no detuned
     /// intervals or notes) in the provided solution.
     fn relaxed_in(&self, solution: ArrayView2<Ratio<StackCoeff>>) -> bool {
+        self.anchor_relaxed_in(solution) & self.interval_relaxed_in(solution)
+    }
+
+    /// like [Self::relaxed_in], but only takes into account anchor springs.
+    fn anchor_relaxed_in(&self, solution: ArrayView2<Ratio<StackCoeff>>) -> bool {
         for (i, v) in self.current_anchors.iter() {
             let (stack, _) = &self
                 .memoed_anchors
@@ -719,6 +975,11 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
             }
         }
 
+        true
+    }
+
+    /// like [Self::relaxed_in], but only takes into account interval (i.e. non-anchor) springs.
+    fn interval_relaxed_in(&self, solution: ArrayView2<Ratio<StackCoeff>>) -> bool {
         for ((i, j), v) in self.current_springs.iter() {
             let (stack, _) = &self
                 .memoed_springs
@@ -738,7 +999,6 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
     fn collect_anchors<AP, PA>(
         &mut self,
         start_index: usize,
-        keys: &[KeyNumber],
         is_note_anchored: AP,
         provide_candidate_anchors: PA,
     ) where
@@ -752,6 +1012,7 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
         }
 
         let mut solver_length_index = start_index;
+        let keys = &self.keys;
 
         for (i, &k) in keys.iter().enumerate() {
             if is_note_anchored(k) {
@@ -777,13 +1038,12 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
     /// anchored connections with [Self::collect_anchors].
     fn collect_intervals<WC, PS, PR>(
         &mut self,
-        keys: &[KeyNumber],
         which_connector: WC,
         provide_candidate_springs: PS,
         provide_rod: PR,
     ) -> usize
     where
-        WC: Fn(KeyNumber, KeyNumber) -> Connector,
+        WC: Fn(&[KeyNumber], usize, usize) -> Connector,
         PS: Fn(KeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>,
         PR: Fn(&RodSpec) -> Stack<T>,
     {
@@ -798,13 +1058,14 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
             self.memoed_rods.clear();
         }
 
-        let n = keys.len();
+        let keys = &self.keys;
+        let n = self.n_keys;
 
         let mut solver_length_index = 0;
 
         for i in 0..n {
             for j in (i + 1)..n {
-                match which_connector(keys[i], keys[j]) {
+                match which_connector(keys, i, j) {
                     Connector::Spring => {
                         let d = keys[j] as KeyDistance - keys[i] as KeyDistance;
                         if !self.memoed_springs.contains_key(&d) {
@@ -956,9 +1217,10 @@ mod test {
         type Irrelevant = crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
         let mut ws = Workspace::<Irrelevant>::new(1, false, false, false);
 
+        ws.keys = vec![0, 1, 2, 3];
+        ws.n_keys = ws.keys.len();
         ws.collect_intervals(
-            &[0, 1, 2, 3],
-            |i, j| Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)]),
+            |_, i, j| Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)]),
             |_| panic!("This will not be called, since there are no springs!"),
             |_| Stack::new_zero(), // irrelevant
         );
@@ -979,9 +1241,10 @@ mod test {
             ]
         );
 
+        ws.keys = vec![0, 1, 2, 3, 4, 5];
+        ws.n_keys = ws.keys.len();
         ws.collect_intervals(
-            &[0, 1, 2, 3, 4, 5],
-            |i, j| {
+            |_, i, j| {
                 if (j - i) % 2 == 0 {
                     Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)])
                 } else {
@@ -1009,12 +1272,13 @@ mod test {
             ]
         );
 
+        ws.keys = vec![0, 2, 5, 7, 12, 14];
+        ws.n_keys = ws.keys.len();
         ws.collect_intervals(
-            &[0, 2, 5, 7, 12, 14],
-            |i, j| {
-                let d = j - i;
+            |k, i, j| {
+                let d = k[j] - k[i];
                 if (d % 12 == 0) | (d % 7 == 0) {
-                    Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)])
+                    Connector::Rod(vec![(k[j] as KeyDistance - k[i] as KeyDistance, 1)])
                 } else {
                     Connector::Spring
                 }
@@ -1056,76 +1320,76 @@ mod test {
                 1 => vec![
                     (
                         Stack::from_target(vec![octaves + 1, (-1), (-1)]), // diatonic semitone
-                        Ratio::new(1, 2 * 3 * 4 * 5),
+                        Ratio::new(1, 3 * 5),
                     ),
                     (
                         Stack::from_target(vec![octaves, (-1), 2]), // chromatic semitone
-                        Ratio::new(1, 2 * 3 * 4 * 5 * 4 * 5),
+                        Ratio::new(1, 3 * 5 * 5),
                     ),
                 ],
                 2 => vec![
                     (
                         Stack::from_target(vec![octaves - 1, 2, 0]), // major whole tone 9/8
-                        Ratio::new(1, 2 * 3 * 2 * 3),
+                        Ratio::new(1, 3 * 3),
                     ),
                     (
                         Stack::from_target(vec![octaves + 1, (-2), 1]), // minor whole tone 10/9
-                        Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                        Ratio::new(1, 3 * 3 * 5),
                     ),
                 ],
                 3 => vec![(
                     Stack::from_target(vec![octaves, 1, (-1)]), // minor third
-                    Ratio::new(1, 2 * 3 * 4 * 5),
+                    Ratio::new(1, 3 * 5),
                 )],
                 4 => vec![(
                     Stack::from_target(vec![octaves, 0, 1]), // major third
-                    Ratio::new(1, 4 * 5),
+                    Ratio::new(1, 5),
                 )],
                 5 => vec![(
                     Stack::from_target(vec![octaves + 1, (-1), 0]), // fourth
-                    Ratio::new(1, 2 * 3),
+                    Ratio::new(1, 3),
                 )],
                 6 => vec![
                     (
                         Stack::from_target(vec![octaves - 1, 2, 1]), // tritone as major tone plus major third
-                        Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                        Ratio::new(1, 3 * 3 * 5),
                     ),
                     (
                         Stack::from_target(vec![octaves, 2, (-2)]), // tritone as chromatic semitone below fifth
-                        Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5 * 4 * 5),
+                        Ratio::new(1, 3 * 3 * 5 * 5),
                     ),
                 ],
                 7 => vec![(
                     Stack::from_target(vec![octaves, 1, 0]), // fifth
-                    Ratio::new(1, 2 * 3),
+                    Ratio::new(1, 3),
                 )],
                 8 => vec![(
                     Stack::from_target(vec![octaves + 1, 0, (-1)]), // minor sixth
-                    Ratio::new(1, 4 * 5),
+                    Ratio::new(1, 5),
                 )],
                 9 => vec![
                     (
                         Stack::from_target(vec![octaves + 1, (-1), 1]), // major sixth
-                        Ratio::new(1, 2 * 3 * 4 * 5),
+                        Ratio::new(1, 3 * 5),
                     ),
                     (
                         Stack::from_target(vec![octaves - 1, 3, 0]), // major tone plus fifth
-                        Ratio::new(1, 2 * 3 * 2 * 3 * 2 * 3),
+                        Ratio::new(1, 3 * 3 * 3),
                     ),
                 ],
                 10 => vec![
                     (
                         Stack::from_target(vec![octaves + 2, (-2), 0]), // minor seventh as stack of two fourths
-                        Ratio::new(1, 2 * 3 * 2 * 3),
+                        Ratio::new(1, 3 * 3),
                     ),
                     (
                         Stack::from_target(vec![octaves, 2, (-1)]), // minor seventh as fifth plus minor third
-                        Ratio::new(1, 2 * 3 * 2 * 3 * 4 * 5),
+                        Ratio::new(1, 3 * 3 * 5),
                     ),
                 ],
                 11 => vec![(
                     Stack::from_target(vec![octaves, 1, 1]), // major seventh as fifth plus major third
-                    Ratio::new(1, 2 * 3 * 4 * 5),
+                    Ratio::new(1, 3 * 5),
                 )],
                 _ => unreachable!(),
             }
@@ -1139,7 +1403,7 @@ mod test {
         ws.compute_best_solution(
             &[60, 66],
             |i| i == 60,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
@@ -1176,7 +1440,7 @@ mod test {
         ws.compute_best_solution(
             &[60, 66],
             |i| i == 60,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             |_| panic!("This should not be called"),
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
@@ -1197,7 +1461,7 @@ mod test {
         ws.compute_best_solution(
             &[60, 64, 67],
             |i| i == 60,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
@@ -1219,7 +1483,7 @@ mod test {
         ws.compute_best_solution(
             &[64, 68, 71],
             |i| i == 64,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
@@ -1266,7 +1530,7 @@ mod test {
         ws.compute_best_solution(
             &[64, 62, 60],
             |i| i == 60,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
@@ -1292,7 +1556,7 @@ mod test {
         ws.compute_best_solution(
             &[60, 62, 64],
             |i| i == 60,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
@@ -1314,7 +1578,7 @@ mod test {
         ws.compute_best_solution(
             &[60, 61, 65, 68],
             |i| i == 60,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
@@ -1337,7 +1601,7 @@ mod test {
         ws.compute_best_solution(
             &[60, 62, 66, 69],
             |i| i == 60,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
@@ -1360,7 +1624,7 @@ mod test {
         ws.compute_best_solution(
             &[69],
             |i| i == 69,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
@@ -1378,7 +1642,7 @@ mod test {
         ws.compute_best_solution(
             &[60, 62, 64, 67, 69],
             |i| i == 60,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             provide_candidate_springs,
             provide_candidate_anchors,
             |_| panic!("This will never be called, since there are no rods"),
@@ -1392,9 +1656,9 @@ mod test {
         ws.compute_best_solution(
             &[60, 62, 64, 67, 69],
             |i| i == 60,
-            |i, j| {
-                if j - i == 7 {
-                    Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)])
+            |k, i, j| {
+                if k[j] - k[i] == 7 {
+                    Connector::Rod(vec![(k[j] as KeyDistance - k[i] as KeyDistance, 1)])
                 } else {
                     Connector::Spring
                 }
@@ -1447,9 +1711,9 @@ mod test {
         ws.compute_best_solution(
             &[60, 62, 64, 67, 69],
             |i| i == 60,
-            |i, j| {
-                if (j - i == 5) | (j - i == 7) {
-                    Connector::Rod(vec![(j as KeyDistance - i as KeyDistance, 1)])
+            |k, i, j| {
+                if (k[j] - k[i] == 5) | (k[j] - k[i] == 7) {
+                    Connector::Rod(vec![(k[j] as KeyDistance - k[i] as KeyDistance, 1)])
                 } else {
                     Connector::Spring
                 }
@@ -1477,6 +1741,22 @@ mod test {
         );
         assert!(ws.current_energy() > epsilon);
         assert!(!ws.relaxed());
+
+        //// a slightly bigger example -- this overflows!
+        //ws.compute_best_solution(
+        //    //&[60, 62, 64, 67, 68, 73, 75],
+        //    //&[75, 73, 68, 67, 64, 62, 60],
+        //    &[75, 73, 70, 67, 64, 62, 60],
+        //    |i| i == 60,
+        //    |_, _, _| Connector::Spring,
+        //    provide_candidate_springs,
+        //    provide_candidate_anchors,
+        //    |_| panic!("This will never be called, since there are no rods"),
+        //    &mut solver,
+        //)
+        //.unwrap();
+        //assert!(ws.current_energy() > epsilon);
+        //assert!(!ws.relaxed());
     }
 
     #[test]
@@ -1490,7 +1770,7 @@ mod test {
         ws.compute_best_solution(
             &[60, 62, 64],
             |i| i == 60,
-            |_, _| Connector::Spring,
+            |_, _, _| Connector::Spring,
             |d| match d {
                 2 => vec![(Stack::from_target(vec![-1, 2, 0]), 1.into())],
                 4 => vec![(Stack::from_target(vec![0, 0, 1]), 1.into())],
