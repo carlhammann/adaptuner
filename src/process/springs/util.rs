@@ -3,10 +3,9 @@ use std::{
     hash::Hash,
     ops,
     sync::Arc,
-    time::Instant,
 };
 
-use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use num_rational::Ratio;
 
 use super::solver::Solver;
@@ -716,218 +715,148 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug> Workspace<T> {
         self.get_semitones(solution, j) - self.get_semitones(solution, i)
     }
 
-    /// Returns a list [Stack] the that the `i`-th note could be interpreted as in the current
-    /// solution. If [Self::relaxed()], the returned set has size exactly one, otherwise it may
-    /// be bigger: Different springs might have "wanted" the note to end up in different places.
-    ///
-    /// Call [Self::update_anchor_options] before calling this function and after some function
-    /// like [Self::compute_best_solution].
-    //pub fn get_anchor_options(&self, i: usize) -> Arc<HashSet<Stack<T>>> {
-    //    if self.relaxed {
-    //        let actual = self.current_solution.row(i).to_owned();
-    //        let target = Array1::from_shape_fn(T::num_intervals(), |i| actual[i].to_integer());
-    //        Arc::new(HashSet::from([Stack::from_target_and_actual(
-    //            target, actual,
-    //        )]))
-    //    } else {
-    //        if !self.anchor_options_are_up_to_date {
-    //            panic!("get_anchor_options: options are not up to date");
-    //        }
-    //        self.current_anchor_options[&i].clone()
-    //    }
-    //}
+    pub fn current_absolute_options(
+        &self,
+        current_interval_options: &HashMap<(usize, usize), Arc<OneOrMany<Stack<T>>>>,
+    ) -> Vec<Arc<HashSet<Stack<T>>>> {
+        self.current_absolute_options_prim(|i, j| current_interval_options[&(i, j)].iter())
+    }
 
-    /// Like [Self::get_possible_stacks], only for intervals.
-    ///
-    /// Call [Self::update_anchor_options] before calling this function and after some function
-    /// like [Self::compute_best_solution].
-    //pub fn get_interval_options(&mut self, i: usize, j: usize) -> Arc<OneOrMany<Stack<T>>> {
-    //    if self.relaxed {
-    //        let mut actual = self.current_solution.row(j).to_owned();
-    //        actual.scaled_add((-1).into(), &self.current_solution.row(i));
-    //        let target = Array1::from_shape_fn(T::num_intervals(), |i| actual[i].to_integer());
-    //        Arc::new(OneOrMany::One(Stack::from_target_and_actual(
-    //            target, actual,
-    //        )))
-    //    } else {
-    //        if !self.interval_options_are_up_to_date {
-    //            panic!("get_interval_options: options are not up to date");
-    //        }
-    //        self.current_interval_options[&(i, j)].clone()
-    //    }
-    //}
+    pub fn current_absolute_options_prim<S, I, F>(
+        &self,
+        current_interval_options: F,
+    ) -> Vec<Arc<HashSet<Stack<T>>>>
+    where
+        S: ops::Deref<Target = Stack<T>>,
+        I: Iterator<Item = S>,
+        F: Fn(usize, usize) -> I,
+    {
+        let mut res = Vec::with_capacity(self.n_keys);
+        for _ in 0..self.n_keys {
+            res.push(Arc::new(HashSet::new()));
+        }
 
-    //pub fn update_anchor_options(&mut self) {
-    //    //println!("n: {}", self.n_keys);
-    //    //println!(
-    //    //    "solution: {}",
-    //    //    self.current_solution
-    //    //        .slice(s![..self.n_keys, ..T::num_intervals()])
-    //    //);
-    //    //println!("relaxed: {}", self.relaxed);
-    //    //println!("energy: {}", self.current_energy);
-    //    if !self.interval_options_are_up_to_date {
-    //        //println!("updating intervals ...");
-    //        self.update_interval_options();
-    //        //println!("... finished updating intervals");
-    //    }
-    //    //println!(
-    //    //    "current_interval_options (updated): {:?}",
-    //    //    self.current_interval_options
-    //    //);
-    //
-    //    self.current_anchor_options.clear();
-    //    self.current_anchor_options.reserve(self.n_keys);
-    //    for i in 0..self.n_keys {
-    //        self.current_anchor_options
-    //            .insert(i, Arc::new(HashSet::new()));
-    //    }
-    //
-    //    for (&i, k) in self.current_anchors.iter() {
-    //        let anchor = &self
-    //            .memoed_anchors
-    //            .get(&k.memo_key)
-    //            .expect("update_anchor_options: no stack found for anchor")
-    //            [k.current_candidate_index]
-    //            .0;
-    //        // All of this `unwrap()` here and further on is ok, we added the empty set above.
-    //        Arc::get_mut(self.current_anchor_options.get_mut(&i).unwrap())
-    //            .unwrap()
-    //            .insert(anchor.clone());
-    //        for j in 0..i {
-    //            for dist in self.current_interval_options[&(j, i)].iter() {
-    //                let mut other = anchor.clone();
-    //                other.scaled_add(-1, dist);
-    //                Arc::get_mut(self.current_anchor_options.get_mut(&j).unwrap())
-    //                    .unwrap()
-    //                    .insert(other);
-    //            }
-    //        }
-    //        for j in (i + 1)..self.n_keys {
-    //            for dist in self.current_interval_options[&(i, j)].iter() {
-    //                let mut other = anchor.clone();
-    //                other.scaled_add(1, dist);
-    //                Arc::get_mut(self.current_anchor_options.get_mut(&j).unwrap())
-    //                    .unwrap()
-    //                    .insert(other);
-    //            }
-    //        }
-    //    }
-    //
-    //    self.anchor_options_are_up_to_date = true;
-    //}
+        for (&i, k) in self.current_anchors.iter() {
+            let anchor = &self
+                .memoed_anchors
+                .get(&k.memo_key)
+                .expect("current_anchor_options: no stack found for anchor")
+                [k.current_candidate_index]
+                .0;
+            // All of this `unwrap()` here and further on is ok, we added the empty set above.
+            Arc::get_mut(&mut res[i]).unwrap().insert(anchor.clone());
+            for j in 0..i {
+                for dist in current_interval_options(j, i) {
+                    let mut other = anchor.clone();
+                    other.scaled_add(-1, dist);
+                    Arc::get_mut(&mut res[j]).unwrap().insert(other);
+                }
+            }
+            for j in (i + 1)..self.n_keys {
+                for dist in current_interval_options(i, j) {
+                    let mut other = anchor.clone();
+                    other.scaled_add(1, dist);
+                    Arc::get_mut(&mut res[j]).unwrap().insert(other);
+                }
+            }
+        }
+        res
+    }
 
-    //pub fn update_interval_options(&mut self) {
-    //    self.current_interval_options.clear();
-    //
-    //    for ((i, j), k) in self.current_springs.iter() {
-    //        let (stack, _) = &self
-    //            .memoed_springs
-    //            .get(&k.memo_key)
-    //            .expect("update_interval_options: no stack found for spring")
-    //            [k.current_candidate_index];
-    //        //println!("spring from {i} to {j}: {:?}", stack);
-    //        self.current_interval_options
-    //            .insert((*i, *j), Arc::new(OneOrMany::Many([stack.clone()].into())));
-    //    }
-    //
-    //    // it's important to add rods later: in case we're in the strange situation where both a
-    //    // rod and a spring connect the same two notes, we will want to keep the rod since it holds
-    //    // definite information
-    //    for ((i, j), k) in self.current_rods.iter() {
-    //        let stack = self
-    //            .memoed_rods
-    //            .get(&k.memo_key)
-    //            .expect("update_interval_options: no stack found for rod");
-    //        //println!("rod from {i} to {j}: {:?}", stack);
-    //        self.current_interval_options
-    //            .insert((*i, *j), Arc::new(OneOrMany::One(stack.clone())));
-    //    }
-    //
-    //    for i in 0..self.n_keys {
-    //        for j in (i + 1)..self.n_keys {
-    //            for k in (j + 1)..self.n_keys {
-    //                match (
-    //                    self.current_interval_options.get(&(i, j)),
-    //                    self.current_interval_options.get(&(j, k)),
-    //                    self.current_interval_options.get(&(i, k)),
-    //                ) {
-    //                    (None {}, None {}, None {}) => {}
-    //                    (Some(_), None {}, None {}) => {}
-    //                    (None {}, Some(_), None {}) => {}
-    //                    (None {}, None {}, Some(_)) => {}
-    //                    (Some(a), Some(b), None {}) => {
-    //                        let mut c = (**a).clone();
-    //                        c.scaled_add(1, &**b);
-    //                        self.current_interval_options.insert((i, k), Arc::new(c));
-    //                    }
-    //                    (Some(a), None {}, Some(c)) => {
-    //                        let mut b = (**c).clone();
-    //                        b.scaled_add(-1, &**a);
-    //                        self.current_interval_options.insert((j, k), Arc::new(b));
-    //                    }
-    //                    (None {}, Some(b), Some(c)) => {
-    //                        let mut a = (**c).clone();
-    //                        a.scaled_add(-1, &**b);
-    //                        self.current_interval_options.insert((i, j), Arc::new(a));
-    //                    }
-    //                    (Some(_), Some(_), Some(_)) => {
-    //                        // All of this into_inner is OK, we only added the entris above.
-    //                        let mut a = Arc::into_inner(
-    //                            self.current_interval_options.remove(&(i, j)).unwrap(),
-    //                        )
-    //                        .unwrap();
-    //                        let mut b = Arc::into_inner(
-    //                            self.current_interval_options.remove(&(j, k)).unwrap(),
-    //                        )
-    //                        .unwrap();
-    //                        let mut c = Arc::into_inner(
-    //                            self.current_interval_options.remove(&(i, k)).unwrap(),
-    //                        )
-    //                        .unwrap();
-    //
-    //                        let mut new_a: Option<OneOrMany<Stack<T>>> = None;
-    //                        let mut new_b: Option<OneOrMany<Stack<T>>> = None;
-    //                        let mut new_c: Option<OneOrMany<Stack<T>>> = None;
-    //                        match a {
-    //                            OneOrMany::One(_) => {}
-    //                            OneOrMany::Many(_) => {
-    //                                let mut x = c.clone();
-    //                                x.scaled_add(-1, &b);
-    //                                new_a = Some(x);
-    //                            }
-    //                        }
-    //                        match b {
-    //                            OneOrMany::One(_) => {}
-    //                            OneOrMany::Many(_) => {
-    //                                let mut x = c.clone();
-    //                                x.scaled_add(-1, &a);
-    //                                new_b = Some(x);
-    //                            }
-    //                        }
-    //                        match c {
-    //                            OneOrMany::One(_) => {}
-    //                            OneOrMany::Many(_) => {
-    //                                let mut x = (a).clone();
-    //                                x.scaled_add(1, &b);
-    //                                new_c = Some(x);
-    //                            }
-    //                        }
-    //
-    //                        new_a.map(|x| a.extend(x));
-    //                        new_b.map(|x| b.extend(x));
-    //                        new_c.map(|x| c.extend(x));
-    //                        self.current_interval_options.insert((i, j), Arc::new(a));
-    //                        self.current_interval_options.insert((j, k), Arc::new(b));
-    //                        self.current_interval_options.insert((i, k), Arc::new(c));
-    //                    }
-    //                }
-    //            }
-    //        }
-    //    }
-    //
-    //    self.interval_options_are_up_to_date = true;
-    //}
+    pub fn current_interval_options(&self) -> HashMap<(usize, usize), Arc<OneOrMany<Stack<T>>>> {
+        let mut res = HashMap::with_capacity(self.n_keys * (self.n_keys - 1) / 2);
+
+        for ((i, j), k) in self.current_springs.iter() {
+            let (stack, _) = &self
+                .memoed_springs
+                .get(&k.memo_key)
+                .expect("current_interval_options: no stack found for spring")
+                [k.current_candidate_index];
+            res.insert((*i, *j), Arc::new(OneOrMany::Many([stack.clone()].into())));
+        }
+
+        // it's important to add rods later: in case we're in the strange situation where both a
+        // rod and a spring connect the same two notes, we will want to keep the rod since it holds
+        // definite information
+        for ((i, j), k) in self.current_rods.iter() {
+            let stack = self
+                .memoed_rods
+                .get(&k.memo_key)
+                .expect("current_interval_options: no stack found for rod");
+            res.insert((*i, *j), Arc::new(OneOrMany::One(stack.clone())));
+        }
+
+        for i in 0..self.n_keys {
+            for j in (i + 1)..self.n_keys {
+                for k in (j + 1)..self.n_keys {
+                    match (res.get(&(i, j)), res.get(&(j, k)), res.get(&(i, k))) {
+                        (None {}, None {}, None {}) => {}
+                        (Some(_), None {}, None {}) => {}
+                        (None {}, Some(_), None {}) => {}
+                        (None {}, None {}, Some(_)) => {}
+                        (Some(a), Some(b), None {}) => {
+                            let mut c = (**a).clone();
+                            c.scaled_add(1, &**b);
+                            res.insert((i, k), Arc::new(c));
+                        }
+                        (Some(a), None {}, Some(c)) => {
+                            let mut b = (**c).clone();
+                            b.scaled_add(-1, &**a);
+                            res.insert((j, k), Arc::new(b));
+                        }
+                        (None {}, Some(b), Some(c)) => {
+                            let mut a = (**c).clone();
+                            a.scaled_add(-1, &**b);
+                            res.insert((i, j), Arc::new(a));
+                        }
+                        (Some(_), Some(_), Some(_)) => {
+                            // All of this into_inner is OK, we only added the entris above.
+                            let mut a = Arc::into_inner(res.remove(&(i, j)).unwrap()).unwrap();
+                            let mut b = Arc::into_inner(res.remove(&(j, k)).unwrap()).unwrap();
+                            let mut c = Arc::into_inner(res.remove(&(i, k)).unwrap()).unwrap();
+
+                            let mut new_a: Option<OneOrMany<Stack<T>>> = None;
+                            let mut new_b: Option<OneOrMany<Stack<T>>> = None;
+                            let mut new_c: Option<OneOrMany<Stack<T>>> = None;
+                            match a {
+                                OneOrMany::One(_) => {}
+                                OneOrMany::Many(_) => {
+                                    let mut x = c.clone();
+                                    x.scaled_add(-1, &b);
+                                    new_a = Some(x);
+                                }
+                            }
+                            match b {
+                                OneOrMany::One(_) => {}
+                                OneOrMany::Many(_) => {
+                                    let mut x = c.clone();
+                                    x.scaled_add(-1, &a);
+                                    new_b = Some(x);
+                                }
+                            }
+                            match c {
+                                OneOrMany::One(_) => {}
+                                OneOrMany::Many(_) => {
+                                    let mut x = (a).clone();
+                                    x.scaled_add(1, &b);
+                                    new_c = Some(x);
+                                }
+                            }
+
+                            new_a.map(|x| a.extend(x));
+                            new_b.map(|x| b.extend(x));
+                            new_c.map(|x| c.extend(x));
+                            res.insert((i, j), Arc::new(a));
+                            res.insert((j, k), Arc::new(b));
+                            res.insert((i, k), Arc::new(c));
+                        }
+                    }
+                }
+            }
+        }
+
+        res
+    }
 
     /// Compute the energy stored in tensioned springs (== detuned intervals or notes) in the
     /// provided solution.
@@ -1809,83 +1738,84 @@ mod test {
         //assert!(!ws.relaxed());
     }
 
-    //#[test]
-    //fn test_interval_and_anchor_options() {
-    //    let mut ws = Workspace::<ConcreteFiveLimitStackType>::new(1, false, false, false);
-    //    let mut solver = Solver::new(1, 1, 1);
-    //
-    //    let epsilon = 0.00000000000000001; // just a very small number. I don't care precisely.
-    //
-    //    // a third cannot be two major tones.
-    //    ws.compute_best_solution(
-    //        &[60, 62, 64],
-    //        |i| i == 60,
-    //        |_, _, _| Connector::Spring,
-    //        |d| match d {
-    //            2 => vec![(Stack::from_target(vec![-1, 2, 0]), 1.into())],
-    //            4 => vec![(Stack::from_target(vec![0, 0, 1]), 1.into())],
-    //            _ => unreachable!(),
-    //        },
-    //        |_| vec![(Stack::from_target(vec![0, 0, 0]), 1.into())],
-    //        |_| panic!("This will never be called, since there are no rods"),
-    //        &mut solver,
-    //    )
-    //    .unwrap();
-    //    assert!(!ws.relaxed());
-    //    assert!(ws.current_energy() > epsilon);
-    //
-    //    ws.update_interval_options();
-    //    assert_eq!(
-    //        *ws.get_interval_options(0, 1),
-    //        OneOrMany::Many(
-    //            [
-    //                Stack::from_target(vec![-1, 2, 0]),
-    //                Stack::from_target(vec![1, -2, 1])
-    //            ]
-    //            .into()
-    //        )
-    //    );
-    //    assert_eq!(
-    //        *ws.get_interval_options(1, 2),
-    //        OneOrMany::Many(
-    //            [
-    //                Stack::from_target(vec![-1, 2, 0]),
-    //                Stack::from_target(vec![1, -2, 1])
-    //            ]
-    //            .into()
-    //        )
-    //    );
-    //    assert_eq!(
-    //        *ws.get_interval_options(0, 2),
-    //        OneOrMany::Many(
-    //            [
-    //                Stack::from_target(vec![0, 0, 1]),
-    //                Stack::from_target(vec![-2, 4, 0])
-    //            ]
-    //            .into()
-    //        )
-    //    );
-    //
-    //    ws.update_anchor_options();
-    //    assert_eq!(
-    //        *ws.get_anchor_options(0),
-    //        [Stack::from_target(vec![0, 0, 0])].into()
-    //    );
-    //    assert_eq!(
-    //        *ws.get_anchor_options(1),
-    //        [
-    //            Stack::from_target(vec![-1, 2, 0]),
-    //            Stack::from_target(vec![1, -2, 1])
-    //        ]
-    //        .into()
-    //    );
-    //    assert_eq!(
-    //        *ws.get_anchor_options(2),
-    //        [
-    //            Stack::from_target(vec![0, 0, 1]),
-    //            Stack::from_target(vec![-2, 4, 0])
-    //        ]
-    //        .into()
-    //    );
-    //}
+    #[test]
+    fn test_interval_and_absoute_options() {
+        let mut ws = Workspace::<ConcreteFiveLimitStackType>::new(1, false, false, false);
+        let mut solver = Solver::new(1, 1, 1);
+
+        let epsilon = 0.00000000000000001; // just a very small number. I don't care precisely.
+
+        // a third cannot be two major tones.
+        let (solution, relaxed, energy) = ws
+            .best_solution(
+                &[60, 62, 64],
+                |i| i == 60,
+                |_, _, _| Connector::Spring,
+                |d| match d {
+                    2 => vec![(Stack::from_target(vec![-1, 2, 0]), 1.into())],
+                    4 => vec![(Stack::from_target(vec![0, 0, 1]), 1.into())],
+                    _ => unreachable!(),
+                },
+                |_| vec![(Stack::from_target(vec![0, 0, 0]), 1.into())],
+                |_| panic!("This will never be called, since there are no rods"),
+                &mut solver,
+            )
+            .unwrap();
+        assert!(!relaxed);
+        assert!(energy > epsilon);
+
+        let interval_options = ws.current_interval_options();
+        assert_eq!(
+            *interval_options[&(0, 1)],
+            OneOrMany::Many(
+                [
+                    Stack::from_target(vec![-1, 2, 0]),
+                    Stack::from_target(vec![1, -2, 1])
+                ]
+                .into()
+            )
+        );
+        assert_eq!(
+            *interval_options[&(1, 2)],
+            OneOrMany::Many(
+                [
+                    Stack::from_target(vec![-1, 2, 0]),
+                    Stack::from_target(vec![1, -2, 1])
+                ]
+                .into()
+            )
+        );
+        assert_eq!(
+            *interval_options[&(0, 2)],
+            OneOrMany::Many(
+                [
+                    Stack::from_target(vec![0, 0, 1]),
+                    Stack::from_target(vec![-2, 4, 0])
+                ]
+                .into()
+            )
+        );
+
+        let anchor_options = ws.current_absolute_options(&interval_options);
+        assert_eq!(
+            *anchor_options[0],
+            [Stack::from_target(vec![0, 0, 0])].into()
+        );
+        assert_eq!(
+            *anchor_options[1],
+            [
+                Stack::from_target(vec![-1, 2, 0]),
+                Stack::from_target(vec![1, -2, 1])
+            ]
+            .into()
+        );
+        assert_eq!(
+            *anchor_options[2],
+            [
+                Stack::from_target(vec![0, 0, 1]),
+                Stack::from_target(vec![-2, 4, 0])
+            ]
+            .into()
+        );
+    }
 }
