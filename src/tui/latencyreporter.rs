@@ -1,5 +1,4 @@
 use std::{
-    hash::Hash,
     sync::mpsc,
     time::{Duration, Instant},
 };
@@ -16,7 +15,7 @@ pub struct LatencyReporter {
     mean: Duration,
 }
 
-impl<T: StackType + Eq + Hash> UIState<T> for LatencyReporter {
+impl<T: StackType> UIState<T> for LatencyReporter {
     fn handle_msg(
         &mut self,
         _time: Instant,

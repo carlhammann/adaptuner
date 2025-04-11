@@ -1,4 +1,4 @@
-use std::{hash::Hash, marker::PhantomData, sync::mpsc, time::Instant};
+use std::{marker::PhantomData, sync::mpsc, time::Instant};
 
 use ratatui::prelude::{Constraint, Frame, Layout, Rect};
 
@@ -12,14 +12,14 @@ use crate::{
     tui::r#trait::UIState,
 };
 
-pub struct WrappedGrid<T: PeriodicStackType + Eq + Hash, N: AlignedPeriodicNeighbourhood<T>, W: UIState<T>> {
+pub struct WrappedGrid<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>, W: UIState<T>> {
     grid: Grid<T, N>,
     latencyreporter: LatencyReporter,
     special: W,
 }
 
 impl<
-        T: FiveLimitStackType + PeriodicStackType + Eq + Hash,
+        T: FiveLimitStackType + PeriodicStackType,
         N: AlignedPeriodicNeighbourhood<T> + Clone,
         W: UIState<T>,
     > UIState<T> for WrappedGrid<T, N, W>
@@ -49,7 +49,7 @@ impl<
 
 #[derive(Clone)]
 pub struct WrappedGridConfig<
-    T: PeriodicStackType + Eq + Hash,
+    T: PeriodicStackType,
     N: AlignedPeriodicNeighbourhood<T>,
     W: UIState<T>,
     WC: Config<W>,
@@ -61,7 +61,7 @@ pub struct WrappedGridConfig<
 }
 
 impl<
-        T: FiveLimitStackType + PeriodicStackType + Eq + Hash,
+        T: FiveLimitStackType + PeriodicStackType,
         N: AlignedPeriodicNeighbourhood<T> + Clone,
         W: UIState<T>,
         WC: Config<W>,

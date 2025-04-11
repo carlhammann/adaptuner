@@ -1,11 +1,4 @@
-use std::{
-    fmt,
-    hash::Hash,
-    marker::PhantomData,
-    mem::MaybeUninit,
-    sync::{mpsc, Arc},
-    time::Instant,
-};
+use std::{fmt, marker::PhantomData, mem::MaybeUninit, sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -79,7 +72,7 @@ pub static TOGGLE_TEMPER_PATTERN_NEIGHBOURHOODS: u8 = 2;
 
 impl<T, N> Walking<T, N>
 where
-    T: StackType + fmt::Debug + Eq + Hash,
+    T: StackType + fmt::Debug + PartialEq,
     N: CompleteNeigbourhood<T> + Clone,
 {
     // returns true iff the current_fit changed
@@ -113,7 +106,7 @@ where
 
         let mut updated = false;
         match find_fit() {
-            None {} => {
+            None => {
                 if self.current_fit.is_some() {
                     self.current_fit = None;
                     updated = true;
@@ -123,7 +116,7 @@ where
                 let best_fit_offset =
                     best_fit.reference as StackCoeff - self.key_center_stack.key_number();
                 match &mut self.current_fit {
-                    None {} => {
+                    None => {
                         let offset = self.neighbourhood.get_relative_stack(best_fit_offset as i8);
 
                         self.current_fit = Some((new_index, offset));
@@ -154,7 +147,7 @@ where
                     time,
                 );
             }
-            None {} => send_to_backend(msg::AfterProcess::NotifyNoFit, time),
+            None => send_to_backend(msg::AfterProcess::NotifyNoFit, time),
         }
 
         updated
@@ -181,7 +174,7 @@ where
         }
 
         match &self.current_fit {
-            None {} => tune_using_neighbourhood_and_key_center(),
+            None => tune_using_neighbourhood_and_key_center(),
             Some((index, relative_reference_stack)) => {
                 let fit_neighbourhood = &self.patterns[*index].neighbourhood;
                 let offset = (i as StackCoeff
@@ -222,8 +215,7 @@ where
                 msg::AfterProcess::Retune {
                     note: i,
                     tuning: note.tuning,
-                    tuning_stack_actual: note.tuning_stack.actual.clone(),
-                    tuning_stack_targets: Arc::new([note.tuning_stack.clone()].into()),
+                    tuning_stack: note.tuning_stack.clone(),
                 },
                 time,
             );
@@ -512,7 +504,7 @@ where
 
 impl<T, N> ProcessState<T> for Walking<T, N>
 where
-    T: StackType + fmt::Debug + Eq + Hash,
+    T: StackType + fmt::Debug + PartialEq,
     N: CompleteNeigbourhood<T> + Clone,
 {
     fn handle_msg(

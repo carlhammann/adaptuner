@@ -1,4 +1,4 @@
-use std::{hash::Hash, sync::mpsc, time::Instant};
+use std::{sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -14,7 +14,7 @@ pub struct OnlyForward {
 }
 
 impl OnlyForward {
-    fn handle_midi_msg<T: StackType + Eq + Hash>(
+    fn handle_midi_msg<T: StackType>(
         &mut self,
         time: Instant,
         bytes: &Vec<u8>,
@@ -88,7 +88,7 @@ impl OnlyForward {
     }
 }
 
-impl<T: StackType + Eq + Hash> ProcessState<T> for OnlyForward {
+impl<T: StackType> ProcessState<T> for OnlyForward {
     fn handle_msg(
         &mut self,
         time: Instant,

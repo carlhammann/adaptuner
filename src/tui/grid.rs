@@ -1,4 +1,4 @@
-use std::{hash::Hash, marker::PhantomData, mem::MaybeUninit, sync::mpsc, time::Instant};
+use std::{marker::PhantomData, mem::MaybeUninit, sync::mpsc, time::Instant};
 
 use colorous;
 use crossterm::event::{KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
@@ -317,10 +317,8 @@ fn render_stack<T: FiveLimitStackType>(
     buf.set_style(area, style);
 }
 
-impl<
-        T: FiveLimitStackType + PeriodicStackType + Eq + Hash,
-        N: AlignedPeriodicNeighbourhood<T> + Clone,
-    > UIState<T> for Grid<T, N>
+impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<T> + Clone>
+    UIState<T> for Grid<T, N>
 {
     fn handle_msg(
         &mut self,
@@ -412,20 +410,11 @@ impl<
             }
             msg::AfterProcess::Retune {
                 note: i,
-                tuning_stack_actual,
-                tuning_stack_targets,
+                tuning_stack,
                 ..
             } => {
                 let ith_note = &mut self.active_notes[*i as usize];
-                ith_note
-                    .tuning_stack
-                    .actual
-                    .clone_from(&tuning_stack_actual);
-                ith_note
-                    .tuning_stack
-                    .target
-                    .clone_from(&tuning_stack_targets.iter().next().unwrap().target);
-                // TODO do something cleverer here; we can't alwas choose the first and hope it makes sense
+                ith_note.tuning_stack.clone_from(&tuning_stack);
             }
             msg::AfterProcess::NoteOff {
                 note: i, channel, ..
@@ -482,7 +471,7 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
     Config<Grid<T, N>> for GridConfig<T, N>
 {
     fn initialise(config: &Self) -> Grid<T, N> {
-        let mut uninit_active_notes = [const { MaybeUninit::<NoteInfo<T>>::uninit() }; 128];
+        let mut uninit_active_notes = [const { MaybeUninit::<NoteInfo<T>>:: uninit() } ; 128];
         for i in 0..128 {
             uninit_active_notes[i].write(NoteInfo {
                 state_by_channel: [NoteState::Off; 16],

@@ -1,8 +1,8 @@
-use std::{hash::Hash, sync::mpsc, time::Instant};
+use std::{sync::mpsc, time::Instant};
 
 use crate::{interval::stacktype::r#trait::StackType, msg};
 
-pub trait ProcessState<T: StackType + Eq + Hash> {
+pub trait ProcessState<T: StackType> {
     fn handle_msg(
         &mut self,
         time: Instant,
