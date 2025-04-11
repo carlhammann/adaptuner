@@ -121,6 +121,11 @@ impl<T: StackType> Stack<T> {
         }
     }
 
+    pub fn increment_at_index_pure(&mut self, interval_index: usize, increment: StackCoeff) {
+        self.target[interval_index] += increment;
+        self.actual[interval_index] += increment;
+    }
+
     pub fn is_target(&self) -> bool {
         for (i, r) in self.actual.iter().enumerate() {
             if !r.is_integer() {
