@@ -1,8 +1,8 @@
-use std::{hash::Hash, sync::mpsc, time::Instant};
+use std::{sync::mpsc, time::Instant};
 
 use crate::{interval::stacktype::r#trait::StackType, msg};
 
-pub trait BackendState<T: StackType + Eq + Hash> {
+pub trait BackendState<T: StackType> {
     fn handle_msg(
         &mut self,
         time: Instant,

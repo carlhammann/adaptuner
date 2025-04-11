@@ -2,7 +2,7 @@
 //! [OctavePeriodicStackType].
 //!
 
-use std::{hash::Hash, mem::MaybeUninit, sync::mpsc, time::Instant};
+use std::{mem::MaybeUninit, sync::mpsc, time::Instant};
 
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -67,7 +67,7 @@ impl Pitchbend12 {
     }
 }
 
-impl<T: OctavePeriodicStackType + Eq + Hash> BackendState<T> for Pitchbend12 {
+impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
     fn handle_msg(
         &mut self,
         time: Instant,
