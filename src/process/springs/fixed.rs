@@ -1,9 +1,4 @@
-use std::{
-    collections::HashSet,
-    hash::Hash,
-    sync::{mpsc, Arc},
-    time::Instant,
-};
+use std::{hash::Hash, sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, MidiMsg};
 use num_rational::Ratio;
@@ -191,7 +186,7 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
 
         match self.workspace.best_intervals(
             &self.active_keys,
-            |k, i, j| self.provider.which_connector(k, i, j),
+            |i, j| self.provider.which_connector(&self.active_keys, i, j),
             |d| self.provider.candidate_springs(d),
             |d| self.provider.rod(d),
             &mut self.solver,
@@ -223,21 +218,16 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
                         return;
                     }
                     Ok((solution, anchor_relaxed, anchor_energy)) => {
-
-
-                        let dummy: Arc<HashSet<_>> = Arc::new([Stack::new_zero()].into());
-                        //if !self.workspace.relaxed() {
-                        //    self.workspace.update_anchor_options();
-                        //}
-                        for (i, r) in solution.rows().into_iter().enumerate() {
+                        let interval_targets = self.workspace.current_interval_targets();
+                        let mut anchor_targets =
+                            self.workspace.current_anchor_targets(&interval_targets);
+                        for (i, target) in  anchor_targets.drain(..).enumerate() {
+                            let tuning_stack = Stack::from_target_and_actual(target, solution.row(i).to_owned());
                             send_to_backend(
                                 msg::AfterProcess::Retune {
                                     note: self.active_keys[i],
                                     tuning: self.workspace.get_semitones(solution.view(), i),
-
-                                    tuning_stack_actual: r.to_owned(),
-                                    //tuning_stack_targets: self.workspace.get_anchor_options(i),
-                                    tuning_stack_targets: dummy.clone(),
+                                    tuning_stack,
                                 },
                                 time,
                             );
