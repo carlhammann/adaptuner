@@ -1,6 +1,7 @@
 use std::{hash::Hash, sync::mpsc, time::Instant};
 
 use midi_msg::{ChannelVoiceMsg, MidiMsg};
+use ndarray::Array1;
 use num_rational::Ratio;
 
 use super::{
@@ -10,13 +11,15 @@ use super::{
 use crate::{
     config::r#trait::Config,
     interval::{
-        stack::Stack,
+        fundamental::HasFundamental,
+        stack::{BigKeyDistance, BigKeyNumber, Negate, ScaledAdd, Stack},
         stacktype::{
             fivelimit::ConcreteFiveLimitStackType,
-            r#trait::{StackCoeff, StackType},
+            r#trait::{FiveLimitStackType, StackCoeff, StackType},
         },
     },
     msg,
+    notename::NoteNameStyle,
     process::r#trait::ProcessState,
 };
 
@@ -28,8 +31,8 @@ pub struct State<T: StackType, P: Provider<T>> {
 }
 
 pub trait Provider<T: StackType> {
-    fn candidate_springs(&self, d: KeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
-    fn candidate_anchors(&self, k: KeyNumber) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
+    fn candidate_springs(&self, d: BigKeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
+    fn candidate_anchors(&self, k: BigKeyNumber) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
     fn rod(&self, d: &RodSpec) -> Stack<T>;
     fn which_connector(&self, keys: &[KeyNumber], i: usize, j: usize) -> Connector;
 }
@@ -39,7 +42,7 @@ pub struct ConcreteFiveLimitProvider {}
 impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
     fn candidate_springs(
         &self,
-        d: KeyDistance,
+        d: BigKeyDistance,
     ) -> Vec<(Stack<ConcreteFiveLimitStackType>, Ratio<StackCoeff>)> {
         let octaves = (d as StackCoeff).div_euclid(12);
         let pitch_class = d.rem_euclid(12);
@@ -126,17 +129,16 @@ impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
 
     fn candidate_anchors(
         &self,
-        k: KeyNumber,
+        k: BigKeyNumber,
     ) -> Vec<(Stack<ConcreteFiveLimitStackType>, Ratio<StackCoeff>)> {
-        self.candidate_springs(k as KeyDistance - 60)
+        self.candidate_springs(k as BigKeyDistance - 60)
     }
 
     fn rod(&self, d: &RodSpec) -> Stack<ConcreteFiveLimitStackType> {
         match d[..] {
             [(12, n)] => Stack::from_target(vec![n, 0, 0]),
             _ => {
-                println!("{d:?}");
-                panic!();
+                panic!("{d:?}");
             }
         }
     }
@@ -175,7 +177,11 @@ impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
     }
 }
 
-impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
+impl<T, P> State<T, P>
+where
+    T: StackType + Hash + Eq + std::fmt::Debug + HasFundamental + FiveLimitStackType,
+    P: Provider<T>,
+{
     fn retune(
         &mut self,
         time: Instant,
@@ -187,7 +193,7 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
         match self.workspace.best_intervals(
             &self.active_keys,
             |i, j| self.provider.which_connector(&self.active_keys, i, j),
-            |d| self.provider.candidate_springs(d),
+            |d| self.provider.candidate_springs(d as BigKeyDistance),
             |d| self.provider.rod(d),
             &mut self.solver,
         ) {
@@ -201,45 +207,86 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
                 return;
             }
             Ok((interval_solution, interval_relaxed, interval_energy)) => {
-                match self.workspace.best_anchoring(
-                    interval_solution,
-                    &self.active_keys,
-                    &[0],
-                    |k| self.provider.candidate_anchors(k),
-                    &mut self.solver,
-                ) {
-                    Err(e) => {
-                        send_to_backend(
-                            msg::AfterProcess::Notify {
-                                line: format!("while computing the optimal anchors: {:?}", e),
-                            },
-                            time,
-                        );
-                        return;
-                    }
-                    Ok((solution, anchor_relaxed, anchor_energy)) => {
-                        let interval_targets = self.workspace.current_interval_targets();
-                        let mut anchor_targets =
-                            self.workspace.current_anchor_targets(&interval_targets);
-                        for (i, target) in  anchor_targets.drain(..).enumerate() {
-                            let tuning_stack = Stack::from_target_and_actual(target, solution.row(i).to_owned());
-                            send_to_backend(
-                                msg::AfterProcess::Retune {
-                                    note: self.active_keys[i],
-                                    tuning: self.workspace.get_semitones(solution.view(), i),
-                                    tuning_stack,
-                                },
-                                time,
-                            );
-                        }
-                    }
+                let mut interval_targets = self.workspace.current_interval_targets();
+                let n = self.active_keys.len();
+                let mut stacks: Vec<Stack<T>> = Vec::with_capacity(n);
+                stacks.push(Stack::from_target_and_actual(
+                    Array1::zeros(T::num_intervals()),
+                    interval_solution.row(0).to_owned(),
+                ));
+                for (i, target) in interval_targets
+                    .drain(0..(n - 1)) // the intervals from the base note, which is anchored to the origin
+                    .enumerate()
+                {
+                    stacks.push(Stack::from_target_and_actual(
+                        target,
+                        interval_solution.row(i + 1).to_owned(),
+                    ));
+                }
+
+                // Stack by which we have to shift
+                let mut f0_delta_stack = <T as HasFundamental>::fundamental_many(stacks.iter());
+                //println!("active_keys: {:?}", self.active_keys);
+                //println!(
+                //    "wrong fundamental: {} {} {} {}",
+                //    f0_delta_stack.notename(&NoteNameStyle::JohnstonFiveLimitFull),
+                //    f0_delta_stack.key_number(),
+                //    f0_delta_stack.absolute_semitones(),
+                //    f0_delta_stack.is_target()
+                //);
+
+                // key number and stack describing the fundamental of the currently sounding notes
+                let k0 = self.active_keys[0] as BigKeyNumber - 60 + f0_delta_stack.key_number();
+                let f0_stack = &self.provider.candidate_anchors(k0)[0].0;
+                //println!(
+                //    "true fundamental: {} {} {} {}",
+                //    f0_stack.notename(&NoteNameStyle::JohnstonFiveLimitFull),
+                //    f0_stack.key_number(),
+                //    f0_stack.absolute_semitones(),
+                //    f0_stack.is_target()
+                //);
+
+                f0_delta_stack.negate();
+                f0_delta_stack.scaled_add(1, f0_stack);
+                //println!(
+                //    "shift: {} {} {} {}",
+                //    f0_delta_stack.notename(&NoteNameStyle::JohnstonFiveLimitFull),
+                //    f0_delta_stack.key_number(),
+                //    f0_delta_stack.absolute_semitones(),
+                //    f0_delta_stack.is_target()
+                //);
+
+                for stack in stacks.iter_mut() {
+                    stack.scaled_add(1, &f0_delta_stack);
+                    //println!(
+                    //    "{} {} {} {}",
+                    //    stack.notename(&NoteNameStyle::JohnstonFiveLimitFull),
+                    //    stack.key_number(),
+                    //    stack.absolute_semitones(),
+                    //    stack.is_target()
+                    //);
+                }
+
+                for (i, stack) in stacks.drain(..).enumerate() {
+                    send_to_backend(
+                        msg::AfterProcess::Retune {
+                            note: self.active_keys[i],
+                            tuning: stack.absolute_semitones(),
+                            tuning_stack: stack,
+                        },
+                        time,
+                    )
                 }
             }
         }
     }
 }
 
-impl<T: StackType + Eq + Hash + std::fmt::Debug, P: Provider<T>> State<T, P> {
+impl<T, P> State<T, P>
+where
+    T: StackType + Eq + Hash + std::fmt::Debug + HasFundamental + FiveLimitStackType,
+    P: Provider<T>,
+{
     fn handle_midi(
         &mut self,
         time: Instant,
@@ -314,7 +361,11 @@ impl<T: StackType + Eq + Hash + std::fmt::Debug, P: Provider<T>> State<T, P> {
     }
 }
 
-impl<T: StackType + Eq + Hash + std::fmt::Debug, P: Provider<T>> ProcessState<T> for State<T, P> {
+impl<T, P> ProcessState<T> for State<T, P>
+where
+    T: StackType + Eq + Hash + std::fmt::Debug + HasFundamental + FiveLimitStackType, // remove FiveLimitStackType
+    P: Provider<T>,
+{
     fn handle_msg(
         &mut self,
         time: Instant,

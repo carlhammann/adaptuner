@@ -17,6 +17,9 @@ pub struct Stack<T: StackType> {
     pub actual: Array1<Ratio<StackCoeff>>,
 }
 
+pub type BigKeyNumber = StackCoeff;
+pub type BigKeyDistance = StackCoeff;
+
 pub trait ScaledAdd<S> {
     fn scaled_add<P: ops::Deref<Target = Self>>(&mut self, scalar: S, other: P);
 }
@@ -26,6 +29,19 @@ impl<T: StackType> ScaledAdd<StackCoeff> for Stack<T> {
         self.target.scaled_add(scalar, &other.target);
         self.actual
             .scaled_add(Ratio::from_integer(scalar), &other.actual);
+    }
+}
+
+pub trait Negate {
+    fn negate(&mut self);
+}
+
+impl<T: StackType> Negate for Stack<T> {
+    fn negate(&mut self) {
+        self.target *= -1;
+        for c in self.actual.iter_mut() {
+            *c *= -1;
+        }
     }
 }
 
@@ -175,7 +191,7 @@ impl<T: StackType> Stack<T> {
         self.semitones() - res
     }
 
-    pub fn key_distance(&self) -> StackCoeff {
+    pub fn key_distance(&self) -> BigKeyDistance {
         let mut res = 0;
         for (i, &c) in self.target.iter().enumerate() {
             res += T::intervals()[i].key_distance as StackCoeff * c;
@@ -187,7 +203,7 @@ impl<T: StackType> Stack<T> {
     /// stack describes. This uses the [Self::key_distance], so it returns the "enharmonically
     /// correct" key, not the one whose (equally tempered) MIDI note is closest to the actually
     /// sounding note.
-    pub fn key_number(&self) -> StackCoeff {
+    pub fn key_number(&self) -> BigKeyNumber {
         self.key_distance() + 60
     }
 
