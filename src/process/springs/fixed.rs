@@ -1,4 +1,9 @@
-use std::{hash::Hash, sync::mpsc, time::Instant};
+use std::{
+    collections::BTreeMap,
+    hash::Hash,
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 
 use midi_msg::{ChannelVoiceMsg, MidiMsg};
 use num_rational::Ratio;
@@ -8,15 +13,16 @@ use super::{
     util::{self, Connector, KeyDistance, KeyNumber, RodSpec},
 };
 use crate::{
-    config::r#trait::Config,
+    config,
     interval::{
         stack::Stack,
         stacktype::{
             fivelimit::ConcreteFiveLimitStackType,
-            r#trait::{StackCoeff, StackType},
+            r#trait::{FiveLimitStackType, StackCoeff, StackType},
         },
     },
     msg,
+    notename::NoteNameStyle,
     process::r#trait::ProcessState,
 };
 
@@ -25,6 +31,9 @@ pub struct State<T: StackType, P: Provider<T>> {
     solver: Solver,
     workspace: util::Workspace<T>,
     provider: P,
+    reference_tunings: BTreeMap<KeyNumber, Stack<T>>,
+    reference_time: Instant,
+    config: Config,
 }
 
 pub trait Provider<T: StackType> {
@@ -134,10 +143,7 @@ impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
     fn rod(&self, d: &RodSpec) -> Stack<ConcreteFiveLimitStackType> {
         match d[..] {
             [(12, n)] => Stack::from_target(vec![n, 0, 0]),
-            _ => {
-                println!("{d:?}");
-                panic!();
-            }
+            _ => panic!("{d:?}"),
         }
     }
 
@@ -175,7 +181,7 @@ impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
     }
 }
 
-impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
+impl<T: StackType + Hash + Eq + std::fmt::Debug + FiveLimitStackType, P: Provider<T>> State<T, P> {
     fn retune(
         &mut self,
         time: Instant,
@@ -201,13 +207,47 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
                 return;
             }
             Ok((interval_solution, interval_relaxed, interval_energy)) => {
-                match self.workspace.best_anchoring(
-                    interval_solution,
-                    &self.active_keys,
-                    &[0],
-                    |k| self.provider.candidate_anchors(k),
-                    &mut self.solver,
-                ) {
+                match {
+                    match self.config.anchor_policy {
+                        AnchorPolicy::AllConstants => {
+                            let mut anchored_key_indices = vec![];
+                            for (i, k) in self.active_keys.iter().enumerate() {
+                                if self.reference_tunings.get(k).is_some() {
+                                    anchored_key_indices.push(i);
+                                }
+                            }
+                            println!(
+                                "\n\n\nreference tunings: {:?}",
+                                self.reference_tunings
+                                    .iter()
+                                    .map(|(k, v)| (
+                                        k,
+                                        v.notename(&NoteNameStyle::JohnstonFiveLimitFull)
+                                    ))
+                                    .collect::<Vec<_>>()
+                            );
+                            println!("anchored_key_indices: {anchored_key_indices:?}");
+                            self.workspace.best_anchoring(
+                                interval_solution,
+                                &self.active_keys,
+                                &anchored_key_indices,
+                                |k| {
+                                    vec![(
+                                        self.reference_tunings.get(&k).unwrap().clone(),
+                                        Ratio::from_integer(1),
+                                    )]
+                                },
+                                &mut self.solver,
+                            )
+                        }
+                        AnchorPolicy::HighestConstant => {
+                            todo!()
+                        }
+                        AnchorPolicy::Envelope => {
+                            todo!()
+                        }
+                    }
+                } {
                     Err(e) => {
                         send_to_backend(
                             msg::AfterProcess::Notify {
@@ -221,8 +261,15 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
                         let interval_targets = self.workspace.current_interval_targets();
                         let mut anchor_targets =
                             self.workspace.current_anchor_targets(&interval_targets);
-                        for (i, target) in  anchor_targets.drain(..).enumerate() {
-                            let tuning_stack = Stack::from_target_and_actual(target, solution.row(i).to_owned());
+                        if time.duration_since(self.reference_time) > self.config.reference_window {
+                            self.reference_tunings.clear();
+                            println!("clearing reference tunings");
+                        }
+                        for (i, target) in anchor_targets.drain(..).enumerate() {
+                            let tuning_stack =
+                                Stack::from_target_and_actual(target, solution.row(i).to_owned());
+                            self.reference_tunings
+                                .insert(self.active_keys[i], tuning_stack.clone());
                             send_to_backend(
                                 msg::AfterProcess::Retune {
                                     note: self.active_keys[i],
@@ -239,7 +286,7 @@ impl<T: StackType + Hash + Eq + std::fmt::Debug, P: Provider<T>> State<T, P> {
     }
 }
 
-impl<T: StackType + Eq + Hash + std::fmt::Debug, P: Provider<T>> State<T, P> {
+impl<T: StackType + Eq + Hash + std::fmt::Debug + FiveLimitStackType, P: Provider<T>> State<T, P> {
     fn handle_midi(
         &mut self,
         time: Instant,
@@ -314,7 +361,11 @@ impl<T: StackType + Eq + Hash + std::fmt::Debug, P: Provider<T>> State<T, P> {
     }
 }
 
-impl<T: StackType + Eq + Hash + std::fmt::Debug, P: Provider<T>> ProcessState<T> for State<T, P> {
+impl<P, T> ProcessState<T> for State<T, P>
+where
+    P: Provider<T>,
+    T: StackType + Eq + Hash + std::fmt::Debug + FiveLimitStackType, // remove FiveLimitStackType
+{
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -333,18 +384,39 @@ impl<T: StackType + Eq + Hash + std::fmt::Debug, P: Provider<T>> ProcessState<T>
     }
 }
 
-pub struct FooConfig {
-    pub initial_n_keys: usize,
-    pub initial_n_lengths: usize,
+#[derive(Clone)]
+pub enum AnchorPolicy {
+    AllConstants,
+    HighestConstant,
+    Envelope,
 }
 
-impl Config<State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider>> for FooConfig {
+#[derive(Clone)]
+pub struct Config {
+    pub initial_n_keys: usize,
+    pub initial_n_lengths: usize,
+    pub anchor_policy: AnchorPolicy,
+    pub reference_window: Duration,
+}
+
+impl config::r#trait::Config<State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider>>
+    for Config
+{
     fn initialise(config: &Self) -> State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider> {
         State {
             active_keys: vec![],
             solver: Solver::new(config.initial_n_keys, config.initial_n_lengths, 3),
             workspace: util::Workspace::new(config.initial_n_keys, true, true, true),
             provider: ConcreteFiveLimitProvider {},
+            reference_tunings: {
+                let mut t = BTreeMap::new();
+                t.insert(60, Stack::new_zero());
+                t
+            },
+            reference_time: Instant::now()
+                .checked_sub(config.reference_window * 2)
+                .unwrap(),
+            config: config.clone(),
         }
     }
 }

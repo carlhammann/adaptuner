@@ -8,12 +8,16 @@ use crossterm::{
 use ratatui::prelude::{Frame, Rect};
 
 use crate::{
-    config::r#trait::Config, interval::stacktype::r#trait::StackType, msg, tui::r#trait::UIState,
+    config::r#trait::Config,
+    interval::stacktype::r#trait::{FiveLimitStackType, StackType},
+    msg,
+    notename::NoteNameStyle,
+    tui::r#trait::UIState,
 };
 
 pub struct OnlyNotify {}
 
-impl<T: StackType + fmt::Debug> UIState<T> for OnlyNotify {
+impl<T: StackType + fmt::Debug + FiveLimitStackType> UIState<T> for OnlyNotify {
     fn handle_msg(
         &mut self,
         _time: Instant,
@@ -29,10 +33,25 @@ impl<T: StackType + fmt::Debug> UIState<T> for OnlyNotify {
                 disable_raw_mode().expect("Could not disable raw mode");
             }
             msg::AfterProcess::Notify { line } => println!("{}", line),
-            msg::AfterProcess::BackendLatency { .. } => {
-                println!("raw message received by UI: {:?}", msg)
+            msg::AfterProcess::NoteOn { channel, note, .. } => {
+                println!("noteon ch {} note {}", channel, note)
             }
-            _ => {} //
+            msg::AfterProcess::NoteOff { channel, note, .. } => {
+                println!("noteoff ch {} note {}", channel, note)
+            }
+            msg::AfterProcess::Retune {
+                note, tuning_stack, ..
+            } => println!(
+                "retune {} {} {} {} {}",
+                note,
+                tuning_stack.notename(&NoteNameStyle::JohnstonFiveLimitFull),
+                tuning_stack.target,
+                tuning_stack.actual,
+                tuning_stack.absolute_semitones() - tuning_stack.target_absolute_semitones(),
+            ),
+            _ => {
+                //println!("raw message received by UI: {:?}", msg)
+            }
         }
     }
 }
