@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{time::Duration, marker::PhantomData};
 
 use midi_msg::Channel;
 use serde_derive::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ use crate::{
     pattern::{KeyShape, Pattern},
     process::{
         r#trait::ProcessState,
-        springs::{self, fixed::FooConfig},
+        springs,
         walking::{Walking, WalkingConfig},
     },
     tui::{
@@ -242,7 +242,7 @@ pub fn init_fixed_spring_config(
 ) -> CompleteConfig<
     ConcreteFiveLimitStackType,
     springs::fixed::State<ConcreteFiveLimitStackType, springs::fixed::ConcreteFiveLimitProvider>,
-    springs::fixed::FooConfig,
+    springs::fixed::Config,
     Pitchbend12,
     Pitchbend12Config,
     WrappedGrid<
@@ -266,9 +266,11 @@ pub fn init_fixed_spring_config(
     );
     CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
-        process_config: FooConfig {
+        process_config: springs::fixed::Config {
             initial_n_keys: 10,
             initial_n_lengths: 90,
+            anchor_policy: springs::fixed::AnchorPolicy::AllConstants,
+            reference_window: Duration::from_millis(500),
         },
         backend_config: Pitchbend12Config {
             channels: [
@@ -317,7 +319,7 @@ pub fn init_fixed_spring_config(
 pub fn init_fixed_spring_debug_config() -> CompleteConfig<
     ConcreteFiveLimitStackType,
     springs::fixed::State<ConcreteFiveLimitStackType, springs::fixed::ConcreteFiveLimitProvider>,
-    springs::fixed::FooConfig,
+    springs::fixed::Config,
     Pitchbend12,
     Pitchbend12Config,
     OnlyNotify,
@@ -325,9 +327,11 @@ pub fn init_fixed_spring_debug_config() -> CompleteConfig<
 > {
     CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
-        process_config: FooConfig {
+        process_config: springs::fixed::Config {
             initial_n_keys: 10,
             initial_n_lengths: 90,
+            anchor_policy: springs::fixed::AnchorPolicy::AllConstants,
+            reference_window: Duration::from_millis(500),
         },
         backend_config: Pitchbend12Config {
             channels: [

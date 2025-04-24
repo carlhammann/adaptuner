@@ -150,6 +150,7 @@ impl<T: StackType> Stack<T> {
         true
     }
 
+    /// Size of the interval described, in fractional semitones.
     pub fn semitones(&self) -> Semitones {
         let mut res = 0.0;
         for (i, &c) in self.actual.iter().enumerate() {
@@ -158,11 +159,25 @@ impl<T: StackType> Stack<T> {
         }
         res
     }
+   
+    /// Like [Self::semitones], but for the target note.
+    pub fn target_semitones(&self) -> Semitones {
+        let mut res = 0.0;
+        for (i, &c) in self.target.iter().enumerate() {
+            res += T::intervals()[i].semitones * c as Semitones;
+        }
+        res
+    }
 
     /// If the zero stack corresponds to middle C, return the "fractional MIDI note number"
     /// described by this stack.
     pub fn absolute_semitones(&self) -> Semitones {
         self.semitones() + 60.0
+    }
+
+    /// Like [Self::absolute_semitones], but for the target note.
+    pub fn target_absolute_semitones(&self) -> Semitones {
+        self.target_semitones() + 60.0
     }
 
     /// How many fractional semitones higher than the target note is the actual note described by

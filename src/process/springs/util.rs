@@ -442,9 +442,9 @@ impl<T: StackType + Eq + std::fmt::Debug> Workspace<T> {
     /// If you do anything mutating to [self] (in particular [Workspace::keys]) between
     /// calculating the IntervalSolution and calling this function, prepare for pain.
     ///
-    /// invariantx:
+    /// invariants:
     /// - the `keys` must be the same ones that the `interval_solution` was calculated for.
-    ///   (Strictlz, it'll be logically sufficient for them to have the same relative positions.)
+    ///   (Strictly, it'll be logically sufficient for them to have the same relative positions.)
     pub fn best_anchoring<PA>(
         &mut self,
         interval_solution: Array2<Ratio<StackCoeff>>,
