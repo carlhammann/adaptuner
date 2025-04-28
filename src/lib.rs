@@ -7,5 +7,6 @@ pub mod neighbourhood;
 pub mod notename;
 pub mod pattern;
 pub mod process;
+pub mod strategy;
 pub mod tui;
 pub mod util;

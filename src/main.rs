@@ -328,7 +328,19 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     //    initial_neighbourhood_offset,
     //);
 
-    let the_config = config::init_fixed_spring_debug_config();
+    //let the_config = config::init_fixed_spring_debug_config();
+
+    let the_config = config::init_static_config(
+        initial_neighbourhood_width,
+        initial_neighbourhood_index,
+        initial_neighbourhood_offset,
+    );
+
+    //let the_config = config::init_static_debug_config(
+    //    initial_neighbourhood_width,
+    //    initial_neighbourhood_index,
+    //    initial_neighbourhood_offset,
+    //);
 
     run(the_config)
 }
