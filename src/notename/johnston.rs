@@ -16,18 +16,50 @@ pub mod fivelimit {
 
     impl NoteName {
         pub fn new<T: FiveLimitStackType>(s: &Stack<T>) -> Self {
-            Self::new_with_indices(T::octave_index(), T::fifth_index(), T::third_index(), s)
+            Self::new_from_indices(
+                false,
+                T::octave_index(),
+                T::fifth_index(),
+                T::third_index(),
+                s,
+            )
         }
 
-        fn new_with_indices<T: StackType>(
+        /// like new, but uses the [Stack::actual] instead of the [Stack::target]. Fractions are
+        /// rounded in an unspecified way.
+        ///
+        /// This function makes sense when you know that the [Stack::actual] describes a pure
+        /// interval, which is differenf from the the [Stack::target]: I.e. [Stack::is_pure()], but
+        /// not [Stack::is_target()].
+        pub fn new_from_actual<T: FiveLimitStackType>(s: &Stack<T>) -> Self {
+            Self::new_from_indices(
+                true,
+                T::octave_index(),
+                T::fifth_index(),
+                T::third_index(),
+                s,
+            )
+        }
+
+        fn new_from_indices<T: StackType>(
+            use_actual: bool,
             octave_index: usize,
             fifth_index: usize,
             third_index: usize,
             s: &Stack<T>,
         ) -> Self {
-            let octaves = s.target_coefficients()[octave_index];
-            let fifths = s.target_coefficients()[fifth_index];
-            let thirds = s.target_coefficients()[third_index];
+            let octaves;
+            let fifths;
+            let thirds;
+            if use_actual {
+                octaves = s.actual[octave_index].to_integer();
+                fifths = s.actual[fifth_index].to_integer();
+                thirds = s.actual[third_index].to_integer();
+            } else {
+                octaves = s.target[octave_index];
+                fifths = s.target[fifth_index];
+                thirds = s.target[third_index];
+            }
             let ix = 2 + 2 * fifths + thirds;
             NoteName {
                 base: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],

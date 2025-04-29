@@ -86,7 +86,7 @@ pub trait Neighbourhood<T: StackType> {
     fn bounds(&self, axis: usize) -> (StackCoeff, StackCoeff) {
         let (mut min, mut max) = (0, 0);
         self.for_each_stack(|_, stack| {
-            let x = stack.target_coefficients()[axis];
+            let x = stack.target[axis];
             if x > max {
                 max = x
             }

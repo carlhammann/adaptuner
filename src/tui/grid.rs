@@ -1,7 +1,8 @@
-use std::{marker::PhantomData, mem::MaybeUninit, sync::mpsc, time::Instant};
+use std::{marker::PhantomData, sync::mpsc, time::Instant};
 
 use colorous;
 use crossterm::event::{KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
+use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 use ratatui::{
     prelude::{Buffer, Color, Frame, Rect, Style, Widget},
     widgets::WidgetRef,
@@ -14,6 +15,7 @@ use crate::{
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{FiveLimitStackType, PeriodicStackType, StackCoeff, StackType},
     },
+    keystate::KeyState,
     msg,
     neighbourhood::AlignedPeriodicNeighbourhood,
     notename::NoteNameStyle,
@@ -44,27 +46,9 @@ fn foreground_for_background(r: u8, g: u8, b: u8) -> u8 {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
-enum NoteState {
-    Off,
-    Pressed,
-    Sustained,
-}
-
 struct NoteInfo<T: StackType> {
     tuning_stack: Stack<T>,
-    state_by_channel: [NoteState; 16],
-}
-
-impl<T: StackType> NoteInfo<T> {
-    fn inactive(&self) -> bool {
-        for state in self.state_by_channel {
-            if state != NoteState::Off {
-                return false;
-            }
-        }
-        true
-    }
+    key_state: KeyState,
 }
 
 pub struct Grid<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> {
@@ -79,7 +63,7 @@ pub struct Grid<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> {
     active_temperaments: Vec<bool>,
 
     active_notes: [NoteInfo<T>; 128],
-    sustain: [bool; 16],
+    pedal_hold: [bool; 16],
     considered_notes: N,
 
     reference_key: i8,
@@ -111,7 +95,7 @@ impl<T: PeriodicStackType, N: AlignedPeriodicNeighbourhood<T>> Grid<T, N> {
         let (mut min_vertical, mut max_vertical) = (origin_vertical, origin_vertical);
 
         for note in &self.active_notes {
-            if note.inactive() {
+            if !note.key_state.is_sounding() {
                 continue;
             }
             let hor = note.tuning_stack.target_coefficients()[horizontal_index];
@@ -241,7 +225,7 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
             }
         });
         for note in &self.active_notes {
-            if note.inactive() {
+            if !note.key_state.is_sounding() {
                 continue;
             }
             let i = note.tuning_stack.target_coefficients()[self.vertical_index];
@@ -290,13 +274,26 @@ fn render_stack<T: FiveLimitStackType>(
         Style::default(),
     );
     let deviation = stack.semitones_above_target();
-    if !stack.is_pure() {
-        buf.set_string(
-            area.x,
-            area.y + 1,
-            format!("{d:+.0}", d = deviation * 100.0),
-            Style::default(),
-        );
+    if !stack.is_target() {
+        if stack.is_pure() {
+            buf.set_string(
+                area.x,
+                area.y + 1,
+                format!(
+                    "{:+.0}={}",
+                    deviation * 100.0,
+                    stack.actual_notename(&config.notenamestyle)
+                ),
+                Style::default(),
+            );
+        } else {
+            buf.set_string(
+                area.x,
+                area.y + 1,
+                format!("{d:+.0}", d = deviation * 100.0),
+                Style::default(),
+            );
+        }
     }
     let t = ((deviation / config.color_range).max(-1.0).min(1.0) + 1.0) / 2.0; // in range 0..1
     let colorous::Color { r, g, b } = config.gradient.eval_continuous(t);
@@ -362,7 +359,9 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                                     self.active_temperaments[index] =
                                         !self.active_temperaments[index];
                                     send_to_process(
-                                        msg::ToProcess::ToggleTemperament { index },
+                                        msg::ToProcess::ToStrategy(
+                                            msg::ToStrategy::ToggleTemperament { index },
+                                        ),
                                         time,
                                     );
                                 }
@@ -389,62 +388,73 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
                     coefficients[self.vertical_index] = vertical_offset;
                     coefficients[self.horizontal_index] = horizontal_offset;
 
-                    send_to_process(msg::ToProcess::Consider { coefficients }, time);
+                    send_to_process(
+                        msg::ToProcess::ToStrategy(msg::ToStrategy::Consider { coefficients }),
+                        time,
+                    );
                 }
                 _ => {}
             },
-            msg::AfterProcess::SetReference { key, stack } => {
-                self.reference_key = *key as i8;
-                self.reference_stack.clone_from(&stack);
-            }
 
-            msg::AfterProcess::NoteOn {
-                note: i,
-                //tuning_stack,
-                channel,
-                ..
-            } => {
-                let ith_note = &mut self.active_notes[*i as usize];
-                //ith_note.tuning_stack.clone_from(&tuning_stack);
-                ith_note.state_by_channel[*channel as usize] = NoteState::Pressed;
-            }
-            msg::AfterProcess::Retune {
-                note: i,
-                tuning_stack,
-                ..
-            } => {
-                let ith_note = &mut self.active_notes[*i as usize];
-                ith_note.tuning_stack.clone_from(&tuning_stack);
-            }
-            msg::AfterProcess::NoteOff {
-                note: i, channel, ..
-            } => {
-                let ith_note = &mut self.active_notes[*i as usize];
-                let old_state = ith_note.state_by_channel[*channel as usize];
-                ith_note.state_by_channel[*channel as usize] = match old_state {
-                    NoteState::Off => NoteState::Off,
-                    NoteState::Sustained => NoteState::Sustained,
-                    NoteState::Pressed => {
-                        if self.sustain[*channel as usize] {
-                            NoteState::Sustained
-                        } else {
-                            NoteState::Off
+            msg::AfterProcess::ForwardMidi { msg } => match msg {
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: ChannelVoiceMsg::NoteOn { note, .. },
+                } => {
+                    self.active_notes[*note as usize]
+                        .key_state
+                        .note_on(*channel, time);
+                }
+
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: ChannelVoiceMsg::NoteOff { note, .. },
+                } => {
+                    self.active_notes[*note as usize].key_state.note_off(
+                        *channel,
+                        self.pedal_hold[*channel as usize],
+                        time,
+                    );
+                }
+
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg:
+                        ChannelVoiceMsg::ControlChange {
+                            control: ControlChange::Hold(value),
+                        },
+                } => {
+                    self.pedal_hold[*channel as usize] = *value != 0;
+                    if *value == 0 {
+                        for note in &mut self.active_notes {
+                            note.key_state.pedal_off(*channel, time);
                         }
                     }
-                };
-            }
-
-            msg::AfterProcess::Consider { stack } => {
-                self.considered_notes.insert(stack);
-            }
-            msg::AfterProcess::Sustain { value, channel, .. } => {
-                self.sustain[*channel as usize] = *value != 0;
-                for note in &mut self.active_notes {
-                    if note.state_by_channel[*channel as usize] == NoteState::Sustained {
-                        note.state_by_channel[*channel as usize] = NoteState::Off;
-                    }
                 }
-            }
+
+                _ => {}
+            },
+
+            msg::AfterProcess::FromStrategy(msg) => match msg {
+                msg::FromStrategy::SetReference { key, stack } => {
+                    self.reference_key = *key as i8;
+                    self.reference_stack.clone_from(&stack);
+                }
+
+                msg::FromStrategy::Retune {
+                    note: i,
+                    tuning_stack,
+                    ..
+                } => {
+                    let ith_note = &mut self.active_notes[*i as usize];
+                    ith_note.tuning_stack.clone_from(&tuning_stack);
+                }
+
+                msg::FromStrategy::Consider { stack } => {
+                    self.considered_notes.insert(stack);
+                }
+                _ => {}
+            },
 
             _ => {}
         }
@@ -471,14 +481,7 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
     Config<Grid<T, N>> for GridConfig<T, N>
 {
     fn initialise(config: &Self) -> Grid<T, N> {
-        let mut uninit_active_notes = [const { MaybeUninit::<NoteInfo<T>>:: uninit() } ; 128];
-        for i in 0..128 {
-            uninit_active_notes[i].write(NoteInfo {
-                state_by_channel: [NoteState::Off; 16],
-                tuning_stack: Stack::new_zero(),
-            });
-        }
-        let active_notes = unsafe { MaybeUninit::array_assume_init(uninit_active_notes) };
+        let now = Instant::now();
         Grid {
             horizontal_index: config.horizontal_index,
             vertical_index: config.vertical_index,
@@ -489,8 +492,11 @@ impl<T: FiveLimitStackType + PeriodicStackType, N: AlignedPeriodicNeighbourhood<
 
             considered_notes: config.initial_neighbourhood.clone(),
 
-            active_notes,
-            sustain: [false; 16],
+            active_notes: core::array::from_fn(|_| NoteInfo {
+                tuning_stack: Stack::new_zero(),
+                key_state: KeyState::new(now),
+            }),
+            pedal_hold: [false; 16],
             config: config.clone(),
 
             horizontal_margin: 1,
