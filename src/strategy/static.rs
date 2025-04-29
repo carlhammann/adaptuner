@@ -6,8 +6,10 @@ use crate::{
         stack::Stack,
         stacktype::r#trait::{FiveLimitStackType, OctavePeriodicStackType, StackCoeff, StackType},
     },
+    keystate::KeyState,
+    msg,
     neighbourhood::{new_fivelimit_neighbourhood, CompleteNeigbourhood, PeriodicCompleteAligned},
-    strategy::r#trait::{KeyState, Strategy},
+    strategy::r#trait::Strategy,
 };
 
 pub struct StaticTuning<T: StackType, N: CompleteNeigbourhood<T>> {
@@ -22,7 +24,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> Strategy<T> for StaticTuning<T, N
         tunings: &'a mut [Stack<T>; 128],
         note: u8,
         _time: Instant,
-    ) -> Vec<(u8, &'a Stack<T>)> {
+    ) -> Vec<msg::FromStrategy<T>> {
         self.neighbourhood.write_relative_stack(
             tunings
                 .get_mut(note as usize)
@@ -30,7 +32,11 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> Strategy<T> for StaticTuning<T, N
             note as i8 - 60,
         );
 
-        vec![(note, &tunings[note as usize])]
+        vec![msg::FromStrategy::Retune {
+            note,
+            tuning: tunings[note as usize].absolute_semitones(),
+            tuning_stack: tunings[note as usize].clone(),
+        }]
     }
 
     fn note_off<'a>(
@@ -39,7 +45,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> Strategy<T> for StaticTuning<T, N
         _tunings: &'a mut [Stack<T>; 128],
         _note: &[u8],
         _time: Instant,
-    ) -> Vec<(u8, &'a Stack<T>)> {
+    ) -> Vec<msg::FromStrategy<T>> {
         vec![]
     }
 }

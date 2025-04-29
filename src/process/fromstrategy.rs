@@ -5,9 +5,10 @@ use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
 use crate::{
     config,
     interval::{stack::Stack, stacktype::r#trait::StackType},
+    keystate::KeyState,
     msg,
     process::r#trait::ProcessState,
-    strategy::r#trait::{KeyState, Strategy},
+    strategy::r#trait::Strategy,
 };
 
 pub struct State<T: StackType, S: Strategy<T>> {
@@ -30,40 +31,18 @@ impl<T: StackType, S: Strategy<T>> State<T, S> {
         match msg {
             MidiMsg::ChannelVoice {
                 channel,
-                msg: NoteOn { note, velocity },
-            } => {
-                send_to_backend(
-                    msg::AfterProcess::NoteOn {
-                        channel,
-                        note,
-                        velocity,
-                    },
-                    time,
-                );
-                self.handle_note_on(time, note, channel, to_backend);
-            }
+                msg: NoteOn { note, .. },
+            } => self.handle_note_on(time, note, channel, to_backend),
             MidiMsg::ChannelVoice {
                 channel,
-                msg: NoteOff { note, velocity },
-            } => {
-                send_to_backend(
-                    msg::AfterProcess::NoteOff {
-                        channel,
-                        note,
-                        velocity,
-                        held_by_sustain: self.pedal_hold[channel as usize],
-                    },
-                    time,
-                );
-                self.handle_note_off(time, note, channel, to_backend);
-            }
+                msg: NoteOff { note, .. },
+            } => self.handle_note_off(time, note, channel, to_backend),
             MidiMsg::ChannelVoice {
                 channel,
                 msg: ControlChange {
                     control: Hold(value),
                 },
             } => {
-                send_to_backend(msg::AfterProcess::Sustain { channel, value }, time);
                 if value > 0 {
                     self.pedal_hold[channel as usize] = true;
                 } else {
@@ -75,28 +54,19 @@ impl<T: StackType, S: Strategy<T>> State<T, S> {
                             off_notes.push(note as u8);
                         }
                     }
-                    for (note, stack) in self
+                    for msg in self
                         .strategy
                         .note_off(&self.key_states, &mut self.tunings, &off_notes, time)
                         .drain(..)
                     {
-                        send_to_backend(
-                            msg::AfterProcess::Retune {
-                                note,
-                                tuning: stack.absolute_semitones(),
-                                tuning_stack: stack.clone(),
-                            },
-                            time,
-                        );
+                        send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
                     }
                 }
             }
-            MidiMsg::ChannelVoice {
-                channel,
-                msg: ProgramChange { program },
-            } => send_to_backend(msg::AfterProcess::ProgramChange { channel, program }, time),
-            _ => send_to_backend(msg::AfterProcess::ForwardMidi { msg }, time),
+            _ => {}
         }
+
+        send_to_backend(msg::AfterProcess::ForwardMidi { msg }, time);
     }
 
     fn handle_note_on(
@@ -110,19 +80,12 @@ impl<T: StackType, S: Strategy<T>> State<T, S> {
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
         if self.key_states[note as usize].note_on(channel, time) {
-            for (note, stack) in self
+            for msg in self
                 .strategy
                 .note_on(&self.key_states, &mut self.tunings, note, time)
                 .drain(..)
             {
-                send_to_backend(
-                    msg::AfterProcess::Retune {
-                        note,
-                        tuning: stack.absolute_semitones(),
-                        tuning_stack: stack.clone(),
-                    },
-                    time,
-                );
+                send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
             }
         }
     }
@@ -139,19 +102,12 @@ impl<T: StackType, S: Strategy<T>> State<T, S> {
 
         if self.key_states[note as usize].note_off(channel, self.pedal_hold[channel as usize], time)
         {
-            for (note, stack) in self
+            for msg in self
                 .strategy
                 .note_off(&self.key_states, &mut self.tunings, &[note], time)
                 .drain(..)
             {
-                send_to_backend(
-                    msg::AfterProcess::Retune {
-                        note,
-                        tuning: stack.absolute_semitones(),
-                        tuning_stack: stack.clone(),
-                    },
-                    time,
-                );
+                send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
             }
         }
     }
@@ -171,12 +127,10 @@ impl<T: StackType, S: Strategy<T>> ProcessState<T> for State<T, S> {
                 Ok((msg, _)) => self.handle_midi(time, msg, to_backend), // TODO: multi-part messages?
                 Err(e) => send_to_backend(msg::AfterProcess::MidiParseErr(e.to_string()), time),
             },
-            msg::ToProcess::Consider { coefficients } => {}
-            msg::ToProcess::ToggleTemperament { index } => {}
-            msg::ToProcess::Special { code } => {}
-            msg::ToProcess::Start => {}
-            msg::ToProcess::Stop => {}
-            msg::ToProcess::Reset => {}
+            msg::ToProcess::ToStrategy(to_strategy) => todo!(),
+            _ => {} //msg::ToProcess::Start => todo!(),
+                    //msg::ToProcess::Stop => todo!(),
+                    //msg::ToProcess::Reset => todo!(),
         }
     }
 }
