@@ -20,45 +20,64 @@ pub enum AfterProcess<T: StackType> {
 
     MidiParseErr(String),
 
+    CrosstermEvent(crossterm::event::Event),
+
+    //NoteOn {
+    //    channel: Channel,
+    //    note: u8,
+    //    velocity: u8,
+    //},
+    //NoteOff {
+    //    held_by_sustain: bool,
+    //    channel: Channel,
+    //    note: u8,
+    //    velocity: u8,
+    //},
+    //Sustain {
+    //    channel: Channel,
+    //    value: u8,
+    //},
+    //ProgramChange {
+    //    channel: Channel,
+    //    program: u8,
+    //},
+
+    ForwardMidi {
+        msg: MidiMsg,
+    },
+
+    FromStrategy(FromStrategy<T>),
+
+    BackendLatency {
+        since_input: Duration,
+    },
+    
     DetunedNote {
         note: u8,
         should_be: Semitones,
         actual: Semitones,
         explanation: &'static str,
     },
+}
 
-    CrosstermEvent(crossterm::event::Event),
+#[derive(Debug)]
+pub enum ToProcess {
+    Start,
+    Stop,
+    Reset,
+    IncomingMidi { bytes: Vec<u8> },
+    ToStrategy(ToStrategy),
+}
 
-    NoteOn {
-        channel: Channel,
-        note: u8,
-        velocity: u8,
-    },
-    //TunedNoteOn {
-    //    channel: Channel,
-    //    note: u8,
-    //    velocity: u8,
-    //    tuning: Semitones,
-    //    tuning_stack: Stack<T>,
-    //},
-    NoteOff {
-        held_by_sustain: bool,
-        channel: Channel,
-        note: u8,
-        velocity: u8,
-    },
-    Sustain {
-        channel: Channel,
-        value: u8,
-    },
-    ProgramChange {
-        channel: Channel,
-        program: u8,
-    },
-    ForwardMidi {
-        msg: MidiMsg,
-    },
+#[derive(Debug)]
+pub enum ToStrategy {
+    Consider { coefficients: Vec<StackCoeff> },
+    ToggleTemperament { index: usize },
+    //Special { code: u8 },
+}
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum FromStrategy<T:StackType> {
     Retune {
         note: u8,
         tuning: Semitones,
@@ -77,22 +96,8 @@ pub enum AfterProcess<T: StackType> {
     },
     NotifyNoFit,
 
-    Special {
-        code: u8,
-    },
+    //Special {
+    //    code: u8,
+    //},
 
-    BackendLatency {
-        since_input: Duration,
-    },
-}
-
-#[derive(Debug)]
-pub enum ToProcess {
-    Start,
-    Stop,
-    Reset,
-    IncomingMidi { bytes: Vec<u8> },
-    Consider { coefficients: Vec<StackCoeff> },
-    ToggleTemperament { index: usize },
-    Special { code: u8 },
 }

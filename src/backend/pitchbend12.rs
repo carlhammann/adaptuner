@@ -2,7 +2,7 @@
 //! [OctavePeriodicStackType].
 //!
 
-use std::{mem::MaybeUninit, sync::mpsc, time::Instant};
+use std::{sync::mpsc, time::Instant};
 
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
 
@@ -10,32 +10,9 @@ use crate::{
     backend::r#trait::BackendState,
     config::r#trait::Config,
     interval::{base::Semitones, stacktype::r#trait::OctavePeriodicStackType},
+    keystate::KeyState,
     msg,
 };
-
-#[derive(PartialEq, Clone, Copy)]
-enum NoteState {
-    Pressed,
-    Sustained,
-    Off,
-}
-
-#[derive(Clone, Copy)]
-struct NoteInfo {
-    desired_tuning: Semitones,
-    state_by_input_channel: [NoteState; 16],
-}
-
-impl NoteInfo {
-    fn not_pressed(&self) -> bool {
-        for state in self.state_by_input_channel {
-            if state == NoteState::Pressed {
-                return false;
-            }
-        }
-        true
-    }
-}
 
 pub struct Pitchbend12 {
     config: Pitchbend12Config,
@@ -46,10 +23,10 @@ pub struct Pitchbend12 {
     /// invariant: the bend pertaining to `channels[i]` is in `bends[i]`
     bends: [u16; 12],
 
-    active_notes: [NoteInfo; 128],
+    key_state: [KeyState; 128],
 
-    /// is the sustain pedal held at the moment?
-    sustain_by_input_channel: [bool; 16],
+    /// is the sustain pedal held at the moment? (for each channel)
+    pedal_hold: [bool; 16],
 
     /// the current bend range
     bend_range: Semitones,
@@ -78,7 +55,7 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
         let send_to_ui =
             |msg: msg::AfterProcess<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
 
-        let send = |msg: MidiMsg, time: Instant| {
+        let send_midi = |msg: MidiMsg, time: Instant| {
             midi_out.send((time, msg.to_midi())).unwrap_or(());
         };
 
@@ -86,7 +63,7 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
             msg::AfterProcess::Start | msg::AfterProcess::Reset => {
                 *self = Pitchbend12Config::initialise(&self.config);
                 for (i, &channel) in self.channels.iter().enumerate() {
-                    send(
+                    send_midi(
                         MidiMsg::ChannelVoice {
                             channel,
                             msg: ChannelVoiceMsg::PitchBend {
@@ -95,7 +72,7 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                         },
                         time,
                     );
-                    send(
+                    send_midi(
                         MidiMsg::ChannelVoice {
                             channel,
                             msg: ChannelVoiceMsg::ControlChange {
@@ -104,7 +81,7 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                         },
                         time,
                     );
-                    send(
+                    send_midi(
                         MidiMsg::ChannelMode {
                             channel,
                             msg: ChannelModeMsg::AllSoundOff,
@@ -113,150 +90,116 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                     );
                 }
             }
-
             msg::AfterProcess::Stop => {}
-
-            msg::AfterProcess::NoteOn {
-                channel,
-                note,
-                velocity,
-                //tuning,
-                ..
-            } => {
-                let mut the_note = self.active_notes[note as usize];
-                //the_note.desired_tuning = tuning;
-                the_note.state_by_input_channel[channel as usize] = NoteState::Pressed;
-                let channel_index = note as usize % 12;
-                //let old_bend = self.bends[channel_index];
-                //let bend = self.bend_from_semitones(tuning - note as Semitones);
-                send(
-                    MidiMsg::ChannelVoice {
-                        channel: self.channels[channel_index],
-                        msg: ChannelVoiceMsg::NoteOn { note, velocity },
-                    },
-                    time,
-                );
-                //if old_bend != bend {
-                //    send(
-                //        MidiMsg::ChannelVoice {
-                //            channel: self.channels[channel_index],
-                //            msg: ChannelVoiceMsg::PitchBend { bend },
-                //        },
-                //        time,
-                //    );
-                //    self.bends[channel_index] = bend;
-                //}
-                //if (tuning - note as Semitones).abs() > self.bend_range {
-                //    send_to_ui(
-                //        msg::AfterProcess::DetunedNote {
-                //            note,
-                //            actual: note as Semitones + self.semitones_from_bend(bend),
-                //            should_be: tuning,
-                //            explanation: "Exceeded bend range",
-                //        },
-                //        time,
-                //    );
-                //}
-            }
-
-            msg::AfterProcess::NoteOff {
-                channel,
-                note,
-                velocity,
-                ..
-            } => {
-                let mut the_note = self.active_notes[note as usize];
-                let old_state = the_note.state_by_input_channel[channel as usize];
-                the_note.state_by_input_channel[channel as usize] = match old_state {
-                    NoteState::Off => NoteState::Off,
-                    NoteState::Pressed => {
-                        if self.sustain_by_input_channel[channel as usize] {
-                            NoteState::Sustained
-                        } else {
-                            NoteState::Off
-                        }
-                    }
-                    NoteState::Sustained => NoteState::Sustained,
-                };
-                let channel_index = note as usize % 12;
-                if the_note.not_pressed() {
-                    send(
+            msg::AfterProcess::ForwardMidi { msg } => match msg {
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: ChannelVoiceMsg::NoteOn { note, velocity },
+                } => {
+                    send_midi(
                         MidiMsg::ChannelVoice {
-                            channel: self.channels[channel_index],
+                            channel: self.channels[note as usize % 12],
+                            msg: ChannelVoiceMsg::NoteOn { note, velocity },
+                        },
+                        time,
+                    );
+
+                    self.key_state[note as usize].note_on(channel, time);
+                }
+
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: ChannelVoiceMsg::NoteOff { note, velocity },
+                } => {
+                    send_midi(
+                        MidiMsg::ChannelVoice {
+                            channel: self.channels[note as usize % 12],
                             msg: ChannelVoiceMsg::NoteOff { note, velocity },
                         },
                         time,
                     );
-                }
-            }
 
-            msg::AfterProcess::Sustain { channel, value } => {
-                self.sustain_by_input_channel[channel as usize] = value != 0;
-                if value == 0 {
-                    for note in &mut self.active_notes {
-                        note.state_by_input_channel[channel as usize] =
-                            match note.state_by_input_channel[channel as usize] {
-                                NoteState::Off => NoteState::Off,
-                                NoteState::Pressed => NoteState::Pressed,
-                                NoteState::Sustained => NoteState::Off,
-                            };
+                    self.key_state[note as usize].note_off(
+                        channel,
+                        self.pedal_hold[channel as usize],
+                        time,
+                    );
+                }
+
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg:
+                        ChannelVoiceMsg::ControlChange {
+                            control: ControlChange::Hold(value),
+                        },
+                } => {
+                    for channel in self.channels {
+                        send_midi(
+                            MidiMsg::ChannelVoice {
+                                channel,
+                                msg: ChannelVoiceMsg::ControlChange {
+                                    control: ControlChange::Hold(value),
+                                },
+                            },
+                            time,
+                        );
+                    }
+
+                    self.pedal_hold[channel as usize] = value != 0;
+
+                    if value == 0 {
+                        for s in self.key_state.iter_mut() {
+                            s.pedal_off(channel, time);
+                        }
                     }
                 }
-                for channel in self.channels {
-                    send(
-                        MidiMsg::ChannelVoice {
-                            channel,
-                            msg: ChannelVoiceMsg::ControlChange {
-                                control: ControlChange::Hold(value),
+
+                MidiMsg::ChannelVoice {
+                    channel: _,
+                    msg: ChannelVoiceMsg::ProgramChange { program },
+                } => {
+                    for channel in self.channels {
+                        send_midi(
+                            MidiMsg::ChannelVoice {
+                                channel,
+                                msg: ChannelVoiceMsg::ProgramChange { program },
                             },
-                        },
-                        time,
-                    );
+                            time,
+                        )
+                    }
                 }
-            }
 
-            msg::AfterProcess::Retune { note, tuning, .. } => {
-                let mut the_note = self.active_notes[note as usize];
-                the_note.desired_tuning = tuning;
-                let channel_index = note as usize % 12;
-                let old_bend = self.bends[channel_index];
-                let bend = self.bend_from_semitones(tuning - note as Semitones);
-                if old_bend != bend {
-                    send(
-                        MidiMsg::ChannelVoice {
-                            channel: self.channels[channel_index],
-                            msg: ChannelVoiceMsg::PitchBend { bend },
-                        },
-                        time,
-                    );
-                    self.bends[channel_index] = bend;
+                _ => send_midi(msg, time),
+            },
+            msg::AfterProcess::FromStrategy(msg) => match msg {
+                msg::FromStrategy::Retune { note, tuning, .. } => {
+                    let channel_index = note as usize % 12;
+                    let desired_bend = self.bend_from_semitones(tuning - note as Semitones);
+                    let current_bend = self.bends[channel_index];
+                    if current_bend != desired_bend {
+                        send_midi(
+                            MidiMsg::ChannelVoice {
+                                channel: self.channels[channel_index],
+                                msg: ChannelVoiceMsg::PitchBend { bend: desired_bend },
+                            },
+                            time,
+                        );
+                        self.bends[channel_index] = desired_bend;
+                    }
+                    if (tuning - note as Semitones).abs() > self.bend_range {
+                        send_to_ui(
+                            msg::AfterProcess::DetunedNote {
+                                note,
+                                actual: note as Semitones + self.semitones_from_bend(desired_bend),
+                                should_be: tuning,
+                                explanation: "Exceeded bend range",
+                            },
+                            time,
+                        );
+                    }
                 }
-                if (tuning - note as Semitones).abs() > self.bend_range {
-                    send_to_ui(
-                        msg::AfterProcess::DetunedNote {
-                            note,
-                            actual: note as Semitones + self.semitones_from_bend(bend),
-                            should_be: tuning,
-                            explanation: "Exceeded bend range",
-                        },
-                        time,
-                    );
-                }
-            }
-
-            msg::AfterProcess::ForwardMidi { msg } => send(msg, time),
-
-            msg::AfterProcess::ProgramChange { program, .. } => {
-                for channel in self.channels {
-                    send(
-                        MidiMsg::ChannelVoice {
-                            channel,
-                            msg: ChannelVoiceMsg::ProgramChange { program },
-                        },
-                        time,
-                    )
-                }
-            }
+                _ => {}
+            },
 
             _ => {}
         }
@@ -271,20 +214,13 @@ pub struct Pitchbend12Config {
 
 impl Config<Pitchbend12> for Pitchbend12Config {
     fn initialise(config: &Self) -> Pitchbend12 {
-        let mut uninit_active_notes = [const { MaybeUninit::<NoteInfo>::uninit() }; 128];
-        for i in 0..128 {
-            uninit_active_notes[i].write(NoteInfo {
-                desired_tuning: i as Semitones,
-                state_by_input_channel: [NoteState::Off; 16],
-            });
-        }
-        let active_notes = unsafe { MaybeUninit::array_assume_init(uninit_active_notes) };
+        let now = Instant::now();
         Pitchbend12 {
             config: config.clone(),
             channels: config.channels.clone(),
             bends: [8192; 12],
-            active_notes,
-            sustain_by_input_channel: [false; 16],
+            key_state: core::array::from_fn(|_| KeyState::new(now)),
+            pedal_hold: [false; 16],
             bend_range: config.bend_range,
         }
     }

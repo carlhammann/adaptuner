@@ -7,6 +7,11 @@ use crossterm::{
 };
 use ratatui::prelude::{Frame, Rect};
 
+use midi_msg::{
+    ChannelVoiceMsg::{NoteOff, NoteOn},
+    MidiMsg,
+};
+
 use crate::{
     config::r#trait::Config,
     interval::stacktype::r#trait::{FiveLimitStackType, StackType},
@@ -33,25 +38,48 @@ impl<T: StackType + fmt::Debug + FiveLimitStackType> UIState<T> for OnlyNotify {
                 disable_raw_mode().expect("Could not disable raw mode");
             }
             msg::AfterProcess::Notify { line } => println!("{}", line),
-            msg::AfterProcess::NoteOn { channel, note, .. } => {
-                println!("noteon ch {} note {}", channel, note)
+            msg::AfterProcess::ForwardMidi { msg } => match msg {
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: NoteOn { note, .. },
+                } => {
+                    println!("noteon ch {} note {}", channel, note)
+                }
+                MidiMsg::ChannelVoice {
+                    channel,
+                    msg: NoteOff { note, .. },
+                } => {
+                    println!("noteoff ch {} note {}", channel, note)
+                }
+                _ => {}
+            },
+            msg::AfterProcess::FromStrategy(msg) => match msg {
+                msg::FromStrategy::Retune {
+                    note,
+                    tuning: _,
+                    tuning_stack,
+                } => println!(
+                    "retune {} {} {} {} {}",
+                    note,
+                    tuning_stack.notename(&NoteNameStyle::JohnstonFiveLimitFull),
+                    tuning_stack.target,
+                    tuning_stack.actual,
+                    tuning_stack.absolute_semitones() - tuning_stack.target_absolute_semitones(),
+                ),
+                _ => {}
+            },
+            msg::AfterProcess::BackendLatency { since_input } => {
+                println!("latency {since_input:?}")
             }
-            msg::AfterProcess::NoteOff { channel, note, .. } => {
-                println!("noteoff ch {} note {}", channel, note)
-            }
-            msg::AfterProcess::Retune {
-                note, tuning_stack, ..
-            } => println!(
-                "retune {} {} {} {} {}",
+            msg::AfterProcess::DetunedNote {
                 note,
-                tuning_stack.notename(&NoteNameStyle::JohnstonFiveLimitFull),
-                tuning_stack.target,
-                tuning_stack.actual,
-                tuning_stack.absolute_semitones() - tuning_stack.target_absolute_semitones(),
+                should_be,
+                actual,
+                explanation,
+            } => println!(
+                "detuned {note} should be {should_be} but is {actual}. Reason: {explanation}"
             ),
-            _ => {
-                //println!("raw message received by UI: {:?}", msg)
-            }
+            _ => {}
         }
     }
 }
