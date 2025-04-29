@@ -53,10 +53,6 @@ impl<T: StackType> Pattern<T> {
     pub fn fit<N: HasActivationStatus>(&self, notes: &[N; 128]) -> Fit {
         self.keyshape.fit(notes, 0)
     }
-
-    pub fn fit_from_start<N: HasActivationStatus>(&self, notes: &[N; 128], start: usize) -> Fit {
-        self.keyshape.fit(notes, start)
-    }
 }
 
 pub trait HasActivationStatus {

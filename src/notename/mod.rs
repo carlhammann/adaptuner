@@ -19,6 +19,17 @@ impl<T: FiveLimitStackType> Stack<T> {
             }
         }
     }
+
+    pub fn actual_notename(&self, style: &NoteNameStyle) -> String {
+        match style {
+            NoteNameStyle::JohnstonFiveLimitFull => {
+                johnston::fivelimit::NoteName::new_from_actual(&self).str_full()
+            }
+            NoteNameStyle::JohnstonFiveLimitClass => {
+                johnston::fivelimit::NoteName::new_from_actual(&self).str_class()
+            }
+        }
+    }
 }
 
 // impl<T: StackType> Stack<T> {
