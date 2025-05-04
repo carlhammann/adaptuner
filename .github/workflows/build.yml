@@ -3,6 +3,8 @@ name: "build"
 on:
   push:
     branches: [ "main" ]
+    tags: 
+      - "*"
   workflow_dispatch:
 
 jobs:
@@ -20,4 +22,18 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: adaptuner-${{ matrix.os }}
-          path: result
+          path: result/bin/adaptuner
+  release:
+    if: startsWith(github.event.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - run: zip -r adaptuner-ubuntu-latest adaptuner-ubuntu-latest
+      - run: zip -r adaptuner-macos-latest adaptuner-macos-latest
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          files: |
+            adaptuner-ubuntu-latest.zip
+            adaptuner-macos-latest.zip

@@ -2,14 +2,10 @@
 
 ## Pre-compiled binaries
 
-You download binaries for x86_64 Linux and aarch64 MacOS on GitHub by
-navigating to the ["Actions"
-tab](https://github.com/carlhammann/adaptuner/actions), clicking on the most
-recent workflow run that has a green tick mark, and scrolling down until you
-see the heading "Artifacts".
-
-Each workflow run creates two artifacts, which contain the binaries:
-- `adaptuner-macos-latest.zip`, and 
+Binaries for x86_64 Linux and aarch64 (Apple Silicon) MacOS can be found at the
+GitHub ["Releases"](https://github.com/carlhammann/adaptuner/releases). Each
+release has two assets, which contain the binaries:
+- `adaptuner-macos-latest.zip`, and
 - `adaptuner-ubuntu-latest.zip` (which can be used for all x86_64 Linux
   systems; the "ubuntu" in the name only means that it was *built* on ubuntu).
 
@@ -31,29 +27,31 @@ configuration file in a directory structure that looks like this:
 
 ```
 .
-├── bin
-│   └── adaptuner
+├── adaptuner
 └── lorem.hjson
 ```
 
 Now, 
 1. Start your e-piano and/or synthesizer and connect it to the computer.
-2. Navigate to the directory whose contents are shown above and
-   run `adaptuner` like so:
-  ```
-  ./bin/adaptuner lorem.hjson
-  ```
+2. Navigate to the directory whose contents are shown above and make the `adaptuner` binary executable:
+   ```
+   chmod a+x adaptuner
+   ```
+   Then, run `adaptuner` like so:
+   ```
+   ./adaptuner lorem.hjson
+   ```
 3. You'll be greeted with something like 
-  ```
-  Available input ports:
-  0: Midi Through:Midi Through Port-0 14:0
-    ...
-    ...
-  Please select input port: 
-  ```
-  Enter the number of the port that connects to your e-piano or input keyboard
-  and press return. This will repeat for the output port (which connects to the
-  synthesizer or back to the e-piano). 
+   ```
+   Available input ports:
+   0: Midi Through:Midi Through Port-0 14:0
+     ...
+     ...
+   Please select input port: 
+   ```
+   Enter the number of the port that connects to your e-piano or input keyboard
+   and press return. This will repeat for the output port (which connects to the
+   synthesizer or back to the e-piano). 
 4. Now, the *adaptuner* is connected and ready to play, and you'll see the user
    interface described [here](./tui.md). 
 
