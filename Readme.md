@@ -1,30 +1,24 @@
 # Adaptive MIDI tuner
 
-Erstmal nur eine ältere Version mit einer sehr einfachen Logik und einem
-rudimentären terminal user interface, die leicht zu verpacken war. 
+This is the *adaptuner*: It *tunes* MIDI instruments on the fly, *adapt*ing to
+what you're playing right now. Its aim is to give anyone with an e-piano that
+has MIDI input and output the opportunity to play music in (controlled
+deviations from) just intonation.
 
-Kompilieren und laufen lassen mit:
-```
-nix run .# ./configs/lorem.hjson
-```
+The *adaptuner* is currently under heavy development. The version currently on
+the main branch is an older proof of concept that now mostly serves as an
+illustration of the general direction I want this project to take. It is
+already reasonably usable as an instrument, though.
 
-## TUI
+## User documentation 
 
-Man sieht ein Quinten-Terzen-Gitter. Zu jedem Zeitpunkt gibt es 
-- ein Tonartzentrum, das als "key center" unten im Bild steht,
-- 12 mögliche Referenztöne, die etwas heller hervorgehoben sind,
-- klingende Töne, die ganz hell hervorgehoben sind, und
-- optional ein gerade passendes Akkordmuster ("current fit") mit einem Referenzton ("reference") , das auch unten im Bild steht.
-
-## Tastenbelegungen
-
-- 'q' beendet das Programm
-- 'Esc' setzt alles zurück auf die ursprünglichen Werte
-- 'Space' verschiebt das Tonartzentrum auf den momentanen Referenzton. Das verschiebt auch die 12 möglichen Referenztöne, sodass sie sich im gleichen Muster wie vorher um das neue Tonartzentrum gruppieren.
-- '1' (de)aktiviert 1/4-Komma-mittelttönige Quinten. Default: aus
-- '2' (de)aktiviert gleichschwebende Stimmung. Default: aus
-- 'p' (de)aktiviert "Pattern Matching" für Akkorde: Wenn deaktiviert, werden nur die hellgrau hervorgehobenen Töne verwendet. Wenn aktiviert, werden die Akkordmuster aus der auf der Kommandozeile gegebenen Konfigurationsdatei verwendet. Default: An
-- 't' (de)aktiviert die Anwendung der mit '1' oder '2' aktivierten Stimmung auf harmonische Intervalle. Default: aus
-- '-' und '+' zoomen
-- Klick auf eine Note fügt diese Note zum Vorrat der 12 möglichen Referenztöne hinzu (und entfernt ihre enharmonische Verwechselung aus dem Vorrat)
+- [Here](./doc/installing.md) is how you obtain and run the program. Currently,
+  pre-compiled binaries for x86_64 Linux and aarch64 MacOS are available.
+- [Here](./doc/instruments.md) is how you set up instrument(s) to play with the
+  *adaptuner*. This is needed because the *adaptuner* is a MIDI-to-MIDI
+  program; you'll need some sound source.
+- [Here](./doc/tui.md) is an explanation of the terminal user interface.
+- [Here](./doc/configuration-file.md) is an explanation of the format of the
+  configuration file, which contains the chords and voicings the *adaptuner*
+  "knows" how to tune.
 

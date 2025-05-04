@@ -1,5 +1,8 @@
 [
-  # This is a comment
+
+  # This is a comment. Everything that comes after '#' on a line is ignored by
+  # the adaptuner.
+
   {
     "name": "major",
     "keyshape": { "ClassesRelative": { "period_keys": 12, "classes": [ 0, 4, 7 ] } },
