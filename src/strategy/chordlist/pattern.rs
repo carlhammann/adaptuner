@@ -106,7 +106,7 @@ fn fit_classes_fixed<N: HasActivationStatus>(
                 i += 1;
                 used[j] = true
             }
-            None => break,
+            None {} => break,
         }
     }
     if used.iter().any(|&u| !u) {

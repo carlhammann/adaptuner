@@ -55,12 +55,18 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, S
                             off_notes.push(note as u8);
                         }
                     }
-                    for msg in self
-                        .strategy
-                        .note_off(&self.key_states, &mut self.tunings, &off_notes, time)
-                        .drain(..)
-                    {
-                        send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                    match self.strategy.note_off(
+                        &self.key_states,
+                        &mut self.tunings,
+                        &off_notes,
+                        time,
+                    ) {
+                        None {} => {}
+                        Some(mut msgs) => {
+                            for msg in msgs.drain(..) {
+                                send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                            }
+                        }
                     }
                 }
             }
@@ -81,12 +87,16 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, S
             |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
 
         if self.key_states[note as usize].note_on(channel, time) {
-            for msg in self
+            match self
                 .strategy
                 .note_on(&self.key_states, &mut self.tunings, note, time)
-                .drain(..)
             {
-                send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                None {} => {}
+                Some(mut msgs) => {
+                    for msg in msgs.drain(..) {
+                        send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                    }
+                }
             }
         }
     }
@@ -103,12 +113,16 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, S
 
         if self.key_states[note as usize].note_off(channel, self.pedal_hold[channel as usize], time)
         {
-            for msg in self
+            match self
                 .strategy
                 .note_off(&self.key_states, &mut self.tunings, &[note], time)
-                .drain(..)
             {
-                send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                None {} => {}
+                Some(mut msgs) => {
+                    for msg in msgs.drain(..) {
+                        send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                    }
+                }
             }
         }
     }
@@ -131,12 +145,16 @@ impl<T: StackType, S: Strategy<T>, C: config::r#trait::Config<S>> ProcessState<T
                 Err(e) => send_to_backend(msg::AfterProcess::MidiParseErr(e.to_string()), time),
             },
             msg::ToProcess::ToStrategy(msg) => {
-                for m in self
+                match self
                     .strategy
                     .handle_msg(&self.key_states, &mut self.tunings, msg, time)
-                    .drain(..)
                 {
-                    send_to_backend(msg::AfterProcess::FromStrategy(m), time);
+                    None {} => {}
+                    Some(mut msgs) => {
+                        for msg in msgs.drain(..) {
+                            send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                        }
+                    }
                 }
             }
 

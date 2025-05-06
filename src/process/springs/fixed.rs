@@ -1,422 +1,422 @@
-use std::{
-    collections::BTreeMap,
-    hash::Hash,
-    sync::mpsc,
-    time::{Duration, Instant},
-};
-
-use midi_msg::{ChannelVoiceMsg, MidiMsg};
-use num_rational::Ratio;
-
-use super::{
-    solver::Solver,
-    util::{self, Connector, KeyDistance, KeyNumber, RodSpec},
-};
-use crate::{
-    config,
-    interval::{
-        stack::Stack,
-        stacktype::{
-            fivelimit::ConcreteFiveLimitStackType,
-            r#trait::{FiveLimitStackType, StackCoeff, StackType},
-        },
-    },
-    msg,
-    notename::NoteNameStyle,
-    process::r#trait::ProcessState,
-};
-
-pub struct State<T: StackType, P: Provider<T>> {
-    active_keys: Vec<u8>, // sorted descendingly
-    solver: Solver,
-    workspace: util::Workspace<T>,
-    provider: P,
-    reference_tunings: BTreeMap<KeyNumber, Stack<T>>,
-    reference_time: Instant,
-    config: Config,
-}
-
-pub trait Provider<T: StackType> {
-    fn candidate_springs(&self, d: KeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
-    fn candidate_anchors(&self, k: KeyNumber) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
-    fn rod(&self, d: &RodSpec) -> Stack<T>;
-    fn which_connector(&self, keys: &[KeyNumber], i: usize, j: usize) -> Connector;
-}
-
-pub struct ConcreteFiveLimitProvider {}
-
-impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
-    fn candidate_springs(
-        &self,
-        d: KeyDistance,
-    ) -> Vec<(Stack<ConcreteFiveLimitStackType>, Ratio<StackCoeff>)> {
-        let octaves = (d as StackCoeff).div_euclid(12);
-        let pitch_class = d.rem_euclid(12);
-
-        match pitch_class {
-            0 => vec![(Stack::from_target(vec![octaves, 0, 0]), 1.into())],
-            1 => vec![
-                (
-                    Stack::from_target(vec![octaves + 1, (-1), (-1)]), // diatonic semitone
-                    Ratio::new(1, 3 * 5),
-                ),
-                (
-                    Stack::from_target(vec![octaves, (-1), 2]), // chromatic semitone
-                    Ratio::new(1, 3 * 5 * 5),
-                ),
-            ],
-            2 => vec![
-                (
-                    Stack::from_target(vec![octaves - 1, 2, 0]), // major whole tone 9/8
-                    Ratio::new(1, 3 * 3),
-                ),
-                (
-                    Stack::from_target(vec![octaves + 1, (-2), 1]), // minor whole tone 10/9
-                    Ratio::new(1, 3 * 3 * 5),
-                ),
-            ],
-            3 => vec![(
-                Stack::from_target(vec![octaves, 1, (-1)]), // minor third
-                Ratio::new(1, 3 * 5),
-            )],
-            4 => vec![(
-                Stack::from_target(vec![octaves, 0, 1]), // major third
-                Ratio::new(1, 5),
-            )],
-            5 => vec![(
-                Stack::from_target(vec![octaves + 1, (-1), 0]), // fourth
-                Ratio::new(1, 3),
-            )],
-            6 => vec![
-                (
-                    Stack::from_target(vec![octaves - 1, 2, 1]), // tritone as major tone plus major third
-                    Ratio::new(1, 3 * 3 * 5),
-                ),
-                (
-                    Stack::from_target(vec![octaves, 2, (-2)]), // tritone as chromatic semitone below fifth
-                    Ratio::new(1, 3 * 3 * 5 * 5),
-                ),
-            ],
-            7 => vec![(
-                Stack::from_target(vec![octaves, 1, 0]), // fifth
-                Ratio::new(1, 3),
-            )],
-            8 => vec![(
-                Stack::from_target(vec![octaves + 1, 0, (-1)]), // minor sixth
-                Ratio::new(1, 5),
-            )],
-            9 => vec![
-                (
-                    Stack::from_target(vec![octaves + 1, (-1), 1]), // major sixth
-                    Ratio::new(1, 3 * 5),
-                ),
-                (
-                    Stack::from_target(vec![octaves - 1, 3, 0]), // major tone plus fifth
-                    Ratio::new(1, 3 * 3 * 3),
-                ),
-            ],
-            10 => vec![
-                (
-                    Stack::from_target(vec![octaves + 2, (-2), 0]), // minor seventh as stack of two fourths
-                    Ratio::new(1, 3 * 3),
-                ),
-                (
-                    Stack::from_target(vec![octaves, 2, (-1)]), // minor seventh as fifth plus minor third
-                    Ratio::new(1, 3 * 3 * 5),
-                ),
-            ],
-            11 => vec![(
-                Stack::from_target(vec![octaves, 1, 1]), // major seventh as fifth plus major third
-                Ratio::new(1, 3 * 5),
-            )],
-            _ => unreachable!(),
-        }
-    }
-
-    fn candidate_anchors(
-        &self,
-        k: KeyNumber,
-    ) -> Vec<(Stack<ConcreteFiveLimitStackType>, Ratio<StackCoeff>)> {
-        self.candidate_springs(k as KeyDistance - 60)
-    }
-
-    fn rod(&self, d: &RodSpec) -> Stack<ConcreteFiveLimitStackType> {
-        match d[..] {
-            [(12, n)] => Stack::from_target(vec![n, 0, 0]),
-            _ => panic!("{d:?}"),
-        }
-    }
-
-    fn which_connector(&self, keys: &[KeyNumber], i: usize, j: usize) -> Connector {
-        //let d = (keys[i] as KeyDistance - keys[j] as KeyDistance).abs();
-        let class = (keys[i] as KeyDistance - keys[j] as KeyDistance).abs() % 12;
-
-        // octaves
-        if class == 0 {
-            return Connector::Rod(vec![(
-                12,
-                (keys[j] as StackCoeff - keys[i] as StackCoeff) / 12,
-            )]);
-        }
-
-        if keys.len() <= 5 {
-            // This means at most 32 interval candidates. That's manageable.
-            return Connector::Spring;
-        }
-
-        //if i == 0 {
-        //    return Connector::Spring;
-        //}
-
-        if i + 1 == j {
-            return Connector::Spring;
-        }
-
-        // fifths, minor thirds, major thirds, and major seconds (and their octave complements)
-        if [7, 5, 3, 9, 4, 8, 2, 10].contains(&class) {
-            return Connector::Spring;
-        }
-
-        Connector::None
-    }
-}
-
-impl<T: StackType + Hash + Eq + std::fmt::Debug + FiveLimitStackType, P: Provider<T>> State<T, P> {
-    fn retune(
-        &mut self,
-        time: Instant,
-        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-    ) {
-        let send_to_backend =
-            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
-
-        match self.workspace.best_intervals(
-            &self.active_keys,
-            |i, j| self.provider.which_connector(&self.active_keys, i, j),
-            |d| self.provider.candidate_springs(d),
-            |d| self.provider.rod(d),
-            &mut self.solver,
-        ) {
-            Err(e) => {
-                send_to_backend(
-                    msg::AfterProcess::Notify {
-                        line: format!("while computing the optimal intervals: {:?}", e),
-                    },
-                    time,
-                );
-                return;
-            }
-            Ok((interval_solution, interval_relaxed, interval_energy)) => {
-                match {
-                    match self.config.anchor_policy {
-                        AnchorPolicy::AllConstants => {
-                            let mut anchored_key_indices = vec![];
-                            for (i, k) in self.active_keys.iter().enumerate() {
-                                if self.reference_tunings.get(k).is_some() {
-                                    anchored_key_indices.push(i);
-                                }
-                            }
-                            println!(
-                                "\n\n\nreference tunings: {:?}",
-                                self.reference_tunings
-                                    .iter()
-                                    .map(|(k, v)| (
-                                        k,
-                                        v.notename(&NoteNameStyle::JohnstonFiveLimitFull)
-                                    ))
-                                    .collect::<Vec<_>>()
-                            );
-                            println!("anchored_key_indices: {anchored_key_indices:?}");
-                            self.workspace.best_anchoring(
-                                interval_solution,
-                                &self.active_keys,
-                                &anchored_key_indices,
-                                |k| {
-                                    vec![(
-                                        self.reference_tunings.get(&k).unwrap().clone(),
-                                        Ratio::from_integer(1),
-                                    )]
-                                },
-                                &mut self.solver,
-                            )
-                        }
-                        AnchorPolicy::HighestConstant => {
-                            todo!()
-                        }
-                        AnchorPolicy::Envelope => {
-                            todo!()
-                        }
-                    }
-                } {
-                    Err(e) => {
-                        send_to_backend(
-                            msg::AfterProcess::Notify {
-                                line: format!("while computing the optimal anchors: {:?}", e),
-                            },
-                            time,
-                        );
-                        return;
-                    }
-                    Ok((solution, anchor_relaxed, anchor_energy)) => {
-                        let interval_targets = self.workspace.current_interval_targets();
-                        let mut anchor_targets =
-                            self.workspace.current_anchor_targets(&interval_targets);
-                        if time.duration_since(self.reference_time) > self.config.reference_window {
-                            self.reference_tunings.clear();
-                            println!("clearing reference tunings");
-                        }
-                        for (i, target) in anchor_targets.drain(..).enumerate() {
-                            let tuning_stack =
-                                Stack::from_target_and_actual(target, solution.row(i).to_owned());
-                            self.reference_tunings
-                                .insert(self.active_keys[i], tuning_stack.clone());
-                            send_to_backend(
-                                msg::AfterProcess::Retune {
-                                    note: self.active_keys[i],
-                                    tuning: self.workspace.get_semitones(solution.view(), i),
-                                    tuning_stack,
-                                },
-                                time,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl<T: StackType + Eq + Hash + std::fmt::Debug + FiveLimitStackType, P: Provider<T>> State<T, P> {
-    fn handle_midi(
-        &mut self,
-        time: Instant,
-        bytes: &[u8],
-        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-    ) {
-        let send_to_backend =
-            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
-
-        match MidiMsg::from_midi(&bytes) {
-            Err(e) => send_to_backend(msg::AfterProcess::MidiParseErr(e.to_string()), time),
-            Ok((msg, _number_of_bytes_parsed)) => match msg {
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::NoteOn { note, velocity },
-                } => {
-                    send_to_backend(
-                        msg::AfterProcess::NoteOn {
-                            channel,
-                            note,
-                            velocity,
-                        },
-                        time,
-                    );
-                    if !self.active_keys.contains(&note) {
-                        self.active_keys.push(note);
-                        self.active_keys.sort_by(|a, b| a.cmp(b).reverse());
-                        self.retune(time, to_backend);
-                    }
-                }
-
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::NoteOff { note, velocity },
-                } => {
-                    send_to_backend(
-                        msg::AfterProcess::NoteOff {
-                            held_by_sustain: false, // TODO.
-                            channel,
-                            note,
-                            velocity,
-                        },
-                        time,
-                    );
-                    match self.active_keys.iter().position(|x| *x == note) {
-                        None {} => {}
-                        Some(i) => {
-                            self.active_keys.remove(i);
-                            if self.active_keys.len() > 0 {
-                                self.retune(time, to_backend);
-                            }
-                        }
-                    }
-                }
-
-                //MidiMsg::ChannelVoice {
-                //    channel,
-                //    msg:
-                //        ChannelVoiceMsg::ControlChange {
-                //            control: ControlChange::Hold(value),
-                //        },
-                //} => {}
-                //MidiMsg::ChannelVoice {
-                //    channel,
-                //    msg: ChannelVoiceMsg::ProgramChange { program },
-                //} => {
-                //    send_to_backend(msg::AfterProcess::ProgramChange { channel, program }, time);
-                //}
-                _ => send_to_backend(msg::AfterProcess::ForwardMidi { msg }, time),
-            },
-        }
-    }
-}
-
-impl<P, T> ProcessState<T> for State<T, P>
-where
-    P: Provider<T>,
-    T: StackType + Eq + Hash + std::fmt::Debug + FiveLimitStackType, // remove FiveLimitStackType
-{
-    fn handle_msg(
-        &mut self,
-        time: Instant,
-        msg: msg::ToProcess,
-        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-    ) {
-        match msg {
-            msg::ToProcess::Start => {}
-            msg::ToProcess::Stop => {}
-            msg::ToProcess::Reset => {}
-            msg::ToProcess::IncomingMidi { bytes } => self.handle_midi(time, &bytes, to_backend),
-            msg::ToProcess::Consider { coefficients: _ } => {}
-            msg::ToProcess::ToggleTemperament { index: _ } => {}
-            msg::ToProcess::Special { code: _ } => {}
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum AnchorPolicy {
-    AllConstants,
-    HighestConstant,
-    Envelope,
-}
-
-#[derive(Clone)]
-pub struct Config {
-    pub initial_n_keys: usize,
-    pub initial_n_lengths: usize,
-    pub anchor_policy: AnchorPolicy,
-    pub reference_window: Duration,
-}
-
-impl config::r#trait::Config<State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider>>
-    for Config
-{
-    fn initialise(config: &Self) -> State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider> {
-        State {
-            active_keys: vec![],
-            solver: Solver::new(config.initial_n_keys, config.initial_n_lengths, 3),
-            workspace: util::Workspace::new(config.initial_n_keys, true, true, true),
-            provider: ConcreteFiveLimitProvider {},
-            reference_tunings: {
-                let mut t = BTreeMap::new();
-                t.insert(60, Stack::new_zero());
-                t
-            },
-            reference_time: Instant::now()
-                .checked_sub(config.reference_window * 2)
-                .unwrap(),
-            config: config.clone(),
-        }
-    }
-}
+//use std::{
+//    collections::BTreeMap,
+//    hash::Hash,
+//    sync::mpsc,
+//    time::{Duration, Instant},
+//};
+//
+//use midi_msg::{ChannelVoiceMsg, MidiMsg};
+//use num_rational::Ratio;
+//
+//use super::{
+//    solver::Solver,
+//    util::{self, Connector, KeyDistance, KeyNumber, RodSpec},
+//};
+//use crate::{
+//    config,
+//    interval::{
+//        stack::Stack,
+//        stacktype::{
+//            fivelimit::ConcreteFiveLimitStackType,
+//            r#trait::{FiveLimitStackType, StackCoeff, StackType},
+//        },
+//    },
+//    msg,
+//    notename::NoteNameStyle,
+//    process::r#trait::ProcessState,
+//};
+//
+//pub struct State<T: StackType, P: Provider<T>> {
+//    active_keys: Vec<u8>, // sorted descendingly
+//    solver: Solver,
+//    workspace: util::Workspace<T>,
+//    provider: P,
+//    reference_tunings: BTreeMap<KeyNumber, Stack<T>>,
+//    reference_time: Instant,
+//    config: Config,
+//}
+//
+//pub trait Provider<T: StackType> {
+//    fn candidate_springs(&self, d: KeyDistance) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
+//    fn candidate_anchors(&self, k: KeyNumber) -> Vec<(Stack<T>, Ratio<StackCoeff>)>;
+//    fn rod(&self, d: &RodSpec) -> Stack<T>;
+//    fn which_connector(&self, keys: &[KeyNumber], i: usize, j: usize) -> Connector;
+//}
+//
+//pub struct ConcreteFiveLimitProvider {}
+//
+//impl Provider<ConcreteFiveLimitStackType> for ConcreteFiveLimitProvider {
+//    fn candidate_springs(
+//        &self,
+//        d: KeyDistance,
+//    ) -> Vec<(Stack<ConcreteFiveLimitStackType>, Ratio<StackCoeff>)> {
+//        let octaves = (d as StackCoeff).div_euclid(12);
+//        let pitch_class = d.rem_euclid(12);
+//
+//        match pitch_class {
+//            0 => vec![(Stack::from_target(vec![octaves, 0, 0]), 1.into())],
+//            1 => vec![
+//                (
+//                    Stack::from_target(vec![octaves + 1, (-1), (-1)]), // diatonic semitone
+//                    Ratio::new(1, 3 * 5),
+//                ),
+//                (
+//                    Stack::from_target(vec![octaves, (-1), 2]), // chromatic semitone
+//                    Ratio::new(1, 3 * 5 * 5),
+//                ),
+//            ],
+//            2 => vec![
+//                (
+//                    Stack::from_target(vec![octaves - 1, 2, 0]), // major whole tone 9/8
+//                    Ratio::new(1, 3 * 3),
+//                ),
+//                (
+//                    Stack::from_target(vec![octaves + 1, (-2), 1]), // minor whole tone 10/9
+//                    Ratio::new(1, 3 * 3 * 5),
+//                ),
+//            ],
+//            3 => vec![(
+//                Stack::from_target(vec![octaves, 1, (-1)]), // minor third
+//                Ratio::new(1, 3 * 5),
+//            )],
+//            4 => vec![(
+//                Stack::from_target(vec![octaves, 0, 1]), // major third
+//                Ratio::new(1, 5),
+//            )],
+//            5 => vec![(
+//                Stack::from_target(vec![octaves + 1, (-1), 0]), // fourth
+//                Ratio::new(1, 3),
+//            )],
+//            6 => vec![
+//                (
+//                    Stack::from_target(vec![octaves - 1, 2, 1]), // tritone as major tone plus major third
+//                    Ratio::new(1, 3 * 3 * 5),
+//                ),
+//                (
+//                    Stack::from_target(vec![octaves, 2, (-2)]), // tritone as chromatic semitone below fifth
+//                    Ratio::new(1, 3 * 3 * 5 * 5),
+//                ),
+//            ],
+//            7 => vec![(
+//                Stack::from_target(vec![octaves, 1, 0]), // fifth
+//                Ratio::new(1, 3),
+//            )],
+//            8 => vec![(
+//                Stack::from_target(vec![octaves + 1, 0, (-1)]), // minor sixth
+//                Ratio::new(1, 5),
+//            )],
+//            9 => vec![
+//                (
+//                    Stack::from_target(vec![octaves + 1, (-1), 1]), // major sixth
+//                    Ratio::new(1, 3 * 5),
+//                ),
+//                (
+//                    Stack::from_target(vec![octaves - 1, 3, 0]), // major tone plus fifth
+//                    Ratio::new(1, 3 * 3 * 3),
+//                ),
+//            ],
+//            10 => vec![
+//                (
+//                    Stack::from_target(vec![octaves + 2, (-2), 0]), // minor seventh as stack of two fourths
+//                    Ratio::new(1, 3 * 3),
+//                ),
+//                (
+//                    Stack::from_target(vec![octaves, 2, (-1)]), // minor seventh as fifth plus minor third
+//                    Ratio::new(1, 3 * 3 * 5),
+//                ),
+//            ],
+//            11 => vec![(
+//                Stack::from_target(vec![octaves, 1, 1]), // major seventh as fifth plus major third
+//                Ratio::new(1, 3 * 5),
+//            )],
+//            _ => unreachable!(),
+//        }
+//    }
+//
+//    fn candidate_anchors(
+//        &self,
+//        k: KeyNumber,
+//    ) -> Vec<(Stack<ConcreteFiveLimitStackType>, Ratio<StackCoeff>)> {
+//        self.candidate_springs(k as KeyDistance - 60)
+//    }
+//
+//    fn rod(&self, d: &RodSpec) -> Stack<ConcreteFiveLimitStackType> {
+//        match d[..] {
+//            [(12, n)] => Stack::from_target(vec![n, 0, 0]),
+//            _ => panic!("{d:?}"),
+//        }
+//    }
+//
+//    fn which_connector(&self, keys: &[KeyNumber], i: usize, j: usize) -> Connector {
+//        //let d = (keys[i] as KeyDistance - keys[j] as KeyDistance).abs();
+//        let class = (keys[i] as KeyDistance - keys[j] as KeyDistance).abs() % 12;
+//
+//        // octaves
+//        if class == 0 {
+//            return Connector::Rod(vec![(
+//                12,
+//                (keys[j] as StackCoeff - keys[i] as StackCoeff) / 12,
+//            )]);
+//        }
+//
+//        if keys.len() <= 5 {
+//            // This means at most 32 interval candidates. That's manageable.
+//            return Connector::Spring;
+//        }
+//
+//        //if i == 0 {
+//        //    return Connector::Spring;
+//        //}
+//
+//        if i + 1 == j {
+//            return Connector::Spring;
+//        }
+//
+//        // fifths, minor thirds, major thirds, and major seconds (and their octave complements)
+//        if [7, 5, 3, 9, 4, 8, 2, 10].contains(&class) {
+//            return Connector::Spring;
+//        }
+//
+//        Connector::None
+//    }
+//}
+//
+//impl<T: StackType + Hash + Eq + std::fmt::Debug + FiveLimitStackType, P: Provider<T>> State<T, P> {
+//    fn retune(
+//        &mut self,
+//        time: Instant,
+//        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+//    ) {
+//        let send_to_backend =
+//            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+//
+//        match self.workspace.best_intervals(
+//            &self.active_keys,
+//            |i, j| self.provider.which_connector(&self.active_keys, i, j),
+//            |d| self.provider.candidate_springs(d),
+//            |d| self.provider.rod(d),
+//            &mut self.solver,
+//        ) {
+//            Err(e) => {
+//                send_to_backend(
+//                    msg::AfterProcess::Notify {
+//                        line: format!("while computing the optimal intervals: {:?}", e),
+//                    },
+//                    time,
+//                );
+//                return;
+//            }
+//            Ok((interval_solution, interval_relaxed, interval_energy)) => {
+//                match {
+//                    match self.config.anchor_policy {
+//                        AnchorPolicy::AllConstants => {
+//                            let mut anchored_key_indices = vec![];
+//                            for (i, k) in self.active_keys.iter().enumerate() {
+//                                if self.reference_tunings.get(k).is_some() {
+//                                    anchored_key_indices.push(i);
+//                                }
+//                            }
+//                            println!(
+//                                "\n\n\nreference tunings: {:?}",
+//                                self.reference_tunings
+//                                    .iter()
+//                                    .map(|(k, v)| (
+//                                        k,
+//                                        v.notename(&NoteNameStyle::JohnstonFiveLimitFull)
+//                                    ))
+//                                    .collect::<Vec<_>>()
+//                            );
+//                            println!("anchored_key_indices: {anchored_key_indices:?}");
+//                            self.workspace.best_anchoring(
+//                                interval_solution,
+//                                &self.active_keys,
+//                                &anchored_key_indices,
+//                                |k| {
+//                                    vec![(
+//                                        self.reference_tunings.get(&k).unwrap().clone(),
+//                                        Ratio::from_integer(1),
+//                                    )]
+//                                },
+//                                &mut self.solver,
+//                            )
+//                        }
+//                        AnchorPolicy::HighestConstant => {
+//                            todo!()
+//                        }
+//                        AnchorPolicy::Envelope => {
+//                            todo!()
+//                        }
+//                    }
+//                } {
+//                    Err(e) => {
+//                        send_to_backend(
+//                            msg::AfterProcess::Notify {
+//                                line: format!("while computing the optimal anchors: {:?}", e),
+//                            },
+//                            time,
+//                        );
+//                        return;
+//                    }
+//                    Ok((solution, anchor_relaxed, anchor_energy)) => {
+//                        let interval_targets = self.workspace.current_interval_targets();
+//                        let mut anchor_targets =
+//                            self.workspace.current_anchor_targets(&interval_targets);
+//                        if time.duration_since(self.reference_time) > self.config.reference_window {
+//                            self.reference_tunings.clear();
+//                            println!("clearing reference tunings");
+//                        }
+//                        for (i, target) in anchor_targets.drain(..).enumerate() {
+//                            let tuning_stack =
+//                                Stack::from_target_and_actual(target, solution.row(i).to_owned());
+//                            self.reference_tunings
+//                                .insert(self.active_keys[i], tuning_stack.clone());
+//                            send_to_backend(
+//                                msg::AfterProcess::Retune {
+//                                    note: self.active_keys[i],
+//                                    tuning: self.workspace.get_semitones(solution.view(), i),
+//                                    tuning_stack,
+//                                },
+//                                time,
+//                            );
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//    }
+//}
+//
+//impl<T: StackType + Eq + Hash + std::fmt::Debug + FiveLimitStackType, P: Provider<T>> State<T, P> {
+//    fn handle_midi(
+//        &mut self,
+//        time: Instant,
+//        bytes: &[u8],
+//        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+//    ) {
+//        let send_to_backend =
+//            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+//
+//        match MidiMsg::from_midi(&bytes) {
+//            Err(e) => send_to_backend(msg::AfterProcess::MidiParseErr(e.to_string()), time),
+//            Ok((msg, _number_of_bytes_parsed)) => match msg {
+//                MidiMsg::ChannelVoice {
+//                    channel,
+//                    msg: ChannelVoiceMsg::NoteOn { note, velocity },
+//                } => {
+//                    send_to_backend(
+//                        msg::AfterProcess::NoteOn {
+//                            channel,
+//                            note,
+//                            velocity,
+//                        },
+//                        time,
+//                    );
+//                    if !self.active_keys.contains(&note) {
+//                        self.active_keys.push(note);
+//                        self.active_keys.sort_by(|a, b| a.cmp(b).reverse());
+//                        self.retune(time, to_backend);
+//                    }
+//                }
+//
+//                MidiMsg::ChannelVoice {
+//                    channel,
+//                    msg: ChannelVoiceMsg::NoteOff { note, velocity },
+//                } => {
+//                    send_to_backend(
+//                        msg::AfterProcess::NoteOff {
+//                            held_by_sustain: false, // TODO.
+//                            channel,
+//                            note,
+//                            velocity,
+//                        },
+//                        time,
+//                    );
+//                    match self.active_keys.iter().position(|x| *x == note) {
+//                        None {} => {}
+//                        Some(i) => {
+//                            self.active_keys.remove(i);
+//                            if self.active_keys.len() > 0 {
+//                                self.retune(time, to_backend);
+//                            }
+//                        }
+//                    }
+//                }
+//
+//                //MidiMsg::ChannelVoice {
+//                //    channel,
+//                //    msg:
+//                //        ChannelVoiceMsg::ControlChange {
+//                //            control: ControlChange::Hold(value),
+//                //        },
+//                //} => {}
+//                //MidiMsg::ChannelVoice {
+//                //    channel,
+//                //    msg: ChannelVoiceMsg::ProgramChange { program },
+//                //} => {
+//                //    send_to_backend(msg::AfterProcess::ProgramChange { channel, program }, time);
+//                //}
+//                _ => send_to_backend(msg::AfterProcess::ForwardMidi { msg }, time),
+//            },
+//        }
+//    }
+//}
+//
+//impl<P, T> ProcessState<T> for State<T, P>
+//where
+//    P: Provider<T>,
+//    T: StackType + Eq + Hash + std::fmt::Debug + FiveLimitStackType, // remove FiveLimitStackType
+//{
+//    fn handle_msg(
+//        &mut self,
+//        time: Instant,
+//        msg: msg::ToProcess,
+//        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+//    ) {
+//        match msg {
+//            msg::ToProcess::Start => {}
+//            msg::ToProcess::Stop => {}
+//            msg::ToProcess::Reset => {}
+//            msg::ToProcess::IncomingMidi { bytes } => self.handle_midi(time, &bytes, to_backend),
+//            msg::ToProcess::Consider { coefficients: _ } => {}
+//            msg::ToProcess::ToggleTemperament { index: _ } => {}
+//            msg::ToProcess::Special { code: _ } => {}
+//        }
+//    }
+//}
+//
+//#[derive(Clone)]
+//pub enum AnchorPolicy {
+//    AllConstants,
+//    HighestConstant,
+//    Envelope,
+//}
+//
+//#[derive(Clone)]
+//pub struct Config {
+//    pub initial_n_keys: usize,
+//    pub initial_n_lengths: usize,
+//    pub anchor_policy: AnchorPolicy,
+//    pub reference_window: Duration,
+//}
+//
+//impl config::r#trait::Config<State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider>>
+//    for Config
+//{
+//    fn initialise(config: &Self) -> State<ConcreteFiveLimitStackType, ConcreteFiveLimitProvider> {
+//        State {
+//            active_keys: vec![],
+//            solver: Solver::new(config.initial_n_keys, config.initial_n_lengths, 3),
+//            workspace: util::Workspace::new(config.initial_n_keys, true, true, true),
+//            provider: ConcreteFiveLimitProvider {},
+//            reference_tunings: {
+//                let mut t = BTreeMap::new();
+//                t.insert(60, Stack::new_zero());
+//                t
+//            },
+//            reference_time: Instant::now()
+//                .checked_sub(config.reference_window * 2)
+//                .unwrap(),
+//            config: config.clone(),
+//        }
+//    }
+//}
