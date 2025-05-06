@@ -22,6 +22,7 @@ use crate::{
         r#trait::ProcessState,
         //walking::{Walking, WalkingConfig},
     },
+    reference::Reference,
     strategy::r#static,
     tui::{
         self,
@@ -409,16 +410,17 @@ pub fn init_static_config(
         initial_neighbourhood_index,
         initial_neighbourhood_offset,
     );
+    let global_reference = Reference::from_frequency(Stack::from_target(vec![1, -1, 1]), 440.0);
     CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
         process_config: fromstrategy::Config {
             _phantom: PhantomData,
             strategy_config: r#static::StaticTuningConfig {
-                _phantom: PhantomData,
                 active_temperaments: no_active_temperaments,
                 width: initial_neighbourhood_width,
                 index: initial_neighbourhood_index,
                 offset: initial_neighbourhood_offset,
+                global_reference,
             },
         },
         backend_config: Pitchbend12Config {
@@ -490,16 +492,17 @@ pub fn init_static_debug_config(
     OnlyNotifyConfig,
 > {
     let no_active_temperaments = vec![false; ConcreteFiveLimitStackType::num_temperaments()];
+    let global_reference = Reference::from_frequency(Stack::from_target(vec![1, -1, 1]), 440.0);
     CompleteConfig {
         midi_port_config: MidiPortConfig::AskAtStartup,
         process_config: fromstrategy::Config {
             _phantom: PhantomData,
             strategy_config: r#static::StaticTuningConfig {
-                _phantom: PhantomData,
                 active_temperaments: no_active_temperaments,
                 width: initial_neighbourhood_width,
                 index: initial_neighbourhood_index,
                 offset: initial_neighbourhood_offset,
+                global_reference,
             },
         },
         backend_config: Pitchbend12Config {

@@ -14,7 +14,7 @@ pub trait Strategy<T: StackType> {
         tunings: &mut [Stack<T>; 128],
         note: u8,
         time: Instant,
-    ) -> Vec<msg::FromStrategy<T>>;
+    ) -> Option<Vec<msg::FromStrategy<T>>>;
 
     /// expects the effect of the "note off" event to be alead reflected in `keys`
     ///
@@ -26,7 +26,7 @@ pub trait Strategy<T: StackType> {
         tunings: &mut [Stack<T>; 128],
         notes: &[u8],
         time: Instant,
-    ) -> Vec<msg::FromStrategy<T>>;
+    ) -> Option<Vec<msg::FromStrategy<T>>>;
 
     fn handle_msg(
         &mut self,
@@ -34,5 +34,5 @@ pub trait Strategy<T: StackType> {
         tunings: &mut [Stack<T>; 128],
         msg: msg::ToStrategy,
         time: Instant,
-    ) -> Vec<msg::FromStrategy<T>>;
+    ) -> Option<Vec<msg::FromStrategy<T>>>;
 }

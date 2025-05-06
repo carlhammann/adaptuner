@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, time::Instant};
+use std::time::Instant;
 
 use crate::{
     config::r#trait::Config,
@@ -12,13 +12,14 @@ use crate::{
         new_fivelimit_neighbourhood, CompleteNeigbourhood, Neighbourhood, PeriodicCompleteAligned,
         PeriodicNeighbourhood,
     },
+    reference::Reference,
     strategy::r#trait::Strategy,
 };
 
 pub struct StaticTuning<T: StackType, N: Neighbourhood<T>> {
-    _phantom: PhantomData<T>,
     neighbourhood: N,
     active_temperaments: Vec<bool>,
+    global_reference: Reference<T>,
 }
 
 impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strategy<T>
@@ -30,19 +31,26 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
         tunings: &'a mut [Stack<T>; 128],
         note: u8,
         _time: Instant,
-    ) -> Vec<msg::FromStrategy<T>> {
+    ) -> Option<Vec<msg::FromStrategy<T>>> {
         self.neighbourhood.write_relative_stack(
             tunings
                 .get_mut(note as usize)
                 .expect("static strategy: note not in range 0..=127"),
-            note as i8 - 60,
+            note as i8 - self.global_reference.key as i8,
         );
 
-        vec![msg::FromStrategy::Retune {
+        println!("relative: {}", tunings[note as usize].target);
+
+        tunings
+            .get_mut(note as usize)
+            .unwrap()
+            .scaled_add(1, &self.global_reference.stack);
+
+        Some(vec![msg::FromStrategy::Retune {
             note,
             tuning: tunings[note as usize].absolute_semitones(),
             tuning_stack: tunings[note as usize].clone(),
-        }]
+        }])
     }
 
     fn note_off<'a>(
@@ -51,8 +59,8 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
         _tunings: &'a mut [Stack<T>; 128],
         _note: &[u8],
         _time: Instant,
-    ) -> Vec<msg::FromStrategy<T>> {
-        vec![]
+    ) -> Option<Vec<msg::FromStrategy<T>>> {
+        Some(vec![])
     }
 
     fn handle_msg(
@@ -61,7 +69,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
         tunings: &mut [Stack<T>; 128],
         msg: msg::ToStrategy,
         _time: Instant,
-    ) -> Vec<msg::FromStrategy<T>> {
+    ) -> Option<Vec<msg::FromStrategy<T>>> {
         match msg {
             msg::ToStrategy::Consider { coefficients } => {
                 let mut reference_stack =
@@ -94,7 +102,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
                     stack: reference_stack,
                 });
 
-                res
+                Some(res)
             }
             msg::ToStrategy::ToggleTemperament { index } => {
                 self.active_temperaments[index] = !self.active_temperaments[index];
@@ -114,8 +122,12 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
                             tunings
                                 .get_mut(note as usize)
                                 .expect("static strategy: note not in range 0..=127"),
-                            note as i8 - 60,
+                            note as i8 - self.global_reference.key as i8,
                         );
+                        tunings
+                            .get_mut(note as usize)
+                            .unwrap()
+                            .scaled_add(1, &self.global_reference.stack);
                         res.push(msg::FromStrategy::Retune {
                             note: note as u8,
                             tuning: tunings[note].absolute_semitones(),
@@ -124,7 +136,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
                     }
                 }
 
-                res
+                Some(res)
             }
         }
     }
@@ -132,11 +144,11 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
 
 #[derive(Clone)]
 pub struct StaticTuningConfig<T: FiveLimitStackType + OctavePeriodicStackType> {
-    pub _phantom: PhantomData<T>,
     pub active_temperaments: Vec<bool>,
     pub width: StackCoeff,
     pub index: StackCoeff,
     pub offset: StackCoeff,
+    pub global_reference: Reference<T>
 }
 
 impl<T: FiveLimitStackType + OctavePeriodicStackType>
@@ -144,7 +156,6 @@ impl<T: FiveLimitStackType + OctavePeriodicStackType>
 {
     fn initialise(config: &Self) -> StaticTuning<T, PeriodicCompleteAligned<T>> {
         StaticTuning {
-            _phantom: PhantomData,
             neighbourhood: new_fivelimit_neighbourhood(
                 &config.active_temperaments,
                 config.width,
@@ -152,6 +163,7 @@ impl<T: FiveLimitStackType + OctavePeriodicStackType>
                 config.offset,
             ),
             active_temperaments: config.active_temperaments.clone(),
+            global_reference: config.global_reference.clone()
         }
     }
 }

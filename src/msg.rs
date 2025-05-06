@@ -41,7 +41,6 @@ pub enum AfterProcess<T: StackType> {
     //    channel: Channel,
     //    program: u8,
     //},
-
     ForwardMidi {
         msg: MidiMsg,
     },
@@ -51,7 +50,7 @@ pub enum AfterProcess<T: StackType> {
     BackendLatency {
         since_input: Duration,
     },
-    
+
     DetunedNote {
         note: u8,
         should_be: Semitones,
@@ -71,13 +70,18 @@ pub enum ToProcess {
 
 #[derive(Debug)]
 pub enum ToStrategy {
-    Consider { coefficients: Vec<StackCoeff> },
-    ToggleTemperament { index: usize },
+    Consider {
+        /// relative to middle C
+        coefficients: Vec<StackCoeff>,
+    },
+    ToggleTemperament {
+        index: usize,
+    },
     //Special { code: u8 },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum FromStrategy<T:StackType> {
+pub enum FromStrategy<T: StackType> {
     Retune {
         note: u8,
         tuning: Semitones,
@@ -88,6 +92,7 @@ pub enum FromStrategy<T:StackType> {
         stack: Stack<T>,
     },
     Consider {
+        /// relative to middle C
         stack: Stack<T>,
     },
     NotifyFit {
@@ -95,9 +100,7 @@ pub enum FromStrategy<T:StackType> {
         reference_stack: Stack<T>,
     },
     NotifyNoFit,
-
     //Special {
     //    code: u8,
     //},
-
 }
