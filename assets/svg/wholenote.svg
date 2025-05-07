@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="3.4513345mm"
+   height="1.9119411mm"
+   viewBox="0 0 3.4513346 1.9119411"
+   version="1.1"
+   id="svg1"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <g
+     id="layer1"
+     transform="translate(-84.137501,-127.26458)">
+    <a
+       style="color:inherit"
+       xlink:href="textedit:///home/carl/Lieder/BlauerSchmetterling.ly:53:8:9"
+       id="a154"
+       transform="matrix(1.7572987,0,0,1.7572987,48.550796,39.392971)">
+      <g
+         transform="translate(20.2508,50.5478)"
+         id="g154">
+        <path
+           style="fill:#ffffff"
+           transform="scale(0.004,-0.004)"
+           d="m 347,-26 c 0,102 -89,139 -133,139 -23,0 -70,-10 -70,-89 0,-91 76,-136 132,-136 22,0 71,8 71,86 z M 245,136 C 389,136 491,71 491,0 491,-71 389,-136 245,-136 101,-136 0,-71 0,0 0,71 101,136 245,136 Z"
+           fill="currentColor"
+           id="path154" />
+      </g>
+    </a>
+  </g>
+</svg>
