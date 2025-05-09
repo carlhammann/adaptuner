@@ -5,14 +5,41 @@ pub mod fivelimit {
     };
     use std::fmt;
 
-    pub struct NoteName {
-        base: char,
-        sharpflat: StackCoeff,
-        plusminus: StackCoeff,
-        octave: StackCoeff,
+    #[derive(Clone, Copy)]
+    pub enum BaseName {
+        C,
+        D,
+        E,
+        F,
+        G,
+        A,
+        B,
     }
 
-    const JOHNSTON_BASE_ROW: [char; 7] = ['F', 'A', 'C', 'E', 'G', 'B', 'D'];
+    impl std::fmt::Display for BaseName {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+            match self {
+                C => f.write_str(&"C"),
+                D => f.write_str(&"D"),
+                E => f.write_str(&"E"),
+                F => f.write_str(&"F"),
+                G => f.write_str(&"G"),
+                A => f.write_str(&"A"),
+                B => f.write_str(&"B"),
+            }
+        }
+    }
+
+    use BaseName::*;
+
+    pub struct NoteName {
+        pub basename: BaseName,
+        pub sharpflat: StackCoeff,
+        pub plusminus: StackCoeff,
+        pub octave: StackCoeff,
+    }
+
+    const JOHNSTON_BASE_ROW: [BaseName; 7] = [F, A, C, E, G, B, D];
 
     impl NoteName {
         pub fn new<T: FiveLimitStackType>(s: &Stack<T>) -> Self {
@@ -62,7 +89,7 @@ pub mod fivelimit {
             }
             let ix = 2 + 2 * fifths + thirds;
             NoteName {
-                base: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],
+                basename: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],
                 sharpflat: (1 + fifths + 4 * thirds).div_euclid(7),
                 plusminus: ix.div_euclid(7),
                 octave: 4 + octaves + (4 * fifths + 2 * thirds).div_euclid(7),
@@ -71,7 +98,7 @@ pub mod fivelimit {
 
         /// Write the pitch class (i.e. the note name without the octave number)
         pub fn write_class<W: fmt::Write>(&self, f: &mut W) -> fmt::Result {
-            write!(f, "{}", self.base)?;
+            write!(f, "{}", self.basename)?;
 
             let sf = self.sharpflat;
             if sf > 0 {

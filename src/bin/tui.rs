@@ -26,7 +26,7 @@ use adaptuner::{
     interval::stacktype::r#trait::StackType,
     msg,
     process::r#trait::ProcessState,
-    tui::r#trait::{Tui, UIState},
+    tui::r#trait::{UIState, Tui},
 };
 
 fn start_process<T, STATE, CONFIG>(

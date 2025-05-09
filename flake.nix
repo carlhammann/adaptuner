@@ -66,6 +66,13 @@
             # latexrun
           ]
           ++ nixpkgs.lib.optionals pkgs.stdenv.isLinux [alsa-utils];
+
+        LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath (with pkgs;
+          nixpkgs.lib.optionals stdenv.isLinux [
+            wayland
+            libGL
+            libxkbcommon
+          ])}";
       };
     });
   };

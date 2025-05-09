@@ -1,6 +1,6 @@
 use crate::interval::{stack::Stack, stacktype::r#trait::FiveLimitStackType};
 
-mod johnston;
+pub mod johnston;
 
 #[derive(Clone, Copy)]
 pub enum NoteNameStyle {
