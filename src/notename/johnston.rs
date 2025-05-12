@@ -30,15 +30,20 @@ pub mod fivelimit {
         }
     }
 
-    use BaseName::*;
-
-    pub struct NoteName {
-        pub basename: BaseName,
+    #[derive(Clone)]
+    pub struct Accidental {
         pub sharpflat: StackCoeff,
         pub plusminus: StackCoeff,
-        pub octave: StackCoeff,
     }
 
+    #[derive(Clone)]
+    pub struct NoteName {
+        pub basename: BaseName,
+        pub octave: StackCoeff,
+        pub accidental: Accidental,
+    }
+
+    use BaseName::*;
     const JOHNSTON_BASE_ROW: [BaseName; 7] = [F, A, C, E, G, B, D];
 
     impl NoteName {
@@ -90,8 +95,10 @@ pub mod fivelimit {
             let ix = 2 + 2 * fifths + thirds;
             NoteName {
                 basename: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],
-                sharpflat: (1 + fifths + 4 * thirds).div_euclid(7),
-                plusminus: ix.div_euclid(7),
+                accidental: Accidental {
+                    sharpflat: (1 + fifths + 4 * thirds).div_euclid(7),
+                    plusminus: ix.div_euclid(7),
+                },
                 octave: 4 + octaves + (4 * fifths + 2 * thirds).div_euclid(7),
             }
         }
@@ -100,7 +107,7 @@ pub mod fivelimit {
         pub fn write_class<W: fmt::Write>(&self, f: &mut W) -> fmt::Result {
             write!(f, "{}", self.basename)?;
 
-            let sf = self.sharpflat;
+            let sf = self.accidental.sharpflat;
             if sf > 0 {
                 for _ in 0..sf {
                     write!(f, "#")?;
@@ -112,7 +119,7 @@ pub mod fivelimit {
                 }
             }
 
-            let pm = self.plusminus;
+            let pm = self.accidental.plusminus;
             if pm > 0 {
                 for _ in 0..pm {
                     write!(f, "+")?;
