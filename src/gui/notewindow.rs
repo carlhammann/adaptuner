@@ -8,7 +8,10 @@ use eframe::{
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    gui::r#trait::GUIState,
+    gui::{
+        latencywindow::LatencyWindow,
+        r#trait::{GuiState, WindowGuiState},
+    },
     interval::{
         stack::Stack,
         stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
@@ -58,6 +61,7 @@ const PLUS_VERTICAL_OFFSET: f32 = 0.3;
 const MINUS_WIDTH: f32 = 0.8;
 const MINUS_LINE_THICKNESS: f32 = 0.25;
 const MINUS_VERTICAL_OFFSET: f32 = 0.3;
+const LEDGER_LINE_LENGTH: f32 = 2.5;
 
 struct SizedOffsetTexture {
     id: egui::TextureId,
@@ -176,12 +180,12 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
         vertical_index: StackCoeff,
         horizontal_center: f32,
         tint: egui::Color32,
-        clip_rect: egui::Rect,
+        rect: egui::Rect,
         ui: &mut egui::Ui,
     ) {
         let vertical_center =
-            (clip_rect.height() - vertical_index as f32 * self.line_spacing) / 2.0;
-        let center = pos2(horizontal_center, vertical_center);
+            rect.top() + (rect.height() - vertical_index as f32 * self.line_spacing) / 2.0;
+        let center = pos2(horizontal_center + rect.left(), vertical_center);
 
         match shape {
             NoteShape::Plus => {
@@ -193,7 +197,7 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
                         0.0
                     },
                 );
-                ui.painter().with_clip_rect(clip_rect).rect_filled(
+                ui.painter().with_clip_rect(rect).rect_filled(
                     egui::Rect::from_center_size(
                         center - shift,
                         self.line_spacing * vec2(PLUS_LINE_THICKNESS, PLUS_WIDTH),
@@ -201,7 +205,7 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
                     self.line_spacing * PLUS_LINE_THICKNESS / 3.0,
                     tint,
                 );
-                ui.painter().with_clip_rect(clip_rect).rect_filled(
+                ui.painter().with_clip_rect(rect).rect_filled(
                     egui::Rect::from_center_size(
                         center - shift,
                         self.line_spacing * vec2(PLUS_WIDTH, PLUS_LINE_THICKNESS),
@@ -220,7 +224,7 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
                         0.0
                     },
                 );
-                ui.painter().with_clip_rect(clip_rect).rect_filled(
+                ui.painter().with_clip_rect(rect).rect_filled(
                     egui::Rect::from_center_size(
                         center - shift,
                         self.line_spacing * vec2(MINUS_WIDTH, MINUS_LINE_THICKNESS),
@@ -244,7 +248,7 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
             NoteShape::DoubleFlat => &self.svg_noteshapes.doubleflat,
             _ => unreachable!(),
         };
-        ui.painter().with_clip_rect(clip_rect).image(
+        ui.painter().with_clip_rect(rect).image(
             sot.id,
             egui::Rect::from_center_size(
                 center + self.line_spacing * sot.offset,
@@ -278,24 +282,17 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
         vertical_index: StackCoeff,
         right_border: f32,
         tint: egui::Color32,
-        clip_rect: egui::Rect,
+        rect: egui::Rect,
         ui: &mut egui::Ui,
     ) {
         let horizontal_center =
             right_border - self.noteshape_width(shape) * self.line_spacing / 2.0;
 
-        self.draw_noteshape(
-            shape,
-            vertical_index,
-            horizontal_center,
-            tint,
-            clip_rect,
-            ui,
-        );
+        self.draw_noteshape(shape, vertical_index, horizontal_center, tint, rect, ui);
     }
 
     fn draw_lines(&self, rect: egui::Rect, ui: &mut egui::Ui) {
-        let mut y = rect.height() / 2.0;
+        let mut y = rect.top() + rect.height() / 2.0;
 
         for _ in 0..5 {
             y -= self.line_spacing;
@@ -309,7 +306,7 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
             );
         }
 
-        let mut y = rect.height() / 2.0;
+        let mut y = rect.top() + rect.height() / 2.0;
         for _ in 0..5 {
             y += self.line_spacing;
             ui.painter().with_clip_rect(rect).hline(
@@ -362,15 +359,15 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
         );
 
         let ledger_line = |index| {
-            let half_thickness = MEASURED_LEDGER_LINE_THICKNESS * scale / 2.0;
-            let half_width = 1.25 * self.line_spacing;
-            let vpos = rect.height() / 2.0 - self.line_spacing * index as f32 / 2.0;
+            let thickness = MEASURED_LEDGER_LINE_THICKNESS * scale;
+            let length = LEDGER_LINE_LENGTH * self.line_spacing;
+            let vpos = rect.top() + rect.height() / 2.0 - self.line_spacing * index as f32 / 2.0;
             ui.painter().with_clip_rect(rect).rect_filled(
-                egui::Rect {
-                    min: pos2(horizontal_pos - half_width, vpos - half_thickness),
-                    max: pos2(horizontal_pos + half_width, vpos + half_thickness),
-                },
-                half_thickness,
+                egui::Rect::from_center_size(
+                    pos2(horizontal_pos + rect.left(), vpos),
+                    vec2(length, thickness),
+                ),
+                thickness / 2.0,
                 ui.style().visuals.strong_text_color(),
             );
         };
@@ -647,8 +644,9 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
     }
 
     fn draw(&self, active_notes: &[KeyState; 128], tunings: &[Stack<T>], ui: &mut egui::Ui) {
-        let desired_size = ui.available_size();
-        let (_id, rect) = ui.allocate_space(desired_size);
+        //let desired_size = ui.available_size();
+        //let (_id, rect) = ui.allocate_space(desired_size);
+        let rect = ui.clip_rect();
 
         self.draw_lines(rect, ui);
         self.draw_clefs(rect, ui);
@@ -687,7 +685,7 @@ impl<T: FiveLimitStackType> NoteWindow<T> {
     }
 }
 
-impl<T: FiveLimitStackType> GUIState<T> for NoteWindow<T> {
+impl<T: FiveLimitStackType> GuiState<T> for NoteWindow<T> {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -759,28 +757,50 @@ impl<T: FiveLimitStackType> GUIState<T> for NoteWindow<T> {
     }
 }
 
-impl<T: FiveLimitStackType> eframe::App for NoteWindow<T> {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
-            egui::widgets::global_theme_preference_switch(ui);
-            if ui
-                .add(
-                    egui::widgets::Slider::new(&mut self.note_renderer.line_spacing, 5.0..=100.0)
+impl<T: FiveLimitStackType> WindowGuiState<T> for NoteWindow<T> {
+    fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        egui::TopBottomPanel::bottom("note window bottom panel").show_inside(ui, |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(
+                        egui::widgets::Slider::new(
+                            &mut self.note_renderer.line_spacing,
+                            5.0..=100.0,
+                        )
                         .smart_aim(false)
                         .logarithmic(true)
                         .show_value(false)
                         .text("zoom"),
-                )
-                .drag_stopped()
-            {
-                self.note_renderer.reload_svg_noteshapes(ctx);
-            }
-        });
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Frame::canvas(ui.style()).show(ui, |ui| {
-                self.note_renderer
-                    .draw(&self.active_notes, &self.tunings, ui);
+                    )
+                    .drag_stopped()
+                {
+                    self.note_renderer.reload_svg_noteshapes(ctx);
+                }
             });
+        });
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.note_renderer
+                .draw(&self.active_notes, &self.tunings, ui);
+        });
+    }
+}
+
+impl<T: FiveLimitStackType> eframe::App for NoteWindow<T> {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                let mut latencywindow = LatencyWindow::new(20);
+                <LatencyWindow as WindowGuiState<T>>::show(&mut latencywindow, ctx, ui);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    egui::widgets::global_theme_preference_buttons(ui);
+                })
+            });
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {});
+
+        egui::containers::Window::new("note window").show(ctx, |ui| {
+            self.show(ctx, ui);
         });
     }
 }

@@ -4,7 +4,7 @@ use eframe::{self, egui};
 
 use crate::{interval::stacktype::r#trait::StackType, msg};
 
-pub trait GUIState<T: StackType> {
+pub trait GuiState<T: StackType> {
     fn handle_msg(
         &mut self,
         time: Instant,
@@ -13,4 +13,8 @@ pub trait GUIState<T: StackType> {
         ctx: &egui::Context,
         //frame: &mut eframe::Frame,
     );
+}
+
+pub trait WindowGuiState<T: StackType>: GuiState<T> {
+    fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui);
 }

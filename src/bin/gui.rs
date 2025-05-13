@@ -15,8 +15,7 @@ use midi_msg::Channel;
 use adaptuner::{
     backend::{pitchbend12::Pitchbend12Config, r#trait::BackendState},
     config::r#trait::Config,
-    gui::notewindow::NoteWindow,
-    gui::r#trait::GUIState,
+    gui::{latencywindow::LatencyWindow, notewindow::NoteWindow, r#trait::GuiState},
     interval::{
         stack::Stack,
         stacktype::{
@@ -30,13 +29,13 @@ use adaptuner::{
     strategy::{r#static::*, r#trait::Strategy},
 };
 
-struct GuiWithConnections<T: StackType, G: GUIState<T>> {
+struct GuiWithConnections<T: StackType, G: GuiState<T>> {
     gui: G,
     incoming_msgs: mpsc::Receiver<(Instant, msg::AfterProcess<T>)>,
     msgs_to_process: mpsc::Sender<(Instant, msg::ToProcess)>,
 }
 
-impl<T: StackType, G: GUIState<T> + eframe::App> eframe::App for GuiWithConnections<T, G> {
+impl<T: StackType, G: GuiState<T> + eframe::App> eframe::App for GuiWithConnections<T, G> {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         for (time, msg) in self.incoming_msgs.try_iter() {
             self.gui.handle_msg(time, &msg, &self.msgs_to_process, ctx);
@@ -47,14 +46,13 @@ impl<T: StackType, G: GUIState<T> + eframe::App> eframe::App for GuiWithConnecti
 
 fn start_gui<
     T: StackType + Send + 'static,
-    G: GUIState<T> + eframe::App,
+    G: GuiState<T> + eframe::App,
     NG: Fn(&egui::Context) -> G,
 >(
     app_name: &str,
     new_gui: NG,
     incoming_msgs: mpsc::Receiver<(Instant, msg::AfterProcess<T>)>,
     msgs_to_process: mpsc::Sender<(Instant, msg::ToProcess)>,
-    //ctx: egui::Context,
 ) -> Result<(), eframe::Error> {
     eframe::run_native(
         app_name,
