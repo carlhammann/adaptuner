@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant}; 
+use std::{sync::mpsc, time::Instant};
 
 use eframe::{self, egui};
 
@@ -9,7 +9,8 @@ pub trait GUIState<T: StackType> {
         &mut self,
         time: Instant,
         msg: &msg::AfterProcess<T>,
-        //to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
+        to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
         ctx: &egui::Context,
+        //frame: &mut eframe::Frame,
     );
 }
