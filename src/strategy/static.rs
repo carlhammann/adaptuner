@@ -39,7 +39,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
             note as i8 - self.global_reference.key as i8,
         );
 
-        println!("relative: {}", tunings[note as usize].target);
+        //println!("relative: {}", tunings[note as usize].target);
 
         tunings
             .get_mut(note as usize)

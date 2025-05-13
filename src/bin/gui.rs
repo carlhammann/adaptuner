@@ -1,4 +1,12 @@
-use std::{cmp, marker::PhantomData, sync::mpsc, time::Instant};
+use std::{
+    cmp,
+    error::Error,
+    io::{stdin, stdout, Write},
+    marker::PhantomData,
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
+};
 
 use eframe::{
     self,
@@ -6,9 +14,11 @@ use eframe::{
     epaint::pos2,
     App,
 };
-use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
+use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use adaptuner::{
+    backend::{pitchbend12::Pitchbend12Config, r#trait::BackendState},
+    config::r#trait::Config,
     gui::r#trait::GUIState,
     interval::{
         stack::Stack,
@@ -18,8 +28,11 @@ use adaptuner::{
         },
     },
     keystate::KeyState,
-    msg, neighbourhood,
+    msg,
     notename::johnston::fivelimit::{Accidental, BaseName, NoteName},
+    process::{fromstrategy, r#trait::ProcessState},
+    reference::Reference,
+    strategy::{r#static::*, r#trait::Strategy},
 };
 
 const BASSCLEF: egui::ImageSource = egui::include_image!("../../assets/svg/bassclef.svg");
@@ -111,7 +124,6 @@ struct NoteRenderer<T: StackType> {
     clef_offset: f32,
 
     svg_noteshapes: SVGNoteShapes,
-    x: f32,
 }
 
 impl SVGNoteShapes {
@@ -160,7 +172,6 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
             line_thickness: MEASURED_LINE_THICKNESS / MEASURED_LINE_SPACING,
             clef_offset: 3.0,
             svg_noteshapes: SVGNoteShapes::new(ctx, line_spacing),
-            x: 0.0,
         }
     }
 
@@ -659,47 +670,48 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
         self.draw_lines(rect, ui);
         self.draw_clefs(rect, ui);
 
-        let horizontal_pos = self.line_spacing * 5.0 * self.clef_offset;
+        let horizontal_pos = self.line_spacing * 6.0 * self.clef_offset;
 
-        let mut notes = [
-            NoteName::new(&Stack::<T>::from_pure_interval(T::third_index(), 6)),
-            NoteName::new(&Stack::<T>::from_target(vec![2, 2 - 4, 1 + 1])), //from_pure_interval(T::third_index(), 5)),
-            NoteName::new(&Stack::<T>::from_pure_interval(T::third_index(), 4)),
-            NoteName::new(&Stack::<T>::from_pure_interval(T::third_index(), 3)),
-            NoteName::new(&Stack::<T>::from_pure_interval(T::third_index(), 2)),
-            NoteName::new(&Stack::<T>::from_pure_interval(T::third_index(), 1)),
-            NoteName::new(&Stack::<T>::new_zero()),
-            //NoteName::new(&Stack::<T>::from_pure_interval(T::third_index(), -1)),
-            //NoteName::new(&Stack::<T>::from_pure_interval(T::third_index(), -2)),
-            NoteName::new(&Stack::<T>::from_pure_interval(T::third_index(), -3)),
-            NoteName::new(&Stack::<T>::from_pure_interval(T::third_index(), -4)),
-            NoteName::new(&Stack::<T>::from_pure_interval(T::third_index(), -5)),
-        ];
+        let mut notes = vec![];
+
+        for i in 0..128 {
+            if active_notes[i].is_sounding() {
+                notes.push(NoteName::new(&tunings[i]));
+            }
+        }
+
+        println!("\n\nnotes");
+        for n in notes.iter() {
+            println!("{n}");
+        }
 
         let x = self.draw_chord(&mut notes, horizontal_pos, rect, ui);
-        ui.painter().with_clip_rect(rect).vline(
-            x,
-            rect.y_range(),
-            egui::Stroke::new(
-                self.line_thickness * self.line_spacing,
-                ui.style().visuals.strong_text_color(),
-            ),
-        );
     }
 }
 
-struct State<T: StackType> {
+struct Gui<T: StackType> {
+    //refresh_rate: Duration,
+    incoming_msgs: mpsc::Receiver<(Instant, msg::AfterProcess<T>)>,
+    msgs_to_process: mpsc::Sender<(Instant, msg::ToProcess)>,
     active_notes: [KeyState; 128],
     pedal_hold: [bool; 16],
     tunings: [Stack<T>; 128],
     note_renderer: NoteRenderer<T>,
 }
 
-impl<T: FiveLimitStackType> State<T> {
-    fn new(ctx: &egui::Context) -> Self {
+impl<T: FiveLimitStackType> Gui<T> {
+    fn new(
+        ctx: &egui::Context,
+        //refresh_rate: Duration,
+        incoming_msgs: mpsc::Receiver<(Instant, msg::AfterProcess<T>)>,
+        msgs_to_process: mpsc::Sender<(Instant, msg::ToProcess)>,
+    ) -> Self {
         let now = Instant::now();
         ctx.set_theme(egui::ThemePreference::System);
         Self {
+            //refresh_rate,
+            incoming_msgs,
+            msgs_to_process,
             active_notes: core::array::from_fn(|_| KeyState::new(now)),
             pedal_hold: [false; 16],
             tunings: core::array::from_fn(|_| Stack::new_zero()),
@@ -708,15 +720,8 @@ impl<T: FiveLimitStackType> State<T> {
     }
 }
 
-impl<T: FiveLimitStackType> GUIState<T> for State<T> {
-    fn handle_msg(
-        &mut self,
-        time: Instant,
-        msg: &msg::AfterProcess<T>,
-        to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
-        ctx: &egui::Context,
-        frame: &mut eframe::Frame,
-    ) {
+impl<T: FiveLimitStackType> GUIState<T> for Gui<T> {
+    fn handle_msg(&mut self, time: Instant, msg: &msg::AfterProcess<T>, _ctx: &egui::Context) {
         match msg {
             msg::AfterProcess::ForwardMidi { msg } => match msg {
                 MidiMsg::ChannelVoice {
@@ -777,19 +782,21 @@ impl<T: FiveLimitStackType> GUIState<T> for State<T> {
                     //msg::AfterProcess::BackendLatency { since_input } => todo!(),
                     //msg::AfterProcess::DetunedNote { note, should_be, actual, explanation } => todo!(),
         }
-        self.update(ctx, frame);
+        //ctx.request_repaint();
     }
 }
 
-impl<T: FiveLimitStackType> eframe::App for State<T> {
+impl<T: FiveLimitStackType> eframe::App for Gui<T> {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let msgs: Vec<_> = self.incoming_msgs.try_iter().collect(); // TODO: this should be
+                                                                    // possible without
+                                                                    // collecting...
+        for (time, msg) in msgs {
+            self.handle_msg(time, &msg, ctx);
+        }
+
         egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
             egui::widgets::global_theme_preference_switch(ui);
-            ui.add(
-                egui::widgets::Slider::new(&mut self.note_renderer.x, 0.0..=2.0)
-                    .smart_aim(false)
-                    .text("x"),
-            );
             if ui
                 .add(
                     egui::widgets::Slider::new(&mut self.note_renderer.line_spacing, 5.0..=100.0)
@@ -812,15 +819,239 @@ impl<T: FiveLimitStackType> eframe::App for State<T> {
     }
 }
 
-fn main() -> eframe::Result {
+fn start_process<T, S, C>(
+    config: C,
+    msg_rx: mpsc::Receiver<(Instant, msg::ToProcess)>,
+    backend_tx: mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+) where
+    T: StackType + Send + 'static,
+    S: Strategy<T>,
+    C: Config<S> + Clone + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut state: fromstrategy::State<T, S, C> = fromstrategy::State::new(&config);
+        loop {
+            match msg_rx.recv() {
+                Ok((time, msg::ToProcess::Stop)) => {
+                    state.handle_msg(time, msg::ToProcess::Stop, &backend_tx);
+                    break;
+                }
+                Ok((time, msg)) => state.handle_msg(time, msg, &backend_tx),
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+fn start_backend<T, S, C>(
+    config: C,
+    msg_rx: mpsc::Receiver<(Instant, msg::AfterProcess<T>)>,
+    ui_tx: mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+    midi_tx: mpsc::Sender<(Instant, Vec<u8>)>,
+) -> thread::JoinHandle<()>
+where
+    T: StackType + Send + 'static,
+    S: BackendState<T>,
+    C: Config<S> + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut state: S = <C as Config<S>>::initialise(&config);
+        loop {
+            match msg_rx.recv() {
+                Ok((time, msg::AfterProcess::Stop)) => {
+                    state.handle_msg(time, msg::AfterProcess::Stop, &ui_tx, &midi_tx);
+                    break;
+                }
+                Ok((time, msg)) => state.handle_msg(time, msg, &ui_tx, &midi_tx),
+                Err(_) => break,
+            }
+        }
+    })
+}
+
+fn select_port<T: midir::MidiIO>(midi_io: &T, descr: &str) -> Result<T::Port, Box<dyn Error>> {
+    println!("Available {} ports:", descr);
+    let midi_ports = midi_io.ports();
+    for (i, p) in midi_ports.iter().enumerate() {
+        println!("{}: {}", i, midi_io.port_name(p)?);
+    }
+    print!("Please select {} port: ", descr);
+    stdout().flush()?;
+    let mut input = String::new();
+    stdin().read_line(&mut input)?;
+    let port = midi_ports
+        .get(input.trim().parse::<usize>()?)
+        .ok_or("Invalid port number")?;
+    Ok(port.clone())
+}
+
+fn run<T, PS, SC, B, BC>(strategy_config: SC, backend_config: BC) -> Result<(), Box<dyn Error>>
+where
+    T: FiveLimitStackType + Send + 'static + Clone,
+    PS: Strategy<T>,
+    SC: Config<PS> + Clone + Send + 'static,
+    B: BackendState<T>,
+    BC: Config<B> + Send + 'static,
+{
+    // There are the following connections:
+    // - the process receives midi input
+    // - the process receives messages from the ui
+    let (midi_to_process_tx, to_process_rx) = mpsc::channel::<(Instant, msg::ToProcess)>();
+    let ui_to_process_tx = midi_to_process_tx.clone();
+
+    // - the ui gets messages from the process
+    let (process_to_ui_tx, to_ui_rx) = mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
+
+    // - the ui receives information on the midi latency
+    let midi_latency_to_ui_tx = process_to_ui_tx.clone();
+
+    // - the ui receives information from the backend
+    let backend_to_ui_tx = process_to_ui_tx.clone();
+
+    // - the backend gets exaclty the same messages as the ui from the process
+    let (process_tx, process_forwarder_tx) = mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
+    let (process_to_backend_tx, process_to_backend_rx) =
+        mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
+    thread::spawn(move || loop {
+        match process_forwarder_tx.recv() {
+            Ok((time, msg)) => {
+                process_to_backend_tx
+                    .send((time, msg.clone()))
+                    .unwrap_or(());
+                process_to_ui_tx.send((time, msg)).unwrap_or(());
+            }
+            Err(_) => break,
+        }
+    });
+
+    // - the backend sends bytes to the midi output
+    let (backend_to_midi_out_tx, backend_to_midi_out_rx) = mpsc::channel::<(Instant, Vec<u8>)>();
+
+    //// these three are for the initial "Start" messages and the "Stop" messages from the Ctrl-C
+    //// handler:
+    //let to_process_tx_start_and_stop = midi_to_process_tx.clone();
+    //let to_ui_tx_start_and_stop = backend_to_ui_tx.clone();
+    //let to_backend_tx_start_and_stop = process_to_backend_tx.clone();
+
+    let midi_in = midir::MidiInput::new("adaptuner input")?;
+    let midi_out = midir::MidiOutput::new("adaptuner output")?;
+
+    let midi_in_port = select_port(&midi_in, "input")?;
+    println!();
+    let midi_out_port = select_port(&midi_out, "output")?;
+
+    let _conn_in = midi_in.connect(
+        &midi_in_port,
+        "adaptuner input",
+        move |_time, bytes, _| {
+            let time = Instant::now();
+            midi_to_process_tx
+                .send((
+                    time,
+                    msg::ToProcess::IncomingMidi {
+                        bytes: bytes.to_vec(),
+                    },
+                ))
+                .unwrap_or(());
+        },
+        (),
+    )?;
+
+    let mut conn_out = midi_out.connect(&midi_out_port, "adaptuner output")?;
+    thread::spawn(move || loop {
+        match backend_to_midi_out_rx.recv() {
+            Ok((original_time, msg)) => {
+                conn_out.send(&msg).unwrap_or(());
+                let time = Instant::now();
+                midi_latency_to_ui_tx
+                    .send((
+                        time,
+                        msg::AfterProcess::BackendLatency {
+                            since_input: time.duration_since(original_time),
+                        },
+                    ))
+                    .unwrap_or(());
+            }
+            Err(_) => break,
+        }
+    });
+
+    let _backend = start_backend(
+        backend_config,
+        process_to_backend_rx,
+        backend_to_ui_tx,
+        backend_to_midi_out_tx,
+    );
+
+    let _process = start_process(strategy_config, to_process_rx, process_tx);
+
+    let (to_ui_internal_tx, to_ui_internal_rx) = mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
     eframe::run_native(
         "adaptuner",
         eframe::NativeOptions::default(),
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Ok(Box::new(State::<ConcreteFiveLimitStackType>::new(
+            let ctx = cc.egui_ctx.clone();
+
+            // This thread is here only to request the repaints. This is also why I have to wrap
+            // the channel to ths ui in the to_ui_internal_* stuff
+            thread::spawn(move || loop {
+                loop {
+                    match to_ui_rx.recv() {
+                        Ok((time, msg)) => {
+                            to_ui_internal_tx.send((time, msg)).unwrap_or(());
+                            ctx.request_repaint();
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+
+            Ok(Box::new(Gui::new(
                 &cc.egui_ctx,
+                to_ui_internal_rx,
+                ui_to_process_tx,
             )))
         }),
-    )
+    )?;
+
+    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let global_reference = Reference::<ConcreteFiveLimitStackType>::from_frequency(
+        Stack::from_target(vec![1, -1, 1]),
+        440.0,
+    );
+    let no_active_temperaments = vec![false; 2];
+    let initial_neighbourhood_width = 4;
+    let initial_neighbourhood_index = 5;
+    let initial_neighbourhood_offset = 1;
+    let strategy_config = StaticTuningConfig {
+        active_temperaments: no_active_temperaments,
+        width: initial_neighbourhood_width,
+        index: initial_neighbourhood_index,
+        offset: initial_neighbourhood_offset,
+        global_reference,
+    };
+
+    let backend_config = Pitchbend12Config {
+        channels: [
+            Channel::Ch1,
+            Channel::Ch2,
+            Channel::Ch3,
+            Channel::Ch4,
+            Channel::Ch5,
+            Channel::Ch6,
+            Channel::Ch7,
+            Channel::Ch8,
+            Channel::Ch9,
+            Channel::Ch11,
+            Channel::Ch12,
+            Channel::Ch13,
+        ],
+        bend_range: 2.0,
+    };
+
+    run(strategy_config, backend_config)
 }

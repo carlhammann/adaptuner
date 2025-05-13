@@ -180,13 +180,19 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S> + Clone>
     config::r#trait::Config<State<T, S, SC>> for Config<T, S, SC>
 {
     fn initialise(config: &Self) -> State<T, S, SC> {
+        State::new(&config.strategy_config)
+    }
+}
+
+impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S> + Clone> State<T, S, SC> {
+    pub fn new(config: &SC) -> Self {
         let now = Instant::now();
-        State {
-            strategy: <SC as config::r#trait::Config<S>>::initialise(&config.strategy_config),
+        Self {
+            strategy: <SC as config::r#trait::Config<S>>::initialise(&config),
             key_states: core::array::from_fn(|_| KeyState::new(now)),
             tunings: core::array::from_fn(|_| Stack::new_zero()),
             pedal_hold: [false; 16],
-            strategy_config: config.strategy_config.clone(),
+            strategy_config: config.clone(),
         }
     }
 }
