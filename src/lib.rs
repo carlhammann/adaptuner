@@ -1,6 +1,7 @@
 #![feature(maybe_uninit_array_assume_init)]
 pub mod backend;
 pub mod config;
+pub mod connections;
 pub mod gui;
 pub mod interval;
 pub mod keystate;

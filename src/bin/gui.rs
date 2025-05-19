@@ -15,10 +15,8 @@ use midi_msg::Channel;
 use adaptuner::{
     backend::{pitchbend12::Pitchbend12Config, r#trait::BackendState},
     config::r#trait::Config,
-    gui::{
-        connectionwindow::MidiConnections, latencywindow::LatencyWindow, manywindows::ManyWindows,
-        notewindow::NoteWindow, r#trait::GuiState,
-    },
+    connections::{MaybeConnected, MidiInputOrConnection, MidiOutputOrConnection},
+    gui::{manywindows::ManyWindows, r#trait::GuiState},
     interval::{
         stack::Stack,
         stacktype::{
@@ -163,12 +161,13 @@ where
     B: BackendState<T>,
     BC: Config<B> + Send + 'static,
 {
-    let midi_in = midir::MidiInput::new("adaptuner input")?;
-    let midi_out = midir::MidiOutput::new("adaptuner output")?;
-    let (midi_conncections, to_process_rx, backend_to_midi_out_tx, midi_out_latency_rx) =
-        MidiConnections::new(midi_in, midi_out);
+    let (midi_in, to_process_rx) =
+        MidiInputOrConnection::new(midir::MidiInput::new("adaptuner input")?);
+    let (midi_out, midi_out_latency_rx) =
+        MidiOutputOrConnection::new(midir::MidiOutput::new("adaptuner output")?);
 
-    let ui_to_process_tx = midi_conncections.new_sender_to_process();
+    let backend_to_midi_out_tx = midi_out.get_sender();
+    let ui_to_process_tx = midi_in.get_sender();
     let (process_tx, process_forward_rx) = mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
     let (backend_to_ui_tx, to_ui_rx) = mpsc::channel();
     let process_to_ui_tx = backend_to_ui_tx.clone();
@@ -196,7 +195,7 @@ where
 
     start_gui(
         "adaptuner",
-        |ctx| ManyWindows::new(ctx, midi_conncections, 20),
+        |ctx| ManyWindows::new(ctx, midi_in, midi_out, 20),
         to_ui_rx,
         ui_to_process_tx,
     )?;

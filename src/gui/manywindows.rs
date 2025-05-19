@@ -1,10 +1,14 @@
 use std::{cell::Cell, sync::mpsc, time::Instant};
 
 use eframe::{self, egui};
+use midir::{MidiInput, MidiOutput};
 
 use crate::{
+    connections::{MidiInputOrConnection, MidiOutputOrConnection},
     gui::{
-        connectionwindow::ConnectionWindow,
+        connectionwindow::{
+            new_input_connection_window, new_output_connection_window, ConnectionWindow,
+        },
         latencywindow::LatencyWindow,
         notewindow::NoteWindow,
         r#trait::{GuiShow, GuiShowUpdating, GuiState},
@@ -13,25 +17,28 @@ use crate::{
     msg,
 };
 
-use super::connectionwindow::MidiConnections;
-
 pub struct ManyWindows<T: StackType> {
     notewindow: NoteWindow<T>,
-    connectionwindow: ConnectionWindow,
-    midi_connections: Cell<MidiConnections>,
+    input_connection_window: ConnectionWindow<MidiInput>,
+    midi_input: Cell<MidiInputOrConnection>,
+    output_connection_window: ConnectionWindow<MidiOutput>,
+    midi_output: Cell<MidiOutputOrConnection>,
     latencywindow: LatencyWindow,
 }
 
 impl<T: FiveLimitStackType> ManyWindows<T> {
     pub fn new(
         ctx: &egui::Context,
-        midi_connections: MidiConnections,
+        midi_input: MidiInputOrConnection,
+        midi_output: MidiOutputOrConnection,
         latency_window_length: usize,
     ) -> Self {
         Self {
             notewindow: NoteWindow::new(ctx),
-            connectionwindow: ConnectionWindow::new(),
-            midi_connections: Cell::new(midi_connections),
+            input_connection_window: new_input_connection_window(),
+            midi_input: Cell::new(midi_input),
+            output_connection_window: new_output_connection_window(),
+            midi_output: Cell::new(midi_output),
             latencywindow: LatencyWindow::new(latency_window_length),
         }
     }
@@ -62,20 +69,28 @@ impl<T: FiveLimitStackType> eframe::App for ManyWindows<T> {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |_ui| {});
+        egui::TopBottomPanel::bottom("midi connections").show(ctx, |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                let old = self
+                    .midi_input
+                    .replace(MidiInputOrConnection::empty_placeholder());
+                let new = self.input_connection_window.show_updating(old, ctx, ui);
+                self.midi_input.set(new);
 
-        egui::containers::Window::new("notes").show(ctx, |ui| {
+                let old = self
+                    .midi_output
+                    .replace(MidiOutputOrConnection::empty_placeholder());
+                let new = self.output_connection_window.show_updating(old, ctx, ui);
+                self.midi_output.set(new);
+            });
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
             self.notewindow.show(ctx, ui);
         });
 
-        egui::containers::Window::new("MIDI connections")
-            .resizable(false)
-            .show(ctx, |ui| {
-                let old = self
-                    .midi_connections
-                    .replace(MidiConnections::empty_placeholder());
-                let new = self.connectionwindow.show_updating(old, ctx, ui);
-                self.midi_connections.set(new);
-            });
+        // egui::containers::Window::new("notes").show(ctx, |ui| {
+        //     self.notewindow.show(ctx, ui);
+        // });
     }
 }
