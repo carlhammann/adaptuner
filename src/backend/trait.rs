@@ -8,6 +8,6 @@ pub trait BackendState<T: StackType> {
         time: Instant,
         msg: msg::AfterProcess<T>,
         to_ui: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-        midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
+        midi_out: &mpsc::Sender<(Instant,msg::ToMidiOut)>,
     );
 }

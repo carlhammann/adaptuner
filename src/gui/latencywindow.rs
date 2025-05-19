@@ -6,7 +6,7 @@ use std::{
 use crate::{gui::r#trait::GuiState, interval::stacktype::r#trait::StackType, msg};
 use eframe::{self, egui};
 
-use super::r#trait::WindowGuiState;
+use super::r#trait::GuiShow;
 
 pub struct LatencyWindow {
     values: Vec<Duration>,
@@ -44,7 +44,7 @@ impl<T: StackType> GuiState<T> for LatencyWindow {
     }
 }
 
-impl<T: StackType> WindowGuiState<T> for LatencyWindow {
+impl GuiShow for LatencyWindow {
     fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.label(format!(
             "mean latency (last {} events): {:?}",

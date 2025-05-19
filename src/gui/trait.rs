@@ -11,10 +11,13 @@ pub trait GuiState<T: StackType> {
         msg: &msg::AfterProcess<T>,
         to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
         ctx: &egui::Context,
-        //frame: &mut eframe::Frame,
     );
 }
 
-pub trait WindowGuiState<T: StackType>: GuiState<T> {
+pub trait GuiShow {
     fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui);
+}
+
+pub trait GuiShowUpdating<D> {
+    fn show_updating(&mut self, data: D, ctx: &egui::Context, ui: &mut egui::Ui) -> D;
 }

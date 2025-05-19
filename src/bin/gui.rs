@@ -15,7 +15,10 @@ use midi_msg::Channel;
 use adaptuner::{
     backend::{pitchbend12::Pitchbend12Config, r#trait::BackendState},
     config::r#trait::Config,
-    gui::{latencywindow::LatencyWindow, notewindow::NoteWindow, r#trait::GuiState},
+    gui::{
+        connectionwindow::MidiConnections, latencywindow::LatencyWindow, manywindows::ManyWindows,
+        notewindow::NoteWindow, r#trait::GuiState,
+    },
     interval::{
         stack::Stack,
         stacktype::{
@@ -47,7 +50,7 @@ impl<T: StackType, G: GuiState<T> + eframe::App> eframe::App for GuiWithConnecti
 fn start_gui<
     T: StackType + Send + 'static,
     G: GuiState<T> + eframe::App,
-    NG: Fn(&egui::Context) -> G,
+    NG: FnOnce(&egui::Context) -> G,
 >(
     app_name: &str,
     new_gui: NG,
@@ -114,7 +117,7 @@ fn start_backend<T, S, C>(
     config: C,
     msg_rx: mpsc::Receiver<(Instant, msg::AfterProcess<T>)>,
     ui_tx: mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-    midi_tx: mpsc::Sender<(Instant, Vec<u8>)>,
+    midi_tx: mpsc::Sender<(Instant, msg::ToMidiOut)>,
 ) -> thread::JoinHandle<()>
 where
     T: StackType + Send + 'static,
@@ -160,99 +163,43 @@ where
     B: BackendState<T>,
     BC: Config<B> + Send + 'static,
 {
-    // There are the following connections:
-    // - the process receives midi input
-    // - the process receives messages from the ui
-    let (midi_to_process_tx, to_process_rx) = mpsc::channel::<(Instant, msg::ToProcess)>();
-    let ui_to_process_tx = midi_to_process_tx.clone();
-
-    // - the ui gets messages from the process
-    let (process_to_ui_tx, to_ui_rx) = mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
-
-    // - the ui receives information on the midi latency
-    let midi_latency_to_ui_tx = process_to_ui_tx.clone();
-
-    // - the ui receives information from the backend
-    let backend_to_ui_tx = process_to_ui_tx.clone();
-
-    // - the backend gets exaclty the same messages as the ui from the process
-    let (process_tx, process_forwarder_tx) = mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
-    let (process_to_backend_tx, process_to_backend_rx) =
-        mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
-    thread::spawn(move || loop {
-        match process_forwarder_tx.recv() {
-            Ok((time, msg)) => {
-                process_to_backend_tx
-                    .send((time, msg.clone()))
-                    .unwrap_or(());
-                process_to_ui_tx.send((time, msg)).unwrap_or(());
-            }
-            Err(_) => break,
-        }
-    });
-
-    // - the backend sends bytes to the midi output
-    let (backend_to_midi_out_tx, backend_to_midi_out_rx) = mpsc::channel::<(Instant, Vec<u8>)>();
-
-    //// these three are for the initial "Start" messages and the "Stop" messages from the Ctrl-C
-    //// handler:
-    //let to_process_tx_start_and_stop = midi_to_process_tx.clone();
-    //let to_ui_tx_start_and_stop = backend_to_ui_tx.clone();
-    //let to_backend_tx_start_and_stop = process_to_backend_tx.clone();
-
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
+    let (midi_conncections, to_process_rx, backend_to_midi_out_tx, midi_out_latency_rx) =
+        MidiConnections::new(midi_in, midi_out);
 
-    let midi_in_port = select_port(&midi_in, "input")?;
-    println!();
-    let midi_out_port = select_port(&midi_out, "output")?;
+    let ui_to_process_tx = midi_conncections.new_sender_to_process();
+    let (process_tx, process_forward_rx) = mpsc::channel::<(Instant, msg::AfterProcess<T>)>();
+    let (backend_to_ui_tx, to_ui_rx) = mpsc::channel();
+    let process_to_ui_tx = backend_to_ui_tx.clone();
+    let (to_backend_tx, to_backend_rx) = mpsc::channel();
 
-    let _conn_in = midi_in.connect(
-        &midi_in_port,
-        "adaptuner input",
-        move |_time, bytes, _| {
-            let time = Instant::now();
-            midi_to_process_tx
-                .send((
-                    time,
-                    msg::ToProcess::IncomingMidi {
-                        bytes: bytes.to_vec(),
-                    },
-                ))
-                .unwrap_or(());
-        },
-        (),
-    )?;
-
-    let mut conn_out = midi_out.connect(&midi_out_port, "adaptuner output")?;
-    thread::spawn(move || loop {
-        match backend_to_midi_out_rx.recv() {
-            Ok((original_time, msg)) => {
-                conn_out.send(&msg).unwrap_or(());
-                let time = Instant::now();
-                midi_latency_to_ui_tx
-                    .send((
-                        time,
-                        msg::AfterProcess::BackendLatency {
-                            since_input: time.duration_since(original_time),
-                        },
-                    ))
-                    .unwrap_or(());
+    let _process_forward = thread::spawn(move || loop {
+        match process_forward_rx.recv() {
+            Ok((time, msg)) => {
+                process_to_ui_tx.send((time, msg.clone())).unwrap_or(());
+                to_backend_tx.send((time, msg)).unwrap_or(());
             }
+
             Err(_) => break,
         }
     });
 
     let _backend = start_backend(
         backend_config,
-        process_to_backend_rx,
+        to_backend_rx,
         backend_to_ui_tx,
         backend_to_midi_out_tx,
     );
 
     let _process = start_process(strategy_config, to_process_rx, process_tx);
 
-    start_gui("adaptuner", NoteWindow::new, to_ui_rx, ui_to_process_tx)?;
+    start_gui(
+        "adaptuner",
+        |ctx| ManyWindows::new(ctx, midi_conncections, 20),
+        to_ui_rx,
+        ui_to_process_tx,
+    )?;
 
     Ok(())
 }

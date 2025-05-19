@@ -8,10 +8,7 @@ use eframe::{
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    gui::{
-        latencywindow::LatencyWindow,
-        r#trait::{GuiState, WindowGuiState},
-    },
+    gui::r#trait::{GuiShow, GuiState},
     interval::{
         stack::Stack,
         stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
@@ -757,7 +754,7 @@ impl<T: FiveLimitStackType> GuiState<T> for NoteWindow<T> {
     }
 }
 
-impl<T: FiveLimitStackType> WindowGuiState<T> for NoteWindow<T> {
+impl<T: FiveLimitStackType> GuiShow for NoteWindow<T> {
     fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         egui::TopBottomPanel::bottom("note window bottom panel").show_inside(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -781,26 +778,6 @@ impl<T: FiveLimitStackType> WindowGuiState<T> for NoteWindow<T> {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             self.note_renderer
                 .draw(&self.active_notes, &self.tunings, ui);
-        });
-    }
-}
-
-impl<T: FiveLimitStackType> eframe::App for NoteWindow<T> {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                let mut latencywindow = LatencyWindow::new(20);
-                <LatencyWindow as WindowGuiState<T>>::show(&mut latencywindow, ctx, ui);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    egui::widgets::global_theme_preference_buttons(ui);
-                })
-            });
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {});
-
-        egui::containers::Window::new("note window").show(ctx, |ui| {
-            self.show(ctx, ui);
         });
     }
 }

@@ -22,34 +22,11 @@ pub enum AfterProcess<T: StackType> {
 
     CrosstermEvent(crossterm::event::Event),
 
-    //NoteOn {
-    //    channel: Channel,
-    //    note: u8,
-    //    velocity: u8,
-    //},
-    //NoteOff {
-    //    held_by_sustain: bool,
-    //    channel: Channel,
-    //    note: u8,
-    //    velocity: u8,
-    //},
-    //Sustain {
-    //    channel: Channel,
-    //    value: u8,
-    //},
-    //ProgramChange {
-    //    channel: Channel,
-    //    program: u8,
-    //},
     ForwardMidi {
         msg: MidiMsg,
     },
 
     FromStrategy(FromStrategy<T>),
-
-    BackendLatency {
-        since_input: Duration,
-    },
 
     DetunedNote {
         note: u8,
@@ -57,6 +34,9 @@ pub enum AfterProcess<T: StackType> {
         actual: Semitones,
         explanation: &'static str,
     },
+
+
+    BackendLatency { since_input: Duration },
 }
 
 #[derive(Debug)]
@@ -100,7 +80,13 @@ pub enum FromStrategy<T: StackType> {
         reference_stack: Stack<T>,
     },
     NotifyNoFit,
-    //Special {
-    //    code: u8,
-    //},
+}
+
+pub enum ToMidiOut {
+    OutgoingMidi { bytes: Vec<u8> },
+    Stop,
+}
+
+pub enum FromMidiOut {
+    EventLatency { since_input: Duration },
 }

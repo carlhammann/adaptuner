@@ -50,13 +50,20 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
         time: Instant,
         msg: msg::AfterProcess<T>,
         to_ui: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-        midi_out: &mpsc::Sender<(Instant, Vec<u8>)>,
+        midi_out: &mpsc::Sender<(Instant, msg::ToMidiOut)>,
     ) {
         let send_to_ui =
             |msg: msg::AfterProcess<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
 
         let send_midi = |msg: MidiMsg, time: Instant| {
-            midi_out.send((time, msg.to_midi())).unwrap_or(());
+            midi_out
+                .send((
+                    time,
+                    msg::ToMidiOut::OutgoingMidi {
+                        bytes: msg.to_midi(),
+                    },
+                ))
+                .unwrap_or(());
         };
 
         match msg {
