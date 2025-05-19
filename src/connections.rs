@@ -7,13 +7,6 @@ use midir::{
 
 use crate::msg;
 
-pub enum Either<A, B> {
-    Left(A),
-    Right(B),
-}
-
-use Either::*;
-
 pub trait MaybeConnected<IO: MidiIO> {
     fn unconnected(&self) -> Option<&IO>;
     fn connected_port_name(&self) -> Option<&str>;
@@ -23,64 +16,78 @@ pub trait MaybeConnected<IO: MidiIO> {
     fn disconnect(self) -> Self;
 }
 
-pub type MidiInputOrConnection = Either<
-    (MidiInput, mpsc::Sender<(Instant, msg::ToProcess)>),
-    (
-        MidiInputConnection<()>,
-        mpsc::Sender<(Instant, msg::ToProcess)>,
-        String,
-    ),
->;
+pub enum MidiInputOrConnection {
+    Unconnected {
+        midi_input: MidiInput,
+        tx: mpsc::Sender<(Instant, msg::ToProcess)>,
+    },
+    Connected {
+        connection: MidiInputConnection<()>,
+        tx: mpsc::Sender<(Instant, msg::ToProcess)>,
+        portname: String,
+    },
+}
 
 impl MidiInputOrConnection {
     pub fn new(midi_input: MidiInput) -> (Self, mpsc::Receiver<(Instant, msg::ToProcess)>) {
         let (tx, rx) = mpsc::channel();
-        (Left((midi_input, tx)), rx)
+        (Self::Unconnected { midi_input, tx }, rx)
     }
 
     /// Use this only for data that will never be read!
     pub fn empty_placeholder() -> Self {
         let (tx, _rx) = mpsc::channel();
-        Left((
-            midir::MidiInput::new("adaptuner placeholder input").unwrap(),
+        Self::Unconnected {
+            midi_input: midir::MidiInput::new("adaptuner placeholder input").unwrap(),
             tx,
-        ))
+        }
     }
 
     pub fn get_sender(&self) -> mpsc::Sender<(Instant, msg::ToProcess)> {
         match self {
-            Left((_, tx)) => tx.clone(),
-            Right((_, tx, _)) => tx.clone(),
+            Self::Unconnected { tx, .. } => tx.clone(),
+            Self::Connected { tx, .. } => tx.clone(),
         }
     }
 
     fn connect_internal(self, port: MidiInputPort, portname: &str) -> Result<Self, (String, Self)> {
         match self {
-            Left((input, sender)) => {
-                let tx = sender.clone();
-                match input.connect(
+            Self::Unconnected { midi_input, tx } => {
+                let txclone = tx.clone();
+                match midi_input.connect(
                     &port,
                     portname,
                     move |_, bytes, _| {
                         let time = Instant::now();
-                        tx.send((
-                            time,
-                            msg::ToProcess::IncomingMidi {
-                                bytes: bytes.to_vec(),
-                            },
-                        ))
-                        .unwrap_or(());
+                        txclone
+                            .send((
+                                time,
+                                msg::ToProcess::IncomingMidi {
+                                    bytes: bytes.to_vec(),
+                                },
+                            ))
+                            .unwrap_or(());
                     },
                     (),
                 ) {
-                    Ok(connection) => Ok(Right((connection, sender, portname.to_string()))),
+                    Ok(connection) => Ok(Self::Connected {
+                        connection,
+                        tx,
+                        portname: portname.to_string(),
+                    }),
                     Err(err) => {
                         let err_string = err.to_string();
-                        Err((err_string, Left((err.into_inner(), sender))))
+                        Err((
+                            err_string,
+                            Self::Unconnected {
+                                midi_input: err.into_inner(),
+                                tx,
+                            },
+                        ))
                     }
                 }
             }
-            Right(_) => unreachable!(),
+            Self::Connected { .. } => unreachable!(),
         }
     }
 }
@@ -88,22 +95,22 @@ impl MidiInputOrConnection {
 impl MaybeConnected<MidiInput> for MidiInputOrConnection {
     fn unconnected(&self) -> Option<&MidiInput> {
         match self {
-            Left((input, _)) => Some(input),
-            Right(_) => None {},
+            Self::Unconnected { midi_input, .. } => Some(midi_input),
+            Self::Connected { .. } => None {},
         }
     }
 
     fn connected_port_name(&self) -> Option<&str> {
         match self {
-            Left(_) => None {},
-            Right((_, _, pname)) => Some(pname),
+            Self::Unconnected { .. } => None {},
+            Self::Connected { portname, .. } => Some(portname),
         }
     }
 
     fn connect(self, port: MidiInputPort, portname: &str) -> Result<Self, (String, Self)> {
         match self {
-            Left(_) => self.connect_internal(port, portname),
-            Right(_) => {
+            Self::Unconnected { .. } => self.connect_internal(port, portname),
+            Self::Connected { .. } => {
                 let disconnected = self.disconnect();
                 disconnected.connect_internal(port, portname)
             }
@@ -112,53 +119,64 @@ impl MaybeConnected<MidiInput> for MidiInputOrConnection {
 
     fn disconnect(self) -> Self {
         match self {
-            Right((connection, sender, _portname)) => Left((connection.close().0, sender)),
-            Left(_) => self,
+            Self::Connected { connection, tx, .. } => Self::Unconnected {
+                midi_input: connection.close().0,
+                tx,
+            },
+            Self::Unconnected { .. } => self,
         }
     }
 }
 
-pub type MidiOutputOrConnection = Either<
-    (
-        MidiOutput,
-        mpsc::Receiver<(Instant, msg::ToMidiOut)>,
-        mpsc::Sender<(Instant, msg::ToMidiOut)>,
-        mpsc::Sender<msg::FromMidiOut>,
-    ),
-    (
-        thread::JoinHandle<(
+pub enum MidiOutputOrConnection {
+    Unconnected {
+        midi_output: MidiOutput,
+        rx: mpsc::Receiver<(Instant, msg::ToMidiOut)>,
+        tx: mpsc::Sender<(Instant, msg::ToMidiOut)>,
+        latency_tx: mpsc::Sender<msg::FromMidiOut>,
+    },
+    Connected {
+        joinhandle: thread::JoinHandle<(
             MidiOutputConnection,
             mpsc::Receiver<(Instant, msg::ToMidiOut)>,
             mpsc::Sender<msg::FromMidiOut>,
         )>,
-        mpsc::Sender<(Instant, msg::ToMidiOut)>,
-        String,
-    ),
->;
+        tx: mpsc::Sender<(Instant, msg::ToMidiOut)>,
+        portname: String,
+    },
+}
 
 impl MidiOutputOrConnection {
     pub fn new(midi_output: MidiOutput) -> (Self, mpsc::Receiver<msg::FromMidiOut>) {
         let (tx, rx) = mpsc::channel();
         let (latency_tx, latency_rx) = mpsc::channel();
-        (Left((midi_output, rx, tx, latency_tx)), latency_rx)
+        (
+            Self::Unconnected {
+                midi_output,
+                rx,
+                tx,
+                latency_tx,
+            },
+            latency_rx,
+        )
     }
 
     /// Use this only for data that will never be read!
     pub fn empty_placeholder() -> Self {
         let (tx, rx) = mpsc::channel();
         let (latency_tx, _latency_rx) = mpsc::channel();
-        Left((
-            midir::MidiOutput::new("adaptuner placeholder output").unwrap(),
+        Self::Unconnected {
+            midi_output: midir::MidiOutput::new("adaptuner placeholder output").unwrap(),
             rx,
             tx,
             latency_tx,
-        ))
+        }
     }
 
     pub fn get_sender(&self) -> mpsc::Sender<(Instant, msg::ToMidiOut)> {
         match self {
-            Left((_, _, tx, _)) => tx.clone(),
-            Right((_, tx, _)) => tx.clone(),
+            Self::Unconnected { tx, .. } => tx.clone(),
+            Self::Connected { tx, .. } => tx.clone(),
         }
     }
 
@@ -168,7 +186,12 @@ impl MidiOutputOrConnection {
         portname: &str,
     ) -> Result<Self, (String, Self)> {
         match self {
-            Left((output, rx, tx, latency_tx)) => match output.connect(&port, portname) {
+            Self::Unconnected {
+                midi_output,
+                rx,
+                tx,
+                latency_tx,
+            } => match midi_output.connect(&port, portname) {
                 Ok(mut connection) => {
                     let joinhandle = thread::spawn(move || {
                         loop {
@@ -188,14 +211,26 @@ impl MidiOutputOrConnection {
                         }
                         (connection, rx, latency_tx)
                     });
-                    Ok(Right((joinhandle, tx, portname.to_string())))
+                    Ok(Self::Connected {
+                        joinhandle,
+                        tx,
+                        portname: portname.to_string(),
+                    })
                 }
                 Err(err) => {
                     let err_string = err.to_string();
-                    Err((err_string, Left((err.into_inner(), rx, tx, latency_tx))))
+                    Err((
+                        err_string,
+                        Self::Unconnected {
+                            midi_output: err.into_inner(),
+                            rx,
+                            tx,
+                            latency_tx,
+                        },
+                    ))
                 }
             },
-            Right(_) => unreachable!(),
+            Self::Connected { .. } => unreachable!(),
         }
     }
 }
@@ -203,22 +238,22 @@ impl MidiOutputOrConnection {
 impl MaybeConnected<MidiOutput> for MidiOutputOrConnection {
     fn connected_port_name(&self) -> Option<&str> {
         match self {
-            Left(_) => None {},
-            Right((_, _, pname)) => Some(pname),
+            Self::Unconnected { .. } => None {},
+            Self::Connected { portname, .. } => Some(portname),
         }
     }
 
     fn unconnected(&self) -> Option<&MidiOutput> {
         match self {
-            Left((output, _, _, _)) => Some(output),
-            Right(_) => None {},
+            Self::Unconnected { midi_output, .. } => Some(midi_output),
+            Self::Connected { .. } => None {},
         }
     }
 
     fn connect(self, port: MidiOutputPort, portname: &str) -> Result<Self, (String, Self)> {
         match self {
-            Left(_) => self.connect_internal(port, portname),
-            Right(_) => {
+            Self::Unconnected { .. } => self.connect_internal(port, portname),
+            Self::Connected { .. } => {
                 let disconnected = self.disconnect();
                 disconnected.connect_internal(port, portname)
             }
@@ -227,17 +262,20 @@ impl MaybeConnected<MidiOutput> for MidiOutputOrConnection {
 
     fn disconnect(self) -> Self {
         match self {
-            Right((joinhandle, tx, _portname)) => {
+            Self::Connected { joinhandle, tx, .. } => {
                 tx.send((Instant::now(), msg::ToMidiOut::Stop))
                     .unwrap_or(());
                 match joinhandle.join() {
-                    Ok((connection, rx, latency_tx)) => {
-                        Left((connection.close(), rx, tx, latency_tx))
-                    }
+                    Ok((connection, rx, latency_tx)) => Self::Unconnected {
+                        midi_output: connection.close(),
+                        rx,
+                        tx,
+                        latency_tx,
+                    },
                     Err(err) => panic!("{:?}", err),
                 }
             }
-            Left(_) => self,
+            Self::Unconnected { .. } => self,
         }
     }
 }
