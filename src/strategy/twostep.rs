@@ -34,7 +34,6 @@ pub trait AnchorStrategy<T: StackType> {
         keys: &[crate::keystate::KeyState; 128],
         tunings: &mut [crate::interval::stack::Stack<T>; 128],
         msg: msg::ToStrategy,
-        time: Instant,
     ) -> Option<Vec<msg::FromStrategy<T>>>;
 }
 
@@ -82,8 +81,7 @@ impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> Strategy<T> for
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
         msg: msg::ToStrategy,
-        time: Instant,
     ) -> Option<Vec<msg::FromStrategy<T>>> {
-        self.anchor_strategy.handle_msg(keys, tunings, msg, time)
+        self.anchor_strategy.handle_msg(keys, tunings, msg)
     }
 }

@@ -1,48 +1,91 @@
-use std::marker::PhantomData;
+use std::sync::mpsc;
 
 use eframe::egui;
-use midir::{MidiIO, MidiInput, MidiOutput};
+use midir::{MidiInputPort, MidiOutputPort};
 
-use crate::{connections::MaybeConnected, gui::r#trait::GuiShowUpdating};
+use crate::{
+    gui::r#trait::GuiShow,
+    interval::stacktype::r#trait::StackType,
+    msg::{FromUi, HandleMsgRef, ToUi},
+};
 
-pub struct ConnectionWindow<IO: MidiIO> {
-    _phantom: PhantomData<IO>,
-    error: Option<String>,
-    direction: String,
+pub struct Input {}
+pub struct Output {}
+
+pub trait IO {
+    type Port;
+    fn direction_string() -> &'static str;
+    fn connect_msg(port: Self::Port, portname: String) -> FromUi;
+    fn disconnect_msg() -> FromUi;
 }
 
-pub fn new_input_connection_window() -> ConnectionWindow<MidiInput> {
-    ConnectionWindow {
-        _phantom: PhantomData,
-        error: None {},
-        direction: "input".into(),
+impl IO for Input {
+    type Port = MidiInputPort;
+
+    fn direction_string() -> &'static str {
+        "input"
+    }
+
+    fn connect_msg(port: Self::Port, portname: String) -> FromUi {
+        FromUi::ConnectInput { port, portname }
+    }
+
+    fn disconnect_msg() -> FromUi {
+        FromUi::DisconnectInput
     }
 }
 
-pub fn new_output_connection_window() -> ConnectionWindow<MidiOutput> {
-    ConnectionWindow {
-        _phantom: PhantomData,
-        error: None {},
-        direction: "output".into(),
+impl IO for Output {
+    type Port = MidiOutputPort;
+
+    fn direction_string() -> &'static str {
+        "output"
+    }
+
+    fn connect_msg(port: Self::Port, portname: String) -> FromUi {
+        FromUi::ConnectOutput { port, portname }
+    }
+
+    fn disconnect_msg() -> FromUi {
+        FromUi::DisconnectOutput
     }
 }
 
-pub fn port_selector<IO>(io: &IO, direction: &str, ui: &mut egui::Ui) -> Option<(IO::Port, String)>
+pub enum ConnectionWindow<X: IO> {
+    Connected {
+        portname: String,
+    },
+    Unconnected {
+        error: Option<String>,
+        available_ports: Vec<(X::Port, String)>,
+    },
+}
+
+impl<X: IO> ConnectionWindow<X> {
+    pub fn new() -> Self {
+        Self::Unconnected {
+            error: None {},
+            available_ports: vec![],
+        }
+    }
+}
+
+pub fn port_selector<X>(
+    available_ports: &[(X::Port, String)],
+    ui: &mut egui::Ui,
+) -> Option<(X::Port, String)>
 where
-    IO: MidiIO,
-    <IO as MidiIO>::Port: PartialEq,
+    X: IO,
+    <X as IO>::Port: PartialEq + Clone,
 {
     let mut selected_port = None {};
-    egui::ComboBox::from_id_salt(format!("select {}", direction))
-        .selected_text(
-            egui::RichText::new(format!("select {}", direction)), //.color(ui.style().visuals.warn_fg_color),
-        )
+    egui::ComboBox::from_id_salt(format!("select {}", X::direction_string()))
+        .selected_text(egui::RichText::new(format!(
+            "select {}",
+            X::direction_string()
+        )))
         .show_ui(ui, |ui| {
-            for port in io.ports().iter() {
-                let pname = io
-                    .port_name(&port)
-                    .unwrap_or("<name cannot be shown>".into());
-                //if ui
+            for (port, pname) in available_ports {
                 ui.selectable_value(
                     &mut selected_port,
                     Some((port.clone(), pname.clone())),
@@ -54,10 +97,10 @@ where
     selected_port
 }
 
-pub fn disconnector(direction: &str, portname: &str, ui: &mut egui::Ui) -> bool {
+pub fn disconnector<X: IO>(portname: &str, ui: &mut egui::Ui) -> bool {
     let mut disconnect = false;
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
-        ui.label(format!("{} is \"{}\"", direction, portname));
+        ui.label(format!("{} is \"{}\"", X::direction_string(), portname));
         if ui.button("disconnect").clicked() {
             disconnect = true;
         }
@@ -65,44 +108,99 @@ pub fn disconnector(direction: &str, portname: &str, ui: &mut egui::Ui) -> bool 
     disconnect
 }
 
-impl<IO, C> GuiShowUpdating<C> for ConnectionWindow<IO>
+impl<X> GuiShow for ConnectionWindow<X>
 where
-    IO: MidiIO,
-    <IO as MidiIO>::Port: PartialEq,
-    C: MaybeConnected<IO>,
+    X: IO,
+    <X as IO>::Port: PartialEq + Clone,
 {
-    fn show_updating(&mut self, data: C, _ctx: &egui::Context, ui: &mut egui::Ui) -> C {
-        match &self.error {
-            Some(str) => {
-                ui.label(
-                    egui::RichText::new(format!("{} connection error:\n{str}", self.direction))
-                        .color(ui.style().visuals.warn_fg_color),
-                );
-            }
-            None {} => {}
-        }
-
-        match data.connected_port_name() {
-            None {} => match port_selector(data.unconnected().unwrap(), &self.direction, ui) {
-                None {} => data,
-                Some((port, portname)) => match data.connect(port, &portname) {
-                    Ok(new_data) => {
-                        self.error = None {};
-                        new_data
-                    }
-                    Err((err, unchanged_data)) => {
-                        self.error = Some(err);
-                        unchanged_data
-                    }
-                },
-            },
-            Some(portname) => {
-                if disconnector(&self.direction, portname, ui) {
-                    data.disconnect()
-                } else {
-                    data
+    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi>) {
+        match self {
+            ConnectionWindow::Connected { portname } => {
+                if disconnector::<X>(&portname, ui) {
+                    let _ = forward.send(X::disconnect_msg());
                 }
             }
+            ConnectionWindow::Unconnected {
+                error,
+                available_ports,
+            } => {
+                // this ensures that the port will be disconnected, and that the list of available ports will update (at least on redraw).
+                let _ = forward.send(X::disconnect_msg());
+                match error {
+                    Some(str) => {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} connection error:\n{str}",
+                                X::direction_string()
+                            ))
+                            .color(ui.style().visuals.warn_fg_color),
+                        );
+                    }
+                    None {} => {}
+                }
+
+                match port_selector::<X>(&available_ports, ui) {
+                    Some((port, portname)) => {
+                        let _ = forward.send(X::connect_msg(port, portname));
+                    }
+                    None {} => {}
+                }
+            }
+        }
+    }
+}
+
+impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi> for ConnectionWindow<Input> {
+    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi>) {
+        match msg {
+            ToUi::InputConnectionError { reason } => match self {
+                ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),
+                ConnectionWindow::Connected { .. } => unreachable!(),
+            },
+            ToUi::InputConnected { portname } => {
+                *self = Self::Connected {
+                    portname: portname.clone(),
+                }
+            }
+            ToUi::InputDisconnected { available_ports } => {
+                let error = match self {
+                    ConnectionWindow::Connected { .. } => None {},
+                    ConnectionWindow::Unconnected { error, .. } => error.clone(),
+                };
+                *self = Self::Unconnected {
+                    error,
+                    available_ports: available_ports.clone(),
+                };
+            }
+            _ => {}
+        }
+    }
+}
+
+impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi> for ConnectionWindow<Output> {
+    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi>) {
+        match msg {
+            ToUi::OutputConnectionError { reason } => match self {
+                ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),
+                ConnectionWindow::Connected { .. } => unreachable!(),
+            },
+            ToUi::OutputConnected { portname } => {
+                *self = Self::Connected {
+                    portname: portname.clone(),
+                }
+            }
+            ToUi::OutputDisconnected { available_ports } => {
+                let error = match self {
+                    ConnectionWindow::Connected { .. } => None {},
+                    ConnectionWindow::Unconnected { error, .. } => error.clone(),
+                };
+                *self = Self::Unconnected {
+                    error,
+                    available_ports: available_ports.clone(),
+                };
+            }
+
+            _ => {}
         }
     }
 }

@@ -1,7 +1,6 @@
 use std::time::Instant;
 
 use crate::{
-    config::r#trait::Config,
     interval::{
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{FiveLimitStackType, OctavePeriodicStackType, StackCoeff, StackType},
@@ -22,6 +21,30 @@ pub struct StaticTuning<T: StackType, N: Neighbourhood<T>> {
     global_reference: Reference<T>,
 }
 
+#[derive(Clone)]
+pub struct StaticTuningConfig<T: FiveLimitStackType + OctavePeriodicStackType> {
+    pub active_temperaments: Vec<bool>,
+    pub width: StackCoeff,
+    pub index: StackCoeff,
+    pub offset: StackCoeff,
+    pub global_reference: Reference<T>,
+}
+
+impl<T: FiveLimitStackType + OctavePeriodicStackType> StaticTuning<T, PeriodicCompleteAligned<T>> {
+    pub fn new(config: StaticTuningConfig<T>) -> Self {
+        Self {
+            neighbourhood: new_fivelimit_neighbourhood(
+                &config.active_temperaments,
+                config.width,
+                config.index,
+                config.offset,
+            ),
+            active_temperaments: config.active_temperaments.clone(),
+            global_reference: config.global_reference.clone(),
+        }
+    }
+}
+
 impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strategy<T>
     for StaticTuning<T, N>
 {
@@ -30,7 +53,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
         _keys: &[KeyState; 128],
         tunings: &'a mut [Stack<T>; 128],
         note: u8,
-        _time: Instant,
+        time: Instant,
     ) -> Option<Vec<msg::FromStrategy<T>>> {
         self.neighbourhood.write_relative_stack(
             tunings
@@ -50,6 +73,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
             note,
             tuning: tunings[note as usize].absolute_semitones(),
             tuning_stack: tunings[note as usize].clone(),
+            time,
         }])
     }
 
@@ -68,10 +92,9 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
         msg: msg::ToStrategy,
-        _time: Instant,
     ) -> Option<Vec<msg::FromStrategy<T>>> {
         match msg {
-            msg::ToStrategy::Consider { coefficients } => {
+            msg::ToStrategy::Consider { coefficients, time } => {
                 let mut reference_stack =
                     Stack::from_temperaments_and_target(&self.active_temperaments, coefficients);
                 let normalised_stack = self.neighbourhood.insert(&reference_stack);
@@ -93,6 +116,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
                                 note: note as u8,
                                 tuning: tunings[note].absolute_semitones(),
                                 tuning_stack: tunings[note].clone(),
+                                time,
                             });
                         }
                     }
@@ -104,7 +128,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
 
                 Some(res)
             }
-            msg::ToStrategy::ToggleTemperament { index } => {
+            msg::ToStrategy::ToggleTemperament { index, time } => {
                 self.active_temperaments[index] = !self.active_temperaments[index];
 
                 let mut res = vec![];
@@ -132,38 +156,13 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
                             note: note as u8,
                             tuning: tunings[note].absolute_semitones(),
                             tuning_stack: tunings[note].clone(),
+                            time,
                         });
                     }
                 }
 
                 Some(res)
             }
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct StaticTuningConfig<T: FiveLimitStackType + OctavePeriodicStackType> {
-    pub active_temperaments: Vec<bool>,
-    pub width: StackCoeff,
-    pub index: StackCoeff,
-    pub offset: StackCoeff,
-    pub global_reference: Reference<T>
-}
-
-impl<T: FiveLimitStackType + OctavePeriodicStackType>
-    Config<StaticTuning<T, PeriodicCompleteAligned<T>>> for StaticTuningConfig<T>
-{
-    fn initialise(config: &Self) -> StaticTuning<T, PeriodicCompleteAligned<T>> {
-        StaticTuning {
-            neighbourhood: new_fivelimit_neighbourhood(
-                &config.active_temperaments,
-                config.width,
-                config.index,
-                config.offset,
-            ),
-            active_temperaments: config.active_temperaments.clone(),
-            global_reference: config.global_reference.clone()
         }
     }
 }

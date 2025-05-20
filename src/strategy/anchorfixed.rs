@@ -30,7 +30,6 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> AnchorStrategy<T> for AnchorFixed
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
         msg: msg::ToStrategy,
-        time: Instant,
     ) -> Option<Vec<msg::FromStrategy<T>>> {
         None {}
         //vec![]

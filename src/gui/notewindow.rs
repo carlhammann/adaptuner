@@ -8,13 +8,13 @@ use eframe::{
 use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    gui::r#trait::{GuiShow, GuiState},
+    gui::r#trait::GuiShow,
     interval::{
         stack::Stack,
         stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     },
     keystate::KeyState,
-    msg,
+    msg::{ FromUi, HandleMsgRef, ToUi},
     notename::johnston::fivelimit::{Accidental, BaseName, NoteName},
 };
 
@@ -682,22 +682,15 @@ impl<T: FiveLimitStackType> NoteWindow<T> {
     }
 }
 
-impl<T: FiveLimitStackType> GuiState<T> for NoteWindow<T> {
-    fn handle_msg(
-        &mut self,
-        time: Instant,
-        msg: &msg::AfterProcess<T>,
-        _to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
-        _ctx: &egui::Context,
-        //frame: &mut eframe::Frame,
-    ) {
+impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi> for NoteWindow<T> {
+    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi>) {
         match msg {
-            msg::AfterProcess::ForwardMidi { msg } => match msg {
+            ToUi::ForwardMidi { time: original_time, msg } => match msg {
                 MidiMsg::ChannelVoice {
                     channel,
                     msg: ChannelVoiceMsg::NoteOn { note, .. },
                 } => {
-                    self.active_notes[*note as usize].note_on(*channel, time);
+                    self.active_notes[*note as usize].note_on(*channel, *original_time);
                 }
 
                 MidiMsg::ChannelVoice {
@@ -707,7 +700,7 @@ impl<T: FiveLimitStackType> GuiState<T> for NoteWindow<T> {
                     self.active_notes[*note as usize].note_off(
                         *channel,
                         self.pedal_hold[*channel as usize],
-                        time,
+                        *original_time,
                     );
                 }
 
@@ -721,7 +714,7 @@ impl<T: FiveLimitStackType> GuiState<T> for NoteWindow<T> {
                     self.pedal_hold[*channel as usize] = *value != 0;
                     if *value == 0 {
                         for note in &mut self.active_notes {
-                            note.pedal_off(*channel, time);
+                            note.pedal_off(*channel, *original_time);
                         }
                     }
                 }
@@ -729,33 +722,17 @@ impl<T: FiveLimitStackType> GuiState<T> for NoteWindow<T> {
                 _ => {}
             },
 
-            msg::AfterProcess::FromStrategy(msg) => {
-                match msg {
-                    msg::FromStrategy::Retune {
-                        note, tuning_stack, ..
-                    } => {
-                        self.tunings[*note as usize].clone_from(tuning_stack);
-                    }
-                    //msg::fromstrategy::consider { stack } => todo!(),
-                    _ => {} //msg::FromStrategy::SetReference { key, stack } => todo!(),
-                            //msg::FromStrategy::NotifyFit { pattern_name, reference_stack } => todo!(),
-                            //msg::FromStrategy::NotifyNoFit => todo!(),
-                }
+            ToUi::Retune { note, tuning_stack } => {
+                self.tunings[*note as usize].clone_from(tuning_stack);
             }
-            _ => {} //msg::AfterProcess::Start => todo!(),
-                    //msg::AfterProcess::Stop => todo!(),
-                    //msg::AfterProcess::Reset => todo!(),
-                    //msg::AfterProcess::Notify { line } => todo!(),
-                    //msg::AfterProcess::MidiParseErr(_) => todo!(),
-                    //msg::AfterProcess::CrosstermEvent(event) => todo!(),
-                    //msg::AfterProcess::BackendLatency { since_input } => todo!(),
-                    //msg::AfterProcess::DetunedNote { note, should_be, actual, explanation } => todo!(),
+
+            _ => {}
         }
     }
 }
 
 impl<T: FiveLimitStackType> GuiShow for NoteWindow<T> {
-    fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+    fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi>) {
         egui::TopBottomPanel::bottom("note window bottom panel").show_inside(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui

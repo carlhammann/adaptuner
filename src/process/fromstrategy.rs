@@ -1,43 +1,44 @@
-use std::{marker::PhantomData, sync::mpsc, time::Instant};
+use std::{sync::mpsc, time::Instant};
 
 use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
 
 use crate::{
-    config,
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
-    msg,
-    process::r#trait::ProcessState,
+    msg::{FromProcess, HandleMsg, ToProcess},
     strategy::r#trait::Strategy,
 };
 
-pub struct State<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> {
+pub struct ProcessFromStrategy<T: StackType, S: Strategy<T>> {
     strategy: S,
     key_states: [KeyState; 128],
     tunings: [Stack<T>; 128],
     pedal_hold: [bool; 16],
-    strategy_config: SC,
 }
 
-impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, SC> {
-    fn handle_midi(
-        &mut self,
-        time: Instant,
-        msg: MidiMsg,
-        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-    ) {
-        let send_to_backend =
-            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
+    pub fn new(strategy: S) -> Self {
+        let now = Instant::now();
+        Self {
+            strategy,
+            key_states: core::array::from_fn(|_| KeyState::new(now)),
+            tunings: core::array::from_fn(|_| Stack::new_zero()),
+            pedal_hold: [false; 16],
+        }
+    }
+}
 
+impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
+    fn handle_midi(&mut self, time: Instant, msg: MidiMsg, forward: &mpsc::Sender<FromProcess<T>>) {
         match msg {
             MidiMsg::ChannelVoice {
                 channel,
                 msg: NoteOn { note, .. },
-            } => self.handle_note_on(time, note, channel, to_backend),
+            } => self.handle_note_on(time, note, channel, forward),
             MidiMsg::ChannelVoice {
                 channel,
                 msg: NoteOff { note, .. },
-            } => self.handle_note_off(time, note, channel, to_backend),
+            } => self.handle_note_off(time, note, channel, forward),
             MidiMsg::ChannelVoice {
                 channel,
                 msg: ControlChange {
@@ -64,7 +65,7 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, S
                         None {} => {}
                         Some(mut msgs) => {
                             for msg in msgs.drain(..) {
-                                send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                                let _ = forward.send(FromProcess::FromStrategy(msg));
                             }
                         }
                     }
@@ -73,7 +74,7 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, S
             _ => {}
         }
 
-        send_to_backend(msg::AfterProcess::ForwardMidi { msg }, time);
+        let _ = forward.send(FromProcess::ForwardMidi { msg, time });
     }
 
     fn handle_note_on(
@@ -81,11 +82,8 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, S
         time: Instant,
         note: u8,
         channel: Channel,
-        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+        forward: &mpsc::Sender<FromProcess<T>>,
     ) {
-        let send_to_backend =
-            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
-
         if self.key_states[note as usize].note_on(channel, time) {
             match self
                 .strategy
@@ -94,7 +92,7 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, S
                 None {} => {}
                 Some(mut msgs) => {
                     for msg in msgs.drain(..) {
-                        send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                        let _ = forward.send(FromProcess::FromStrategy(msg));
                     }
                 }
             }
@@ -106,11 +104,8 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, S
         time: Instant,
         note: u8,
         channel: Channel,
-        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
+        forward: &mpsc::Sender<FromProcess<T>>,
     ) {
-        let send_to_backend =
-            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
-
         if self.key_states[note as usize].note_off(channel, self.pedal_hold[channel as usize], time)
         {
             match self
@@ -120,7 +115,7 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, S
                 None {} => {}
                 Some(mut msgs) => {
                     for msg in msgs.drain(..) {
-                        send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                        let _ = forward.send(FromProcess::FromStrategy(msg));
                     }
                 }
             }
@@ -128,71 +123,32 @@ impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> State<T, S, S
     }
 }
 
-impl<T: StackType, S: Strategy<T>, C: config::r#trait::Config<S>> ProcessState<T>
-    for State<T, S, C>
+impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess, FromProcess<T>>
+    for ProcessFromStrategy<T, S>
 {
-    fn handle_msg(
-        &mut self,
-        time: Instant,
-        msg: crate::msg::ToProcess,
-        to_backend: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-    ) {
-        let send_to_backend =
-            |msg: msg::AfterProcess<T>, time: Instant| to_backend.send((time, msg)).unwrap_or(());
+    fn handle_msg(&mut self, msg: ToProcess, forward: &mpsc::Sender<FromProcess<T>>) {
         match msg {
-            msg::ToProcess::IncomingMidi { bytes } => match MidiMsg::from_midi(&bytes) {
-                Ok((msg, _)) => self.handle_midi(time, msg, to_backend), // TODO: multi-part messages?
-                Err(e) => send_to_backend(msg::AfterProcess::MidiParseErr(e.to_string()), time),
+            ToProcess::IncomingMidi { time, bytes } => match MidiMsg::from_midi(&bytes) {
+                Ok((msg, _)) => self.handle_midi(time, msg, forward), // TODO: multi-part messages?
+                Err(e) => {
+                    let _ = forward.send(FromProcess::MidiParseErr(e.to_string()));
+                }
             },
-            msg::ToProcess::ToStrategy(msg) => {
+            ToProcess::ToStrategy(msg) => {
                 match self
                     .strategy
-                    .handle_msg(&self.key_states, &mut self.tunings, msg, time)
+                    .handle_msg(&self.key_states, &mut self.tunings, msg)
                 {
                     None {} => {}
                     Some(mut msgs) => {
                         for msg in msgs.drain(..) {
-                            send_to_backend(msg::AfterProcess::FromStrategy(msg), time);
+                            let _ = forward.send(FromProcess::FromStrategy(msg));
                         }
                     }
                 }
             }
-
-            msg::ToProcess::Start => {
-                send_to_backend(msg::AfterProcess::Start, time);
-            }
-            msg::ToProcess::Reset => {
-                self.strategy =
-                    <_ as config::r#trait::Config<_>>::initialise(&self.strategy_config);
-                send_to_backend(msg::AfterProcess::Reset, time);
-            }
-            _ => {} //msg::ToProcess::Stop => todo!(),
-        }
-    }
-}
-
-pub struct Config<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S>> {
-    pub _phantom: PhantomData<(T, S)>,
-    pub strategy_config: SC,
-}
-
-impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S> + Clone>
-    config::r#trait::Config<State<T, S, SC>> for Config<T, S, SC>
-{
-    fn initialise(config: &Self) -> State<T, S, SC> {
-        State::new(&config.strategy_config)
-    }
-}
-
-impl<T: StackType, S: Strategy<T>, SC: config::r#trait::Config<S> + Clone> State<T, S, SC> {
-    pub fn new(config: &SC) -> Self {
-        let now = Instant::now();
-        Self {
-            strategy: <SC as config::r#trait::Config<S>>::initialise(&config),
-            key_states: core::array::from_fn(|_| KeyState::new(now)),
-            tunings: core::array::from_fn(|_| Stack::new_zero()),
-            pedal_hold: [false; 16],
-            strategy_config: config.clone(),
+            ToProcess::Stop => {}
+            ToProcess::FromUi(_) => {}
         }
     }
 }

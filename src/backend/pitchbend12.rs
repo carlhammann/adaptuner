@@ -7,11 +7,9 @@ use std::{sync::mpsc, time::Instant};
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    backend::r#trait::BackendState,
-    config::r#trait::Config,
-    interval::{base::Semitones, stacktype::r#trait::OctavePeriodicStackType},
+    interval::base::Semitones,
     keystate::KeyState,
-    msg,
+    msg::{self, FromBackend, HandleMsg, ToBackend},
 };
 
 pub struct Pitchbend12 {
@@ -32,7 +30,25 @@ pub struct Pitchbend12 {
     bend_range: Semitones,
 }
 
+#[derive(Clone)]
+pub struct Pitchbend12Config {
+    pub bend_range: Semitones,
+    pub channels: [Channel; 12],
+}
+
 impl Pitchbend12 {
+    pub fn new(config: &Pitchbend12Config) -> Self {
+        let now = Instant::now();
+        Self {
+            config: config.clone(),
+            channels: config.channels.clone(),
+            bends: [8192; 12],
+            key_state: core::array::from_fn(|_| KeyState::new(now)),
+            pedal_hold: [false; 16],
+            bend_range: config.bend_range,
+        }
+    }
+
     fn bend_from_semitones(&self, semitones: Semitones) -> u16 {
         ((8191.0 * semitones / self.bend_range + 8192.0) as u16)
             .max(0)
@@ -44,31 +60,21 @@ impl Pitchbend12 {
     }
 }
 
-impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
-    fn handle_msg(
-        &mut self,
-        time: Instant,
-        msg: msg::AfterProcess<T>,
-        to_ui: &mpsc::Sender<(Instant, msg::AfterProcess<T>)>,
-        midi_out: &mpsc::Sender<(Instant, msg::ToMidiOut)>,
-    ) {
-        let send_to_ui =
-            |msg: msg::AfterProcess<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
+impl HandleMsg<ToBackend, FromBackend> for Pitchbend12 {
+    fn handle_msg(&mut self, msg: ToBackend, forward: &mpsc::Sender<FromBackend>) {
+        // let send_to_ui =
+        //     |msg: msg::AfterProcess<T>, time: Instant| to_ui.send((time, msg)).unwrap_or(());
 
-        let send_midi = |msg: MidiMsg, time: Instant| {
-            midi_out
-                .send((
-                    time,
-                    msg::ToMidiOut::OutgoingMidi {
-                        bytes: msg.to_midi(),
-                    },
-                ))
-                .unwrap_or(());
+        let send_midi = |msg: MidiMsg, original_time: Instant| {
+            let _ = forward.send(msg::FromBackend::OutgoingMidi {
+                time: original_time,
+                bytes: msg.to_midi(),
+            });
         };
 
         match msg {
-            msg::AfterProcess::Start | msg::AfterProcess::Reset => {
-                *self = Pitchbend12Config::initialise(&self.config);
+            msg::ToBackend::Start { time } | msg::ToBackend::Reset { time } => {
+                *self = Pitchbend12::new(&self.config);
                 for (i, &channel) in self.channels.iter().enumerate() {
                     send_midi(
                         MidiMsg::ChannelVoice {
@@ -97,8 +103,8 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                     );
                 }
             }
-            msg::AfterProcess::Stop => {}
-            msg::AfterProcess::ForwardMidi { msg } => match msg {
+            msg::ToBackend::Stop => {}
+            ToBackend::ForwardMidi { msg, time: original_time } => match msg {
                 MidiMsg::ChannelVoice {
                     channel,
                     msg: ChannelVoiceMsg::NoteOn { note, velocity },
@@ -108,10 +114,10 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                             channel: self.channels[note as usize % 12],
                             msg: ChannelVoiceMsg::NoteOn { note, velocity },
                         },
-                        time,
+                        original_time,
                     );
 
-                    self.key_state[note as usize].note_on(channel, time);
+                    self.key_state[note as usize].note_on(channel, original_time);
                 }
 
                 MidiMsg::ChannelVoice {
@@ -123,13 +129,13 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                             channel: self.channels[note as usize % 12],
                             msg: ChannelVoiceMsg::NoteOff { note, velocity },
                         },
-                        time,
+                        original_time,
                     );
 
                     self.key_state[note as usize].note_off(
                         channel,
                         self.pedal_hold[channel as usize],
-                        time,
+                        original_time,
                     );
                 }
 
@@ -148,7 +154,7 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                                     control: ControlChange::Hold(value),
                                 },
                             },
-                            time,
+                            original_time,
                         );
                     }
 
@@ -156,7 +162,7 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
 
                     if value == 0 {
                         for s in self.key_state.iter_mut() {
-                            s.pedal_off(channel, time);
+                            s.pedal_off(channel, original_time);
                         }
                     }
                 }
@@ -171,64 +177,36 @@ impl<T: OctavePeriodicStackType> BackendState<T> for Pitchbend12 {
                                 channel,
                                 msg: ChannelVoiceMsg::ProgramChange { program },
                             },
-                            time,
+                            original_time,
                         )
                     }
                 }
 
-                _ => send_midi(msg, time),
+                _ => send_midi(msg, original_time),
             },
-            msg::AfterProcess::FromStrategy(msg) => match msg {
-                msg::FromStrategy::Retune { note, tuning, .. } => {
-                    let channel_index = note as usize % 12;
-                    let desired_bend = self.bend_from_semitones(tuning - note as Semitones);
-                    let current_bend = self.bends[channel_index];
-                    if current_bend != desired_bend {
-                        send_midi(
-                            MidiMsg::ChannelVoice {
-                                channel: self.channels[channel_index],
-                                msg: ChannelVoiceMsg::PitchBend { bend: desired_bend },
-                            },
-                            time,
-                        );
-                        self.bends[channel_index] = desired_bend;
-                    }
-                    if (tuning - note as Semitones).abs() > self.bend_range {
-                        send_to_ui(
-                            msg::AfterProcess::DetunedNote {
-                                note,
-                                actual: note as Semitones + self.semitones_from_bend(desired_bend),
-                                should_be: tuning,
-                                explanation: "Exceeded bend range",
-                            },
-                            time,
-                        );
-                    }
+            ToBackend::Retune { note, tuning, time } => {
+                let channel_index = note as usize % 12;
+                let desired_bend = self.bend_from_semitones(tuning - note as Semitones);
+                let current_bend = self.bends[channel_index];
+                if current_bend != desired_bend {
+                    send_midi(
+                        MidiMsg::ChannelVoice {
+                            channel: self.channels[channel_index],
+                            msg: ChannelVoiceMsg::PitchBend { bend: desired_bend },
+                        },
+                        time,
+                    );
+                    self.bends[channel_index] = desired_bend;
                 }
-                _ => {}
-            },
-
-            _ => {}
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct Pitchbend12Config {
-    pub bend_range: Semitones,
-    pub channels: [Channel; 12],
-}
-
-impl Config<Pitchbend12> for Pitchbend12Config {
-    fn initialise(config: &Self) -> Pitchbend12 {
-        let now = Instant::now();
-        Pitchbend12 {
-            config: config.clone(),
-            channels: config.channels.clone(),
-            bends: [8192; 12],
-            key_state: core::array::from_fn(|_| KeyState::new(now)),
-            pedal_hold: [false; 16],
-            bend_range: config.bend_range,
+                if (tuning - note as Semitones).abs() > self.bend_range {
+                    let _ = forward.send(FromBackend::DetunedNote {
+                        note,
+                        actual: note as Semitones + self.semitones_from_bend(desired_bend),
+                        should_be: tuning,
+                        explanation: "Exceeded bend range",
+                    });
+                }
+            }
         }
     }
 }

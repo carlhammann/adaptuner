@@ -1,4 +1,3 @@
-use std::time::Instant;
 
 use crate::{
     interval::stacktype::r#trait::StackType,

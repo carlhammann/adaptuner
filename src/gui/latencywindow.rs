@@ -1,12 +1,11 @@
-use std::{
-    sync::mpsc,
-    time::{Duration, Instant},
+use std::{sync::mpsc, time::Duration};
+
+use crate::{
+    gui::r#trait::GuiShow,
+    interval::stacktype::r#trait::StackType,
+    msg::{self, FromUi, HandleMsgRef, ToUi},
 };
-
-use crate::{gui::r#trait::GuiState, interval::stacktype::r#trait::StackType, msg};
 use eframe::{self, egui};
-
-use super::r#trait::GuiShow;
 
 pub struct LatencyWindow {
     values: Vec<Duration>,
@@ -24,16 +23,10 @@ impl LatencyWindow {
     }
 }
 
-impl<T: StackType> GuiState<T> for LatencyWindow {
-    fn handle_msg(
-        &mut self,
-        _time: Instant,
-        msg: &msg::AfterProcess<T>,
-        _to_process: &mpsc::Sender<(Instant, msg::ToProcess)>,
-        _ctx: &egui::Context,
-    ) {
+impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi> for LatencyWindow {
+    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi>) {
         match msg {
-            msg::AfterProcess::BackendLatency { since_input } => {
+            msg::ToUi::EventLatency { since_input } => {
                 let n = self.values.len();
                 self.values[self.next_to_update] = *since_input;
                 self.next_to_update = (self.next_to_update + 1) % n;
@@ -45,7 +38,7 @@ impl<T: StackType> GuiState<T> for LatencyWindow {
 }
 
 impl GuiShow for LatencyWindow {
-    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi>) {
         ui.label(format!(
             "mean latency (last {} events): {:?}",
             self.values.len(),
