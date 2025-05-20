@@ -11,5 +11,4 @@ pub mod notename;
 pub mod process;
 pub mod reference;
 pub mod strategy;
-pub mod tui;
 pub mod util;
