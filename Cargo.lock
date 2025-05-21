@@ -118,7 +118,6 @@ dependencies = [
  "deser-hjson",
  "eframe",
  "egui_extras",
- "fractionfree",
  "midi-msg",
  "midir",
  "ndarray",
@@ -1221,17 +1220,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13624c2627564efccf4934284bdd98cbaa14e79b0b5a141218e507b3a823456"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "fractionfree"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc2f3194b246569a768f6f8c2c4408bf8cfc144137328ef7042cfe7578d165d5"
-dependencies = [
- "ndarray",
- "num-integer",
- "num-traits",
 ]
 
 [[package]]

@@ -1,12 +1,14 @@
 //! Treating the idea of "tempering intervals" in the abstract setting. A [Temperament] is a
 //! specification of how stacks of tempered intervals relate to stacks of pure intervals.
 
-use fractionfree;
+use std::ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign};
+
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut1};
 use num_integer::Integer;
 use num_rational::Ratio;
-use num_traits::NumAssign;
-use std::{error::Error, fmt};
+use num_traits::{One, Signed};
+
+use crate::util::lu::{lu_rational, LUErr};
 
 /// A description of a temperament, i.e. "how much you detune" some intervals.
 ///
@@ -26,7 +28,16 @@ pub struct Temperament<I> {
 
 impl<I> Temperament<I>
 where
-    I: Copy + NumAssign + Integer + std::fmt::Display + 'static,
+    I: Signed
+        + Integer
+        + RemAssign
+        + DivAssign
+        + MulAssign
+        + SubAssign
+        + AddAssign
+        + Copy
+        + One
+        + 'static,
 {
     /// The error "tempered out" by the `i`-th interval, given as (the coefficients of) a rational
     /// combination of pure intervals.
@@ -106,21 +117,16 @@ where
             Ratio::from_integer(tempered[[i, j]])
         });
 
-        let tempered_lu = match fractionfree::lu(tmp.view_mut()) {
-            Err(fractionfree::LinalgErr::LURankDeficient) => {
-                return Err(TemperamentErr::Indeterminate)
-            }
+        let mut tempered_lu_perm = Array1::zeros(tempered.shape()[0]);
+        let tempered_lu = match lu_rational(tmp.view_mut(), tempered_lu_perm.view_mut()) {
+            Err(LUErr::MatrixDegenerate) => return Err(TemperamentErr::Indeterminate),
             Err(e) => return Err(TemperamentErr::FromLinalgErr(e)),
             Ok(x) => x,
         };
 
-        // initialisation of these two doesn't matter.
+        // initialisation of tempered_inv doesn't matter.
         let mut tempered_inv = Array2::zeros(tempered.raw_dim());
-        let mut d = Ratio::from_integer(I::zero());
-        tempered_lu.inverse_inplace(&mut d, &mut tempered_inv.view_mut())?;
-        tempered_inv.map_mut(|x| {
-            *x /= d;
-        });
+        tempered_lu.inverse_inplace(&mut tempered_inv.view_mut())?;
 
         tmp = Array2::from_shape_fn(tempered.raw_dim(), |(i, j)| {
             Ratio::from_integer(pure[[i, j]])
@@ -136,33 +142,12 @@ where
 
 #[derive(Debug)]
 pub enum TemperamentErr {
-    FromLinalgErr(fractionfree::LinalgErr),
+    FromLinalgErr(LUErr),
     Indeterminate,
 }
 
-impl fmt::Display for TemperamentErr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TemperamentErr::FromLinalgErr(_) => write!(f, "integer linear algebra error"),
-            TemperamentErr::Indeterminate => write!(
-                f,
-                "constraints on tempered and pure intervals are indeterminate"
-            ),
-        }
-    }
-}
-
-impl Error for TemperamentErr {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            TemperamentErr::FromLinalgErr(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<fractionfree::LinalgErr> for TemperamentErr {
-    fn from(value: fractionfree::LinalgErr) -> Self {
+impl From<LUErr> for TemperamentErr {
+    fn from(value: LUErr) -> Self {
         Self::FromLinalgErr(value)
     }
 }
