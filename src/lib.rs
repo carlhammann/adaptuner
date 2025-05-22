@@ -1,4 +1,3 @@
-#![feature(maybe_uninit_array_assume_init)]
 pub mod backend;
 pub mod gui;
 pub mod interval;

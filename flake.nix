@@ -24,7 +24,7 @@
             overlays = [(import rust-overlay)];
           }
         ));
-    rust-bin = forAllSystems (_: pkgs: pkgs.rust-bin.nightly.latest);
+    rust-bin = forAllSystems (_: pkgs: pkgs.rust-bin.stable.latest);
     rustPlatform = forAllSystems (system: pkgs:
       pkgs.makeRustPlatform (with rust-bin.${system}; {
         cargo = minimal;
