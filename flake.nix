@@ -30,10 +30,12 @@
         cargo = minimal;
         rustc = minimal;
       }));
-    adaptuner = forAllSystems (system: pkgs:
+    adaptuner = forAllSystems (system: pkgs: let
+      cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+    in
       rustPlatform.${system}.buildRustPackage {
-        pname = "adaptuner";
-        version = "0.1.0";
+        pname = cargoToml.package.name;
+        version = cargoToml.package.version;
         src = ./.;
         cargoLock.lockFile = ./Cargo.lock;
         nativeBuildInputs = with pkgs; [pkg-config];
