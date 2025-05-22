@@ -6,10 +6,13 @@ use std::{
 use midi_msg::MidiMsg;
 use midir::{MidiInputPort, MidiOutputPort};
 
-use crate::interval::{
-    base::Semitones,
-    stack::Stack,
-    stacktype::r#trait::{StackCoeff, StackType},
+use crate::{
+    interval::{
+        base::Semitones,
+        stack::Stack,
+        stacktype::r#trait::{StackCoeff, StackType},
+    },
+    reference::Reference,
 };
 
 pub trait HandleMsg<I, O> {
@@ -43,26 +46,20 @@ pub trait MessageTranslate4<B, C, D, E> {
     fn translate4(self) -> (Option<B>, Option<C>, Option<D>, Option<E>);
 }
 
-pub enum ToProcess {
+pub enum ToProcess<T:StackType> {
     Stop,
     IncomingMidi { time: Instant, bytes: Vec<u8> },
-    FromUi(FromUi),
-    ToStrategy(ToStrategy),
+    ToStrategy(ToStrategy<T>),
 }
 
 pub enum FromProcess<T: StackType> {
-    Notify {
-        line: String,
-    },
+    Notify { line: String },
     MidiParseErr(String),
-    ForwardMidi {
-        msg: MidiMsg,
-        time: Instant,
-    },
+    ForwardMidi { msg: MidiMsg, time: Instant },
     FromStrategy(FromStrategy<T>),
 }
 
-pub enum ToStrategy {
+pub enum ToStrategy<T: StackType> {
     Consider {
         coefficients: Vec<StackCoeff>,
         time: Instant,
@@ -70,6 +67,9 @@ pub enum ToStrategy {
     ToggleTemperament {
         index: usize,
         time: Instant,
+    },
+    SetReference {
+        reference: Reference<T>,
     },
 }
 
@@ -180,7 +180,7 @@ pub enum ToUi<T: StackType> {
     },
 }
 
-pub enum FromUi {
+pub enum FromUi<T: StackType> {
     Consider {
         coefficients: Vec<StackCoeff>,
         time: Instant,
@@ -198,6 +198,9 @@ pub enum FromUi {
     ConnectOutput {
         port: MidiOutputPort,
         portname: String,
+    },
+    SetReference {
+        reference: Reference<T>,
     },
 }
 
@@ -266,12 +269,18 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromProcess<T> {
                     line: err.to_string(),
                 }),
             ),
-            FromProcess::ForwardMidi { msg, time: original_time } => (
+            FromProcess::ForwardMidi {
+                msg,
+                time: original_time,
+            } => (
                 Some(ToBackend::ForwardMidi {
                     msg: msg.clone(),
                     time: original_time,
                 }),
-                Some(ToUi::ForwardMidi { time: original_time, msg }),
+                Some(ToUi::ForwardMidi {
+                    time: original_time,
+                    msg,
+                }),
             ),
             FromProcess::FromStrategy(msg) => msg.translate2(),
         }
@@ -309,11 +318,11 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
     }
 }
 
-impl MessageTranslate4<ToProcess, ToBackend, ToMidiIn, ToMidiOut> for FromUi {
+impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOut> for FromUi<T> {
     fn translate4(
         self,
     ) -> (
-        Option<ToProcess>,
+        Option<ToProcess<T>>,
         Option<ToBackend>,
         Option<ToMidiIn>,
         Option<ToMidiOut>,
@@ -351,12 +360,20 @@ impl MessageTranslate4<ToProcess, ToBackend, ToMidiIn, ToMidiOut> for FromUi {
                 None {},
                 Some(ToMidiOut::Connect { port, portname }),
             ),
+            FromUi::SetReference { reference } => (
+                Some(ToProcess::ToStrategy(ToStrategy::SetReference {
+                    reference,
+                })),
+                None {},
+                None {},
+                None {},
+            ),
         }
     }
 }
 
-impl<T: StackType> MessageTranslate2<ToProcess, ToUi<T>> for FromMidiIn {
-    fn translate2(self) -> (Option<ToProcess>, Option<ToUi<T>>) {
+impl<T: StackType> MessageTranslate2<ToProcess<T>, ToUi<T>> for FromMidiIn {
+    fn translate2(self) -> (Option<ToProcess<T>>, Option<ToUi<T>>) {
         match self {
             FromMidiIn::IncomingMidi { time, bytes } => {
                 (Some(ToProcess::IncomingMidi { time, bytes }), None {})
@@ -418,7 +435,7 @@ impl<T: StackType> MessageTranslate2<ToMidiOut, ToUi<T>> for FromBackend {
     }
 }
 
-impl HasStop for ToProcess {
+impl<T:StackType> HasStop for ToProcess<T> {
     fn is_stop(&self) -> bool {
         match self {
             Self::Stop => true,

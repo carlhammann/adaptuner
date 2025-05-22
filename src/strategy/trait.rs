@@ -32,6 +32,6 @@ pub trait Strategy<T: StackType> {
         &mut self,
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
-        msg: msg::ToStrategy,
+        msg: msg::ToStrategy<T>,
     ) -> Option<Vec<msg::FromStrategy<T>>>;
 }

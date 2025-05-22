@@ -6,6 +6,7 @@ use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
     gui::manywindows::ManyWindows,
     interval::{stack::Stack, stacktype::fivelimit::ConcreteFiveLimitStackType},
+    notename::NoteNameStyle,
     process::fromstrategy::ProcessFromStrategy,
     reference::Reference,
     run::RunState,
@@ -17,6 +18,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Stack::from_target(vec![1, -1, 1]),
         440.0,
     );
+    let notenamestyle = NoteNameStyle::JohnstonFiveLimitFull;
     let no_active_temperaments = vec![false; 2];
     let initial_neighbourhood_width = 4;
     let initial_neighbourhood_index = 5;
@@ -26,7 +28,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         width: initial_neighbourhood_width,
         index: initial_neighbourhood_index,
         offset: initial_neighbourhood_offset,
-        global_reference,
+        global_reference: global_reference.clone(),
     };
 
     let backend_config = Pitchbend12Config {
@@ -57,7 +59,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         midi_out,
         || ProcessFromStrategy::new(StaticTuning::new(strategy_config)),
         move || Pitchbend12::new(&backend_config),
-        move |ctx, tx| ManyWindows::new(ctx, latency_window_length, tx),
+        move |ctx, tx| {
+            ManyWindows::new(
+                ctx,
+                latency_window_length,
+                global_reference,
+                notenamestyle,
+                tx,
+            )
+        },
     );
 
     Ok(())

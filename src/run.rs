@@ -42,13 +42,13 @@ where
     })
 }
 
-struct GuiWithConnections<T: StackType, G: HandleMsg<ToUi<T>, FromUi> + eframe::App> {
+struct GuiWithConnections<T: StackType, G: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App> {
     gui: G,
     rx: mpsc::Receiver<ToUi<T>>,
-    tx: mpsc::Sender<FromUi>,
+    tx: mpsc::Sender<FromUi<T>>,
 }
 
-impl<T: StackType, G: HandleMsg<ToUi<T>, FromUi> + eframe::App> eframe::App
+impl<T: StackType, G: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App> eframe::App
     for GuiWithConnections<T, G>
 {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
@@ -63,11 +63,11 @@ fn start_gui<T, H, NH>(
     app_name: &str,
     new_gui: NH,
     rx: mpsc::Receiver<ToUi<T>>,
-    tx: mpsc::Sender<FromUi>,
+    tx: mpsc::Sender<FromUi<T>>,
 ) -> Result<(), eframe::Error>
 where
-    H: HandleMsg<ToUi<T>, FromUi> + eframe::App,
-    NH: FnOnce(&egui::Context, mpsc::Sender<FromUi>) -> H + Send + 'static,
+    H: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App,
+    NH: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> H + Send + 'static,
     T: StackType + Send + 'static,
 {
     eframe::run_native(
@@ -215,7 +215,7 @@ where
 pub struct RunState<T: StackType> {
     midi_input: thread::JoinHandle<(mpsc::Receiver<ToMidiIn>, mpsc::Sender<FromMidiIn>)>,
     midi_output: thread::JoinHandle<(mpsc::Receiver<ToMidiOut>, mpsc::Sender<FromMidiOut>)>,
-    process: thread::JoinHandle<(mpsc::Receiver<ToProcess>, mpsc::Sender<FromProcess<T>>)>,
+    process: thread::JoinHandle<(mpsc::Receiver<ToProcess<T>>, mpsc::Sender<FromProcess<T>>)>,
     backend: Cell<thread::JoinHandle<(mpsc::Receiver<ToBackend>, mpsc::Sender<FromBackend>)>>,
     // ui_thread: thread::JoinHandle<(mpsc::Receiver<ToUi<T>>, mpsc::Sender<FromUi>)>,
     midi_output_forward: thread::JoinHandle<()>,
@@ -223,7 +223,7 @@ pub struct RunState<T: StackType> {
     process_forward: thread::JoinHandle<()>,
     backend_forward: thread::JoinHandle<()>,
     ui_forward: thread::JoinHandle<()>,
-    to_process_tx: mpsc::Sender<ToProcess>,
+    to_process_tx: mpsc::Sender<ToProcess<T>>,
     to_backend_tx: mpsc::Sender<ToBackend>,
     to_ui_tx: mpsc::Sender<ToUi<T>>,
 }
@@ -238,12 +238,12 @@ impl<T: StackType> RunState<T> {
     ) -> Result<Self, eframe::Error>
     where
         T: Send + 'static,
-        P: HandleMsg<ToProcess, FromProcess<T>>,
+        P: HandleMsg<ToProcess<T>, FromProcess<T>>,
         NP: FnOnce() -> P + Send + 'static,
         B: HandleMsg<ToBackend, FromBackend>,
         NB: FnOnce() -> B + Send + 'static,
-        U: HandleMsg<ToUi<T>, FromUi> + eframe::App,
-        NU: FnOnce(&egui::Context, mpsc::Sender<FromUi>) -> U + Send + 'static,
+        U: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App,
+        NU: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> U + Send + 'static,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();
         let (from_midi_input_tx, from_midi_input_rx) = mpsc::channel();

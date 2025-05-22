@@ -123,10 +123,10 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
     }
 }
 
-impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess, FromProcess<T>>
+impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess<T>, FromProcess<T>>
     for ProcessFromStrategy<T, S>
 {
-    fn handle_msg(&mut self, msg: ToProcess, forward: &mpsc::Sender<FromProcess<T>>) {
+    fn handle_msg(&mut self, msg: ToProcess<T>, forward: &mpsc::Sender<FromProcess<T>>) {
         match msg {
             ToProcess::IncomingMidi { time, bytes } => match MidiMsg::from_midi(&bytes) {
                 Ok((msg, _)) => self.handle_midi(time, msg, forward), // TODO: multi-part messages?
@@ -148,7 +148,6 @@ impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess, FromProcess<T>>
                 }
             }
             ToProcess::Stop => {}
-            ToProcess::FromUi(_) => {}
         }
     }
 }

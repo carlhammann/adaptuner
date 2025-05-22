@@ -91,7 +91,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
         &mut self,
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
-        msg: msg::ToStrategy,
+        msg: msg::ToStrategy<T>,
     ) -> Option<Vec<msg::FromStrategy<T>>> {
         match msg {
             msg::ToStrategy::Consider { coefficients, time } => {
@@ -163,6 +163,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strate
 
                 Some(res)
             }
+            msg::ToStrategy::SetReference { reference } => todo!(),
         }
     }
 }

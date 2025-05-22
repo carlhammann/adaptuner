@@ -23,8 +23,8 @@ impl LatencyWindow {
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi> for LatencyWindow {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi>) {
+impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatencyWindow {
+    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             msg::ToUi::EventLatency { since_input } => {
                 let n = self.values.len();
@@ -37,8 +37,13 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi> for LatencyWindow {
     }
 }
 
-impl GuiShow for LatencyWindow {
-    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi>) {
+impl<T: StackType> GuiShow<T> for LatencyWindow {
+    fn show(
+        &mut self,
+        _ctx: &egui::Context,
+        ui: &mut egui::Ui,
+        _forward: &mpsc::Sender<FromUi<T>>,
+    ) {
         ui.label(format!(
             "mean latency (last {} events): {:?}",
             self.values.len(),

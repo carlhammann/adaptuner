@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, ops};
 
-use ndarray::{Array1, ArrayView1};
+use ndarray::{Array1, ArrayView1, AsArray};
 use num_rational::Ratio;
 use num_traits::Zero;
 use serde_derive::{Deserialize, Serialize};
@@ -29,6 +29,16 @@ impl<T: StackType> ScaledAdd<StackCoeff> for Stack<T> {
     }
 }
 
+/// Like [Stack::target_semitones], but for cases when you only have the target coefficients and
+/// not a whole [Stack].
+pub fn semitones_from_target<T: StackType>(target: ArrayView1<StackCoeff>) -> Semitones {
+    let mut res = 0.0;
+    for (i, &c) in target.iter().enumerate() {
+        res += T::intervals()[i].semitones * c as Semitones;
+    }
+    res
+}
+
 impl<T: StackType> Stack<T> {
     pub fn from_target_and_actual(
         target: Array1<StackCoeff>,
@@ -42,7 +52,8 @@ impl<T: StackType> Stack<T> {
     }
 
     /// actual will be initialised to the same as target
-    pub fn from_target(target: Vec<StackCoeff>) -> Self {
+    pub fn from_target<V: Into<Array1<StackCoeff>>>(target: V) -> Self {
+        let target = target.into();
         let actual = Array1::from_shape_fn(target.len(), |i| Ratio::from_integer(target[i]));
         Stack {
             _phantom: PhantomData,
@@ -159,14 +170,10 @@ impl<T: StackType> Stack<T> {
         }
         res
     }
-   
+
     /// Like [Self::semitones], but for the target note.
     pub fn target_semitones(&self) -> Semitones {
-        let mut res = 0.0;
-        for (i, &c) in self.target.iter().enumerate() {
-            res += T::intervals()[i].semitones * c as Semitones;
-        }
-        res
+        semitones_from_target::<T>(self.target.view())
     }
 
     /// If the zero stack corresponds to middle C, return the "fractional MIDI note number"

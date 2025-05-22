@@ -14,7 +14,7 @@ use crate::{
         stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     },
     keystate::KeyState,
-    msg::{ FromUi, HandleMsgRef, ToUi},
+    msg::{FromUi, HandleMsgRef, ToUi},
     notename::johnston::fivelimit::{Accidental, BaseName, NoteName},
 };
 
@@ -682,10 +682,13 @@ impl<T: FiveLimitStackType> NoteWindow<T> {
     }
 }
 
-impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi> for NoteWindow<T> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi>) {
+impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
+    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
-            ToUi::ForwardMidi { time: original_time, msg } => match msg {
+            ToUi::ForwardMidi {
+                time: original_time,
+                msg,
+            } => match msg {
                 MidiMsg::ChannelVoice {
                     channel,
                     msg: ChannelVoiceMsg::NoteOn { note, .. },
@@ -731,8 +734,8 @@ impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi> for NoteWindow<T> {
     }
 }
 
-impl<T: FiveLimitStackType> GuiShow for NoteWindow<T> {
-    fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi>) {
+impl<T: FiveLimitStackType> GuiShow<T> for NoteWindow<T> {
+    fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
         egui::TopBottomPanel::bottom("note window bottom panel").show_inside(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui

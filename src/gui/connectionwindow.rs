@@ -15,8 +15,8 @@ pub struct Output {}
 pub trait IO {
     type Port;
     fn direction_string() -> &'static str;
-    fn connect_msg(port: Self::Port, portname: String) -> FromUi;
-    fn disconnect_msg() -> FromUi;
+    fn connect_msg<T: StackType>(port: Self::Port, portname: String) -> FromUi<T>;
+    fn disconnect_msg<T: StackType>() -> FromUi<T>;
 }
 
 impl IO for Input {
@@ -26,11 +26,11 @@ impl IO for Input {
         "input"
     }
 
-    fn connect_msg(port: Self::Port, portname: String) -> FromUi {
+    fn connect_msg<T: StackType>(port: Self::Port, portname: String) -> FromUi<T> {
         FromUi::ConnectInput { port, portname }
     }
 
-    fn disconnect_msg() -> FromUi {
+    fn disconnect_msg<T: StackType>() -> FromUi<T> {
         FromUi::DisconnectInput
     }
 }
@@ -42,11 +42,11 @@ impl IO for Output {
         "output"
     }
 
-    fn connect_msg(port: Self::Port, portname: String) -> FromUi {
+    fn connect_msg<T: StackType>(port: Self::Port, portname: String) -> FromUi<T> {
         FromUi::ConnectOutput { port, portname }
     }
 
-    fn disconnect_msg() -> FromUi {
+    fn disconnect_msg<T: StackType>() -> FromUi<T> {
         FromUi::DisconnectOutput
     }
 }
@@ -108,12 +108,13 @@ pub fn disconnector<X: IO>(portname: &str, ui: &mut egui::Ui) -> bool {
     disconnect
 }
 
-impl<X> GuiShow for ConnectionWindow<X>
+impl<X, T> GuiShow<T> for ConnectionWindow<X>
 where
+    T: StackType,
     X: IO,
     <X as IO>::Port: PartialEq + Clone,
 {
-    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi>) {
+    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         match self {
             ConnectionWindow::Connected { portname } => {
                 if disconnector::<X>(&portname, ui) {
@@ -150,8 +151,8 @@ where
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi> for ConnectionWindow<Input> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi>) {
+impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for ConnectionWindow<Input> {
+    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::InputConnectionError { reason } => match self {
                 ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),
@@ -177,8 +178,8 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi> for ConnectionWindow<Input> {
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi> for ConnectionWindow<Output> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi>) {
+impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for ConnectionWindow<Output> {
+    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::OutputConnectionError { reason } => match self {
                 ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),
