@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::{sync::mpsc, time::Instant};
 
 use eframe::egui;
 use ndarray::Array1;
@@ -6,7 +6,7 @@ use ndarray::Array1;
 use crate::{
     interval::{
         base::Semitones,
-        stack::{semitones_from_target, Stack},
+        stack::Stack,
         stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     },
     msg::{FromUi, HandleMsg, ToUi},
@@ -84,6 +84,7 @@ impl<T: FiveLimitStackType> GuiShow<T> for ReferenceWindow<T> {
                 );
                 let _ = forward.send(FromUi::SetReference {
                     reference: self.reference.clone(),
+                    time: Instant::now(),
                 });
             }
 

@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{sync::mpsc, time::Instant};
 
 use crate::{
     interval::{
@@ -6,7 +6,7 @@ use crate::{
         stacktype::r#trait::{FiveLimitStackType, OctavePeriodicStackType, StackCoeff, StackType},
     },
     keystate::KeyState,
-    msg,
+    msg::{FromProcess, FromStrategy, ToStrategy},
     neighbourhood::{
         new_fivelimit_neighbourhood, CompleteNeigbourhood, Neighbourhood, PeriodicCompleteAligned,
         PeriodicNeighbourhood,
@@ -19,6 +19,7 @@ pub struct StaticTuning<T: StackType, N: Neighbourhood<T>> {
     neighbourhood: N,
     active_temperaments: Vec<bool>,
     global_reference: Reference<T>,
+    tuning_up_to_date: [bool; 128],
 }
 
 #[derive(Clone)]
@@ -41,129 +42,99 @@ impl<T: FiveLimitStackType + OctavePeriodicStackType> StaticTuning<T, PeriodicCo
             ),
             active_temperaments: config.active_temperaments.clone(),
             global_reference: config.global_reference.clone(),
+            tuning_up_to_date: [false; 128],
         }
     }
 }
 
-impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Strategy<T>
-    for StaticTuning<T, N>
-{
-    fn note_on<'a>(
+impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> StaticTuning<T, N> {
+    fn update_and_send_tuning(
         &mut self,
-        _keys: &[KeyState; 128],
-        tunings: &'a mut [Stack<T>; 128],
+        tunings: &mut [Stack<T>; 128],
         note: u8,
         time: Instant,
-    ) -> Option<Vec<msg::FromStrategy<T>>> {
-        self.neighbourhood.write_relative_stack(
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) {
+        if !self.tuning_up_to_date[note as usize] {
+            self.neighbourhood.write_relative_stack(
+                tunings.get_mut(note as usize).unwrap(),
+                note as i8 - self.global_reference.key as i8,
+            );
             tunings
                 .get_mut(note as usize)
-                .expect("static strategy: note not in range 0..=127"),
-            note as i8 - self.global_reference.key as i8,
-        );
+                .unwrap()
+                .scaled_add(1, &self.global_reference.stack);
+            self.tuning_up_to_date[note as usize] = true;
 
-        //println!("relative: {}", tunings[note as usize].target);
-
-        tunings
-            .get_mut(note as usize)
-            .unwrap()
-            .scaled_add(1, &self.global_reference.stack);
-
-        Some(vec![msg::FromStrategy::Retune {
-            note,
-            tuning: tunings[note as usize].absolute_semitones(),
-            tuning_stack: tunings[note as usize].clone(),
-            time,
-        }])
+            let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Retune {
+                note,
+                tuning: tunings[note as usize]
+                    .absolute_semitones(self.global_reference.c4_semitones()),
+                tuning_stack: tunings[note as usize].clone(),
+                time,
+            }));
+        }
     }
 
-    fn note_off<'a>(
+    fn retune_all(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        time: Instant,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) {
+        for b in self.tuning_up_to_date.iter_mut() {
+            *b = false;
+        }
+        for note in 0..128 {
+            if keys[note as usize].is_sounding() {
+                self.update_and_send_tuning(tunings, note, time, forward);
+            }
+        }
+    }
+}
+
+impl<T: StackType + std::fmt::Debug, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>>
+    Strategy<T> for StaticTuning<T, N>
+{
+    fn note_on(
         &mut self,
         _keys: &[KeyState; 128],
-        _tunings: &'a mut [Stack<T>; 128],
-        _note: &[u8],
+        tunings: &mut [Stack<T>; 128],
+        note: u8,
+        time: Instant,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool {
+        self.update_and_send_tuning(tunings, note, time, forward);
+        true
+    }
+
+    fn note_off(
+        &mut self,
+        _keys: &[KeyState; 128],
+        _tunings: &mut [Stack<T>; 128],
+        _notes: &[u8],
         _time: Instant,
-    ) -> Option<Vec<msg::FromStrategy<T>>> {
-        Some(vec![])
+        _forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool {
+        true
     }
 
     fn handle_msg(
         &mut self,
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
-        msg: msg::ToStrategy<T>,
-    ) -> Option<Vec<msg::FromStrategy<T>>> {
+        msg: ToStrategy<T>,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool {
         match msg {
-            msg::ToStrategy::Consider { coefficients, time } => {
-                let mut reference_stack =
-                    Stack::from_temperaments_and_target(&self.active_temperaments, coefficients);
-                let normalised_stack = self.neighbourhood.insert(&reference_stack);
-                reference_stack.clone_from(normalised_stack);
-                let mut res = vec![];
-
-                let n = self.neighbourhood.period_keys() as StackCoeff;
-                let r = reference_stack.key_number();
-
-                for (note, state) in keys.iter().enumerate() {
-                    if state.is_sounding() {
-                        if (note as StackCoeff - r) % n == 0 {
-                            tunings[note].clone_from(&reference_stack);
-                            tunings[note].scaled_add(
-                                (note as StackCoeff - r).div_euclid(n),
-                                self.neighbourhood.period(),
-                            );
-                            res.push(msg::FromStrategy::Retune {
-                                note: note as u8,
-                                tuning: tunings[note].absolute_semitones(),
-                                tuning_stack: tunings[note].clone(),
-                                time,
-                            });
-                        }
-                    }
-                }
-
-                res.push(msg::FromStrategy::Consider {
-                    stack: reference_stack,
-                });
-
-                Some(res)
+            ToStrategy::Consider { coefficients, time } => todo!(),
+            ToStrategy::ToggleTemperament { index, time } => todo!(),
+            ToStrategy::SetReference { reference, time } => {
+                self.global_reference = reference;
+                self.retune_all(keys, tunings, time, forward);
             }
-            msg::ToStrategy::ToggleTemperament { index, time } => {
-                self.active_temperaments[index] = !self.active_temperaments[index];
-
-                let mut res = vec![];
-
-                self.neighbourhood.for_each_stack_mut(|_, stack| {
-                    stack.retemper(&self.active_temperaments);
-                    res.push(msg::FromStrategy::Consider {
-                        stack: stack.clone(),
-                    });
-                });
-
-                for (note, state) in keys.iter().enumerate() {
-                    if state.is_sounding() {
-                        self.neighbourhood.write_relative_stack(
-                            tunings
-                                .get_mut(note as usize)
-                                .expect("static strategy: note not in range 0..=127"),
-                            note as i8 - self.global_reference.key as i8,
-                        );
-                        tunings
-                            .get_mut(note as usize)
-                            .unwrap()
-                            .scaled_add(1, &self.global_reference.stack);
-                        res.push(msg::FromStrategy::Retune {
-                            note: note as u8,
-                            tuning: tunings[note].absolute_semitones(),
-                            tuning_stack: tunings[note].clone(),
-                            time,
-                        });
-                    }
-                }
-
-                Some(res)
-            }
-            msg::ToStrategy::SetReference { reference } => todo!(),
         }
+        true
     }
 }

@@ -1,9 +1,9 @@
-use std::{marker::PhantomData, time::Instant};
+use std::{marker::PhantomData, sync::mpsc, time::Instant};
 
 use crate::{
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
-    msg,
+    msg::{FromProcess, ToProcess, ToStrategy},
     neighbourhood::CompleteNeigbourhood,
     strategy::twostep::{AnchorStrategy, IntervalSolution},
 };
@@ -20,8 +20,8 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> AnchorStrategy<T> for AnchorFixed
         tunings: &mut [Stack<T>; 128],
         intervals: IntervalSolution<T>,
         time: Instant,
-    ) -> Option<Vec<crate::msg::FromStrategy<T>>> {
-        let reference_stack = self.neighbourhood.get_relative_stack(intervals.reference as i8 - 60);
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool {
         todo!()
     }
 
@@ -29,10 +29,9 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> AnchorStrategy<T> for AnchorFixed
         &mut self,
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
-        msg: msg::ToStrategy<T>,
-    ) -> Option<Vec<msg::FromStrategy<T>>> {
-        None {}
-        //vec![]
-        //todo!()
+        msg: ToStrategy<T>,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool {
+        todo!()
     }
 }

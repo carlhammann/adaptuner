@@ -46,7 +46,7 @@ pub trait MessageTranslate4<B, C, D, E> {
     fn translate4(self) -> (Option<B>, Option<C>, Option<D>, Option<E>);
 }
 
-pub enum ToProcess<T:StackType> {
+pub enum ToProcess<T: StackType> {
     Stop,
     IncomingMidi { time: Instant, bytes: Vec<u8> },
     ToStrategy(ToStrategy<T>),
@@ -70,6 +70,7 @@ pub enum ToStrategy<T: StackType> {
     },
     SetReference {
         reference: Reference<T>,
+        time: Instant,
     },
 }
 
@@ -201,6 +202,7 @@ pub enum FromUi<T: StackType> {
     },
     SetReference {
         reference: Reference<T>,
+        time: Instant,
     },
 }
 
@@ -360,9 +362,10 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 Some(ToMidiOut::Connect { port, portname }),
             ),
-            FromUi::SetReference { reference } => (
+            FromUi::SetReference { reference, time } => (
                 Some(ToProcess::ToStrategy(ToStrategy::SetReference {
                     reference,
+                    time,
                 })),
                 None {},
                 None {},
@@ -435,7 +438,7 @@ impl<T: StackType> MessageTranslate2<ToMidiOut, ToUi<T>> for FromBackend {
     }
 }
 
-impl<T:StackType> HasStop for ToProcess<T> {
+impl<T: StackType> HasStop for ToProcess<T> {
     fn is_stop(&self) -> bool {
         match self {
             Self::Stop => true,

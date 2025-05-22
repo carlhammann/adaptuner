@@ -1,6 +1,6 @@
 use crate::interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Reference<T: StackType> {
     pub stack: Stack<T>,
     pub semitones: Semitones,
@@ -40,6 +40,11 @@ impl<T: StackType> Reference<T> {
 
     pub fn get_frequency(&self) -> f64 {
         frequency_from_semitones(self.semitones)
+    }
+
+    /// The fractional MIDI note number that middle C is tuned to with this reference.
+    pub fn c4_semitones(&self) -> Semitones {
+        60.0 + self.semitones - self.key as Semitones
     }
 }
 

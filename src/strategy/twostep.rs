@@ -1,9 +1,9 @@
-use std::{marker::PhantomData, time::Instant};
+use std::{marker::PhantomData, sync::mpsc, time::Instant};
 
 use crate::{
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
-    msg,
+    msg::{FromProcess, ToProcess, ToStrategy},
 };
 
 use super::r#trait::Strategy;
@@ -17,7 +17,7 @@ pub struct IntervalSolution<T: StackType> {
 }
 
 pub trait IntervalStrategy<T: StackType> {
-    fn solve(&mut self, keys: &[crate::keystate::KeyState; 128]) -> Option<IntervalSolution<T>>;
+    fn solve(&mut self, keys: &[KeyState; 128]) -> Option<IntervalSolution<T>>;
 }
 
 pub trait AnchorStrategy<T: StackType> {
@@ -27,14 +27,16 @@ pub trait AnchorStrategy<T: StackType> {
         tunings: &mut [Stack<T>; 128],
         intervals: IntervalSolution<T>,
         time: Instant,
-    ) -> Option<Vec<msg::FromStrategy<T>>>;
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool;
 
     fn handle_msg(
         &mut self,
-        keys: &[crate::keystate::KeyState; 128],
-        tunings: &mut [crate::interval::stack::Stack<T>; 128],
-        msg: msg::ToStrategy<T>,
-    ) -> Option<Vec<msg::FromStrategy<T>>>;
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        msg: ToStrategy<T>,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool;
 }
 
 pub struct TwoStep<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> {
@@ -46,12 +48,17 @@ pub struct TwoStep<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> {
 impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> TwoStep<T, I, A> {
     fn solve(
         &mut self,
-        keys: &[crate::keystate::KeyState; 128],
-        tunings: &mut [crate::interval::stack::Stack<T>; 128],
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
         time: Instant,
-    ) -> Option<Vec<msg::FromStrategy<T>>> {
-        let intervals = self.interval_strategy.solve(keys)?;
-        self.anchor_strategy.solve(keys, tunings, intervals, time)
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool {
+        match self.interval_strategy.solve(keys) {
+            Some(intervals) => self
+                .anchor_strategy
+                .solve(keys, tunings, intervals, time, forward),
+            None {} => false,
+        }
     }
 }
 
@@ -62,8 +69,9 @@ impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> Strategy<T> for
         tunings: &mut [Stack<T>; 128],
         _note: u8,
         time: Instant,
-    ) -> Option<Vec<msg::FromStrategy<T>>> {
-        self.solve(keys, tunings, time)
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool {
+        self.solve(keys, tunings, time, forward)
     }
 
     fn note_off(
@@ -72,16 +80,18 @@ impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> Strategy<T> for
         tunings: &mut [Stack<T>; 128],
         _notes: &[u8],
         time: Instant,
-    ) -> Option<Vec<msg::FromStrategy<T>>> {
-        self.solve(keys, tunings, time)
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool {
+        self.solve(keys, tunings, time, forward)
     }
 
     fn handle_msg(
         &mut self,
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
-        msg: msg::ToStrategy<T>,
-    ) -> Option<Vec<msg::FromStrategy<T>>> {
-        self.anchor_strategy.handle_msg(keys, tunings, msg)
+        msg: ToStrategy<T>,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool {
+        self.anchor_strategy.handle_msg(keys, tunings, msg, forward)
     }
 }

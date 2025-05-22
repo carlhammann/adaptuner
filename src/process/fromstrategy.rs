@@ -56,19 +56,13 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
                             off_notes.push(note as u8);
                         }
                     }
-                    match self.strategy.note_off(
+                    let _success = self.strategy.note_off(
                         &self.key_states,
                         &mut self.tunings,
                         &off_notes,
                         time,
-                    ) {
-                        None {} => {}
-                        Some(mut msgs) => {
-                            for msg in msgs.drain(..) {
-                                let _ = forward.send(FromProcess::FromStrategy(msg));
-                            }
-                        }
-                    }
+                        forward,
+                    );
                 }
             }
             _ => {}
@@ -85,17 +79,9 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
         if self.key_states[note as usize].note_on(channel, time) {
-            match self
-                .strategy
-                .note_on(&self.key_states, &mut self.tunings, note, time)
-            {
-                None {} => {}
-                Some(mut msgs) => {
-                    for msg in msgs.drain(..) {
-                        let _ = forward.send(FromProcess::FromStrategy(msg));
-                    }
-                }
-            }
+            let _success =
+                self.strategy
+                    .note_on(&self.key_states, &mut self.tunings, note, time, forward);
         }
     }
 
@@ -108,17 +94,9 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
     ) {
         if self.key_states[note as usize].note_off(channel, self.pedal_hold[channel as usize], time)
         {
-            match self
-                .strategy
-                .note_off(&self.key_states, &mut self.tunings, &[note], time)
-            {
-                None {} => {}
-                Some(mut msgs) => {
-                    for msg in msgs.drain(..) {
-                        let _ = forward.send(FromProcess::FromStrategy(msg));
-                    }
-                }
-            }
+            let _success =
+                self.strategy
+                    .note_off(&self.key_states, &mut self.tunings, &[note], time, forward);
         }
     }
 }
@@ -134,20 +112,12 @@ impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess<T>, FromProcess<T>>
                     let _ = forward.send(FromProcess::MidiParseErr(e.to_string()));
                 }
             },
-            ToProcess::ToStrategy(msg) => {
-                match self
-                    .strategy
-                    .handle_msg(&self.key_states, &mut self.tunings, msg)
-                {
-                    None {} => {}
-                    Some(mut msgs) => {
-                        for msg in msgs.drain(..) {
-                            let _ = forward.send(FromProcess::FromStrategy(msg));
-                        }
-                    }
-                }
-            }
             ToProcess::Stop => {}
+            ToProcess::ToStrategy(msg) => {
+                let _success =
+                    self.strategy
+                        .handle_msg(&self.key_states, &mut self.tunings, msg, forward);
+            }
         }
     }
 }

@@ -1,9 +1,9 @@
-use std::time::Instant;
+use std::{sync::mpsc, time::Instant};
 
 use crate::{
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
-    msg,
+    msg::{FromProcess, ToStrategy},
 };
 
 pub trait Strategy<T: StackType> {
@@ -14,7 +14,8 @@ pub trait Strategy<T: StackType> {
         tunings: &mut [Stack<T>; 128],
         note: u8,
         time: Instant,
-    ) -> Option<Vec<msg::FromStrategy<T>>>;
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool;
 
     /// expects the effect of the "note off" event to be alead reflected in `keys`
     ///
@@ -26,12 +27,14 @@ pub trait Strategy<T: StackType> {
         tunings: &mut [Stack<T>; 128],
         notes: &[u8],
         time: Instant,
-    ) -> Option<Vec<msg::FromStrategy<T>>>;
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool;
 
     fn handle_msg(
         &mut self,
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
-        msg: msg::ToStrategy<T>,
-    ) -> Option<Vec<msg::FromStrategy<T>>>;
+        msg: ToStrategy<T>,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool;
 }

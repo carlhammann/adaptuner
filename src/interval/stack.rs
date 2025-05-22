@@ -178,13 +178,13 @@ impl<T: StackType> Stack<T> {
 
     /// If the zero stack corresponds to middle C, return the "fractional MIDI note number"
     /// described by this stack.
-    pub fn absolute_semitones(&self) -> Semitones {
-        self.semitones() + 60.0
+    pub fn absolute_semitones(&self, c4_semitones: Semitones) -> Semitones {
+        self.semitones() + c4_semitones
     }
 
     /// Like [Self::absolute_semitones], but for the target note.
-    pub fn target_absolute_semitones(&self) -> Semitones {
-        self.target_semitones() + 60.0
+    pub fn target_absolute_semitones(&self, c4_semitones: Semitones) -> Semitones {
+        self.target_semitones() + c4_semitones
     }
 
     /// How many fractional semitones higher than the target note is the actual note described by
