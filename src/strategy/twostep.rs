@@ -1,9 +1,10 @@
-use std::{marker::PhantomData, sync::mpsc, time::Instant};
+use std::{sync::mpsc, time::Instant};
 
 use crate::{
-    interval::{stack::Stack, stacktype::r#trait::StackType},
+    interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
-    msg::{FromProcess, ToProcess, ToStrategy},
+    msg::{FromProcess, ToStrategy},
+    reference::Reference,
 };
 
 use super::r#trait::Strategy;
@@ -40,9 +41,9 @@ pub trait AnchorStrategy<T: StackType> {
 }
 
 pub struct TwoStep<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> {
-    _phantom: PhantomData<T>,
     interval_strategy: I,
     anchor_strategy: A,
+    global_reference: Reference<T>,
 }
 
 impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> TwoStep<T, I, A> {
@@ -63,15 +64,23 @@ impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> TwoStep<T, I, A
 }
 
 impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> Strategy<T> for TwoStep<T, I, A> {
-    fn note_on(
+    fn note_on<'a>(
         &mut self,
         keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        _note: u8,
+        tunings: &'a mut [Stack<T>; 128],
+        note: u8,
         time: Instant,
         forward: &mpsc::Sender<FromProcess<T>>,
-    ) -> bool {
-        self.solve(keys, tunings, time, forward)
+    ) -> Option<(Semitones, &'a Stack<T>)> {
+        if self.solve(keys, tunings, time, forward) {
+            let stack = &tunings[note as usize];
+            Some((
+                stack.absolute_semitones(self.global_reference.c4_semitones()),
+                stack,
+            ))
+        } else {
+            None {}
+        }
     }
 
     fn note_off(

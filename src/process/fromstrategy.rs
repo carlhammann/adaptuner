@@ -33,12 +33,12 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
         match msg {
             MidiMsg::ChannelVoice {
                 channel,
-                msg: NoteOn { note, .. },
-            } => self.handle_note_on(time, note, channel, forward),
+                msg: NoteOn { note, velocity },
+            } => self.handle_note_on(time, note, channel, velocity, forward),
             MidiMsg::ChannelVoice {
                 channel,
-                msg: NoteOff { note, .. },
-            } => self.handle_note_off(time, note, channel, forward),
+                msg: NoteOff { note, velocity },
+            } => self.handle_note_off(time, note, channel, velocity, forward),
             MidiMsg::ChannelVoice {
                 channel,
                 msg: ControlChange {
@@ -64,11 +64,12 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
                         forward,
                     );
                 }
+                let _ = forward.send(FromProcess::ForwardMidi { msg, time });
             }
-            _ => {}
+            _ => {
+                let _ = forward.send(FromProcess::ForwardMidi { msg, time });
+            }
         }
-
-        let _ = forward.send(FromProcess::ForwardMidi { msg, time });
     }
 
     fn handle_note_on(
@@ -76,12 +77,38 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
         time: Instant,
         note: u8,
         channel: Channel,
+        velocity: u8,
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
+        let send_simple_note_on = || {
+            let _ = forward.send(FromProcess::ForwardMidi {
+                msg: MidiMsg::ChannelVoice {
+                    channel,
+                    msg: NoteOn { note, velocity },
+                },
+                time,
+            });
+        };
+
         if self.key_states[note as usize].note_on(channel, time) {
-            let _success =
-                self.strategy
-                    .note_on(&self.key_states, &mut self.tunings, note, time, forward);
+            match self
+                .strategy
+                .note_on(&self.key_states, &mut self.tunings, note, time, forward)
+            {
+                Some((tuning, tuning_stack)) => {
+                    let _ = forward.send(FromProcess::TunedNoteOn {
+                        channel,
+                        note,
+                        velocity,
+                        tuning,
+                        tuning_stack: tuning_stack.clone(),
+                        time,
+                    });
+                }
+                None {} => send_simple_note_on(),
+            }
+        } else {
+            send_simple_note_on();
         }
     }
 
@@ -90,14 +117,21 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
         time: Instant,
         note: u8,
         channel: Channel,
+        velocity: u8,
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
         if self.key_states[note as usize].note_off(channel, self.pedal_hold[channel as usize], time)
         {
-            let _success =
-                self.strategy
-                    .note_off(&self.key_states, &mut self.tunings, &[note], time, forward);
+            self.strategy
+                .note_off(&self.key_states, &mut self.tunings, &[note], time, forward);
         }
+        let _ = forward.send(FromProcess::ForwardMidi {
+            msg: MidiMsg::ChannelVoice {
+                channel,
+                msg: NoteOff { note, velocity },
+            },
+            time,
+        });
     }
 }
 
@@ -113,6 +147,7 @@ impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess<T>, FromProcess<T>>
                 }
             },
             ToProcess::Stop => {}
+            ToProcess::Reset { .. } => {}
             ToProcess::ToStrategy(msg) => {
                 let _success =
                     self.strategy

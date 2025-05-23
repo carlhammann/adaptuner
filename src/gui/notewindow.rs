@@ -729,7 +729,31 @@ impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
                 self.tunings[*note as usize].clone_from(tuning_stack);
             }
 
-            _ => {}
+            ToUi::TunedNoteOn {
+                channel,
+                note,
+                velocity: _,
+                tuning_stack,
+                time,
+            } => {
+                self.active_notes[*note as usize].note_on(*channel, *time);
+                self.tunings[*note as usize].clone_from(tuning_stack);
+            }
+
+            ToUi::EventLatency { .. } => {}
+            ToUi::InputConnectionError { .. } => {}
+            ToUi::InputConnected { .. } => {}
+            ToUi::InputDisconnected { .. } => {}
+            ToUi::OutputConnectionError { .. } => {}
+            ToUi::OutputConnected { .. } => {}
+            ToUi::OutputDisconnected { .. } => {}
+            ToUi::NotifyFit { .. } => {}
+            ToUi::SetReference { .. } => {}
+            ToUi::Consider { .. } => {}
+            ToUi::DetunedNote { .. } => {}
+            ToUi::Stop => {}
+            ToUi::Notify { .. } => {}
+            ToUi::NotifyNoFit => {}
         }
     }
 }

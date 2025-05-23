@@ -55,8 +55,19 @@ pub enum ToProcess<T: StackType> {
 pub enum FromProcess<T: StackType> {
     Notify { line: String },
     MidiParseErr(String),
-    ForwardMidi { msg: MidiMsg, time: Instant },
+    ForwardMidi {
+        msg: MidiMsg,
+        time: Instant,
+    },
     FromStrategy(FromStrategy<T>),
+    TunedNoteOn {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
+        tuning: Semitones,
+        tuning_stack: Stack<T>,
+        time: Instant,
+    },
 }
 
 pub enum ToStrategy<T: StackType> {
@@ -107,6 +118,13 @@ pub enum ToBackend {
         msg: MidiMsg,
         time: Instant,
     },
+    TunedNoteOn {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
+        tuning: Semitones,
+        time: Instant,
+    },
     Retune {
         note: u8,
         tuning: Semitones,
@@ -135,6 +153,13 @@ pub enum ToUi<T: StackType> {
     ForwardMidi {
         time: Instant,
         msg: MidiMsg,
+    },
+    TunedNoteOn {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
+        tuning_stack: Stack<T>,
+        time: Instant,
     },
     Retune {
         note: u8,
@@ -282,6 +307,29 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromProcess<T> {
                 Some(ToUi::ForwardMidi {
                     time: original_time,
                     msg,
+                }),
+            ),
+            FromProcess::TunedNoteOn {
+                channel,
+                note,
+                velocity,
+                tuning,
+                tuning_stack,
+                time,
+            } => (
+                Some(ToBackend::TunedNoteOn {
+                    channel,
+                    note,
+                    velocity,
+                    tuning,
+                    time,
+                }),
+                Some(ToUi::TunedNoteOn {
+                    channel,
+                    note,
+                    velocity,
+                    tuning_stack,
+                    time,
                 }),
             ),
             FromProcess::FromStrategy(msg) => msg.translate2(),

@@ -2,6 +2,7 @@ use std::{sync::mpsc, time::Instant};
 
 use crate::{
     interval::{
+        base::Semitones,
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{FiveLimitStackType, OctavePeriodicStackType, StackCoeff, StackType},
     },
@@ -97,16 +98,20 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Static
 impl<T: StackType + std::fmt::Debug, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>>
     Strategy<T> for StaticTuning<T, N>
 {
-    fn note_on(
+    fn note_on<'a>(
         &mut self,
         _keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
+        tunings: &'a mut [Stack<T>; 128],
         note: u8,
         time: Instant,
         forward: &mpsc::Sender<FromProcess<T>>,
-    ) -> bool {
+    ) -> Option<(Semitones, &'a Stack<T>)> {
         self.update_and_send_tuning(tunings, note, time, forward);
-        true
+        let stack = &tunings[note as usize];
+        Some((
+            stack.absolute_semitones(self.global_reference.c4_semitones()),
+            stack,
+        ))
     }
 
     fn note_off(
