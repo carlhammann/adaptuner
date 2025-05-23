@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use midi_msg::MidiMsg;
+use midi_msg::{Channel, MidiMsg};
 use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
@@ -48,12 +48,15 @@ pub trait MessageTranslate4<B, C, D, E> {
 
 pub enum ToProcess<T: StackType> {
     Stop,
+    Reset { time: Instant },
     IncomingMidi { time: Instant, bytes: Vec<u8> },
     ToStrategy(ToStrategy<T>),
 }
 
 pub enum FromProcess<T: StackType> {
-    Notify { line: String },
+    Notify {
+        line: String,
+    },
     MidiParseErr(String),
     ForwardMidi {
         msg: MidiMsg,
@@ -219,11 +222,13 @@ pub enum FromUi<T: StackType> {
     ConnectInput {
         port: MidiInputPort,
         portname: String,
+        time: Instant,
     },
     DisconnectOutput,
     ConnectOutput {
         port: MidiOutputPort,
         portname: String,
+        time: Instant,
     },
     SetReference {
         reference: Reference<T>,
@@ -397,16 +402,24 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
             ),
             FromUi::DisconnectInput => (None {}, None {}, Some(ToMidiIn::Disconnect), None {}),
-            FromUi::ConnectInput { port, portname } => (
-                None {},
-                None {},
+            FromUi::ConnectInput {
+                port,
+                portname,
+                time,
+            } => (
+                Some(ToProcess::Reset { time }),
+                Some(ToBackend::Reset { time }),
                 Some(ToMidiIn::Connect { port, portname }),
                 None {},
             ),
             FromUi::DisconnectOutput => (None {}, None {}, None {}, Some(ToMidiOut::Disconnect)),
-            FromUi::ConnectOutput { port, portname } => (
-                None {},
-                None {},
+            FromUi::ConnectOutput {
+                port,
+                portname,
+                time,
+            } => (
+                Some(ToProcess::Reset { time }),
+                Some(ToBackend::Reset { time }),
                 None {},
                 Some(ToMidiOut::Connect { port, portname }),
             ),

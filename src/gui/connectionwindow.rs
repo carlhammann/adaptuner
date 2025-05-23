@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::{sync::mpsc, time::Instant};
 
 use eframe::egui;
 use midir::{MidiInputPort, MidiOutputPort};
@@ -27,7 +27,11 @@ impl IO for Input {
     }
 
     fn connect_msg<T: StackType>(port: Self::Port, portname: String) -> FromUi<T> {
-        FromUi::ConnectInput { port, portname }
+        FromUi::ConnectInput {
+            port,
+            portname,
+            time: Instant::now(),
+        }
     }
 
     fn disconnect_msg<T: StackType>() -> FromUi<T> {
@@ -43,7 +47,11 @@ impl IO for Output {
     }
 
     fn connect_msg<T: StackType>(port: Self::Port, portname: String) -> FromUi<T> {
-        FromUi::ConnectOutput { port, portname }
+        FromUi::ConnectOutput {
+            port,
+            portname,
+            time: Instant::now(),
+        }
     }
 
     fn disconnect_msg<T: StackType>() -> FromUi<T> {
