@@ -21,7 +21,8 @@ impl KeyState {
         (self.on_channels != 0) | (self.held_channels != 0)
     }
 
-    /// returns true iff the note state changed
+    /// returns true iff the note state changed between "sounding on no channel" and "sounding on
+    /// any channel"
     pub fn note_on(&mut self, channel: Channel, time: Instant) -> bool {
         let state_change = !self.is_sounding();
         if state_change {
@@ -31,7 +32,8 @@ impl KeyState {
         return state_change;
     }
 
-    /// returns true iff the note state changed
+    /// returns true iff the note state changed between "sounding on no channel" and "sounding on
+    /// any channel"
     pub fn note_off(&mut self, channel: Channel, pedal_hold: bool, time: Instant) -> bool {
         let was_sounding = self.is_sounding();
         if pedal_hold {

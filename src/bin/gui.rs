@@ -3,7 +3,7 @@ use std::error::Error;
 use midi_msg::Channel;
 
 use adaptuner::{
-    backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
+    backend::{pitchbend::{Pitchbend, PitchbendConfig}, pitchbend12::{Pitchbend12, Pitchbend12Config}},
     gui::manywindows::ManyWindows,
     interval::{stack::Stack, stacktype::fivelimit::ConcreteFiveLimitStackType},
     notename::NoteNameStyle,
@@ -31,8 +31,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         global_reference: global_reference.clone(),
     };
 
-    let backend_config = Pitchbend12Config {
-        channels: [
+    let backend_config = PitchbendConfig {
+        channels: vec![
             Channel::Ch1,
             Channel::Ch2,
             Channel::Ch3,
@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         midi_in,
         midi_out,
         || ProcessFromStrategy::new(StaticTuning::new(strategy_config)),
-        move || Pitchbend12::new(&backend_config),
+        move || Pitchbend::new(&backend_config),
         move |ctx, tx| {
             ManyWindows::new(
                 ctx,
