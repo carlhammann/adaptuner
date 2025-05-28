@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use midi_msg::{Channel, MidiMsg};
+use midi_msg::Channel;
 use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
@@ -42,6 +42,10 @@ pub trait MessageTranslate2<B, C> {
     fn translate2(self) -> (Option<B>, Option<C>);
 }
 
+pub trait MessageTranslate3<B, C, D> {
+    fn translate3(self) -> (Option<B>, Option<C>, Option<D>);
+}
+
 pub trait MessageTranslate4<B, C, D, E> {
     fn translate4(self) -> (Option<B>, Option<C>, Option<D>, Option<E>);
 }
@@ -58,8 +62,8 @@ pub enum FromProcess<T: StackType> {
         line: String,
     },
     MidiParseErr(String),
-    ForwardMidi {
-        msg: MidiMsg,
+    OutgoingMidi {
+        bytes: Vec<u8>,
         time: Instant,
     },
     FromStrategy(FromStrategy<T>),
@@ -69,6 +73,29 @@ pub enum FromProcess<T: StackType> {
         velocity: u8,
         tuning: Semitones,
         tuning_stack: Stack<T>,
+        time: Instant,
+    },
+    NoteOn {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
+        time: Instant,
+    },
+    NoteOff {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
+        time: Instant,
+        held_by_pedal: bool,
+    },
+    PedalHold {
+        channel: Channel,
+        value: u8,
+        time: Instant,
+    },
+    ProgramChange {
+        channel: Channel,
+        program: u8,
         time: Instant,
     },
 }
@@ -117,10 +144,6 @@ pub enum ToBackend {
         time: Instant,
     },
     Stop,
-    ForwardMidi {
-        msg: MidiMsg,
-        time: Instant,
-    },
     TunedNoteOn {
         channel: Channel,
         note: u8,
@@ -128,9 +151,31 @@ pub enum ToBackend {
         tuning: Semitones,
         time: Instant,
     },
+    NoteOn {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
+        time: Instant,
+    },
     Retune {
         note: u8,
         tuning: Semitones,
+        time: Instant,
+    },
+    NoteOff {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
+        time: Instant,
+    },
+    PedalHold {
+        channel: Channel,
+        value: u8,
+        time: Instant,
+    },
+    ProgramChange {
+        channel: Channel,
+        program: u8,
         time: Instant,
     },
 }
@@ -153,20 +198,25 @@ pub enum ToUi<T: StackType> {
     Notify {
         line: String,
     },
-    ForwardMidi {
-        time: Instant,
-        msg: MidiMsg,
-    },
     TunedNoteOn {
         channel: Channel,
         note: u8,
-        velocity: u8,
         tuning_stack: Stack<T>,
+        time: Instant,
+    },
+    NoteOn {
+        channel: Channel,
+        note: u8,
         time: Instant,
     },
     Retune {
         note: u8,
         tuning_stack: Stack<T>,
+    },
+    NoteOff {
+        channel: Channel,
+        note: u8,
+        time: Instant,
     },
     EventLatency {
         since_input: Duration,
@@ -291,28 +341,21 @@ pub enum FromMidiOut {
     },
 }
 
-impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromProcess<T> {
-    fn translate2(self) -> (Option<ToBackend>, Option<ToUi<T>>) {
+impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProcess<T> {
+    fn translate3(self) -> (Option<ToBackend>, Option<ToMidiOut>, Option<ToUi<T>>) {
         match self {
-            FromProcess::Notify { line } => (None {}, Some(ToUi::Notify { line })),
+            FromProcess::Notify { line } => (None {}, None {}, Some(ToUi::Notify { line })),
             FromProcess::MidiParseErr(err) => (
+                None {},
                 None {},
                 Some(ToUi::Notify {
                     line: err.to_string(),
                 }),
             ),
-            FromProcess::ForwardMidi {
-                msg,
-                time: original_time,
-            } => (
-                Some(ToBackend::ForwardMidi {
-                    msg: msg.clone(),
-                    time: original_time,
-                }),
-                Some(ToUi::ForwardMidi {
-                    time: original_time,
-                    msg,
-                }),
+            FromProcess::OutgoingMidi { bytes, time } => (
+                None {},
+                Some(ToMidiOut::OutgoingMidi { time, bytes }),
+                None {},
             ),
             FromProcess::TunedNoteOn {
                 channel,
@@ -329,15 +372,87 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromProcess<T> {
                     tuning,
                     time,
                 }),
+                None {},
                 Some(ToUi::TunedNoteOn {
                     channel,
                     note,
-                    velocity,
                     tuning_stack,
                     time,
                 }),
             ),
-            FromProcess::FromStrategy(msg) => msg.translate2(),
+            FromProcess::FromStrategy(msg) => {
+                let (to_backend, to_ui) = msg.translate2();
+                (to_backend, None {}, to_ui)
+            }
+            FromProcess::NoteOn {
+                channel,
+                note,
+                velocity,
+                time,
+            } => (
+                Some(ToBackend::NoteOn {
+                    channel,
+                    note,
+                    velocity,
+                    time,
+                }),
+                None {},
+                Some(ToUi::NoteOn {
+                    channel,
+                    time,
+                    note,
+                }),
+            ),
+            FromProcess::NoteOff {
+                channel,
+                note,
+                velocity,
+                time,
+                held_by_pedal,
+            } => (
+                Some(ToBackend::NoteOff {
+                    channel,
+                    note,
+                    velocity,
+                    time,
+                }),
+                None {},
+                if held_by_pedal {
+                    None {}
+                } else {
+                    Some(ToUi::NoteOff {
+                        time,
+                        channel,
+                        note,
+                    })
+                },
+            ),
+            FromProcess::PedalHold {
+                value,
+                time,
+                channel,
+            } => (
+                Some(ToBackend::PedalHold {
+                    channel,
+                    value,
+                    time,
+                }),
+                None {},
+                None {},
+            ),
+            FromProcess::ProgramChange {
+                channel,
+                program,
+                time,
+            } => (
+                Some(ToBackend::ProgramChange {
+                    channel,
+                    program,
+                    time,
+                }),
+                None {},
+                None {},
+            ),
         }
     }
 }

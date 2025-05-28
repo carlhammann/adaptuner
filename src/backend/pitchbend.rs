@@ -344,74 +344,68 @@ impl HandleMsg<ToBackend, FromBackend> for Pitchbend {
                     );
                 }
             }
+
             ToBackend::Stop => {}
-            ToBackend::ForwardMidi { msg, time } => match msg {
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::NoteOn { note, velocity },
-                } => {
-                    self.send_tuned_note_on(
-                        channel,
-                        note,
-                        velocity,
-                        note as Semitones,
+
+            ToBackend::NoteOn {
+                channel,
+                time,
+                note,
+                velocity,
+            } => {
+                self.send_tuned_note_on(channel, note, velocity, note as Semitones, time, forward);
+            }
+
+            ToBackend::NoteOff {
+                time,
+                channel,
+                note,
+                velocity,
+            } => {
+                self.send_note_off(channel, note, velocity, time, forward);
+            }
+
+            ToBackend::PedalHold {
+                channel,
+                value,
+                time,
+            } => {
+                for channel_with_info in self.channels_with_info.iter() {
+                    send_midi(
+                        MidiMsg::ChannelVoice {
+                            channel: channel_with_info.channel,
+                            msg: ChannelVoiceMsg::ControlChange {
+                                control: ControlChange::Hold(value),
+                            },
+                        },
                         time,
-                        forward,
                     );
                 }
 
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::NoteOff { note, velocity },
-                } => {
-                    self.send_note_off(channel, note, velocity, time, forward);
-                }
+                self.pedal_hold[channel as usize] = value != 0;
 
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg:
-                        ChannelVoiceMsg::ControlChange {
-                            control: ControlChange::Hold(value),
+                if value == 0 {
+                    for s in self.key_state.iter_mut() {
+                        s.pedal_off(channel, time);
+                    }
+                }
+            }
+
+            ToBackend::ProgramChange {
+                channel: _,
+                program,
+                time,
+            } => {
+                for channel_with_info in self.channels_with_info.iter() {
+                    send_midi(
+                        MidiMsg::ChannelVoice {
+                            channel: channel_with_info.channel,
+                            msg: ChannelVoiceMsg::ProgramChange { program },
                         },
-                } => {
-                    for channel_with_info in self.channels_with_info.iter() {
-                        send_midi(
-                            MidiMsg::ChannelVoice {
-                                channel: channel_with_info.channel,
-                                msg: ChannelVoiceMsg::ControlChange {
-                                    control: ControlChange::Hold(value),
-                                },
-                            },
-                            time,
-                        );
-                    }
-
-                    self.pedal_hold[channel as usize] = value != 0;
-
-                    if value == 0 {
-                        for s in self.key_state.iter_mut() {
-                            s.pedal_off(channel, time);
-                        }
-                    }
+                        time,
+                    )
                 }
-
-                MidiMsg::ChannelVoice {
-                    channel: _,
-                    msg: ChannelVoiceMsg::ProgramChange { program },
-                } => {
-                    for channel_with_info in self.channels_with_info.iter() {
-                        send_midi(
-                            MidiMsg::ChannelVoice {
-                                channel: channel_with_info.channel,
-                                msg: ChannelVoiceMsg::ProgramChange { program },
-                            },
-                            time,
-                        )
-                    }
-                }
-
-                _ => send_midi(msg, time),
-            },
+            }
 
             ToBackend::Retune {
                 note,

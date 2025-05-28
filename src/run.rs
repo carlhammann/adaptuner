@@ -8,8 +8,8 @@ use crate::{
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
         FromBackend, FromMidiIn, FromMidiOut, FromProcess, FromUi, HandleMsg, HasStop,
-        MessageTranslate, MessageTranslate2, MessageTranslate4, ToBackend, ToMidiIn, ToMidiOut,
-        ToProcess, ToUi,
+        MessageTranslate, MessageTranslate2, MessageTranslate3, MessageTranslate4, ToBackend,
+        ToMidiIn, ToMidiOut, ToProcess, ToUi,
     },
 };
 
@@ -160,6 +160,48 @@ where
     })
 }
 
+fn start_translate_3_thread<B, C, D, A>(
+    rxa: mpsc::Receiver<A>,
+    txb: &mpsc::Sender<B>,
+    txc: &mpsc::Sender<C>,
+    txd: &mpsc::Sender<D>,
+) -> thread::JoinHandle<()>
+where
+    B: Send + 'static,
+    C: Send + 'static,
+    D: Send + 'static,
+    A: MessageTranslate3<B, C, D> + Send + 'static,
+{
+    let txb_clone = txb.clone();
+    let txc_clone = txc.clone();
+    let txd_clone = txd.clone();
+    thread::spawn(move || loop {
+        match rxa.recv() {
+            Ok(msg) => {
+                let (tb, tc, td) = msg.translate3();
+                match tb {
+                    Some(tb) => {
+                        let _ = txb_clone.send(tb);
+                    }
+                    None {} => {}
+                }
+                match tc {
+                    Some(tc) => {
+                        let _ = txc_clone.send(tc);
+                    }
+                    None {} => {}
+                }
+                match td {
+                    Some(td) => {
+                        let _ = txd_clone.send(td);
+                    }
+                    None {} => {}
+                }
+            }
+            Err(_) => break,
+        }
+    })
+}
 fn start_translate_4_thread<B, C, D, E, A>(
     rxa: mpsc::Receiver<A>,
     txb: &mpsc::Sender<B>,
@@ -281,7 +323,12 @@ impl<T: StackType> RunState<T> {
                 &to_process_tx,
                 &to_ui_tx,
             ),
-            process_forward: start_translate_2_thread(from_process_rx, &to_backend_tx, &to_ui_tx),
+            process_forward: start_translate_3_thread(
+                from_process_rx,
+                &to_backend_tx,
+                &to_midi_output_tx,
+                &to_ui_tx,
+            ),
             backend_forward: start_translate_2_thread(
                 from_backend_rx,
                 &to_midi_output_tx,

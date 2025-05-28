@@ -5,7 +5,6 @@ use eframe::{
     egui::{self, vec2},
     epaint::pos2,
 };
-use midi_msg::{ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
     gui::r#trait::GuiShow,
@@ -664,7 +663,6 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
 
 pub struct NoteWindow<T: StackType> {
     active_notes: [KeyState; 128],
-    pedal_hold: [bool; 16],
     tunings: [Stack<T>; 128],
     note_renderer: NoteRenderer<T>,
 }
@@ -675,7 +673,6 @@ impl<T: FiveLimitStackType> NoteWindow<T> {
         ctx.set_theme(egui::ThemePreference::System);
         Self {
             active_notes: core::array::from_fn(|_| KeyState::new(now)),
-            pedal_hold: [false; 16],
             tunings: core::array::from_fn(|_| Stack::new_zero()),
             note_renderer: NoteRenderer::new(ctx, 15.0),
         }
@@ -685,56 +682,31 @@ impl<T: FiveLimitStackType> NoteWindow<T> {
 impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
-            ToUi::ForwardMidi {
-                time: original_time,
-                msg,
-            } => match msg {
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::NoteOn { note, .. },
-                } => {
-                    self.active_notes[*note as usize].note_on(*channel, *original_time);
-                }
+            ToUi::NoteOn {
+                time,
+                channel,
+                note,
+            } => {
+                self.active_notes[*note as usize].note_on(*channel, *time);
+            }
 
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::NoteOff { note, .. },
-                } => {
-                    self.active_notes[*note as usize].note_off(
-                        *channel,
-                        self.pedal_hold[*channel as usize],
-                        *original_time,
-                    );
-                }
-
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg:
-                        ChannelVoiceMsg::ControlChange {
-                            control: ControlChange::Hold(value),
-                        },
-                } => {
-                    self.pedal_hold[*channel as usize] = *value != 0;
-                    if *value == 0 {
-                        for note in &mut self.active_notes {
-                            note.pedal_off(*channel, *original_time);
-                        }
-                    }
-                }
-
-                _ => {}
-            },
+            ToUi::NoteOff {
+                time,
+                channel,
+                note,
+            } => {
+                self.active_notes[*note as usize].note_off(*channel, false, *time);
+            }
 
             ToUi::Retune { note, tuning_stack } => {
                 self.tunings[*note as usize].clone_from(tuning_stack);
             }
 
             ToUi::TunedNoteOn {
+                time,
                 channel,
                 note,
-                velocity: _,
                 tuning_stack,
-                time,
             } => {
                 self.active_notes[*note as usize].note_on(*channel, *time);
                 self.tunings[*note as usize].clone_from(tuning_stack);

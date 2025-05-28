@@ -64,10 +64,29 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
                         forward,
                     );
                 }
-                let _ = forward.send(FromProcess::ForwardMidi { msg, time });
+                let _ = forward.send(FromProcess::PedalHold {
+                    channel,
+                    value,
+                    time,
+                });
             }
+
+            MidiMsg::ChannelVoice {
+                channel,
+                msg: ProgramChange { program },
+            } => {
+                let _ = forward.send(FromProcess::ProgramChange {
+                    channel,
+                    program,
+                    time,
+                });
+            }
+
             _ => {
-                let _ = forward.send(FromProcess::ForwardMidi { msg, time });
+                let _ = forward.send(FromProcess::OutgoingMidi {
+                    bytes: msg.to_midi(),
+                    time,
+                });
             }
         }
     }
@@ -81,11 +100,10 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
         let send_simple_note_on = || {
-            let _ = forward.send(FromProcess::ForwardMidi {
-                msg: MidiMsg::ChannelVoice {
-                    channel,
-                    msg: NoteOn { note, velocity },
-                },
+            let _ = forward.send(FromProcess::NoteOn {
+                channel,
+                note,
+                velocity,
                 time,
             });
         };
@@ -120,17 +138,19 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
         velocity: u8,
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
+        let mut held_by_pedal = true;
         if self.key_states[note as usize].note_off(channel, self.pedal_hold[channel as usize], time)
         {
             self.strategy
                 .note_off(&self.key_states, &mut self.tunings, &[note], time, forward);
+            held_by_pedal = false;
         }
-        let _ = forward.send(FromProcess::ForwardMidi {
-            msg: MidiMsg::ChannelVoice {
-                channel,
-                msg: NoteOff { note, velocity },
-            },
+        let _ = forward.send(FromProcess::NoteOff {
+            channel,
+            note,
+            velocity,
             time,
+            held_by_pedal,
         });
     }
 }

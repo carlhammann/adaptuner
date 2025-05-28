@@ -3,7 +3,7 @@ use std::{marker::PhantomData, sync::mpsc, time::Instant};
 use crate::{
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
-    msg::{FromProcess, ToProcess, ToStrategy},
+    msg::{FromProcess, ToStrategy},
     neighbourhood::CompleteNeigbourhood,
     strategy::twostep::{AnchorStrategy, IntervalSolution},
 };
