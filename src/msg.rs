@@ -123,7 +123,6 @@ pub enum FromStrategy<T: StackType> {
         time: Instant,
     },
     SetReference {
-        key: u8,
         stack: Stack<T>,
     },
     Consider {
@@ -245,7 +244,6 @@ pub enum ToUi<T: StackType> {
     },
     NotifyNoFit,
     SetReference {
-        key: u8,
         stack: Stack<T>,
     },
     Consider {
@@ -469,9 +467,7 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
                 Some(ToBackend::Retune { note, tuning, time }),
                 Some(ToUi::Retune { note, tuning_stack }),
             ),
-            FromStrategy::SetReference { key, stack } => {
-                (None {}, Some(ToUi::SetReference { key, stack }))
-            }
+            FromStrategy::SetReference { stack } => (None {}, Some(ToUi::SetReference { stack })),
             FromStrategy::Consider { stack } => (None {}, Some(ToUi::Consider { stack })),
             FromStrategy::NotifyFit {
                 pattern_name,
