@@ -52,9 +52,26 @@ pub trait MessageTranslate4<B, C, D, E> {
 
 pub enum ToProcess<T: StackType> {
     Stop,
-    Reset { time: Instant },
-    IncomingMidi { time: Instant, bytes: Vec<u8> },
+    Reset {
+        time: Instant,
+    },
+    IncomingMidi {
+        time: Instant,
+        bytes: Vec<u8>,
+    },
     ToStrategy(ToStrategy<T>),
+    NoteOn {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
+        time: Instant,
+    },
+    NoteOff {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
+        time: Instant,
+    },
 }
 
 pub enum FromProcess<T: StackType> {
@@ -280,6 +297,18 @@ pub enum FromUi<T: StackType> {
     },
     SetReference {
         reference: Reference<T>,
+        time: Instant,
+    },
+    NoteOn {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
+        time: Instant,
+    },
+    NoteOff {
+        channel: Channel,
+        note: u8,
+        velocity: u8,
         time: Instant,
     },
 }
@@ -539,6 +568,38 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                     reference,
                     time,
                 })),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::NoteOn {
+                channel,
+                note,
+                velocity,
+                time,
+            } => (
+                Some(ToProcess::NoteOn {
+                    channel,
+                    note,
+                    velocity,
+                    time,
+                }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::NoteOff {
+                channel,
+                note,
+                velocity,
+                time,
+            } => (
+                Some(ToProcess::NoteOff {
+                    channel,
+                    note,
+                    velocity,
+                    time,
+                }),
                 None {},
                 None {},
                 None {},

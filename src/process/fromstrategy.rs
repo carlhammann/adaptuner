@@ -166,6 +166,18 @@ impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess<T>, FromProcess<T>>
                     let _ = forward.send(FromProcess::MidiParseErr(e.to_string()));
                 }
             },
+            ToProcess::NoteOn {
+                channel,
+                note,
+                velocity,
+                time,
+            } => self.handle_note_on(time, note, channel, velocity, forward),
+            ToProcess::NoteOff {
+                channel,
+                note,
+                velocity,
+                time,
+            } => self.handle_note_off(time, note, channel, velocity, forward),
             ToProcess::Stop => {}
             ToProcess::Reset { .. } => {}
             ToProcess::ToStrategy(msg) => {
