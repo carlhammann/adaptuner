@@ -94,7 +94,7 @@ impl<T: FiveLimitStackType, N: Neighbourhood<T>> eframe::App for ManyWindows<T, 
         egui::containers::Window::new("notes").show(ctx, |ui| {
             self.notewindow.show(ctx, ui, &self.tx);
         });
-        
+
         egui::containers::Window::new("lattice").show(ctx, |ui| {
             self.latticewindow.show(ctx, ui, &self.tx);
         });

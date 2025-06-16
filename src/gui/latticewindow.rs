@@ -1,6 +1,10 @@
-use std::{sync::mpsc, time::Instant};
+use std::{
+    sync::{mpsc, Arc},
+    time::Instant,
+};
 
 use eframe::egui::{self, pos2, vec2};
+use midi_msg::Channel;
 
 use crate::{
     interval::{stack::Stack, stacktype::r#trait::StackType},
@@ -14,11 +18,11 @@ use super::r#trait::GuiShow;
 // these are all in units of [LatticeWindow::zoom]
 const OCTAVE_WIDTH: f32 = 12.0;
 const WHITE_KEY_WIDTH: f32 = OCTAVE_WIDTH / 7.0;
-const BLACK_KEY_WIDTH: f32 = WHITE_KEY_WIDTH / 2.0;
+const BLACK_KEY_WIDTH: f32 = OCTAVE_WIDTH / 12.0;
 const WHITE_KEY_LENGTH: f32 = OCTAVE_WIDTH / 2.5;
 const BLACK_KEY_LENGTH: f32 = 3.0 * WHITE_KEY_LENGTH / 5.0;
 const PIANO_KEY_BORDER_THICKNESS: f32 = 0.1;
-const MARKER_HEIGHT: f32 = BLACK_KEY_WIDTH / 2.0;
+const MARKER_LENGTH: f32 = BLACK_KEY_WIDTH / 2.0;
 const MARKER_THICKNESS: f32 = PIANO_KEY_BORDER_THICKNESS;
 
 pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
@@ -29,6 +33,9 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
     considered_notes: N,
 
     zoom: f32,
+
+    keyboard_channel: Channel,
+    keyboard_velocity: u8,
 }
 
 impl<T: StackType, N: Neighbourhood<T>> LatticeWindow<T, N> {
@@ -40,12 +47,13 @@ impl<T: StackType, N: Neighbourhood<T>> LatticeWindow<T, N> {
             reference,
             considered_notes,
             zoom,
+            keyboard_channel: Channel::Ch1,
+            keyboard_velocity: 127,
         }
     }
 
-    fn draw_keyboard(&mut self, ui: &mut egui::Ui) {
-        let rect = ui.clip_rect();
-        let middle_c_center = rect.left() + rect.width() / 2.0;
+    fn draw_keyboard(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        let rect = ui.max_rect();
         let white_key_vertical_center = rect.bottom() - self.zoom * WHITE_KEY_LENGTH / 2.0;
         let black_key_vertical_center =
             rect.bottom() - self.zoom * (WHITE_KEY_LENGTH - BLACK_KEY_LENGTH / 2.0);
@@ -58,11 +66,12 @@ impl<T: StackType, N: Neighbourhood<T>> LatticeWindow<T, N> {
             } else {
                 ui.style().visuals.weak_text_color()
             };
+            let key_rect = egui::Rect::from_center_size(
+                pos2(horizontal_center, black_key_vertical_center),
+                self.zoom * vec2(BLACK_KEY_WIDTH, BLACK_KEY_LENGTH),
+            );
             ui.painter().with_clip_rect(rect).rect(
-                egui::Rect::from_center_size(
-                    pos2(horizontal_center, black_key_vertical_center),
-                    self.zoom * vec2(BLACK_KEY_WIDTH, BLACK_KEY_LENGTH),
-                ),
+                key_rect,
                 egui::CornerRadius::default(),
                 if on {
                     ui.style().visuals.selection.bg_fill
@@ -72,6 +81,28 @@ impl<T: StackType, N: Neighbourhood<T>> LatticeWindow<T, N> {
                 egui::Stroke::new(self.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
                 egui::StrokeKind::Middle,
             );
+
+            let response = ui.interact(
+                key_rect,
+                egui::Id::new(format!("black key {}", key_number)),
+                egui::Sense::drag(),
+            );
+            if response.drag_started() {
+                let _ = forward.send(FromUi::NoteOn {
+                    note: key_number as u8,
+                    channel: self.keyboard_channel,
+                    velocity: self.keyboard_velocity,
+                    time: Instant::now(),
+                });
+            }
+            if response.drag_stopped() {
+                let _ = forward.send(FromUi::NoteOff {
+                    note: key_number as u8,
+                    channel: self.keyboard_channel,
+                    velocity: self.keyboard_velocity,
+                    time: Instant::now(),
+                });
+            }
         };
 
         let draw_white_key = |horizontal_center, key_number| {
@@ -102,15 +133,31 @@ impl<T: StackType, N: Neighbourhood<T>> LatticeWindow<T, N> {
                     egui::StrokeKind::Middle,
                 );
             }
-            // let response = ui.interact(key_rect, egui::Id::new(format!("white key {}", key_number)), egui::Sense::click());
-            // if response.clicked() {
-            //     keystate.note_on(Channel::Ch1, Instant::now());
-            // }
+            let response = ui.interact(
+                key_rect,
+                egui::Id::new(format!("white key {}", key_number)),
+                egui::Sense::drag(),
+            );
+            if response.drag_started() {
+                let _ = forward.send(FromUi::NoteOn {
+                    note: key_number as u8,
+                    channel: self.keyboard_channel,
+                    velocity: self.keyboard_velocity,
+                    time: Instant::now(),
+                });
+            }
+            if response.drag_stopped() {
+                let _ = forward.send(FromUi::NoteOff {
+                    note: key_number as u8,
+                    channel: self.keyboard_channel,
+                    velocity: self.keyboard_velocity,
+                    time: Instant::now(),
+                });
+            }
         };
 
         let draw_octave = |octave: i16| {
-            let c_left = middle_c_center
-                + self.zoom * ((octave as f32 - 4.0) * OCTAVE_WIDTH - OCTAVE_WIDTH / 24.0);
+            let c_left = rect.left() + self.zoom * ((octave as f32 + 1.0) * OCTAVE_WIDTH);
             let white_key_numbers = [0, 2, 4, 5, 7, 9, 11];
             for i in 0..7 {
                 let x = c_left + self.zoom * (i as f32 * WHITE_KEY_WIDTH + WHITE_KEY_WIDTH / 2.0);
@@ -165,12 +212,12 @@ impl<T: StackType, N: Neighbourhood<T>> LatticeWindow<T, N> {
             draw_octave(i);
         }
 
-        let mut x = middle_c_center - self.zoom * 5.0 * OCTAVE_WIDTH;
+        let mut key_center = rect.left() + self.zoom * OCTAVE_WIDTH / 24.0;
         for _ in 0..128 {
             ui.painter().with_clip_rect(rect).vline(
-                x,
+                key_center,
                 egui::Rangef {
-                    min: rect.bottom() - self.zoom * (WHITE_KEY_LENGTH + MARKER_HEIGHT),
+                    min: rect.bottom() - self.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH),
                     max: rect.bottom() - self.zoom * WHITE_KEY_LENGTH,
                 },
                 egui::Stroke::new(
@@ -178,8 +225,16 @@ impl<T: StackType, N: Neighbourhood<T>> LatticeWindow<T, N> {
                     ui.style().visuals.strong_text_color(),
                 ),
             );
-            x += self.zoom * OCTAVE_WIDTH / 12.0;
+            key_center += self.zoom * OCTAVE_WIDTH / 12.0;
         }
+    }
+
+    fn drawing_width(&self) -> f32 {
+        self.zoom * WHITE_KEY_WIDTH * 75.0 // 75 is the number of white keys in the MIDI range
+    }
+
+    fn drawing_height(&self) -> f32 {
+        self.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH)
     }
 }
 
@@ -195,7 +250,16 @@ impl<T: StackType, N: Neighbourhood<T>> GuiShow<T> for LatticeWindow<T, N> {
             );
         });
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            self.draw_keyboard(ui);
+            ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
+            egui::ScrollArea::both()
+                .scroll_bar_rect(ui.clip_rect())
+                .show(ui, |ui| {
+                    ui.allocate_space(vec2(
+                        ui.max_rect().width().max(self.drawing_width()),
+                        ui.max_rect().height().max(self.drawing_height()),
+                    ));
+                    self.draw_keyboard(ui, forward);
+                });
         });
     }
 }
