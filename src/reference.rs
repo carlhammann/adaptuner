@@ -44,7 +44,7 @@ impl<T: StackType> Reference<T> {
 
     /// The fractional MIDI note number that middle C is tuned to with this reference.
     pub fn c4_semitones(&self) -> Semitones {
-        60.0 + self.semitones - self.key as Semitones
+        self.semitones - self.stack.semitones()
     }
 }
 

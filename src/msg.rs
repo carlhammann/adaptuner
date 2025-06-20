@@ -126,8 +126,12 @@ pub enum ToStrategy<T: StackType> {
         index: usize,
         time: Instant,
     },
-    SetReference {
+    SetTuningReference {
         reference: Reference<T>,
+        time: Instant,
+    },
+    SetReference {
+        reference: Stack<T>,
         time: Instant,
     },
 }
@@ -295,8 +299,12 @@ pub enum FromUi<T: StackType> {
         portname: String,
         time: Instant,
     },
-    SetReference {
+    SetTuningReference {
         reference: Reference<T>,
+        time: Instant,
+    },
+    SetReference {
+        reference: Stack<T>,
         time: Instant,
     },
     NoteOn {
@@ -563,8 +571,8 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 Some(ToMidiOut::Connect { port, portname }),
             ),
-            FromUi::SetReference { reference, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::SetReference {
+            FromUi::SetTuningReference { reference, time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::SetTuningReference {
                     reference,
                     time,
                 })),
@@ -600,6 +608,12 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                     velocity,
                     time,
                 }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::SetReference { reference, time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::SetReference { reference, time })),
                 None {},
                 None {},
                 None {},

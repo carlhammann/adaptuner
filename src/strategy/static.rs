@@ -4,14 +4,11 @@ use crate::{
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
-        stacktype::r#trait::{FiveLimitStackType, OctavePeriodicStackType, StackCoeff, StackType},
+        stacktype::r#trait::StackType,
     },
     keystate::KeyState,
     msg::{FromProcess, FromStrategy, ToStrategy},
-    neighbourhood::{
-        new_fivelimit_neighbourhood, CompleteNeigbourhood, Neighbourhood, PeriodicCompleteAligned,
-        PeriodicNeighbourhood,
-    },
+    neighbourhood::{CompleteNeigbourhood, Neighbourhood, PeriodicNeighbourhood},
     reference::Reference,
     strategy::r#trait::Strategy,
 };
@@ -19,36 +16,29 @@ use crate::{
 pub struct StaticTuning<T: StackType, N: Neighbourhood<T>> {
     neighbourhood: N,
     active_temperaments: Vec<bool>,
-    global_reference: Reference<T>,
+    tuning_reference: Reference<T>,
+    reference: Stack<T>,
     tuning_up_to_date: [bool; 128],
 }
 
-#[derive(Clone)]
-pub struct StaticTuningConfig<T: FiveLimitStackType + OctavePeriodicStackType> {
-    pub active_temperaments: Vec<bool>,
-    pub width: StackCoeff,
-    pub index: StackCoeff,
-    pub offset: StackCoeff,
-    pub global_reference: Reference<T>,
-}
-
-impl<T: FiveLimitStackType + OctavePeriodicStackType> StaticTuning<T, PeriodicCompleteAligned<T>> {
-    pub fn new(config: StaticTuningConfig<T>) -> Self {
+impl<T: StackType, N: Neighbourhood<T>> StaticTuning<T, N> {
+    pub fn new(
+        tuning_reference: Reference<T>,
+        initial_reference: Stack<T>,
+        active_temperaments: Vec<bool>,
+        neighbourhood: N,
+    ) -> Self {
         Self {
-            neighbourhood: new_fivelimit_neighbourhood(
-                &config.active_temperaments,
-                config.width,
-                config.index,
-                config.offset,
-            ),
-            active_temperaments: config.active_temperaments.clone(),
-            global_reference: config.global_reference.clone(),
+            neighbourhood,
+            active_temperaments,
+            tuning_reference,
+            reference: initial_reference,
             tuning_up_to_date: [false; 128],
         }
     }
 }
 
-impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> StaticTuning<T, N> {
+impl<T: StackType, N: CompleteNeigbourhood<T>> StaticTuning<T, N> {
     fn update_and_send_tuning(
         &mut self,
         tunings: &mut [Stack<T>; 128],
@@ -59,18 +49,18 @@ impl<T: StackType, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>> Static
         if !self.tuning_up_to_date[note as usize] {
             self.neighbourhood.write_relative_stack(
                 tunings.get_mut(note as usize).unwrap(),
-                note as i8 - self.global_reference.key as i8,
+                note as i8 - self.reference.key_number() as i8,
             );
             tunings
                 .get_mut(note as usize)
                 .unwrap()
-                .scaled_add(1, &self.global_reference.stack);
+                .scaled_add(1, &self.reference);
             self.tuning_up_to_date[note as usize] = true;
 
             let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Retune {
                 note,
                 tuning: tunings[note as usize]
-                    .absolute_semitones(self.global_reference.c4_semitones()),
+                    .absolute_semitones(self.tuning_reference.c4_semitones()),
                 tuning_stack: tunings[note as usize].clone(),
                 time,
             }));
@@ -109,7 +99,7 @@ impl<T: StackType + std::fmt::Debug, N: CompleteNeigbourhood<T> + PeriodicNeighb
         self.update_and_send_tuning(tunings, note, time, forward);
         let stack = &tunings[note as usize];
         Some((
-            stack.absolute_semitones(self.global_reference.c4_semitones()),
+            stack.absolute_semitones(self.tuning_reference.c4_semitones()),
             stack,
         ))
     }
@@ -135,9 +125,19 @@ impl<T: StackType + std::fmt::Debug, N: CompleteNeigbourhood<T> + PeriodicNeighb
         match msg {
             ToStrategy::Consider { coefficients, time } => todo!(),
             ToStrategy::ToggleTemperament { index, time } => todo!(),
-            ToStrategy::SetReference { reference, time } => {
-                self.global_reference = reference;
+            ToStrategy::SetTuningReference { reference, time } => {
+                self.tuning_reference.clone_from(&reference);
                 self.retune_all(keys, tunings, time, forward);
+                let _ = forward.send(FromProcess::FromStrategy(FromStrategy::SetTuningReference {
+                     reference,
+                }));
+            }
+            ToStrategy::SetReference { reference, time } => {
+                self.reference.clone_from(&reference);
+                self.retune_all(keys, tunings, time, forward);
+                let _ = forward.send(FromProcess::FromStrategy(FromStrategy::SetReference {
+                    stack: reference,
+                }));
             }
         }
         true

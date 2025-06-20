@@ -21,6 +21,7 @@ use super::{
     notewindow::NoteWindow,
     r#trait::GuiShow,
     referencewindow::ReferenceWindow,
+    tuningreferencewindow::TuningReferenceWindow,
 };
 
 pub struct ManyWindows<T: StackType, N: Neighbourhood<T>> {
@@ -28,7 +29,8 @@ pub struct ManyWindows<T: StackType, N: Neighbourhood<T>> {
     latticewindow: LatticeWindow<T, N>,
     input_connection_window: ConnectionWindow<Input>,
     output_connection_window: ConnectionWindow<Output>,
-    tuning_reference_window: ReferenceWindow<T>,
+    tuning_reference_window: TuningReferenceWindow<T>,
+    reference_window: ReferenceWindow<T>,
     latencywindow: LatencyWindow,
     tx: mpsc::Sender<FromUi<T>>,
 }
@@ -45,11 +47,12 @@ impl<T: FiveLimitStackType, N: Neighbourhood<T>> ManyWindows<T, N> {
     ) -> Self {
         Self {
             notewindow: NoteWindow::new(ctx),
-            latticewindow: LatticeWindow::new(reference, considered_notes, 10.0),
+            latticewindow: LatticeWindow::new(reference.clone(), considered_notes, 10.0),
             input_connection_window: ConnectionWindow::new(),
             output_connection_window: ConnectionWindow::new(),
             latencywindow: LatencyWindow::new(latency_window_length),
-            tuning_reference_window: ReferenceWindow::new(tuning_reference, notenamestyle),
+            tuning_reference_window: TuningReferenceWindow::new(tuning_reference, notenamestyle),
+            reference_window: ReferenceWindow::new(reference, notenamestyle),
             tx,
         }
     }
@@ -87,6 +90,10 @@ impl<T: FiveLimitStackType, N: Neighbourhood<T>> eframe::App for ManyWindows<T, 
 
         egui::TopBottomPanel::bottom("global tuning reference").show(ctx, |ui| {
             self.tuning_reference_window.show(ctx, ui, &self.tx);
+        });
+        
+        egui::TopBottomPanel::bottom("reference").show(ctx, |ui| {
+            self.reference_window.show(ctx, ui, &self.tx);
         });
 
         egui::CentralPanel::default().show(ctx, |_ui| {});

@@ -6,7 +6,7 @@ use adaptuner::{
     backend::pitchbend::{Pitchbend, PitchbendConfig},
     gui::manywindows::ManyWindows,
     interval::{stack::Stack, stacktype::fivelimit::ConcreteFiveLimitStackType},
-    neighbourhood::new_fivelimit_neighbourhood,
+    neighbourhood::{Neighbourhood, PeriodicCompleteAligned},
     notename::NoteNameStyle,
     process::fromstrategy::ProcessFromStrategy,
     reference::Reference,
@@ -21,23 +21,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     let notenamestyle = NoteNameStyle::JohnstonFiveLimitFull;
     let no_active_temperaments = vec![false; 2];
-    let initial_neighbourhood_width = 4;
-    let initial_neighbourhood_index = 5;
-    let initial_neighbourhood_offset = 1;
-    let initial_neighbourhood = new_fivelimit_neighbourhood(
-        &no_active_temperaments,
-        initial_neighbourhood_width,
-        initial_neighbourhood_index,
-        initial_neighbourhood_offset,
-    );
+    let initial_neighbourhood = PeriodicCompleteAligned::from_octave_tunings([
+        Stack::new_zero(),                  // C
+        Stack::from_target(vec![0, -1, 2]), // C#
+        Stack::from_target(vec![-1, 2, 0]), // D
+        Stack::from_target(vec![0, 1, -1]), // Eb
+        Stack::from_target(vec![0, 0, 1]),  // E
+        Stack::from_target(vec![1, -1, 0]), // F
+        Stack::from_target(vec![-1, 2, 1]), // F#
+        Stack::from_target(vec![0, 1, 0]),  // G
+        Stack::from_target(vec![0, 0, 2]),  // G#
+        Stack::from_target(vec![1, -1, 1]), // A
+        Stack::from_target(vec![0, 2, -1]), // Bb
+        Stack::from_target(vec![0, 1, 1]),  // B
+    ]);
     let initial_reference = Stack::new_zero();
-    let strategy_config = StaticTuningConfig {
-        active_temperaments: no_active_temperaments,
-        width: initial_neighbourhood_width,
-        index: initial_neighbourhood_index,
-        offset: initial_neighbourhood_offset,
-        global_reference: tuning_reference.clone(),
-    };
 
     let backend_config = PitchbendConfig {
         channels: vec![
@@ -66,10 +64,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
 
+    let static_tuning = StaticTuning::new(
+        tuning_reference.clone(),
+        initial_reference.clone(),
+        no_active_temperaments.clone(),
+        initial_neighbourhood.clone(),
+    );
+
     let _runstate = RunState::new(
         midi_in,
         midi_out,
-        || ProcessFromStrategy::new(StaticTuning::new(strategy_config)),
+        || ProcessFromStrategy::new(static_tuning),
         move || Pitchbend::new(&backend_config),
         move |ctx, tx| {
             ManyWindows::new(
