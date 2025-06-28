@@ -123,14 +123,26 @@ impl<T: StackType + std::fmt::Debug, N: CompleteNeigbourhood<T> + PeriodicNeighb
         forward: &mpsc::Sender<FromProcess<T>>,
     ) -> bool {
         match msg {
-            ToStrategy::Consider { coefficients, time } => todo!(),
+            ToStrategy::Consider { coefficients, time } => {
+                let inserted = self
+                    .neighbourhood
+                    .insert(&Stack::from_temperaments_and_target(
+                        &self.active_temperaments,
+                        coefficients,
+                    ))
+                    .clone();
+                self.retune_all(keys, tunings, time, forward);
+                let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Consider {
+                    stack: inserted,
+                }));
+            }
             ToStrategy::ToggleTemperament { index, time } => todo!(),
             ToStrategy::SetTuningReference { reference, time } => {
                 self.tuning_reference.clone_from(&reference);
                 self.retune_all(keys, tunings, time, forward);
-                let _ = forward.send(FromProcess::FromStrategy(FromStrategy::SetTuningReference {
-                     reference,
-                }));
+                let _ = forward.send(FromProcess::FromStrategy(
+                    FromStrategy::SetTuningReference { reference },
+                ));
             }
             ToStrategy::SetReference { reference, time } => {
                 self.reference.clone_from(&reference);

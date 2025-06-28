@@ -21,7 +21,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         440.0,
     );
     let notenamestyle = NoteNameStyle::JohnstonFiveLimitFull;
-    let class_notenamestyle = NoteNameStyle::JohnstonFiveLimitClass;
     let interval_heights = vec![
         0.0,
         -12.0 * (5.0 / 4.0 as f32).log2(),
@@ -98,7 +97,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 initial_reference,
                 initial_neighbourhood,
                 notenamestyle,
-                class_notenamestyle,
                 interval_heights,
                 interval_colours,
                 background_stack_distances,
