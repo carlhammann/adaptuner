@@ -1,32 +1,47 @@
-use std::{
-    sync::{mpsc, Arc},
-    time::Instant,
-};
+use std::{collections::HashMap, hash::Hash, sync::mpsc, time::Instant};
 
-use eframe::egui::{self, pos2, vec2};
+use eframe::egui::{self, epaint, pos2, vec2};
 use midi_msg::Channel;
 
 use crate::{
-    interval::{stack::Stack, stacktype::r#trait::StackType},
+    interval::{
+        stack::Stack,
+        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
+    },
     keystate::KeyState,
     msg::{FromUi, HandleMsgRef, ToUi},
     neighbourhood::Neighbourhood,
+    notename::NoteNameStyle,
+    reference::Reference,
 };
 
 use super::r#trait::GuiShow;
 
-// these are all in units of [LatticeWindow::zoom]
+// The following measurements are all in units of [LatticeWindow::zoom]
+
 const OCTAVE_WIDTH: f32 = 12.0;
+const ET_SEMITONE_WIDTH: f32 = OCTAVE_WIDTH / 12.0;
 const WHITE_KEY_WIDTH: f32 = OCTAVE_WIDTH / 7.0;
 const BLACK_KEY_WIDTH: f32 = OCTAVE_WIDTH / 12.0;
 const WHITE_KEY_LENGTH: f32 = OCTAVE_WIDTH / 2.5;
 const BLACK_KEY_LENGTH: f32 = 3.0 * WHITE_KEY_LENGTH / 5.0;
 const PIANO_KEY_BORDER_THICKNESS: f32 = 0.1;
+
 const MARKER_LENGTH: f32 = BLACK_KEY_WIDTH / 2.0;
 const MARKER_THICKNESS: f32 = PIANO_KEY_BORDER_THICKNESS;
 
+const FREE_SPACE_ABOVE_KEYBOARD: f32 = 2.0;
+const FONT_SIZE: f32 = 2.0;
+const FAINT_GRID_LINE_THICKNESS: f32 = MARKER_THICKNESS;
+const NORMAL_GRID_LINE_THICKNESS: f32 = 1.5 * FAINT_GRID_LINE_THICKNESS;
+const STRONG_GRID_LINE_THICKNESS: f32 = 1.5 * NORMAL_GRID_LINE_THICKNESS;
+
 pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
+    tuning_reference: Reference<T>,
+    active_temperaments: Vec<bool>,
+
     active_notes: [KeyState; 128],
+    pedal_hold: [bool; 16],
     tunings: [Stack<T>; 128],
 
     reference: Stack<T>,
@@ -36,23 +51,283 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
 
     keyboard_channel: Channel,
     keyboard_velocity: u8,
+
+    notenamestyle: NoteNameStyle,
+
+    /// The vertical sizes of intervals in the grid. (Horozontal sizes are determined by the size
+    /// in equally tempered semitones.)
+    interval_heights: Vec<f32>,
+    interval_colours: Vec<egui::Color32>,
+
+    /// the distances around the reference note, by "base interval" up to which "background" stacks
+    /// should be drawn.
+    background_stack_distances: Vec<StackCoeff>,
+
+    // lattice_elements: LatticeElements,
+    stacks_to_draw: HashMap<Stack<T>, DrawStyle>,
 }
 
-impl<T: StackType, N: Neighbourhood<T>> LatticeWindow<T, N> {
-    pub fn new(reference: Stack<T>, considered_notes: N, zoom: f32) -> Self {
+enum DrawStyle {
+    Background,
+    Considered,
+    Playing,
+}
+
+struct PureStacksAround<'a, T: StackType> {
+    dists: &'a [StackCoeff],
+    reference: &'a Stack<T>,
+    curr: Stack<T>,
+}
+
+impl<'a, T: StackType> PureStacksAround<'a, T> {
+    /// dist must be nonnegative
+    fn new(dists: &'a [StackCoeff], reference: &'a Stack<T>) -> Self {
+        let mut curr = reference.clone();
+
+        for i in 0..T::num_intervals() {
+            curr.increment_at_index_pure(i, -dists[i]);
+        }
+
+        curr.increment_at_index_pure(T::num_intervals() - 1, -1);
+
+        Self {
+            dists,
+            reference,
+            curr,
+        }
+    }
+}
+
+impl<'a, T: StackType> Iterator for PureStacksAround<'a, T> {
+    type Item = Stack<T>;
+    fn next(&mut self) -> Option<Self::Item> {
+        for i in (0..T::num_intervals()).rev() {
+            if self.curr.target[i] < self.reference.target[i] + self.dists[i] {
+                self.curr.increment_at_index_pure(i, 1);
+                return Some(self.curr.clone());
+            }
+            self.curr.increment_at_index_pure(i, -2 * self.dists[i]);
+        }
+
+        return None {};
+    }
+}
+
+fn tipped_line(
+    start: egui::Pos2,
+    end: egui::Pos2,
+    width: f32,
+    color: egui::Color32,
+) -> egui::Shape {
+    let v = (end - start).normalized() * width.min(end.distance(start) / 2.0);
+    let w = v.clone().rot90();
+    egui::Shape::convex_polygon(
+        vec![
+            start,
+            start + v + w,
+            end - v + w,
+            end,
+            end - v - w,
+            start + v - w,
+        ],
+        color,
+        epaint::PathStroke::NONE,
+    )
+}
+
+impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N> {
+    pub fn new(
+        tuning_reference: Reference<T>,
+        active_temperaments: Vec<bool>,
+        reference: Stack<T>,
+        considered_notes: N,
+        zoom: f32,
+        notenamestyle: NoteNameStyle,
+        interval_heights: Vec<f32>,
+        interval_colours: Vec<egui::Color32>,
+        background_stack_distances: Vec<StackCoeff>,
+    ) -> Self {
         let now = Instant::now();
         Self {
+            tuning_reference,
+            active_temperaments,
             active_notes: core::array::from_fn(|_| KeyState::new(now)),
+            pedal_hold: [false; 16],
             tunings: core::array::from_fn(|_| Stack::new_zero()),
             reference,
             considered_notes,
             zoom,
             keyboard_channel: Channel::Ch1,
             keyboard_velocity: 127,
+            notenamestyle,
+            interval_heights,
+            interval_colours,
+            background_stack_distances,
+            stacks_to_draw: HashMap::new(),
         }
     }
 
-    fn draw_keyboard(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn draw_stacks(&self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        let rect = ui.max_rect();
+
+        // compute the reference position
+        let reference_hpos = rect.left()
+            + self.zoom
+                * ET_SEMITONE_WIDTH
+                * (0.5
+                    + self
+                        .reference
+                        .absolute_semitones(self.tuning_reference.c4_semitones())
+                        as f32);
+        let mut max_y_offset = f32::MIN;
+        for (stack, _style) in self.stacks_to_draw.iter() {
+            let y_offset = self.zoom * ET_SEMITONE_WIDTH * {
+                let mut y = 0.0;
+                for (i, &c) in stack.target.iter().enumerate() {
+                    y += c as f32 * self.interval_heights[i];
+                }
+                y
+            };
+            max_y_offset = max_y_offset.max(y_offset);
+        }
+        let reference_vpos = rect.bottom()
+            - self.keyboard_height()
+            - self.zoom * FREE_SPACE_ABOVE_KEYBOARD
+            - max_y_offset;
+
+        // first, draw the vertical lines
+        for (stack, style) in self.stacks_to_draw.iter() {
+            let hpos = reference_hpos + self.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32;
+
+            match style {
+                DrawStyle::Playing => {}
+                _ => continue,
+            }
+
+            ui.painter().with_clip_rect(rect).vline(
+                hpos,
+                egui::Rangef {
+                    min: rect.top(),
+                    max: rect.bottom() - self.keyboard_height(),
+                },
+                egui::Stroke::new(
+                    self.zoom * MARKER_THICKNESS,
+                    ui.style().visuals.weak_text_color(),
+                ),
+            );
+        }
+
+        // then, draw the grid lines
+
+        for (stack, _style) in self.stacks_to_draw.iter() {
+            let mut start_hpos = reference_hpos;
+            let mut start_vpos = reference_vpos;
+
+            let mut end_hpos = reference_hpos;
+            let mut end_vpos = reference_vpos;
+
+            for i in (0..T::num_intervals()).rev() {
+                let mut c = 0;
+
+                let inc = if stack.target[i] > 0 { 1 } else { -1 };
+
+                while c != stack.target[i] {
+                    end_hpos += self.zoom
+                        * ET_SEMITONE_WIDTH
+                        * inc as f32
+                        * T::intervals()[i].semitones as f32;
+                    end_vpos +=
+                        self.zoom * ET_SEMITONE_WIDTH * inc as f32 * self.interval_heights[i];
+
+                    ui.painter().with_clip_rect(rect).line_segment(
+                        [pos2(start_hpos, start_vpos), pos2(end_hpos, end_vpos)],
+                        egui::Stroke::new(
+                            self.zoom * FAINT_GRID_LINE_THICKNESS,
+                            ui.style().visuals.weak_text_color(),
+                        ),
+                    );
+
+                    start_hpos = end_hpos;
+                    start_vpos = end_vpos;
+                    c += inc;
+                }
+            }
+        }
+
+        // last, draw the note names
+        for (stack, style) in self.stacks_to_draw.iter() {
+            let hpos = reference_hpos + self.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32;
+            let vpos = reference_vpos
+                + self.zoom * ET_SEMITONE_WIDTH * {
+                    let mut y = 0.0;
+                    for (i, &c) in stack.target.iter().enumerate() {
+                        y += c as f32 * self.interval_heights[i];
+                    }
+                    y
+                };
+
+            let name = stack.notename(&self.notenamestyle);
+
+            ui.painter().with_clip_rect(rect).text(
+                pos2(hpos, vpos),
+                egui::Align2::CENTER_CENTER,
+                &name,
+                egui::FontId::proportional(self.zoom * FONT_SIZE),
+                match style {
+                    DrawStyle::Background => ui.style().visuals.weak_text_color(),
+                    DrawStyle::Considered => ui.style().visuals.strong_text_color(),
+                    DrawStyle::Playing => ui.style().visuals.strong_text_color(),
+                },
+            );
+
+            if ui
+                .interact(
+                    egui::Rect::from_center_size(
+                        pos2(hpos, vpos),
+                        self.zoom * vec2(FONT_SIZE, FONT_SIZE),
+                    ),
+                    egui::Id::new(name),
+                    egui::Sense::click(),
+                )
+                .clicked()
+            {
+                let _ = forward.send(FromUi::Consider {
+                    coefficients: stack.target.to_vec(),
+                    time: Instant::now(),
+                });
+            }
+        }
+    }
+
+    fn draw_lattice(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        self.stacks_to_draw.clear();
+
+        for stack in PureStacksAround::new(&self.background_stack_distances, &self.reference) {
+            self.stacks_to_draw.insert(stack, DrawStyle::Background);
+        }
+
+        self.considered_notes.for_each_stack(|_, relative_stack| {
+            let mut stack = relative_stack.clone();
+            match self.considered_notes.try_period_index() {
+                Some(period_index) => {
+                    stack.increment_at_index_pure(period_index, -stack.target[period_index]);
+                }
+                None {} => {}
+            }
+            self.stacks_to_draw.insert(stack, DrawStyle::Considered);
+        });
+
+        for (i, state) in self.active_notes.iter().enumerate() {
+            if state.is_sounding() {
+                self.stacks_to_draw
+                    .insert(self.tunings[i].clone(), DrawStyle::Playing);
+            }
+        }
+
+        self.draw_stacks(ui, forward);
+    }
+
+    fn draw_keyboard(&self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let rect = ui.max_rect();
         let white_key_vertical_center = rect.bottom() - self.zoom * WHITE_KEY_LENGTH / 2.0;
         let black_key_vertical_center =
@@ -229,25 +504,64 @@ impl<T: StackType, N: Neighbourhood<T>> LatticeWindow<T, N> {
         }
     }
 
-    fn drawing_width(&self) -> f32 {
+    fn keyboard_width(&self) -> f32 {
         self.zoom * WHITE_KEY_WIDTH * 75.0 // 75 is the number of white keys in the MIDI range
     }
 
-    fn drawing_height(&self) -> f32 {
+    fn drawing_width(&self) -> f32 {
+        self.keyboard_width()
+    }
+
+    fn keyboard_height(&self) -> f32 {
         self.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH)
+    }
+
+    fn grid_height(&self) -> f32 {
+        self.zoom * {
+            let mut min_y_offset = f32::MAX;
+            let mut max_y_offset = f32::MIN;
+            for (stack, _style) in self.stacks_to_draw.iter() {
+                let y_offset = ET_SEMITONE_WIDTH * {
+                    let mut y = 0.0;
+                    for (i, &c) in stack.target.iter().enumerate() {
+                        y += c as f32 * self.interval_heights[i];
+                    }
+                    y
+                };
+
+                min_y_offset = min_y_offset.min(y_offset);
+                max_y_offset = max_y_offset.max(y_offset);
+            }
+            max_y_offset - min_y_offset + FONT_SIZE
+        }
+    }
+
+    fn drawing_height(&self) -> f32 {
+        self.keyboard_height() + self.grid_height() + self.zoom * FREE_SPACE_ABOVE_KEYBOARD
     }
 }
 
-impl<T: StackType, N: Neighbourhood<T>> GuiShow<T> for LatticeWindow<T, N> {
+impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for LatticeWindow<T, N> {
     fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         egui::TopBottomPanel::bottom("lattice window bottom panel").show_inside(ui, |ui| {
-            ui.add(
-                egui::widgets::Slider::new(&mut self.zoom, 5.0..=100.0)
-                    .smart_aim(false)
-                    .logarithmic(true)
-                    .show_value(false)
-                    .text("zoom"),
-            );
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
+                ui.add(
+                    egui::widgets::Slider::new(&mut self.zoom, 5.0..=100.0)
+                        .smart_aim(false)
+                        .logarithmic(true)
+                        .show_value(false)
+                        .text("zoom"),
+                );
+                ui.separator();
+                for i in 0..T::num_intervals() {
+                    ui.add(
+                        egui::widgets::Slider::new(&mut self.background_stack_distances[i], 0..=6)
+                            .smart_aim(false)
+                            .text(format!("{}s", T::intervals()[i].name)),
+                    );
+                }
+                ui.label("show notes around the reference:");
+            });
         });
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
@@ -258,6 +572,7 @@ impl<T: StackType, N: Neighbourhood<T>> GuiShow<T> for LatticeWindow<T, N> {
                         ui.max_rect().width().max(self.drawing_width()),
                         ui.max_rect().height().max(self.drawing_height()),
                     ));
+                    self.draw_lattice(ui, forward);
                     self.draw_keyboard(ui, forward);
                 });
         });
@@ -280,7 +595,24 @@ impl<T: StackType, N: Neighbourhood<T>> HandleMsgRef<ToUi<T>, FromUi<T>> for Lat
                 channel,
                 note,
             } => {
-                self.active_notes[*note as usize].note_off(*channel, false, *time);
+                self.active_notes[*note as usize].note_off(
+                    *channel,
+                    self.pedal_hold[*channel as usize],
+                    *time,
+                );
+            }
+
+            ToUi::PedalHold {
+                channel,
+                value,
+                time,
+            } => {
+                self.pedal_hold[*channel as usize] = *value != 0;
+                if *value == 0 {
+                    for n in self.active_notes.iter_mut() {
+                        n.pedal_off(*channel, *time);
+                    }
+                }
             }
 
             ToUi::Retune { note, tuning_stack } => {
@@ -301,7 +633,7 @@ impl<T: StackType, N: Neighbourhood<T>> HandleMsgRef<ToUi<T>, FromUi<T>> for Lat
                 let _ = self.considered_notes.insert(stack);
             }
             ToUi::SetReference { stack } => self.reference.clone_from(stack),
-
+            ToUi::SetTuningReference { reference } => self.tuning_reference.clone_from(reference),
             ToUi::Stop => {}
             ToUi::Notify { .. } => {}
             ToUi::EventLatency { .. } => {}

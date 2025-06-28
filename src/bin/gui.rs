@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use eframe::egui;
 use midi_msg::Channel;
 
 use adaptuner::{
@@ -20,6 +21,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         440.0,
     );
     let notenamestyle = NoteNameStyle::JohnstonFiveLimitFull;
+    let class_notenamestyle = NoteNameStyle::JohnstonFiveLimitClass;
+    let interval_heights = vec![
+        0.0,
+        -12.0 * (5.0 / 4.0 as f32).log2(),
+        12.0 * (3.0 / 2.0 as f32).log2(),
+    ];
+    let interval_colours = vec![
+        egui::Color32::RED,
+        egui::Color32::GREEN,
+        egui::Color32::BLUE,
+    ];
+    let background_stack_distances = vec![0, 2, 2];
     let no_active_temperaments = vec![false; 2];
     let initial_neighbourhood = PeriodicCompleteAligned::from_octave_tunings([
         Stack::new_zero(),                  // C
@@ -81,9 +94,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 ctx,
                 latency_window_length,
                 tuning_reference,
+                no_active_temperaments,
                 initial_reference,
                 initial_neighbourhood,
                 notenamestyle,
+                class_notenamestyle,
+                interval_heights,
+                interval_colours,
+                background_stack_distances,
                 tx,
             )
         },

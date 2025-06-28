@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::{hash::Hash, sync::mpsc};
 
 use eframe::{self, egui};
 
@@ -6,7 +6,7 @@ use crate::{
     // connections::{MidiInputOrConnection, MidiOutputOrConnection},
     interval::{
         stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, StackType},
+        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     },
     msg::{FromUi, HandleMsg, HandleMsgRef, ToUi},
     neighbourhood::Neighbourhood,
@@ -35,19 +35,34 @@ pub struct ManyWindows<T: StackType, N: Neighbourhood<T>> {
     tx: mpsc::Sender<FromUi<T>>,
 }
 
-impl<T: FiveLimitStackType, N: Neighbourhood<T>> ManyWindows<T, N> {
+impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
     pub fn new(
         ctx: &egui::Context,
         latency_window_length: usize,
         tuning_reference: Reference<T>,
+        active_temperaments: Vec<bool>,
         reference: Stack<T>,
         considered_notes: N,
         notenamestyle: NoteNameStyle,
+        class_notenamestyle: NoteNameStyle,
+        interval_heights: Vec<f32>,
+        interval_colours: Vec<egui::Color32>,
+        background_stack_distances: Vec<StackCoeff>,
         tx: mpsc::Sender<FromUi<T>>,
     ) -> Self {
         Self {
             notewindow: NoteWindow::new(ctx),
-            latticewindow: LatticeWindow::new(reference.clone(), considered_notes, 10.0),
+            latticewindow: LatticeWindow::new(
+                tuning_reference.clone(),
+                active_temperaments,
+                reference.clone(),
+                considered_notes,
+                10.0,
+                class_notenamestyle,
+                interval_heights,
+                interval_colours,
+                background_stack_distances,
+            ),
             input_connection_window: ConnectionWindow::new(),
             output_connection_window: ConnectionWindow::new(),
             latencywindow: LatencyWindow::new(latency_window_length),
@@ -70,7 +85,7 @@ impl<T: FiveLimitStackType, N: Neighbourhood<T>> HandleMsg<ToUi<T>, FromUi<T>>
     }
 }
 
-impl<T: FiveLimitStackType, N: Neighbourhood<T>> eframe::App for ManyWindows<T, N> {
+impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> eframe::App for ManyWindows<T, N> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -91,7 +106,7 @@ impl<T: FiveLimitStackType, N: Neighbourhood<T>> eframe::App for ManyWindows<T, 
         egui::TopBottomPanel::bottom("global tuning reference").show(ctx, |ui| {
             self.tuning_reference_window.show(ctx, ui, &self.tx);
         });
-        
+
         egui::TopBottomPanel::bottom("reference").show(ctx, |ui| {
             self.reference_window.show(ctx, ui, &self.tx);
         });
