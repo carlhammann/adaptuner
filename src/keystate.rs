@@ -58,3 +58,20 @@ impl KeyState {
         false
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::time::Instant;
+    use super::KeyState;
+    use midi_msg::Channel::*;
+
+    #[test]
+    fn pedal_off_test() {
+        let mut s = KeyState::new(Instant::now());
+        s.note_on(Ch1, Instant::now());
+        s.note_off(Ch1, true, Instant::now());
+        assert!(s.is_sounding());
+        s.pedal_off(Ch1, Instant::now());
+        assert!(!s.is_sounding());
+    }
+}

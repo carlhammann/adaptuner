@@ -138,19 +138,16 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
         velocity: u8,
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
-        let mut held_by_pedal = true;
         if self.key_states[note as usize].note_off(channel, self.pedal_hold[channel as usize], time)
         {
             self.strategy
                 .note_off(&self.key_states, &mut self.tunings, &[note], time, forward);
-            held_by_pedal = false;
         }
         let _ = forward.send(FromProcess::NoteOff {
             channel,
             note,
             velocity,
             time,
-            held_by_pedal,
         });
     }
 }

@@ -103,7 +103,6 @@ pub enum FromProcess<T: StackType> {
         note: u8,
         velocity: u8,
         time: Instant,
-        held_by_pedal: bool,
     },
     PedalHold {
         channel: Channel,
@@ -145,6 +144,9 @@ pub enum FromStrategy<T: StackType> {
     },
     SetReference {
         stack: Stack<T>,
+    },
+    SetTuningReference {
+        reference: Reference<T>,
     },
     Consider {
         stack: Stack<T>,
@@ -238,6 +240,11 @@ pub enum ToUi<T: StackType> {
         note: u8,
         time: Instant,
     },
+    PedalHold {
+        channel: Channel,
+        value: u8,
+        time: Instant,
+    },
     EventLatency {
         since_input: Duration,
     },
@@ -266,6 +273,9 @@ pub enum ToUi<T: StackType> {
     NotifyNoFit,
     SetReference {
         stack: Stack<T>,
+    },
+    SetTuningReference {
+        reference: Reference<T>,
     },
     Consider {
         stack: Stack<T>,
@@ -443,7 +453,6 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
                 note,
                 velocity,
                 time,
-                held_by_pedal,
             } => (
                 Some(ToBackend::NoteOff {
                     channel,
@@ -452,15 +461,11 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
                     time,
                 }),
                 None {},
-                if held_by_pedal {
-                    None {}
-                } else {
-                    Some(ToUi::NoteOff {
-                        time,
-                        channel,
-                        note,
-                    })
-                },
+                Some(ToUi::NoteOff {
+                    time,
+                    channel,
+                    note,
+                }),
             ),
             FromProcess::PedalHold {
                 value,
@@ -473,7 +478,11 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
                     time,
                 }),
                 None {},
-                None {},
+                Some(ToUi::PedalHold {
+                    channel,
+                    value,
+                    time,
+                }),
             ),
             FromProcess::ProgramChange {
                 channel,
@@ -517,6 +526,9 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
                 }),
             ),
             FromStrategy::NotifyNoFit => (None {}, Some(ToUi::NotifyNoFit)),
+            FromStrategy::SetTuningReference { reference } => {
+                (None {}, Some(ToUi::SetTuningReference { reference }))
+            }
         }
     }
 }
@@ -613,7 +625,10 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
             ),
             FromUi::SetReference { reference, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::SetReference { reference, time })),
+                Some(ToProcess::ToStrategy(ToStrategy::SetReference {
+                    reference,
+                    time,
+                })),
                 None {},
                 None {},
                 None {},
