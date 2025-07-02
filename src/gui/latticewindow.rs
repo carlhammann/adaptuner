@@ -5,7 +5,7 @@ use midi_msg::Channel;
 
 use crate::{
     interval::{
-        stack::Stack,
+        stack::{ScaledAdd, Stack},
         stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     },
     keystate::KeyState,
@@ -33,8 +33,7 @@ const MARKER_THICKNESS: f32 = PIANO_KEY_BORDER_THICKNESS;
 const FREE_SPACE_ABOVE_KEYBOARD: f32 = 2.0;
 const FONT_SIZE: f32 = 2.0;
 const FAINT_GRID_LINE_THICKNESS: f32 = MARKER_THICKNESS;
-const NORMAL_GRID_LINE_THICKNESS: f32 = 1.5 * FAINT_GRID_LINE_THICKNESS;
-const STRONG_GRID_LINE_THICKNESS: f32 = 1.5 * NORMAL_GRID_LINE_THICKNESS;
+const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
 
 pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
     tuning_reference: Reference<T>,
@@ -67,6 +66,7 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
     stacks_to_draw: HashMap<Stack<T>, DrawStyle>,
 }
 
+#[derive(PartialEq)]
 enum DrawStyle {
     Background,
     Considered,
@@ -170,21 +170,16 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
     fn draw_stacks(&self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let rect = ui.max_rect();
 
+        let c4_hpos = rect.left()
+            + self.zoom * ET_SEMITONE_WIDTH * (0.5 + self.tuning_reference.c4_semitones() as f32);
+
         // compute the reference position
-        let reference_hpos = rect.left()
-            + self.zoom
-                * ET_SEMITONE_WIDTH
-                * (0.5
-                    + self
-                        .reference
-                        .absolute_semitones(self.tuning_reference.c4_semitones())
-                        as f32);
         let mut max_y_offset = f32::MIN;
         for (stack, _style) in self.stacks_to_draw.iter() {
             let y_offset = self.zoom * ET_SEMITONE_WIDTH * {
                 let mut y = 0.0;
                 for (i, &c) in stack.target.iter().enumerate() {
-                    y += c as f32 * self.interval_heights[i];
+                    y += (c - self.reference.target[i]) as f32 * self.interval_heights[i];
                 }
                 y
             };
@@ -194,74 +189,146 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             - self.keyboard_height()
             - self.zoom * FREE_SPACE_ABOVE_KEYBOARD
             - max_y_offset;
+        let reference_hpos =
+            c4_hpos + self.zoom * ET_SEMITONE_WIDTH * self.reference.target_semitones() as f32;
+
+        let grid_line_color = ui
+            .style()
+            .visuals
+            .gray_out(ui.style().visuals.weak_text_color());
 
         // first, draw the vertical lines
         for (stack, style) in self.stacks_to_draw.iter() {
-            let hpos = reference_hpos + self.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32;
-
             match style {
                 DrawStyle::Playing => {}
                 _ => continue,
             }
-
-            ui.painter().with_clip_rect(rect).vline(
-                hpos,
-                egui::Rangef {
-                    min: rect.top(),
-                    max: rect.bottom() - self.keyboard_height(),
-                },
-                egui::Stroke::new(
-                    self.zoom * MARKER_THICKNESS,
-                    ui.style().visuals.weak_text_color(),
-                ),
-            );
-        }
-
-        // then, draw the grid lines
-
-        for (stack, _style) in self.stacks_to_draw.iter() {
-            let mut start_hpos = reference_hpos;
-            let mut start_vpos = reference_vpos;
-
-            let mut end_hpos = reference_hpos;
-            let mut end_vpos = reference_vpos;
-
-            for i in (0..T::num_intervals()).rev() {
-                let mut c = 0;
-
-                let inc = if stack.target[i] > 0 { 1 } else { -1 };
-
-                while c != stack.target[i] {
-                    end_hpos += self.zoom
-                        * ET_SEMITONE_WIDTH
-                        * inc as f32
-                        * T::intervals()[i].semitones as f32;
-                    end_vpos +=
-                        self.zoom * ET_SEMITONE_WIDTH * inc as f32 * self.interval_heights[i];
-
-                    ui.painter().with_clip_rect(rect).line_segment(
-                        [pos2(start_hpos, start_vpos), pos2(end_hpos, end_vpos)],
-                        egui::Stroke::new(
-                            self.zoom * FAINT_GRID_LINE_THICKNESS,
-                            ui.style().visuals.weak_text_color(),
-                        ),
-                    );
-
-                    start_hpos = end_hpos;
-                    start_vpos = end_vpos;
-                    c += inc;
-                }
-            }
-        }
-
-        // last, draw the note names
-        for (stack, style) in self.stacks_to_draw.iter() {
-            let hpos = reference_hpos + self.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32;
+            let hpos = c4_hpos + self.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32;
             let vpos = reference_vpos
                 + self.zoom * ET_SEMITONE_WIDTH * {
                     let mut y = 0.0;
                     for (i, &c) in stack.target.iter().enumerate() {
-                        y += c as f32 * self.interval_heights[i];
+                        y += (c - self.reference.target[i]) as f32 * self.interval_heights[i];
+                    }
+                    y
+                };
+            ui.painter().with_clip_rect(rect).vline(
+                hpos,
+                egui::Rangef {
+                    min: vpos,
+                    max: rect.bottom() - self.keyboard_height(),
+                },
+                egui::Stroke::new(self.zoom * MARKER_THICKNESS, grid_line_color),
+            );
+        }
+
+        // then, draw the grid lines
+        for (stack, style) in self.stacks_to_draw.iter() {
+            let mut in_bounds = true;
+            for i in 0..T::num_intervals() {
+                if (stack.target[i] - self.reference.target[i]).abs()
+                    > self.background_stack_distances[i]
+                {
+                    in_bounds = false;
+                    break;
+                }
+            }
+            if (*style == DrawStyle::Background) | in_bounds {
+                let start_hpos =
+                    c4_hpos + self.zoom * ET_SEMITONE_WIDTH * stack.target_semitones() as f32;
+                let start_vpos = reference_vpos
+                    + self.zoom * ET_SEMITONE_WIDTH * {
+                        let mut y = 0.0;
+                        for (i, &c) in stack.target.iter().enumerate() {
+                            y += (c - self.reference.target[i]) as f32 * self.interval_heights[i];
+                        }
+                        y
+                    };
+
+                for i in 0..T::num_intervals() {
+                    if stack.target[i] == self.reference.target[i] {
+                        continue;
+                    }
+
+                    let inc = if stack.target[i] > self.reference.target[i] {
+                        -1.0
+                    } else {
+                        1.0
+                    };
+
+                    let end_hpos =
+                        start_hpos + inc * self.zoom * T::intervals()[i].semitones as f32;
+                    let end_vpos = start_vpos + inc * self.zoom * self.interval_heights[i];
+
+                    ui.painter().with_clip_rect(rect).line_segment(
+                        [pos2(start_hpos, start_vpos), pos2(end_hpos, end_vpos)],
+                        egui::Stroke::new(self.zoom * FAINT_GRID_LINE_THICKNESS, grid_line_color),
+                    );
+                    ui.painter().with_clip_rect(rect).circle_filled(
+                        pos2(start_hpos, start_vpos),
+                        self.zoom * GRID_NODE_RADIUS,
+                        grid_line_color,
+                    );
+                    ui.painter().with_clip_rect(rect).circle_filled(
+                        pos2(end_hpos, end_vpos),
+                        self.zoom * GRID_NODE_RADIUS,
+                        grid_line_color,
+                    );
+                }
+            } else {
+                let mut start_hpos = reference_hpos;
+                let mut start_vpos = reference_vpos;
+
+                let mut end_hpos = reference_hpos;
+                let mut end_vpos = reference_vpos;
+
+                for i in (0..T::num_intervals()).rev() {
+                    let mut c = self.reference.target[i];
+
+                    let inc = if stack.target[i] > c { 1 } else { -1 };
+
+                    while c != stack.target[i] {
+                        end_hpos += self.zoom
+                            * ET_SEMITONE_WIDTH
+                            * inc as f32
+                            * T::intervals()[i].semitones as f32;
+                        end_vpos +=
+                            self.zoom * ET_SEMITONE_WIDTH * inc as f32 * self.interval_heights[i];
+
+                        ui.painter().with_clip_rect(rect).line_segment(
+                            [pos2(start_hpos, start_vpos), pos2(end_hpos, end_vpos)],
+                            egui::Stroke::new(
+                                self.zoom * FAINT_GRID_LINE_THICKNESS,
+                                grid_line_color,
+                            ),
+                        );
+                        ui.painter().with_clip_rect(rect).circle_filled(
+                            pos2(start_hpos, start_vpos),
+                            self.zoom * GRID_NODE_RADIUS,
+                            grid_line_color,
+                        );
+                        ui.painter().with_clip_rect(rect).circle_filled(
+                            pos2(end_hpos, end_vpos),
+                            self.zoom * GRID_NODE_RADIUS,
+                            grid_line_color,
+                        );
+
+                        start_hpos = end_hpos;
+                        start_vpos = end_vpos;
+                        c += inc;
+                    }
+                }
+            }
+        }
+
+        // last, draw the note names, add the interaction zones
+        for (stack, style) in self.stacks_to_draw.iter() {
+            let hpos = c4_hpos + self.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32;
+            let vpos = reference_vpos
+                + self.zoom * ET_SEMITONE_WIDTH * {
+                    let mut y = 0.0;
+                    for (i, &c) in stack.target.iter().enumerate() {
+                        y += (c - self.reference.target[i]) as f32 * self.interval_heights[i];
                     }
                     y
                 };
@@ -272,11 +339,17 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 pos2(hpos, vpos),
                 egui::Align2::CENTER_CENTER,
                 &name,
-                egui::FontId::proportional(self.zoom * FONT_SIZE),
+                match style {
+                    DrawStyle::Background | DrawStyle::Considered => {
+                        egui::FontId::proportional(self.zoom * FONT_SIZE)
+                    }
+                    DrawStyle::Playing => egui::FontId::proportional(self.zoom * 1.5 * FONT_SIZE),
+                },
                 match style {
                     DrawStyle::Background => ui.style().visuals.weak_text_color(),
-                    DrawStyle::Considered => ui.style().visuals.strong_text_color(),
-                    DrawStyle::Playing => ui.style().visuals.strong_text_color(),
+                    DrawStyle::Considered | DrawStyle::Playing => {
+                        ui.style().visuals.strong_text_color()
+                    }
                 },
             );
 
@@ -292,7 +365,13 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 .clicked()
             {
                 let _ = forward.send(FromUi::Consider {
-                    coefficients: stack.target.to_vec(),
+                    coefficients: {
+                        let mut v = stack.target.to_vec();
+                        for i in 0..T::num_intervals() {
+                            v[i] -= self.reference.target[i];
+                        }
+                        v
+                    },
                     time: Instant::now(),
                 });
             }
@@ -307,14 +386,15 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
         }
 
         self.considered_notes.for_each_stack(|_, relative_stack| {
-            let mut stack = relative_stack.clone();
             match self.considered_notes.try_period_index() {
                 Some(period_index) => {
+                    let mut stack = relative_stack.clone();
                     stack.increment_at_index_pure(period_index, -stack.target[period_index]);
+                    stack.scaled_add(1, &self.reference);
+                    self.stacks_to_draw.insert(stack, DrawStyle::Considered);
                 }
-                None {} => {}
+                None {} => todo!(),
             }
-            self.stacks_to_draw.insert(stack, DrawStyle::Considered);
         });
 
         for (i, state) in self.active_notes.iter().enumerate() {
@@ -543,8 +623,8 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
 
 impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for LatticeWindow<T, N> {
     fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        egui::TopBottomPanel::bottom("lattice window bottom panel").show_inside(ui, |ui| {
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
+        egui::TopBottomPanel::bottom("lattice window zoom bottom panel").show_inside(ui, |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add(
                     egui::widgets::Slider::new(&mut self.zoom, 5.0..=100.0)
                         .smart_aim(false)
@@ -552,20 +632,47 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for Latt
                         .show_value(false)
                         .text("zoom"),
                 );
-                ui.separator();
-                for i in 0..T::num_intervals() {
-                    ui.add(
-                        egui::widgets::Slider::new(&mut self.background_stack_distances[i], 0..=6)
-                            .smart_aim(false)
-                            .text(format!("{}s", T::intervals()[i].name)),
-                    );
-                }
-                ui.label("show notes around the reference:");
             });
         });
+
+        egui::TopBottomPanel::bottom("lattice window bottom panel").show_inside(ui, |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
+                    for i in 0..T::num_intervals() {
+                        ui.add(
+                            egui::widgets::Slider::new(
+                                &mut self.background_stack_distances[i],
+                                0..=6,
+                            )
+                            .smart_aim(false)
+                            .text(format!("{}s", T::intervals()[i].name)),
+                        );
+                    }
+                    ui.label("show notes around the reference:");
+                });
+
+                ui.separator();
+
+                // egui::Grid::new("neighbourhood button grid").show(ui, |ui| {
+                //     ui.button("1");
+                //     // ui.button("2");
+                //     // ui.button("3");
+                //     // ui.button("4");
+                //     // ui.button("5");
+                //     // ui.end_row();
+                //     // ui.button("6");
+                //     // ui.button("7");
+                //     // ui.button("8");
+                //     // ui.button("9");
+                //     // ui.button("10");
+                // });
+            });
+        });
+
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
             egui::ScrollArea::both()
+                .stick_to_bottom(true)
                 .scroll_bar_rect(ui.clip_rect())
                 .show(ui, |ui| {
                     ui.allocate_space(vec2(
