@@ -1,9 +1,11 @@
 pub mod fivelimit {
+    use ndarray::ArrayView1;
+    use std::fmt;
+
     use crate::interval::{
         stack::Stack,
         stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     };
-    use std::fmt;
 
     #[derive(Clone, Copy)]
     pub enum BaseName {
@@ -15,6 +17,7 @@ pub mod fivelimit {
         A,
         B,
     }
+    use BaseName::*;
 
     impl std::fmt::Display for BaseName {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
@@ -43,8 +46,6 @@ pub mod fivelimit {
         pub accidental: Accidental,
     }
 
-    use ndarray::ArrayView1;
-    use BaseName::*;
     const JOHNSTON_BASE_ROW: [BaseName; 7] = [F, A, C, E, G, B, D];
 
     impl NoteName {
