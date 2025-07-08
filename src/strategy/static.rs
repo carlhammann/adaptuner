@@ -15,7 +15,6 @@ use crate::{
 
 pub struct StaticTuning<T: StackType, N: Neighbourhood<T>> {
     neighbourhood: N,
-    active_temperaments: Vec<bool>,
     tuning_reference: Reference<T>,
     reference: Stack<T>,
     tuning_up_to_date: [bool; 128],
@@ -25,12 +24,10 @@ impl<T: StackType, N: Neighbourhood<T>> StaticTuning<T, N> {
     pub fn new(
         tuning_reference: Reference<T>,
         initial_reference: Stack<T>,
-        active_temperaments: Vec<bool>,
         neighbourhood: N,
     ) -> Self {
         Self {
             neighbourhood,
-            active_temperaments,
             tuning_reference,
             reference: initial_reference,
             tuning_up_to_date: [false; 128],
@@ -123,17 +120,19 @@ impl<T: StackType + std::fmt::Debug, N: CompleteNeigbourhood<T> + PeriodicNeighb
         forward: &mpsc::Sender<FromProcess<T>>,
     ) -> bool {
         match msg {
-            ToStrategy::Consider { coefficients, time } => {
-                let inserted = self
-                    .neighbourhood
-                    .insert(&Stack::from_temperaments_and_target(
-                        &self.active_temperaments,
-                        coefficients,
-                    ))
-                    .clone();
-                self.retune_all(keys, tunings, time, forward);
+            ToStrategy::Consider {
+                coefficients,
+                temperaments,
+                time,
+            } => {
+                let considered_stack = match temperaments {
+                    None {} => &Stack::from_target(coefficients),
+                    Some(v) => &Stack::from_temperaments_and_target(&v, coefficients),
+                };
+                let inserted_stack = self.neighbourhood.insert(&considered_stack).clone();
+                self.retune_all(keys, tunings, time, forward); // todo can this be cheaper; retuning only what's needed?
                 let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Consider {
-                    stack: inserted,
+                    stack: inserted_stack,
                 }));
             }
             ToStrategy::ToggleTemperament { index, time } => todo!(),

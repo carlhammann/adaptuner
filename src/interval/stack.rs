@@ -39,6 +39,17 @@ pub fn semitones_from_target<T: StackType>(target: ArrayView1<StackCoeff>) -> Se
     res
 }
 
+/// Like [Stack::semitones], but for cases when you only have what would be the [Stack::actual]
+/// coefficients and not a whole [Stack].
+pub fn semitones_from_actual<T: StackType>(actual: ArrayView1<Ratio<StackCoeff>>) -> Semitones {
+    let mut res = 0.0;
+    for (i, &c) in actual.iter().enumerate() {
+        let (n, d) = c.into_raw();
+        res += T::intervals()[i].semitones * n as Semitones / d as Semitones;
+    }
+    res
+}
+
 impl<T: StackType> Stack<T> {
     pub fn from_target_and_actual(
         target: Array1<StackCoeff>,
@@ -163,12 +174,7 @@ impl<T: StackType> Stack<T> {
 
     /// Size of the interval described, in fractional semitones.
     pub fn semitones(&self) -> Semitones {
-        let mut res = 0.0;
-        for (i, &c) in self.actual.iter().enumerate() {
-            let (n, d) = c.into_raw();
-            res += T::intervals()[i].semitones * n as Semitones / d as Semitones;
-        }
-        res
+        semitones_from_actual::<T>(self.actual.view())
     }
 
     /// Like [Self::semitones], but for the target note.

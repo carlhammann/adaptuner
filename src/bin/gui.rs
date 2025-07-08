@@ -1,13 +1,12 @@
 use std::error::Error;
 
-use eframe::egui;
 use midi_msg::Channel;
 
 use adaptuner::{
-    backend::{pitchbend::{Pitchbend, PitchbendConfig}, pitchbend12::{Pitchbend12, Pitchbend12Config}},
+    backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
     gui::manywindows::ManyWindows,
     interval::{stack::Stack, stacktype::fivelimit::ConcreteFiveLimitStackType},
-    neighbourhood::{Neighbourhood, PeriodicCompleteAligned},
+    neighbourhood::PeriodicCompleteAligned,
     notename::NoteNameStyle,
     process::fromstrategy::ProcessFromStrategy,
     reference::Reference,
@@ -25,11 +24,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         0.0,
         -12.0 * (5.0 / 4.0 as f32).log2(),
         12.0 * (3.0 / 2.0 as f32).log2(),
-    ];
-    let interval_colours = vec![
-        egui::Color32::RED,
-        egui::Color32::GREEN,
-        egui::Color32::BLUE,
     ];
     let background_stack_distances = vec![0, 2, 2];
     let no_active_temperaments = vec![false; 2];
@@ -79,7 +73,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let static_tuning = StaticTuning::new(
         tuning_reference.clone(),
         initial_reference.clone(),
-        no_active_temperaments.clone(),
         initial_neighbourhood.clone(),
     );
 
@@ -98,7 +91,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 initial_neighbourhood,
                 notenamestyle,
                 interval_heights,
-                interval_colours,
                 background_stack_distances,
                 tx,
             )

@@ -119,6 +119,7 @@ pub enum FromProcess<T: StackType> {
 pub enum ToStrategy<T: StackType> {
     Consider {
         coefficients: Vec<StackCoeff>,
+        temperaments: Option<Vec<bool>>,
         time: Instant,
     },
     ToggleTemperament {
@@ -291,6 +292,7 @@ pub enum ToUi<T: StackType> {
 pub enum FromUi<T: StackType> {
     Consider {
         coefficients: Vec<StackCoeff>,
+        temperaments: Option<Vec<bool>>,
         time: Instant,
     },
     ToggleTemperament {
@@ -543,9 +545,10 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
         Option<ToMidiOut>,
     ) {
         match self {
-            FromUi::Consider { coefficients, time } => (
+            FromUi::Consider { coefficients, temperaments, time } => (
                 Some(ToProcess::ToStrategy(ToStrategy::Consider {
                     coefficients,
+                    temperaments,
                     time,
                 })),
                 None {},

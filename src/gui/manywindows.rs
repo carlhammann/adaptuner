@@ -45,7 +45,6 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
         considered_notes: N,
         notenamestyle: NoteNameStyle,
         interval_heights: Vec<f32>,
-        interval_colours: Vec<egui::Color32>,
         background_stack_distances: Vec<StackCoeff>,
         tx: mpsc::Sender<FromUi<T>>,
     ) -> Self {
@@ -57,9 +56,9 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
                 reference.clone(),
                 considered_notes,
                 10.0,
+                1.0,
                 notenamestyle,
                 interval_heights,
-                interval_colours,
                 background_stack_distances,
             ),
             input_connection_window: ConnectionWindow::new(),

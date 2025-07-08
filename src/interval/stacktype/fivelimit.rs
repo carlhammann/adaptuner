@@ -39,13 +39,13 @@ static INTERVALS: LazyLock<[Interval; 3]> = LazyLock::new(|| {
 static TEMPERAMENTS: LazyLock<[Temperament<StackCoeff>; 2]> = LazyLock::new(|| {
     [
         Temperament::new(
-            String::from("12edo"),
+            String::from("equal temperament"),
             arr2(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]).view(),
             arr2(&[[7, 0, 0], [1, 0, 0], [1, 0, 0]]).view(),
         )
         .unwrap(),
         Temperament::new(
-            String::from("1/4-comma meantone"),
+            String::from("1/4-comma meantone fifths"),
             arr2(&[[0, 4, 0], [1, 0, 0], [0, 0, 1]]).view(),
             arr2(&[[2, 0, 1], [1, 0, 0], [0, 0, 1]]).view(),
         )

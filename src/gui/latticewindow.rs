@@ -2,16 +2,25 @@ use std::{collections::HashMap, hash::Hash, sync::mpsc, time::Instant};
 
 use eframe::egui::{self, epaint, pos2, vec2};
 use midi_msg::Channel;
+use ndarray::Array1;
+use num_rational::Ratio;
 
 use crate::{
     interval::{
-        stack::{ScaledAdd, Stack},
+        stack::{semitones_from_actual, semitones_from_target, ScaledAdd, Stack},
         stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     },
     keystate::KeyState,
     msg::{FromUi, HandleMsgRef, ToUi},
     neighbourhood::Neighbourhood,
-    notename::NoteNameStyle,
+    notename::{
+        correction::{
+            self,
+            fivelimit::{Correction, CorrectionBasis},
+        },
+        johnston::fivelimit::NoteName,
+        NoteNameStyle,
+    },
     reference::Reference,
 };
 
@@ -47,6 +56,7 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
     considered_notes: N,
 
     zoom: f32,
+    flatten: f32,
 
     keyboard_channel: Channel,
     keyboard_velocity: u8,
@@ -56,14 +66,15 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
     /// The vertical sizes of intervals in the grid. (Horozontal sizes are determined by the size
     /// in equally tempered semitones.)
     interval_heights: Vec<f32>,
-    interval_colours: Vec<egui::Color32>,
 
     /// the distances around the reference note, by "base interval" up to which "background" stacks
     /// should be drawn.
     background_stack_distances: Vec<StackCoeff>,
 
     // lattice_elements: LatticeElements,
-    stacks_to_draw: HashMap<Stack<T>, DrawStyle>,
+    stacks_to_draw: HashMap<Array1<StackCoeff>, (Array1<Ratio<StackCoeff>>, DrawStyle)>,
+
+    tmp_temperaments: Vec<bool>,
 }
 
 #[derive(PartialEq)]
@@ -142,9 +153,9 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
         reference: Stack<T>,
         considered_notes: N,
         zoom: f32,
+        flatten: f32,
         notenamestyle: NoteNameStyle,
         interval_heights: Vec<f32>,
-        interval_colours: Vec<egui::Color32>,
         background_stack_distances: Vec<StackCoeff>,
     ) -> Self {
         let now = Instant::now();
@@ -157,17 +168,18 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             reference,
             considered_notes,
             zoom,
+            flatten,
             keyboard_channel: Channel::Ch1,
             keyboard_velocity: 127,
             notenamestyle,
             interval_heights,
-            interval_colours,
             background_stack_distances,
             stacks_to_draw: HashMap::new(),
+            tmp_temperaments: vec![false; T::num_temperaments()],
         }
     }
 
-    fn draw_stacks(&self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn draw_stacks(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let rect = ui.max_rect();
 
         let c4_hpos = rect.left()
@@ -175,11 +187,13 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
 
         // compute the reference position
         let mut max_y_offset = f32::MIN;
-        for (stack, _style) in self.stacks_to_draw.iter() {
+        for (target, (_actual, _style)) in self.stacks_to_draw.iter() {
             let y_offset = self.zoom * ET_SEMITONE_WIDTH * {
                 let mut y = 0.0;
-                for (i, &c) in stack.target.iter().enumerate() {
-                    y += (c - self.reference.target[i]) as f32 * self.interval_heights[i];
+                for (i, &c) in target.iter().enumerate() {
+                    y += (c - self.reference.target[i]) as f32
+                        * self.flatten
+                        * self.interval_heights[i];
                 }
                 y
             };
@@ -198,17 +212,20 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             .gray_out(ui.style().visuals.weak_text_color());
 
         // first, draw the vertical lines
-        for (stack, style) in self.stacks_to_draw.iter() {
+        for (target, (actual, style)) in self.stacks_to_draw.iter() {
             match style {
                 DrawStyle::Playing => {}
                 _ => continue,
             }
-            let hpos = c4_hpos + self.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32;
+            let hpos = c4_hpos
+                + self.zoom * ET_SEMITONE_WIDTH * semitones_from_actual::<T>(actual.into()) as f32;
             let vpos = reference_vpos
                 + self.zoom * ET_SEMITONE_WIDTH * {
                     let mut y = 0.0;
-                    for (i, &c) in stack.target.iter().enumerate() {
-                        y += (c - self.reference.target[i]) as f32 * self.interval_heights[i];
+                    for (i, &c) in target.iter().enumerate() {
+                        y += (c - self.reference.target[i]) as f32
+                            * self.flatten
+                            * self.interval_heights[i];
                     }
                     y
                 };
@@ -223,34 +240,37 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
         }
 
         // then, draw the grid lines
-        for (stack, style) in self.stacks_to_draw.iter() {
+        for (target, (actual, style)) in self.stacks_to_draw.iter() {
             let mut in_bounds = true;
             for i in 0..T::num_intervals() {
-                if (stack.target[i] - self.reference.target[i]).abs()
-                    > self.background_stack_distances[i]
+                if (target[i] - self.reference.target[i]).abs() > self.background_stack_distances[i]
                 {
                     in_bounds = false;
                     break;
                 }
             }
             if (*style == DrawStyle::Background) | in_bounds {
-                let start_hpos =
-                    c4_hpos + self.zoom * ET_SEMITONE_WIDTH * stack.target_semitones() as f32;
+                let start_hpos = c4_hpos
+                    + self.zoom
+                        * ET_SEMITONE_WIDTH
+                        * semitones_from_target::<T>(target.into()) as f32;
                 let start_vpos = reference_vpos
                     + self.zoom * ET_SEMITONE_WIDTH * {
                         let mut y = 0.0;
-                        for (i, &c) in stack.target.iter().enumerate() {
-                            y += (c - self.reference.target[i]) as f32 * self.interval_heights[i];
+                        for (i, &c) in target.iter().enumerate() {
+                            y += (c - self.reference.target[i]) as f32
+                                * self.flatten
+                                * self.interval_heights[i];
                         }
                         y
                     };
 
                 for i in 0..T::num_intervals() {
-                    if stack.target[i] == self.reference.target[i] {
+                    if target[i] == self.reference.target[i] {
                         continue;
                     }
 
-                    let inc = if stack.target[i] > self.reference.target[i] {
+                    let inc = if target[i] > self.reference.target[i] {
                         -1.0
                     } else {
                         1.0
@@ -258,7 +278,8 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
 
                     let end_hpos =
                         start_hpos + inc * self.zoom * T::intervals()[i].semitones as f32;
-                    let end_vpos = start_vpos + inc * self.zoom * self.interval_heights[i];
+                    let end_vpos =
+                        start_vpos + inc * self.zoom * self.flatten * self.interval_heights[i];
 
                     ui.painter().with_clip_rect(rect).line_segment(
                         [pos2(start_hpos, start_vpos), pos2(end_hpos, end_vpos)],
@@ -285,15 +306,18 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 for i in (0..T::num_intervals()).rev() {
                     let mut c = self.reference.target[i];
 
-                    let inc = if stack.target[i] > c { 1 } else { -1 };
+                    let inc = if target[i] > c { 1 } else { -1 };
 
-                    while c != stack.target[i] {
+                    while c != target[i] {
                         end_hpos += self.zoom
                             * ET_SEMITONE_WIDTH
                             * inc as f32
                             * T::intervals()[i].semitones as f32;
-                        end_vpos +=
-                            self.zoom * ET_SEMITONE_WIDTH * inc as f32 * self.interval_heights[i];
+                        end_vpos += self.zoom
+                            * ET_SEMITONE_WIDTH
+                            * inc as f32
+                            * self.flatten
+                            * self.interval_heights[i];
 
                         ui.painter().with_clip_rect(rect).line_segment(
                             [pos2(start_hpos, start_vpos), pos2(end_hpos, end_vpos)],
@@ -322,18 +346,21 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
         }
 
         // last, draw the note names, add the interaction zones
-        for (stack, style) in self.stacks_to_draw.iter() {
-            let hpos = c4_hpos + self.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32;
+        for (target, (actual, style)) in self.stacks_to_draw.iter() {
+            let hpos = c4_hpos
+                + self.zoom * ET_SEMITONE_WIDTH * semitones_from_actual::<T>(actual.into()) as f32;
             let vpos = reference_vpos
                 + self.zoom * ET_SEMITONE_WIDTH * {
                     let mut y = 0.0;
-                    for (i, &c) in stack.target.iter().enumerate() {
-                        y += (c - self.reference.target[i]) as f32 * self.interval_heights[i];
+                    for (i, &c) in target.iter().enumerate() {
+                        y += (c - self.reference.target[i]) as f32
+                            * self.flatten
+                            * self.interval_heights[i];
                     }
                     y
                 };
 
-            let name = stack.notename(&self.notenamestyle);
+            let name = NoteName::new_from_coeffs::<T>(target.into()).str_full(); // TODO make this depend on self.notenamestyle
 
             ui.painter().with_clip_rect(rect).text(
                 pos2(hpos, vpos),
@@ -353,27 +380,108 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 },
             );
 
-            if ui
-                .interact(
-                    egui::Rect::from_center_size(
-                        pos2(hpos, vpos),
-                        self.zoom * vec2(FONT_SIZE, FONT_SIZE),
+            let correction = Correction::from_target_and_actual::<T>(
+                target.into(),
+                actual.into(),
+                CorrectionBasis::DiesisSyntonic,
+            );
+
+            if !correction.is_zero() {
+                let correction_label = format!("{correction}");
+                ui.painter().with_clip_rect(rect).text(
+                    pos2(
+                        hpos,
+                        vpos + match style {
+                            DrawStyle::Background | DrawStyle::Considered => self.zoom * 0.5 * FONT_SIZE,
+                            DrawStyle::Playing => self.zoom * 0.75 * FONT_SIZE,
+                        },
                     ),
-                    egui::Id::new(name),
-                    egui::Sense::click(),
-                )
-                .clicked()
-            {
-                let _ = forward.send(FromUi::Consider {
-                    coefficients: {
-                        let mut v = stack.target.to_vec();
-                        for i in 0..T::num_intervals() {
-                            v[i] -= self.reference.target[i];
+                    egui::Align2::CENTER_TOP,
+                    correction_label,
+                    egui::FontId::proportional(self.zoom * 0.6 * FONT_SIZE),
+                    match style {
+                        DrawStyle::Background => ui.style().visuals.weak_text_color(),
+                        DrawStyle::Considered | DrawStyle::Playing => {
+                            ui.style().visuals.strong_text_color()
                         }
-                        v
                     },
-                    time: Instant::now(),
-                });
+                );
+            }
+
+            match style {
+                DrawStyle::Background => {
+                    if ui
+                        .interact(
+                            egui::Rect::from_center_size(
+                                pos2(hpos, vpos),
+                                self.zoom * vec2(FONT_SIZE, FONT_SIZE),
+                            ),
+                            egui::Id::new(name),
+                            egui::Sense::click(),
+                        )
+                        .clicked()
+                    {
+                        let _ = forward.send(FromUi::Consider {
+                            coefficients: {
+                                let mut v = target.to_vec();
+                                for i in 0..T::num_intervals() {
+                                    v[i] -= self.reference.target[i];
+                                }
+                                v
+                            },
+                            temperaments: None {},
+                            time: Instant::now(),
+                        });
+                    }
+                }
+                DrawStyle::Considered => {
+                    let popup_id = ui.make_persistent_id(&name);
+                    let response = ui.interact(
+                        egui::Rect::from_center_size(
+                            pos2(hpos, vpos),
+                            self.zoom * vec2(FONT_SIZE, FONT_SIZE),
+                        ),
+                        egui::Id::new(name),
+                        egui::Sense::click(),
+                    );
+                    if response.clicked() {
+                        for b in self.tmp_temperaments.iter_mut() {
+                            *b = false;
+                        }
+                        ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                    }
+                    egui::popup::popup_below_widget(
+                        ui,
+                        popup_id,
+                        &response,
+                        egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+                        |ui| {
+                            ui.set_min_width(200.0);
+                            for i in 0..T::num_temperaments() {
+                                ui.checkbox(
+                                    &mut self.tmp_temperaments[i],
+                                    &T::temperaments()[i].name,
+                                );
+                            }
+
+                            if ui.button("re-temper").clicked() {
+                                let _ = forward.send(FromUi::Consider {
+                                    coefficients: {
+                                        let mut v = target.to_vec();
+                                        for i in 0..T::num_intervals() {
+                                            v[i] -= self.reference.target[i];
+                                        }
+                                        v
+                                    },
+                                    temperaments: Some(self.tmp_temperaments.clone()),
+                                    time: Instant::now(),
+                                });
+                                ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                            }
+                        },
+                    );
+                }
+                DrawStyle::Playing => {}
             }
         }
     }
@@ -382,7 +490,8 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
         self.stacks_to_draw.clear();
 
         for stack in PureStacksAround::new(&self.background_stack_distances, &self.reference) {
-            self.stacks_to_draw.insert(stack, DrawStyle::Background);
+            self.stacks_to_draw
+                .insert(stack.target, (stack.actual, DrawStyle::Background));
         }
 
         self.considered_notes.for_each_stack(|_, relative_stack| {
@@ -391,7 +500,8 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                     let mut stack = relative_stack.clone();
                     stack.increment_at_index_pure(period_index, -stack.target[period_index]);
                     stack.scaled_add(1, &self.reference);
-                    self.stacks_to_draw.insert(stack, DrawStyle::Considered);
+                    self.stacks_to_draw
+                        .insert(stack.target, (stack.actual, DrawStyle::Considered));
                 }
                 None {} => todo!(),
             }
@@ -399,8 +509,10 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
 
         for (i, state) in self.active_notes.iter().enumerate() {
             if state.is_sounding() {
-                self.stacks_to_draw
-                    .insert(self.tunings[i].clone(), DrawStyle::Playing);
+                self.stacks_to_draw.insert(
+                    self.tunings[i].target.clone(),
+                    (self.tunings[i].actual.clone(), DrawStyle::Playing),
+                );
             }
         }
 
@@ -600,11 +712,11 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
         self.zoom * {
             let mut min_y_offset = f32::MAX;
             let mut max_y_offset = f32::MIN;
-            for (stack, _style) in self.stacks_to_draw.iter() {
+            for (target, (_actual, _style)) in self.stacks_to_draw.iter() {
                 let y_offset = ET_SEMITONE_WIDTH * {
                     let mut y = 0.0;
-                    for (i, &c) in stack.target.iter().enumerate() {
-                        y += c as f32 * self.interval_heights[i];
+                    for (i, &c) in target.iter().enumerate() {
+                        y += c as f32 * self.flatten * self.interval_heights[i];
                     }
                     y
                 };
@@ -631,6 +743,12 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for Latt
                         .logarithmic(true)
                         .show_value(false)
                         .text("zoom"),
+                );
+                ui.add(
+                    egui::widgets::Slider::new(&mut self.flatten, 0.0..=1.0)
+                        .smart_aim(false)
+                        .show_value(false)
+                        .text("height"),
                 );
             });
         });

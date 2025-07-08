@@ -1,13 +1,13 @@
 pub mod fivelimit {
     use std::{fmt, sync::LazyLock};
 
-    use ndarray::{arr1, arr2, Array2};
+    use ndarray::{arr1, arr2, Array2, ArrayView1};
     use num_rational::Ratio;
     use num_traits::Zero;
 
     use crate::interval::{
         base::Semitones,
-        stack::Stack,
+        stack::{semitones_from_actual, semitones_from_target, Stack},
         stacktype::r#trait::{FiveLimitStackType, StackCoeff},
     };
 
@@ -51,14 +51,32 @@ pub mod fivelimit {
     });
 
     impl Correction {
+        pub fn is_zero(&self) -> bool {
+            match self {
+                Correction::Semitones(x) => *x == 0.0,
+                Correction::DiesisSyntonic([a, b]) => a.is_zero() & b.is_zero(),
+                Correction::PythagoreanSyntonic([a, b]) => a.is_zero() & b.is_zero(),
+                Correction::PythagoreanDiesis([a, b]) => a.is_zero() & b.is_zero(),
+            }
+        }
+
         pub fn new<T: FiveLimitStackType>(stack: &Stack<T>, basis: CorrectionBasis) -> Self {
+            Self::from_target_and_actual::<T>((&stack.target).into(), (&stack.actual).into(), basis)
+        }
+
+        pub fn from_target_and_actual<T: FiveLimitStackType>(
+            target: ArrayView1<StackCoeff>,
+            actual: ArrayView1<Ratio<StackCoeff>>,
+            basis: CorrectionBasis,
+        ) -> Self {
             let offset = arr1(&[
-                stack.actual[T::octave_index()] - stack.target[T::octave_index()],
-                stack.actual[T::fifth_index()] - stack.target[T::fifth_index()],
-                stack.actual[T::third_index()] - stack.target[T::third_index()],
+                actual[T::octave_index()] - target[T::octave_index()],
+                actual[T::fifth_index()] - target[T::fifth_index()],
+                actual[T::third_index()] - target[T::third_index()],
             ]);
 
-            let the_semitones = || stack.semitones() - stack.target_semitones();
+            let the_semitones =
+                || semitones_from_actual::<T>(actual) - semitones_from_target::<T>(target);
 
             match basis {
                 CorrectionBasis::PythagoreanDiesis => {
@@ -93,28 +111,30 @@ pub mod fivelimit {
 
     impl fmt::Display for Correction {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
+            let mut write_fraction = |x: &Ratio<StackCoeff>, suffix: &str| {
+                if x.is_zero() {
+                    return Ok(());
+                }
+                if *x > Ratio::from_integer(0) {
+                    write!(f, "+{x}{suffix}")?;
+                } else {
+                    write!(f, "-{}{suffix}", -x)?;
+                }
+                Ok(())
+            };
             match self {
                 Correction::Semitones(s) => write!(f, "{:.02} ct", s * 100.0),
                 Correction::DiesisSyntonic([d, s]) => {
-                    if *s > 0.into() {
-                        write!(f, "{d} d + {s} s")
-                    } else {
-                        write!(f, "{d} d - {} s", -s)
-                    }
+                    write_fraction(d, "d")?;
+                    write_fraction(s, "s")
                 }
                 Correction::PythagoreanSyntonic([p, s]) => {
-                    if *s > 0.into() {
-                        write!(f, "{p} p + {s} s")
-                    } else {
-                        write!(f, "{p} p - {} s", -s)
-                    }
+                    write_fraction(p, "p")?;
+                    write_fraction(s, "s")
                 }
                 Correction::PythagoreanDiesis([p, d]) => {
-                    if *d > 0.into() {
-                        write!(f, "{p} p + {d} d")
-                    } else {
-                        write!(f, "{p} p - {} d", -d)
-                    }
+                    write_fraction(p, "p")?;
+                    write_fraction(d, "d")
                 }
             }
         }
