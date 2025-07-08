@@ -4,7 +4,7 @@ use eframe::egui;
 use midi_msg::Channel;
 
 use adaptuner::{
-    backend::pitchbend::{Pitchbend, PitchbendConfig},
+    backend::{pitchbend::{Pitchbend, PitchbendConfig}, pitchbend12::{Pitchbend12, Pitchbend12Config}},
     gui::manywindows::ManyWindows,
     interval::{stack::Stack, stacktype::fivelimit::ConcreteFiveLimitStackType},
     neighbourhood::{Neighbourhood, PeriodicCompleteAligned},
@@ -49,8 +49,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     ]);
     let initial_reference = Stack::new_zero();
 
-    let backend_config = PitchbendConfig {
-        channels: vec![
+    let backend_config = Pitchbend12Config {
+        channels: [
             Channel::Ch1,
             Channel::Ch2,
             Channel::Ch3,
@@ -60,13 +60,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             Channel::Ch7,
             Channel::Ch8,
             Channel::Ch9,
-            Channel::Ch10,
+            // Channel::Ch10,
             Channel::Ch11,
             Channel::Ch12,
             Channel::Ch13,
-            Channel::Ch14,
-            Channel::Ch15,
-            Channel::Ch16,
+            // Channel::Ch14,
+            // Channel::Ch15,
+            // Channel::Ch16,
         ],
         bend_range: 2.0,
     };
@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         midi_in,
         midi_out,
         || ProcessFromStrategy::new(static_tuning),
-        move || Pitchbend::new(&backend_config),
+        move || Pitchbend12::new(&backend_config),
         move |ctx, tx| {
             ManyWindows::new(
                 ctx,

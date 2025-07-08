@@ -1,3 +1,5 @@
+//! This module is buggy, don't use it for now!
+//!
 //! This backend uses Pitchbends, but doesn't assign pitch classes to channels before the fact. It
 //! therefore makes it possible to tune as many notes independently as there are channels (i.e. at
 //! most
