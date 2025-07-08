@@ -74,6 +74,8 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
     // lattice_elements: LatticeElements,
     stacks_to_draw: HashMap<Array1<StackCoeff>, (Array1<Ratio<StackCoeff>>, DrawStyle)>,
 
+    correction_basis: CorrectionBasis,
+
     tmp_temperaments: Vec<bool>,
 }
 
@@ -175,6 +177,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             interval_heights,
             background_stack_distances,
             stacks_to_draw: HashMap::new(),
+            correction_basis: CorrectionBasis::DiesisSyntonic,
             tmp_temperaments: vec![false; T::num_temperaments()],
         }
     }
@@ -383,7 +386,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             let correction = Correction::from_target_and_actual::<T>(
                 target.into(),
                 actual.into(),
-                CorrectionBasis::DiesisSyntonic,
+                self.correction_basis,
             );
 
             if !correction.is_zero() {
@@ -392,7 +395,9 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                     pos2(
                         hpos,
                         vpos + match style {
-                            DrawStyle::Background | DrawStyle::Considered => self.zoom * 0.5 * FONT_SIZE,
+                            DrawStyle::Background | DrawStyle::Considered => {
+                                self.zoom * 0.5 * FONT_SIZE
+                            }
                             DrawStyle::Playing => self.zoom * 0.75 * FONT_SIZE,
                         },
                     ),
@@ -752,6 +757,34 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for Latt
                 );
             });
         });
+
+        egui::TopBottomPanel::bottom("lattice window correction style bottom panel").show_inside(
+            ui,
+            |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.selectable_value(
+                        &mut self.correction_basis,
+                        CorrectionBasis::Semitones,
+                        "cent values",
+                    );
+                    ui.selectable_value(
+                        &mut self.correction_basis,
+                        CorrectionBasis::DiesisSyntonic,
+                        "diesis and syntonic comma",
+                    );
+                    ui.selectable_value(
+                        &mut self.correction_basis,
+                        CorrectionBasis::PythagoreanDiesis,
+                        "diesis and pythagorean comma",
+                    );
+                    ui.selectable_value(
+                        &mut self.correction_basis,
+                        CorrectionBasis::PythagoreanSyntonic,
+                        "syntonic and pyhtagorean commas",
+                    );
+                });
+            },
+        );
 
         egui::TopBottomPanel::bottom("lattice window bottom panel").show_inside(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {

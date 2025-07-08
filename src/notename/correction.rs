@@ -19,8 +19,9 @@ pub mod fivelimit {
         PythagoreanDiesis([Ratio<StackCoeff>; 2]),
     }
 
-    #[derive(Clone, Copy)]
+    #[derive(PartialEq, Clone, Copy)]
     pub enum CorrectionBasis {
+        Semitones,
         DiesisSyntonic,
         PythagoreanSyntonic,
         PythagoreanDiesis,
@@ -79,6 +80,7 @@ pub mod fivelimit {
                 || semitones_from_actual::<T>(actual) - semitones_from_target::<T>(target);
 
             match basis {
+                CorrectionBasis::Semitones => Self::Semitones(the_semitones()),
                 CorrectionBasis::PythagoreanDiesis => {
                     let coeffs = PYTHAGOREAN_DIESIS.dot(&offset);
                     if coeffs[0].is_zero() {
@@ -123,7 +125,15 @@ pub mod fivelimit {
                 Ok(())
             };
             match self {
-                Correction::Semitones(s) => write!(f, "{:.02} ct", s * 100.0),
+                Correction::Semitones(s) => {
+                    if *s > 0.0 {
+                        write!(f, "+{:.02}ct", s * 100.0)
+                    } else if *s < 0.0 {
+                        write!(f, "-{:.02}ct", -s * 100.0)
+                    } else {
+                        Ok(())
+                    }
+                }
                 Correction::DiesisSyntonic([d, s]) => {
                     write_fraction(d, "d")?;
                     write_fraction(s, "s")
