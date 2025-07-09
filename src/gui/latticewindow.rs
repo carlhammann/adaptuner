@@ -24,7 +24,7 @@ use crate::{
     reference::Reference,
 };
 
-use super::r#trait::GuiShow;
+use super::{common::correction_basis_chooser, r#trait::GuiShow};
 
 // The following measurements are all in units of [LatticeWindow::zoom]
 
@@ -804,28 +804,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for Latt
 
         egui::TopBottomPanel::bottom("lattice window bottom panel").show_inside(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.selectable_value(
-                        &mut self.correction_basis,
-                        CorrectionBasis::Semitones,
-                        "cent values",
-                    );
-                    ui.selectable_value(
-                        &mut self.correction_basis,
-                        CorrectionBasis::DiesisSyntonic,
-                        "diesis and syntonic comma",
-                    );
-                    ui.selectable_value(
-                        &mut self.correction_basis,
-                        CorrectionBasis::PythagoreanDiesis,
-                        "diesis and pythagorean comma",
-                    );
-                    ui.selectable_value(
-                        &mut self.correction_basis,
-                        CorrectionBasis::PythagoreanSyntonic,
-                        "syntonic and pyhtagorean commas",
-                    );
-                });
+                correction_basis_chooser(ui, &mut self.correction_basis);
 
                 ui.separator();
 

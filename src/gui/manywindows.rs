@@ -3,11 +3,7 @@ use std::{hash::Hash, sync::mpsc};
 use eframe::{self, egui};
 
 use crate::{
-    // connections::{MidiInputOrConnection, MidiOutputOrConnection},
-    interval::{
-        stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
-    },
+    interval::stacktype::r#trait::{FiveLimitStackType, StackType},
     msg::{FromUi, HandleMsg, HandleMsgRef, ToUi},
     neighbourhood::Neighbourhood,
     notename::NoteNameStyle,
@@ -17,10 +13,10 @@ use crate::{
 use super::{
     connectionwindow::{ConnectionWindow, Input, Output},
     latencywindow::LatencyWindow,
-    latticewindow::{self, LatticeWindow},
+    latticewindow::{LatticeWindow, LatticeWindowConfig},
     notewindow::NoteWindow,
     r#trait::GuiShow,
-    referencewindow::ReferenceWindow,
+    referencewindow::{ReferenceWindow, ReferenceWindowConfig},
     tuningreferencewindow::TuningReferenceWindow,
 };
 
@@ -48,16 +44,16 @@ pub struct ManyWindows<T: StackType, N: Neighbourhood<T>> {
 
 impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
     pub fn new(
-        latticewindow_config: latticewindow::LatticeWindowConfig<T, N>,
+        lattice_window_config: LatticeWindowConfig<T, N>,
+        reference_window_config: ReferenceWindowConfig<T>,
         latency_window_length: usize,
         tuning_reference: Reference<T>,
-        reference: Stack<T>,
         notenamestyle: NoteNameStyle,
         ctx: &egui::Context,
         tx: mpsc::Sender<FromUi<T>>,
     ) -> Self {
         Self {
-            latticewindow: LatticeWindow::new(latticewindow_config),
+            latticewindow: LatticeWindow::new(lattice_window_config),
             input_connection_window: ConnectionWindow::new(),
             output_connection_window: ConnectionWindow::new(),
             show_connection_window: true,
@@ -65,7 +61,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
             soft_pedal_is_set_reference: true,
             tuning_reference_window: TuningReferenceWindow::new(tuning_reference, notenamestyle),
             show_tuning_reference_window: false,
-            reference_window: ReferenceWindow::new(reference, notenamestyle),
+            reference_window: ReferenceWindow::new(reference_window_config),
             show_reference_window: false,
             latencywindow: LatencyWindow::new(latency_window_length),
             note_window: NoteWindow::new(ctx),
@@ -84,6 +80,7 @@ impl<T: FiveLimitStackType, N: Neighbourhood<T>> HandleMsg<ToUi<T>, FromUi<T>>
         self.input_connection_window.handle_msg_ref(&msg, forward);
         self.output_connection_window.handle_msg_ref(&msg, forward);
         self.latencywindow.handle_msg_ref(&msg, forward);
+        self.reference_window.handle_msg_ref(&msg, forward);
     }
 }
 

@@ -4,7 +4,10 @@ use midi_msg::Channel;
 
 use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
-    gui::{latticewindow::LatticeWindowConfig, manywindows::ManyWindows},
+    gui::{
+        latticewindow::LatticeWindowConfig, manywindows::ManyWindows,
+        referencewindow::ReferenceWindowConfig,
+    },
     interval::{stack::Stack, stacktype::fivelimit::ConcreteFiveLimitStackType},
     neighbourhood::{Neighbourhood, PeriodicCompleteAligned},
     notename::NoteNameStyle,
@@ -68,9 +71,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         bend_range: 2.0,
     };
 
-    let latticewindow_config = LatticeWindowConfig {
+    let lattice_window_config = LatticeWindowConfig {
         tuning_reference: tuning_reference.clone(),
-        active_temperaments: no_active_temperaments,
+        active_temperaments: no_active_temperaments.clone(),
         reference: initial_reference.clone(),
         initial_considered_notes: initial_neighbourhoods[0].clone(),
         initial_neighbourhood_name: initial_neighbourhoods[0].name().into(),
@@ -82,6 +85,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         background_stack_distances,
     };
 
+    let reference_window_config = ReferenceWindowConfig {
+        reference: initial_reference.clone(),
+        applied_temperaments: no_active_temperaments,
+        notenamestyle,
+    };
+
     let latency_window_length = 20;
 
     let midi_in = midir::MidiInput::new("adaptuner input")?;
@@ -90,7 +99,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let static_tuning = StaticTuning::new(
         tuning_reference.clone(),
         initial_reference.clone(),
-        initial_neighbourhoods
+        initial_neighbourhoods,
     );
 
     let _runstate = RunState::new(
@@ -100,10 +109,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         move || Pitchbend12::new(&backend_config),
         move |ctx, tx| {
             ManyWindows::new(
-                latticewindow_config,
+                lattice_window_config,
+                reference_window_config,
                 latency_window_length,
                 tuning_reference,
-                initial_reference,
                 notenamestyle,
                 ctx,
                 tx,
