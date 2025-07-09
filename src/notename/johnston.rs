@@ -59,23 +59,6 @@ pub mod fivelimit {
             )
         }
 
-        /// like [Self::new], but doesn't need a whole [Stack] as an argument, only the
-        /// [Stack::target] coefficients
-        pub fn new_from_coeffs<T: FiveLimitStackType>(coeffs: ArrayView1<StackCoeff>) -> Self {
-            let octaves = coeffs[T::octave_index()];
-            let fifths = coeffs[T::fifth_index()];
-            let thirds = coeffs[T::third_index()];
-            let ix = 2 + 2 * fifths + thirds;
-            NoteName {
-                basename: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],
-                accidental: Accidental {
-                    sharpflat: (1 + fifths + 4 * thirds).div_euclid(7),
-                    plusminus: ix.div_euclid(7),
-                },
-                octave: 4 + octaves + (4 * fifths + 2 * thirds).div_euclid(7),
-            }
-        }
-
         /// like new, but uses the [Stack::actual] instead of the [Stack::target]. Fractions are
         /// rounded in an unspecified way.
         ///
@@ -111,6 +94,14 @@ pub mod fivelimit {
                 fifths = s.target[fifth_index];
                 thirds = s.target[third_index];
             }
+            Self::new_from_values(octaves, fifths, thirds)
+        }
+
+        pub fn new_from_values(
+            octaves: StackCoeff,
+            fifths: StackCoeff,
+            thirds: StackCoeff,
+        ) -> Self {
             let ix = 2 + 2 * fifths + thirds;
             NoteName {
                 basename: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],

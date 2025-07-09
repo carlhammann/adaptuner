@@ -363,7 +363,12 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                     y
                 };
 
-            let name = NoteName::new_from_coeffs::<T>(target.into()).str_full(); // TODO make this depend on self.notenamestyle
+            let name = NoteName::new_from_values(
+                target[T::octave_index()],
+                target[T::fifth_index()],
+                target[T::third_index()],
+            )
+            .str_full(); // TODO make this depend on self.notenamestyle
 
             ui.painter().with_clip_rect(rect).text(
                 pos2(hpos, vpos),
@@ -411,6 +416,38 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                         }
                     },
                 );
+
+                if actual.iter().all(|x| x.is_integer()) {
+                    let actual_name = format!(
+                        "={}",
+                        NoteName::new_from_values(
+                            actual[T::octave_index()].to_integer(),
+                            actual[T::fifth_index()].to_integer(),
+                            actual[T::third_index()].to_integer(),
+                        )
+                        .str_full() // TODO make this depend on self.notenamestyle
+                    );
+                    ui.painter().with_clip_rect(rect).text(
+                        pos2(
+                            hpos,
+                            vpos + match style {
+                                DrawStyle::Background | DrawStyle::Considered => {
+                                    self.zoom * (0.5 + 0.6) * FONT_SIZE
+                                }
+                                DrawStyle::Playing => self.zoom * (0.75 + 0.6) * FONT_SIZE,
+                            },
+                        ),
+                        egui::Align2::CENTER_TOP,
+                        actual_name,
+                        egui::FontId::proportional(self.zoom * 0.6 * FONT_SIZE),
+                        match style {
+                            DrawStyle::Background => ui.style().visuals.weak_text_color(),
+                            DrawStyle::Considered | DrawStyle::Playing => {
+                                ui.style().visuals.strong_text_color()
+                            }
+                        },
+                    );
+                }
             }
 
             match style {

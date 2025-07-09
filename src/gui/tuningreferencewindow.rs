@@ -56,7 +56,11 @@ impl<T: FiveLimitStackType> GuiShow<T> for TuningReferenceWindow<T> {
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             ui.label(format!(
                 "New reference is {} at",
-                NoteName::new_from_coeffs::<T>(self.new_coeffs.view())
+                NoteName::new_from_values(
+                    self.new_coeffs[T::octave_index()],
+                    self.new_coeffs[T::fifth_index()],
+                    self.new_coeffs[T::third_index()],
+                )
             ));
 
             let mut new_freq = frequency_from_semitones(self.new_semitones);

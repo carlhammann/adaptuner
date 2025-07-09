@@ -50,7 +50,11 @@ impl<T: FiveLimitStackType> GuiShow<T> for ReferenceWindow<T> {
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             ui.label(format!(
                 "New reference is {}",
-                NoteName::new_from_coeffs::<T>(self.new_coeffs.view())
+                NoteName::new_from_values(
+                    self.new_coeffs[T::octave_index()],
+                    self.new_coeffs[T::fifth_index()],
+                    self.new_coeffs[T::third_index()],
+                )
             ));
         });
 
