@@ -1,5 +1,4 @@
 pub mod fivelimit {
-    use ndarray::ArrayView1;
     use std::fmt;
 
     use crate::interval::{

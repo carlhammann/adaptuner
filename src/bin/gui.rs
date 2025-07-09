@@ -73,14 +73,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let lattice_window_config = LatticeWindowConfig {
         tuning_reference: tuning_reference.clone(),
-        active_temperaments: no_active_temperaments.clone(),
         reference: initial_reference.clone(),
         initial_considered_notes: initial_neighbourhoods[0].clone(),
         initial_neighbourhood_name: initial_neighbourhoods[0].name().into(),
         initial_neighbourhood_index: 0,
         zoom: 10.0,
         flatten: 1.0,
-        notenamestyle,
         interval_heights,
         background_stack_distances,
     };

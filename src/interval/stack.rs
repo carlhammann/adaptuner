@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, ops};
 
-use ndarray::{Array1, ArrayView1, AsArray};
+use ndarray::{Array1, ArrayView1};
 use num_rational::Ratio;
 use num_traits::Zero;
 use serde_derive::{Deserialize, Serialize};

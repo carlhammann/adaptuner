@@ -43,7 +43,7 @@ impl<T: StackType> ReferenceWindow<T> {
 }
 
 impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceWindow<T> {
-    fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         ui.label(format!(
             "Current reference is {}   {}{}",
             self.reference.notename(&self.notenamestyle),

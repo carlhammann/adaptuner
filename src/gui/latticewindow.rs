@@ -1,6 +1,6 @@
 use std::{collections::HashMap, hash::Hash, sync::mpsc, time::Instant};
 
-use eframe::egui::{self, epaint, pos2, vec2};
+use eframe::egui::{self, pos2, vec2};
 use midi_msg::Channel;
 use ndarray::Array1;
 use num_rational::Ratio;
@@ -16,7 +16,6 @@ use crate::{
     notename::{
         correction::fivelimit::{Correction, CorrectionBasis},
         johnston::fivelimit::NoteName,
-        NoteNameStyle,
     },
     reference::Reference,
 };
@@ -43,7 +42,6 @@ const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
 
 pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
     tuning_reference: Reference<T>,
-    active_temperaments: Vec<bool>,
 
     active_notes: [KeyState; 128],
     pedal_hold: [bool; 16],
@@ -60,8 +58,6 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
 
     keyboard_channel: Channel,
     keyboard_velocity: u8,
-
-    notenamestyle: NoteNameStyle,
 
     /// The vertical sizes of intervals in the grid. (Horozontal sizes are determined by the size
     /// in equally tempered semitones.)
@@ -85,6 +81,7 @@ enum DrawStyle {
     Background,
     Considered,
     Playing,
+    Antenna,
 }
 
 struct PureStacksAround<'a, T: StackType> {
@@ -127,38 +124,14 @@ impl<'a, T: StackType> Iterator for PureStacksAround<'a, T> {
     }
 }
 
-fn tipped_line(
-    start: egui::Pos2,
-    end: egui::Pos2,
-    width: f32,
-    color: egui::Color32,
-) -> egui::Shape {
-    let v = (end - start).normalized() * width.min(end.distance(start) / 2.0);
-    let w = v.clone().rot90();
-    egui::Shape::convex_polygon(
-        vec![
-            start,
-            start + v + w,
-            end - v + w,
-            end,
-            end - v - w,
-            start + v - w,
-        ],
-        color,
-        epaint::PathStroke::NONE,
-    )
-}
-
 pub struct LatticeWindowConfig<T: StackType, N: Neighbourhood<T>> {
     pub tuning_reference: Reference<T>,
-    pub active_temperaments: Vec<bool>,
     pub reference: Stack<T>,
     pub initial_considered_notes: N,
     pub initial_neighbourhood_name: String,
     pub initial_neighbourhood_index: usize,
     pub zoom: f32,
     pub flatten: f32,
-    pub notenamestyle: NoteNameStyle,
     pub interval_heights: Vec<f32>,
     pub background_stack_distances: Vec<StackCoeff>,
 }
@@ -168,7 +141,6 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
         let now = Instant::now();
         Self {
             tuning_reference: config.tuning_reference,
-            active_temperaments: config.active_temperaments,
             active_notes: core::array::from_fn(|_| KeyState::new(now)),
             pedal_hold: [false; 16],
             tunings: core::array::from_fn(|_| Stack::new_zero()),
@@ -180,8 +152,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             zoom: config.zoom,
             flatten: config.flatten,
             keyboard_channel: Channel::Ch1,
-            keyboard_velocity: 127,
-            notenamestyle: config.notenamestyle,
+            keyboard_velocity: 64,
             interval_heights: config.interval_heights,
             background_stack_distances: config.background_stack_distances,
             stacks_to_draw: HashMap::new(),
@@ -227,12 +198,13 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             .visuals
             .gray_out(ui.style().visuals.weak_text_color());
 
-        // first, draw the vertical lines
+        // first, draw the vertical lines and highlight circles
         for (target, (actual, style)) in self.stacks_to_draw.iter() {
             match style {
-                DrawStyle::Playing => {}
+                DrawStyle::Playing | DrawStyle::Antenna => {}
                 _ => continue,
             }
+
             let hpos = c4_hpos
                 + self.zoom * ET_SEMITONE_WIDTH * semitones_from_actual::<T>(actual.into()) as f32;
             let vpos = reference_vpos
@@ -245,6 +217,15 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                     }
                     y
                 };
+
+            if *style == DrawStyle::Playing {
+                ui.painter().with_clip_rect(rect).circle_filled(
+                    pos2(hpos, vpos),
+                    self.zoom * FONT_SIZE,
+                    ui.style().visuals.selection.bg_fill,
+                );
+            }
+
             ui.painter().with_clip_rect(rect).vline(
                 hpos,
                 egui::Rangef {
@@ -255,8 +236,8 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             );
         }
 
-        // then, draw the grid lines
-        for (target, (actual, style)) in self.stacks_to_draw.iter() {
+        // then, draw the grid lines. They won't be affected by temperaments
+        for (target, (_actual, style)) in self.stacks_to_draw.iter() {
             let mut in_bounds = true;
             for i in 0..T::num_intervals() {
                 if (target[i] - self.reference.target[i]).abs() > self.background_stack_distances[i]
@@ -381,20 +362,22 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 target[T::fifth_index()],
                 target[T::third_index()],
             )
-            .str_full(); // TODO make this depend on self.notenamestyle
+            .str_class(); // TODO make this depend on self.notenamestyle
 
             ui.painter().with_clip_rect(rect).text(
                 pos2(hpos, vpos),
                 egui::Align2::CENTER_CENTER,
                 &name,
                 match style {
-                    DrawStyle::Background | DrawStyle::Considered => {
+                    DrawStyle::Background | DrawStyle::Considered | DrawStyle::Antenna => {
                         egui::FontId::proportional(self.zoom * FONT_SIZE)
                     }
                     DrawStyle::Playing => egui::FontId::proportional(self.zoom * 1.5 * FONT_SIZE),
                 },
                 match style {
-                    DrawStyle::Background => ui.style().visuals.weak_text_color(),
+                    DrawStyle::Background | DrawStyle::Antenna => {
+                        ui.style().visuals.weak_text_color()
+                    }
                     DrawStyle::Considered | DrawStyle::Playing => {
                         ui.style().visuals.strong_text_color()
                     }
@@ -413,7 +396,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                     pos2(
                         hpos,
                         vpos + match style {
-                            DrawStyle::Background | DrawStyle::Considered => {
+                            DrawStyle::Background | DrawStyle::Considered | DrawStyle::Antenna => {
                                 self.zoom * 0.5 * FONT_SIZE
                             }
                             DrawStyle::Playing => self.zoom * 0.75 * FONT_SIZE,
@@ -423,7 +406,9 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                     correction_label,
                     egui::FontId::proportional(self.zoom * 0.6 * FONT_SIZE),
                     match style {
-                        DrawStyle::Background => ui.style().visuals.weak_text_color(),
+                        DrawStyle::Background | DrawStyle::Antenna => {
+                            ui.style().visuals.weak_text_color()
+                        }
                         DrawStyle::Considered | DrawStyle::Playing => {
                             ui.style().visuals.strong_text_color()
                         }
@@ -438,15 +423,15 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                             actual[T::fifth_index()].to_integer(),
                             actual[T::third_index()].to_integer(),
                         )
-                        .str_full() // TODO make this depend on self.notenamestyle
+                        .str_class() // TODO make this depend on self.notenamestyle
                     );
                     ui.painter().with_clip_rect(rect).text(
                         pos2(
                             hpos,
                             vpos + match style {
-                                DrawStyle::Background | DrawStyle::Considered => {
-                                    self.zoom * (0.5 + 0.6) * FONT_SIZE
-                                }
+                                DrawStyle::Background
+                                | DrawStyle::Considered
+                                | DrawStyle::Antenna => self.zoom * (0.5 + 0.6) * FONT_SIZE,
                                 DrawStyle::Playing => self.zoom * (0.75 + 0.6) * FONT_SIZE,
                             },
                         ),
@@ -454,7 +439,9 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                         actual_name,
                         egui::FontId::proportional(self.zoom * 0.6 * FONT_SIZE),
                         match style {
-                            DrawStyle::Background => ui.style().visuals.weak_text_color(),
+                            DrawStyle::Background | DrawStyle::Antenna => {
+                                ui.style().visuals.weak_text_color()
+                            }
                             DrawStyle::Considered | DrawStyle::Playing => {
                                 ui.style().visuals.strong_text_color()
                             }
@@ -463,7 +450,9 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 }
             }
 
+            // add the interaction zones
             match style {
+                DrawStyle::Antenna => {}
                 DrawStyle::Background => {
                     if ui
                         .interact(
@@ -471,7 +460,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                                 pos2(hpos, vpos),
                                 self.zoom * vec2(FONT_SIZE, FONT_SIZE),
                             ),
-                            egui::Id::new(name),
+                            egui::Id::new(target),
                             egui::Sense::click(),
                         )
                         .clicked()
@@ -490,13 +479,13 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                     }
                 }
                 DrawStyle::Considered | DrawStyle::Playing => {
-                    let popup_id = ui.make_persistent_id(&name);
+                    let popup_id = ui.make_persistent_id(target);
                     let response = ui.interact(
                         egui::Rect::from_center_size(
                             pos2(hpos, vpos),
                             self.zoom * vec2(FONT_SIZE, FONT_SIZE),
                         ),
-                        egui::Id::new(name),
+                        egui::Id::new(target),
                         egui::Sense::click(),
                     );
                     if response.clicked() {
@@ -548,26 +537,40 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 .insert(stack.target, (stack.actual, DrawStyle::Background));
         }
 
-        self.considered_notes.for_each_stack(|_, relative_stack| {
-            match self.considered_notes.try_period_index() {
-                Some(period_index) => {
+        match self.considered_notes.try_period_index() {
+            Some(period_index) => {
+                self.considered_notes.for_each_stack(|_, relative_stack| {
                     let mut stack = relative_stack.clone();
                     stack.increment_at_index_pure(period_index, -stack.target[period_index]);
                     stack.scaled_add(1, &self.reference);
                     self.stacks_to_draw
                         .insert(stack.target, (stack.actual, DrawStyle::Considered));
-                }
-                None {} => todo!(),
-            }
-        });
+                });
 
-        for (i, state) in self.active_notes.iter().enumerate() {
-            if state.is_sounding() {
-                self.stacks_to_draw.insert(
-                    self.tunings[i].target.clone(),
-                    (self.tunings[i].actual.clone(), DrawStyle::Playing),
-                );
+                for (i, state) in self.active_notes.iter().enumerate() {
+                    if state.is_sounding() {
+                        let mut stack = self.tunings[i].clone();
+
+                        if stack.target.iter().enumerate().any(|(i, c)| {
+                            (self.reference.target[i] - c).abs()
+                                > self.background_stack_distances[i]
+                        }) {
+                            self.stacks_to_draw.insert(
+                                stack.target.clone(),
+                                (stack.actual.clone(), DrawStyle::Antenna),
+                            );
+                        }
+
+                        stack.increment_at_index_pure(
+                            period_index,
+                            self.reference.target[period_index] - stack.target[period_index],
+                        );
+                        self.stacks_to_draw
+                            .insert(stack.target, (stack.actual, DrawStyle::Playing));
+                    }
+                }
             }
+            None {} => todo!(),
         }
 
         self.draw_stacks(ui, forward);
@@ -788,7 +791,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
 }
 
 impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for LatticeWindow<T, N> {
-    fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         egui::TopBottomPanel::top("lattice window zoom panel").show_inside(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add(

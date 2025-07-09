@@ -1,7 +1,7 @@
 pub mod fivelimit {
     use std::{fmt, sync::LazyLock};
 
-    use ndarray::{arr1, arr2, linalg::general_mat_vec_mul, Array1, Array2, ArrayView1};
+    use ndarray::{arr1, arr2, linalg::general_mat_vec_mul, Array2, ArrayView1};
     use num_rational::Ratio;
     use num_traits::Zero;
 
