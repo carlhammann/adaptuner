@@ -76,7 +76,7 @@ impl<T: FiveLimitStackType> GuiShow<T> for TuningReferenceWindow<T> {
         ui.separator();
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             if ui
-                .add(egui::Button::new("update current reference").selected(
+                .add(egui::Button::new("update reference").selected(
                     (self.new_semitones != self.reference.semitones)
                         | (self.new_coeffs != self.reference.stack.target),
                 ))

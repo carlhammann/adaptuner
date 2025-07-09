@@ -100,12 +100,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         move || Pitchbend12::new(&backend_config),
         move |ctx, tx| {
             ManyWindows::new(
-                ctx,
+                latticewindow_config,
                 latency_window_length,
                 tuning_reference,
                 initial_reference,
                 notenamestyle,
-                latticewindow_config,
+                ctx,
                 tx,
             )
         },

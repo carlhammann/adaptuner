@@ -62,7 +62,7 @@ impl<T: FiveLimitStackType> GuiShow<T> for ReferenceWindow<T> {
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             if ui
                 .add(
-                    egui::Button::new("update current reference")
+                    egui::Button::new("update reference")
                         .selected(self.new_coeffs != self.reference.target),
                 )
                 .clicked()

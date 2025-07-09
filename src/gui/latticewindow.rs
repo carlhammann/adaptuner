@@ -785,12 +785,11 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
 
 impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for LatticeWindow<T, N> {
     fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        egui::TopBottomPanel::bottom("lattice window zoom bottom panel").show_inside(ui, |ui| {
+        egui::TopBottomPanel::top("lattice window zoom panel").show_inside(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add(
                     egui::widgets::Slider::new(&mut self.zoom, 5.0..=100.0)
                         .smart_aim(false)
-                        .logarithmic(true)
                         .show_value(false)
                         .text("zoom"),
                 );
