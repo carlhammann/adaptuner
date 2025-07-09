@@ -15,13 +15,7 @@ use crate::{
 };
 
 use super::{
-    connectionwindow::{ConnectionWindow, Input, Output},
-    latencywindow::LatencyWindow,
-    latticewindow::LatticeWindow,
-    notewindow::NoteWindow,
-    r#trait::GuiShow,
-    referencewindow::ReferenceWindow,
-    tuningreferencewindow::TuningReferenceWindow,
+    connectionwindow::{ConnectionWindow, Input, Output}, latencywindow::LatencyWindow, latticewindow::{self, LatticeWindow}, notewindow::NoteWindow, referencewindow::ReferenceWindow, r#trait::GuiShow, tuningreferencewindow::TuningReferenceWindow
 };
 
 pub struct ManyWindows<T: StackType, N: Neighbourhood<T>> {
@@ -40,27 +34,14 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
         ctx: &egui::Context,
         latency_window_length: usize,
         tuning_reference: Reference<T>,
-        active_temperaments: Vec<bool>,
         reference: Stack<T>,
-        considered_notes: N,
         notenamestyle: NoteNameStyle,
-        interval_heights: Vec<f32>,
-        background_stack_distances: Vec<StackCoeff>,
+        latticewindow_config: latticewindow::LatticeWindowConfig<T, N>,
         tx: mpsc::Sender<FromUi<T>>,
     ) -> Self {
         Self {
             notewindow: NoteWindow::new(ctx),
-            latticewindow: LatticeWindow::new(
-                tuning_reference.clone(),
-                active_temperaments,
-                reference.clone(),
-                considered_notes,
-                10.0,
-                1.0,
-                notenamestyle,
-                interval_heights,
-                background_stack_distances,
-            ),
+            latticewindow: LatticeWindow::new(latticewindow_config),
             input_connection_window: ConnectionWindow::new(),
             output_connection_window: ConnectionWindow::new(),
             latencywindow: LatencyWindow::new(latency_window_length),

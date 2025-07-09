@@ -126,6 +126,15 @@ pub enum ToStrategy<T: StackType> {
         index: usize,
         time: Instant,
     },
+    NextNeighbourhood {
+        time: Instant,
+    },
+    NewNeighbourhood {
+        name: String,
+    },
+    DeleteCurrentNeighbourhood {
+        time: Instant,
+    },
     SetTuningReference {
         reference: Reference<T>,
         time: Instant,
@@ -151,6 +160,10 @@ pub enum FromStrategy<T: StackType> {
     },
     Consider {
         stack: Stack<T>,
+    },
+    CurrentNeighbourhoodName {
+        index: usize,
+        name: String,
     },
     NotifyFit {
         pattern_name: String,
@@ -281,6 +294,10 @@ pub enum ToUi<T: StackType> {
     Consider {
         stack: Stack<T>,
     },
+    CurrentNeighbourhoodName {
+        index: usize,
+        name: String,
+    },
     DetunedNote {
         note: u8,
         should_be: Semitones,
@@ -294,6 +311,15 @@ pub enum FromUi<T: StackType> {
         coefficients: Vec<StackCoeff>,
         temperaments: Option<Vec<bool>>,
         time: Instant,
+    },
+    DeleteCurrentNeighbourhood {
+        time: Instant,
+    },
+    NextNeighbourhood {
+        time: Instant,
+    },
+    NewNeighbourhood {
+        name: String,
     },
     ToggleTemperament {
         index: usize,
@@ -517,6 +543,10 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
             ),
             FromStrategy::SetReference { stack } => (None {}, Some(ToUi::SetReference { stack })),
             FromStrategy::Consider { stack } => (None {}, Some(ToUi::Consider { stack })),
+            FromStrategy::CurrentNeighbourhoodName { index, name } => (
+                None {},
+                Some(ToUi::CurrentNeighbourhoodName { index, name }),
+            ),
             FromStrategy::NotifyFit {
                 pattern_name,
                 reference_stack,
@@ -545,12 +575,38 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
         Option<ToMidiOut>,
     ) {
         match self {
-            FromUi::Consider { coefficients, temperaments, time } => (
+            FromUi::Consider {
+                coefficients,
+                temperaments,
+                time,
+            } => (
                 Some(ToProcess::ToStrategy(ToStrategy::Consider {
                     coefficients,
                     temperaments,
                     time,
                 })),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::NextNeighbourhood { time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::NextNeighbourhood {
+                    time,
+                })),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::NewNeighbourhood { name } => (
+                Some(ToProcess::ToStrategy(ToStrategy::NewNeighbourhood { name })),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::DeleteCurrentNeighbourhood { time } => (
+                Some(ToProcess::ToStrategy(
+                    ToStrategy::DeleteCurrentNeighbourhood { time },
+                )),
                 None {},
                 None {},
                 None {},

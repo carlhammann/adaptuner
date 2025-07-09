@@ -744,6 +744,7 @@ impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
             ToUi::NotifyFit { .. } => {}
             ToUi::SetReference { .. } => {}
             ToUi::Consider { .. } => {}
+            ToUi::CurrentNeighbourhoodName { .. } => {}
             ToUi::DetunedNote { .. } => {}
             ToUi::Stop => {}
             ToUi::Notify { .. } => {}

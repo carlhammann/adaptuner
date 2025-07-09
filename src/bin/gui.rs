@@ -4,9 +4,9 @@ use midi_msg::Channel;
 
 use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
-    gui::manywindows::ManyWindows,
+    gui::{latticewindow::LatticeWindowConfig, manywindows::ManyWindows},
     interval::{stack::Stack, stacktype::fivelimit::ConcreteFiveLimitStackType},
-    neighbourhood::PeriodicCompleteAligned,
+    neighbourhood::{Neighbourhood, PeriodicCompleteAligned},
     notename::NoteNameStyle,
     process::fromstrategy::ProcessFromStrategy,
     reference::Reference,
@@ -27,20 +27,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     ];
     let background_stack_distances = vec![0, 2, 2];
     let no_active_temperaments = vec![false; 2];
-    let initial_neighbourhood = PeriodicCompleteAligned::from_octave_tunings([
-        Stack::new_zero(),                  // C
-        Stack::from_target(vec![0, -1, 2]), // C#
-        Stack::from_target(vec![-1, 2, 0]), // D
-        Stack::from_target(vec![0, 1, -1]), // Eb
-        Stack::from_target(vec![0, 0, 1]),  // E
-        Stack::from_target(vec![1, -1, 0]), // F
-        Stack::from_target(vec![-1, 2, 1]), // F#
-        Stack::from_target(vec![0, 1, 0]),  // G
-        Stack::from_target(vec![0, 0, 2]),  // G#
-        Stack::from_target(vec![1, -1, 1]), // A
-        Stack::from_target(vec![0, 2, -1]), // Bb
-        Stack::from_target(vec![0, 1, 1]),  // B
-    ]);
+    let initial_neighbourhoods = vec![PeriodicCompleteAligned::from_octave_tunings(
+        [
+            Stack::new_zero(),                  // C
+            Stack::from_target(vec![0, -1, 2]), // C#
+            Stack::from_target(vec![-1, 2, 0]), // D
+            Stack::from_target(vec![0, 1, -1]), // Eb
+            Stack::from_target(vec![0, 0, 1]),  // E
+            Stack::from_target(vec![1, -1, 0]), // F
+            Stack::from_target(vec![-1, 2, 1]), // F#
+            Stack::from_target(vec![0, 1, 0]),  // G
+            Stack::from_target(vec![0, 0, 2]),  // G#
+            Stack::from_target(vec![1, -1, 1]), // A
+            Stack::from_target(vec![0, 2, -1]), // Bb
+            Stack::from_target(vec![0, 1, 1]),  // B
+        ],
+        "Reihe 1".into(),
+    )];
     let initial_reference = Stack::new_zero();
 
     let backend_config = Pitchbend12Config {
@@ -65,6 +68,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         bend_range: 2.0,
     };
 
+    let latticewindow_config = LatticeWindowConfig {
+        tuning_reference: tuning_reference.clone(),
+        active_temperaments: no_active_temperaments,
+        reference: initial_reference.clone(),
+        initial_considered_notes: initial_neighbourhoods[0].clone(),
+        initial_neighbourhood_name: initial_neighbourhoods[0].name().into(),
+        initial_neighbourhood_index: 0,
+        zoom: 10.0,
+        flatten: 1.0,
+        notenamestyle,
+        interval_heights,
+        background_stack_distances,
+    };
+
     let latency_window_length = 20;
 
     let midi_in = midir::MidiInput::new("adaptuner input")?;
@@ -73,7 +90,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let static_tuning = StaticTuning::new(
         tuning_reference.clone(),
         initial_reference.clone(),
-        initial_neighbourhood.clone(),
+        initial_neighbourhoods
     );
 
     let _runstate = RunState::new(
@@ -86,12 +103,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 ctx,
                 latency_window_length,
                 tuning_reference,
-                no_active_temperaments,
                 initial_reference,
-                initial_neighbourhood,
                 notenamestyle,
-                interval_heights,
-                background_stack_distances,
+                latticewindow_config,
                 tx,
             )
         },

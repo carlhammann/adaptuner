@@ -54,6 +54,9 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
 
     reference: Stack<T>,
     considered_notes: N,
+    curr_neighbourhood_name: String,
+    curr_neighbourhood_index: usize,
+    new_neighbourhood_name: String,
 
     zoom: f32,
     flatten: f32,
@@ -75,7 +78,6 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
     stacks_to_draw: HashMap<Array1<StackCoeff>, (Array1<Ratio<StackCoeff>>, DrawStyle)>,
 
     correction_basis: CorrectionBasis,
-
     tmp_temperaments: Vec<bool>,
 }
 
@@ -148,34 +150,41 @@ fn tipped_line(
     )
 }
 
+pub struct LatticeWindowConfig<T: StackType, N: Neighbourhood<T>> {
+    pub tuning_reference: Reference<T>,
+    pub active_temperaments: Vec<bool>,
+    pub reference: Stack<T>,
+    pub initial_considered_notes: N,
+    pub initial_neighbourhood_name: String,
+    pub initial_neighbourhood_index: usize,
+    pub zoom: f32,
+    pub flatten: f32,
+    pub notenamestyle: NoteNameStyle,
+    pub interval_heights: Vec<f32>,
+    pub background_stack_distances: Vec<StackCoeff>,
+}
+
 impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N> {
-    pub fn new(
-        tuning_reference: Reference<T>,
-        active_temperaments: Vec<bool>,
-        reference: Stack<T>,
-        considered_notes: N,
-        zoom: f32,
-        flatten: f32,
-        notenamestyle: NoteNameStyle,
-        interval_heights: Vec<f32>,
-        background_stack_distances: Vec<StackCoeff>,
-    ) -> Self {
+    pub fn new(config: LatticeWindowConfig<T, N>) -> Self {
         let now = Instant::now();
         Self {
-            tuning_reference,
-            active_temperaments,
+            tuning_reference: config.tuning_reference,
+            active_temperaments: config.active_temperaments,
             active_notes: core::array::from_fn(|_| KeyState::new(now)),
             pedal_hold: [false; 16],
             tunings: core::array::from_fn(|_| Stack::new_zero()),
-            reference,
-            considered_notes,
-            zoom,
-            flatten,
+            reference: config.reference,
+            considered_notes: config.initial_considered_notes,
+            curr_neighbourhood_name: config.initial_neighbourhood_name,
+            curr_neighbourhood_index: config.initial_neighbourhood_index,
+            new_neighbourhood_name: String::with_capacity(64),
+            zoom: config.zoom,
+            flatten: config.flatten,
             keyboard_channel: Channel::Ch1,
             keyboard_velocity: 127,
-            notenamestyle,
-            interval_heights,
-            background_stack_distances,
+            notenamestyle: config.notenamestyle,
+            interval_heights: config.interval_heights,
+            background_stack_distances: config.background_stack_distances,
             stacks_to_draw: HashMap::new(),
             correction_basis: CorrectionBasis::DiesisSyntonic,
             tmp_temperaments: vec![false; T::num_temperaments()],
@@ -476,7 +485,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                         });
                     }
                 }
-                DrawStyle::Considered => {
+                DrawStyle::Considered | DrawStyle::Playing => {
                     let popup_id = ui.make_persistent_id(&name);
                     let response = ui.interact(
                         egui::Rect::from_center_size(
@@ -523,7 +532,6 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                         },
                     );
                 }
-                DrawStyle::Playing => {}
             }
         }
     }
@@ -795,10 +803,9 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for Latt
             });
         });
 
-        egui::TopBottomPanel::bottom("lattice window correction style bottom panel").show_inside(
-            ui,
-            |ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        egui::TopBottomPanel::bottom("lattice window bottom panel").show_inside(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
                     ui.selectable_value(
                         &mut self.correction_basis,
                         CorrectionBasis::Semitones,
@@ -820,13 +827,12 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for Latt
                         "syntonic and pyhtagorean commas",
                     );
                 });
-            },
-        );
 
-        egui::TopBottomPanel::bottom("lattice window bottom panel").show_inside(ui, |ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
-                    for i in 0..T::num_intervals() {
+                ui.separator();
+
+                ui.vertical(|ui| {
+                    ui.label("show notes around the reference:");
+                    for i in (0..T::num_intervals()).rev() {
                         ui.add(
                             egui::widgets::Slider::new(
                                 &mut self.background_stack_distances[i],
@@ -836,24 +842,38 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for Latt
                             .text(format!("{}s", T::intervals()[i].name)),
                         );
                     }
-                    ui.label("show notes around the reference:");
                 });
 
                 ui.separator();
 
-                // egui::Grid::new("neighbourhood button grid").show(ui, |ui| {
-                //     ui.button("1");
-                //     // ui.button("2");
-                //     // ui.button("3");
-                //     // ui.button("4");
-                //     // ui.button("5");
-                //     // ui.end_row();
-                //     // ui.button("6");
-                //     // ui.button("7");
-                //     // ui.button("8");
-                //     // ui.button("9");
-                //     // ui.button("10");
-                // });
+                ui.vertical(|ui| {
+                    ui.label(format!(
+                        "neighbourhood {}: \"{}\"",
+                        self.curr_neighbourhood_index, self.curr_neighbourhood_name,
+                    ));
+
+                    if ui.button("switch to next neighbourhood").clicked() {
+                        let _ = forward.send(FromUi::NextNeighbourhood {
+                            time: Instant::now(),
+                        });
+                    }
+
+                    if ui.button("delete current neighbourhood").clicked() {
+                        let _ = forward.send(FromUi::DeleteCurrentNeighbourhood {
+                            time: Instant::now(),
+                        });
+                    }
+
+                    ui.horizontal(|ui| {
+                        if ui.button("add new neighbourhood named").clicked() {
+                            let _ = forward.send(FromUi::NewNeighbourhood {
+                                name: self.new_neighbourhood_name.clone(),
+                            });
+                            self.new_neighbourhood_name.clear();
+                        }
+                        ui.text_edit_singleline(&mut self.new_neighbourhood_name);
+                    });
+                });
             });
         });
 
@@ -926,6 +946,10 @@ impl<T: StackType, N: Neighbourhood<T>> HandleMsgRef<ToUi<T>, FromUi<T>> for Lat
 
             ToUi::Consider { stack } => {
                 let _ = self.considered_notes.insert(stack);
+            }
+            ToUi::CurrentNeighbourhoodName { index, name } => {
+                self.curr_neighbourhood_name.clone_from(name);
+                self.curr_neighbourhood_index = *index;
             }
             ToUi::SetReference { stack } => self.reference.clone_from(stack),
             ToUi::SetTuningReference { reference } => self.tuning_reference.clone_from(reference),

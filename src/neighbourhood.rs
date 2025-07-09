@@ -66,6 +66,10 @@ pub trait Neighbourhood<T: StackType> {
         });
         (min, max)
     }
+
+    fn name(&self) -> &str;
+
+    fn set_name(&mut self, name: String);
 }
 
 /// Tunings for all notes, described by giving the tunings of all notes in the first "octave" above
@@ -74,6 +78,7 @@ pub trait Neighbourhood<T: StackType> {
 pub struct PeriodicComplete<T: StackType> {
     stacks: Vec<Stack<T>>,
     period: Stack<T>,
+    name: String,
 }
 
 impl<T: StackType> PeriodicComplete<T> {
@@ -81,8 +86,12 @@ impl<T: StackType> PeriodicComplete<T> {
     /// - the [Stack::key_distance] of the stack on index `ì` of `stacks` is `i`. In particular,
     ///   the first one (at index zero) must map to a unison on the keyboard.
     /// - the length of `stacks` is the [Stack::key_distance] of the `period`.
-    pub fn new(stacks: Vec<Stack<T>>, period: Stack<T>) -> Self {
-        Self { stacks, period }
+    pub fn new(stacks: Vec<Stack<T>>, period: Stack<T>, name: String) -> Self {
+        Self {
+            stacks,
+            period,
+            name,
+        }
     }
 }
 
@@ -94,11 +103,12 @@ pub struct PeriodicCompleteAligned<T: PeriodicStackType> {
 
 impl<T: PeriodicStackType> PeriodicCompleteAligned<T> {
     /// invariants like [PeriodicComplete::new()], only for the [PeriodicStackType::period] of `T`.
-    pub fn new(stacks: Vec<Stack<T>>) -> Self {
+    pub fn new(stacks: Vec<Stack<T>>, name: String) -> Self {
         Self {
             inner: PeriodicComplete {
                 stacks,
                 period: Stack::from_pure_interval(T::period_index(), 1),
+                name,
             },
         }
     }
@@ -106,11 +116,12 @@ impl<T: PeriodicStackType> PeriodicCompleteAligned<T> {
 
 impl<T: OctavePeriodicStackType> PeriodicCompleteAligned<T> {
     /// invariants like [PeriodicComplete::new()], only for the *actual* octave.
-    pub fn from_octave_tunings(stacks: [Stack<T>; 12]) -> Self {
+    pub fn from_octave_tunings(stacks: [Stack<T>; 12], name: String) -> Self {
         Self {
             inner: PeriodicComplete {
                 stacks: stacks.into(),
                 period: Stack::from_pure_interval(T::period_index(), 1),
+                name,
             },
         }
     }
@@ -143,12 +154,12 @@ pub trait PeriodicNeighbourhood<T: StackType>: Neighbourhood<T> {
     }
 }
 
-/// It's a logical error to implement this for non-[PeriodicStackType]s. 
-pub trait AlignedPeriodicNeighbourhood<T:StackType>: Neighbourhood<T> {
+/// It's a logical error to implement this for non-[PeriodicStackType]s.
+pub trait AlignedPeriodicNeighbourhood<T: StackType>: Neighbourhood<T> {
     fn period_index(&self) -> usize {
-        self.try_period_index()
-            .expect("This should never happen: AlignedPeriodicNeighbourhood doen't have a perios index.")
-
+        self.try_period_index().expect(
+            "This should never happen: AlignedPeriodicNeighbourhood doen't have a perios index.",
+        )
     }
 }
 
@@ -194,6 +205,14 @@ impl<T: StackType> Neighbourhood<T> for PeriodicComplete<T> {
     fn try_period_index(&self) -> Option<usize> {
         None {}
     }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
 }
 
 impl<T: StackType> CompleteNeigbourhood<T> for PeriodicComplete<T> {}
@@ -227,6 +246,14 @@ impl<T: PeriodicStackType> Neighbourhood<T> for PeriodicCompleteAligned<T> {
 
     fn try_period_index(&self) -> Option<usize> {
         Some(T::period_index())
+    }
+
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn set_name(&mut self, name: String) {
+        self.inner.set_name(name);
     }
 }
 

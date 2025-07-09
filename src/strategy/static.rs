@@ -14,7 +14,8 @@ use crate::{
 };
 
 pub struct StaticTuning<T: StackType, N: Neighbourhood<T>> {
-    neighbourhood: N,
+    neighbourhoods: Vec<N>,
+    curr_neighbourhood_index: usize,
     tuning_reference: Reference<T>,
     reference: Stack<T>,
     tuning_up_to_date: [bool; 128],
@@ -24,10 +25,11 @@ impl<T: StackType, N: Neighbourhood<T>> StaticTuning<T, N> {
     pub fn new(
         tuning_reference: Reference<T>,
         initial_reference: Stack<T>,
-        neighbourhood: N,
+        neighbourhoods: Vec<N>,
     ) -> Self {
         Self {
-            neighbourhood,
+            neighbourhoods,
+            curr_neighbourhood_index: 0,
             tuning_reference,
             reference: initial_reference,
             tuning_up_to_date: [false; 128],
@@ -44,7 +46,7 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> StaticTuning<T, N> {
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
         if !self.tuning_up_to_date[note as usize] {
-            self.neighbourhood.write_relative_stack(
+            self.neighbourhoods[self.curr_neighbourhood_index].write_relative_stack(
                 tunings.get_mut(note as usize).unwrap(),
                 note as i8 - self.reference.key_number() as i8,
             );
@@ -82,8 +84,10 @@ impl<T: StackType, N: CompleteNeigbourhood<T>> StaticTuning<T, N> {
     }
 }
 
-impl<T: StackType + std::fmt::Debug, N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T>>
-    Strategy<T> for StaticTuning<T, N>
+impl<
+        T: StackType + std::fmt::Debug,
+        N: CompleteNeigbourhood<T> + PeriodicNeighbourhood<T> + Clone,
+    > Strategy<T> for StaticTuning<T, N>
 {
     fn note_on<'a>(
         &mut self,
@@ -129,13 +133,71 @@ impl<T: StackType + std::fmt::Debug, N: CompleteNeigbourhood<T> + PeriodicNeighb
                     None {} => &Stack::from_target(coefficients),
                     Some(v) => &Stack::from_temperaments_and_target(&v, coefficients),
                 };
-                let inserted_stack = self.neighbourhood.insert(&considered_stack).clone();
+                let inserted_stack = self.neighbourhoods[self.curr_neighbourhood_index]
+                    .insert(&considered_stack)
+                    .clone();
                 self.retune_all(keys, tunings, time, forward); // todo can this be cheaper; retuning only what's needed?
                 let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Consider {
                     stack: inserted_stack,
                 }));
             }
             ToStrategy::ToggleTemperament { index, time } => todo!(),
+            ToStrategy::NextNeighbourhood { time } => {
+                self.curr_neighbourhood_index =
+                    (self.curr_neighbourhood_index + 1) % self.neighbourhoods.len();
+                self.retune_all(keys, tunings, time, forward);
+                self.neighbourhoods[self.curr_neighbourhood_index].for_each_stack(|_, stack| {
+                    let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Consider {
+                        stack: stack.clone(),
+                    }));
+                });
+                let _ = forward.send(FromProcess::FromStrategy(
+                    FromStrategy::CurrentNeighbourhoodName {
+                        index: self.curr_neighbourhood_index,
+                        name: self.neighbourhoods[self.curr_neighbourhood_index]
+                            .name()
+                            .into(),
+                    },
+                ));
+            }
+            ToStrategy::NewNeighbourhood { name } => {
+                let mut new_neighbourhood = self.neighbourhoods[self.curr_neighbourhood_index].clone();
+                new_neighbourhood.set_name(name);
+                self.neighbourhoods.push(new_neighbourhood);
+                self.curr_neighbourhood_index = self.neighbourhoods.len() - 1;
+                let _ = forward.send(FromProcess::FromStrategy(
+                    FromStrategy::CurrentNeighbourhoodName {
+                        index: self.curr_neighbourhood_index,
+                        name: self.neighbourhoods[self.curr_neighbourhood_index]
+                            .name()
+                            .into(),
+                    },
+                ));
+            }
+            ToStrategy::DeleteCurrentNeighbourhood { time } => {
+                if self.neighbourhoods.len() < 2 {
+                    return false;
+                }
+
+                self.neighbourhoods.remove(self.curr_neighbourhood_index);
+                self.curr_neighbourhood_index =
+                    self.curr_neighbourhood_index % self.neighbourhoods.len();
+
+                self.retune_all(keys, tunings, time, forward);
+                self.neighbourhoods[self.curr_neighbourhood_index].for_each_stack(|_, stack| {
+                    let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Consider {
+                        stack: stack.clone(),
+                    }));
+                });
+                let _ = forward.send(FromProcess::FromStrategy(
+                    FromStrategy::CurrentNeighbourhoodName {
+                        index: self.curr_neighbourhood_index,
+                        name: self.neighbourhoods[self.curr_neighbourhood_index]
+                            .name()
+                            .into(),
+                    },
+                ));
+            }
             ToStrategy::SetTuningReference { reference, time } => {
                 self.tuning_reference.clone_from(&reference);
                 self.retune_all(keys, tunings, time, forward);
