@@ -14,10 +14,7 @@ use crate::{
     msg::{FromUi, HandleMsgRef, ToUi},
     neighbourhood::Neighbourhood,
     notename::{
-        correction::{
-            self,
-            fivelimit::{Correction, CorrectionBasis},
-        },
+        correction::fivelimit::{Correction, CorrectionBasis},
         johnston::fivelimit::NoteName,
         NoteNameStyle,
     },
@@ -79,6 +76,8 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
 
     correction_basis: CorrectionBasis,
     tmp_temperaments: Vec<bool>,
+
+    show_controls: bool,
 }
 
 #[derive(PartialEq)]
@@ -188,7 +187,12 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             stacks_to_draw: HashMap::new(),
             correction_basis: CorrectionBasis::DiesisSyntonic,
             tmp_temperaments: vec![false; T::num_temperaments()],
+            show_controls: true,
         }
+    }
+
+    pub fn toggle_controls(&mut self) {
+        self.show_controls = !self.show_controls;
     }
 
     fn draw_stacks(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
@@ -802,58 +806,62 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for Latt
             });
         });
 
-        egui::TopBottomPanel::bottom("lattice window bottom panel").show_inside(ui, |ui| {
-            ui.horizontal(|ui| {
-                correction_basis_chooser(ui, &mut self.correction_basis);
+        egui::TopBottomPanel::bottom("lattice window bottom panel").show_animated_inside(
+            ui,
+            self.show_controls,
+            |ui| {
+                ui.horizontal(|ui| {
+                    correction_basis_chooser(ui, &mut self.correction_basis);
 
-                ui.separator();
+                    ui.separator();
 
-                ui.vertical(|ui| {
-                    ui.label("show notes around the reference:");
-                    for i in (0..T::num_intervals()).rev() {
-                        ui.add(
-                            egui::widgets::Slider::new(
-                                &mut self.background_stack_distances[i],
-                                0..=6,
-                            )
-                            .smart_aim(false)
-                            .text(format!("{}s", T::intervals()[i].name)),
-                        );
-                    }
-                });
-
-                ui.separator();
-
-                ui.vertical(|ui| {
-                    ui.label(format!(
-                        "neighbourhood {}: \"{}\"",
-                        self.curr_neighbourhood_index, self.curr_neighbourhood_name,
-                    ));
-
-                    if ui.button("switch to next neighbourhood").clicked() {
-                        let _ = forward.send(FromUi::NextNeighbourhood {
-                            time: Instant::now(),
-                        });
-                    }
-
-                    if ui.button("delete current neighbourhood").clicked() {
-                        let _ = forward.send(FromUi::DeleteCurrentNeighbourhood {
-                            time: Instant::now(),
-                        });
-                    }
-
-                    ui.horizontal(|ui| {
-                        if ui.button("add new neighbourhood named").clicked() {
-                            let _ = forward.send(FromUi::NewNeighbourhood {
-                                name: self.new_neighbourhood_name.clone(),
-                            });
-                            self.new_neighbourhood_name.clear();
+                    ui.vertical(|ui| {
+                        ui.label("show notes around the reference:");
+                        for i in (0..T::num_intervals()).rev() {
+                            ui.add(
+                                egui::widgets::Slider::new(
+                                    &mut self.background_stack_distances[i],
+                                    0..=6,
+                                )
+                                .smart_aim(false)
+                                .text(format!("{}s", T::intervals()[i].name)),
+                            );
                         }
-                        ui.text_edit_singleline(&mut self.new_neighbourhood_name);
+                    });
+
+                    ui.separator();
+
+                    ui.vertical(|ui| {
+                        ui.label(format!(
+                            "neighbourhood {}: \"{}\"",
+                            self.curr_neighbourhood_index, self.curr_neighbourhood_name,
+                        ));
+
+                        if ui.button("switch to next neighbourhood").clicked() {
+                            let _ = forward.send(FromUi::NextNeighbourhood {
+                                time: Instant::now(),
+                            });
+                        }
+
+                        if ui.button("delete current neighbourhood").clicked() {
+                            let _ = forward.send(FromUi::DeleteCurrentNeighbourhood {
+                                time: Instant::now(),
+                            });
+                        }
+
+                        ui.horizontal(|ui| {
+                            if ui.button("add new neighbourhood named").clicked() {
+                                let _ = forward.send(FromUi::NewNeighbourhood {
+                                    name: self.new_neighbourhood_name.clone(),
+                                });
+                                self.new_neighbourhood_name.clear();
+                            }
+                            ui.text_edit_singleline(&mut self.new_neighbourhood_name);
+                        });
                     });
                 });
-            });
-        });
+            },
+        );
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();

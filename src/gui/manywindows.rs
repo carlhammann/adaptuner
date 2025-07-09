@@ -22,6 +22,7 @@ use super::{
 
 pub struct ManyWindows<T: StackType, N: Neighbourhood<T>> {
     latticewindow: LatticeWindow<T, N>,
+    show_lattice_window_controls: bool,
 
     input_connection_window: ConnectionWindow<Input>,
     output_connection_window: ConnectionWindow<Output>,
@@ -54,6 +55,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
     ) -> Self {
         Self {
             latticewindow: LatticeWindow::new(lattice_window_config),
+            show_lattice_window_controls: true,
             input_connection_window: ConnectionWindow::new(),
             output_connection_window: ConnectionWindow::new(),
             show_connection_window: true,
@@ -92,6 +94,9 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> eframe::App for Man
 
                 ui.separator();
 
+                if ui.toggle_value(&mut self.show_lattice_window_controls, "controls").clicked() {
+                    self.latticewindow.toggle_controls();
+                };
                 ui.toggle_value(&mut self.show_connection_window, "midi connections");
                 ui.toggle_value(&mut self.show_tuning_reference_window, "global tuning");
                 ui.toggle_value(&mut self.show_reference_window, "reference");
