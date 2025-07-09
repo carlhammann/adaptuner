@@ -30,6 +30,8 @@ pub struct ManyWindows<T: StackType, N: Neighbourhood<T>> {
     input_connection_window: ConnectionWindow<Input>,
     output_connection_window: ConnectionWindow<Output>,
     show_connection_window: bool,
+    sostenuto_is_next_neigbourhood: bool,
+    soft_pedal_is_set_reference: bool,
 
     tuning_reference_window: TuningReferenceWindow<T>,
     show_tuning_reference_window: bool,
@@ -59,6 +61,8 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
             input_connection_window: ConnectionWindow::new(),
             output_connection_window: ConnectionWindow::new(),
             show_connection_window: true,
+            sostenuto_is_next_neigbourhood: true,
+            soft_pedal_is_set_reference: true,
             tuning_reference_window: TuningReferenceWindow::new(tuning_reference, notenamestyle),
             show_tuning_reference_window: false,
             reference_window: ReferenceWindow::new(reference, notenamestyle),
@@ -76,6 +80,7 @@ impl<T: FiveLimitStackType, N: Neighbourhood<T>> HandleMsg<ToUi<T>, FromUi<T>>
 {
     fn handle_msg(&mut self, msg: ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         self.latticewindow.handle_msg_ref(&msg, forward);
+        self.note_window.handle_msg_ref(&msg, forward);
         self.input_connection_window.handle_msg_ref(&msg, forward);
         self.output_connection_window.handle_msg_ref(&msg, forward);
         self.latencywindow.handle_msg_ref(&msg, forward);
@@ -113,6 +118,27 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> eframe::App for Man
                     ui.vertical(|ui| {
                         self.input_connection_window.show(ctx, ui, &self.tx);
                         self.output_connection_window.show(ctx, ui, &self.tx);
+
+                        ui.separator();
+
+                        if ui
+                            .toggle_value(
+                                &mut self.sostenuto_is_next_neigbourhood,
+                                "use sostenuto pedal (middle) to switch neighbourhoods",
+                            )
+                            .clicked()
+                        {
+                            let _ = self.tx.send(FromUi::ToggleSostenutoIsNextNeighbourhood {});
+                        };
+                        if ui
+                            .toggle_value(
+                                &mut self.soft_pedal_is_set_reference,
+                                "use soft pedal (left) to reset reference",
+                            )
+                            .clicked()
+                        {
+                            let _ = self.tx.send(FromUi::ToggleSoftPedalIsSetReference {});
+                        }
                     });
                 });
         }

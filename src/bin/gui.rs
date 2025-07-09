@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         -12.0 * (5.0 / 4.0 as f32).log2(),
         12.0 * (3.0 / 2.0 as f32).log2(),
     ];
-    let background_stack_distances = vec![0, 2, 2];
+    let background_stack_distances = vec![0, 3, 2];
     let no_active_temperaments = vec![false; 2];
     let initial_neighbourhoods = vec![PeriodicCompleteAligned::from_octave_tunings(
         [

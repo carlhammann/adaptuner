@@ -72,6 +72,8 @@ pub enum ToProcess<T: StackType> {
         velocity: u8,
         time: Instant,
     },
+    ToggleSostenutoIsNextNeighbourhood {},
+    ToggleSoftPedalIsSetReference {},
 }
 
 pub enum FromProcess<T: StackType> {
@@ -357,6 +359,8 @@ pub enum FromUi<T: StackType> {
         velocity: u8,
         time: Instant,
     },
+    ToggleSostenutoIsNextNeighbourhood {},
+    ToggleSoftPedalIsSetReference {},
 }
 
 pub enum ToMidiIn {
@@ -688,6 +692,18 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                     reference,
                     time,
                 })),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::ToggleSostenutoIsNextNeighbourhood {} => (
+                Some(ToProcess::ToggleSostenutoIsNextNeighbourhood {}),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::ToggleSoftPedalIsSetReference {} => (
+                Some(ToProcess::ToggleSoftPedalIsSetReference {}),
                 None {},
                 None {},
                 None {},

@@ -39,6 +39,13 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
 
 impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
     fn handle_midi(&mut self, time: Instant, msg: MidiMsg, forward: &mpsc::Sender<FromProcess<T>>) {
+        let forward_untouched = || {
+            let _ = forward.send(FromProcess::OutgoingMidi {
+                bytes: msg.to_midi(),
+                time,
+            });
+        };
+
         match msg {
             MidiMsg::ChannelVoice {
                 channel,
@@ -81,7 +88,7 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
             }
 
             MidiMsg::ChannelVoice {
-                channel,
+                channel: _,
                 msg:
                     ControlChange {
                         control: Sostenuto(value),
@@ -97,12 +104,12 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
                         );
                     }
                 } else {
-                    todo!()
+                    forward_untouched();
                 }
             }
 
             MidiMsg::ChannelVoice {
-                channel,
+                channel: _,
                 msg:
                     ControlChange {
                         control: SoftPedal(value),
@@ -118,7 +125,7 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
                         );
                     }
                 } else {
-                    todo!()
+                    forward_untouched();
                 }
             }
 
@@ -133,12 +140,7 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
                 });
             }
 
-            _ => {
-                let _ = forward.send(FromProcess::OutgoingMidi {
-                    bytes: msg.to_midi(),
-                    time,
-                });
-            }
+            _ => forward_untouched(),
         }
     }
 
@@ -232,6 +234,12 @@ impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess<T>, FromProcess<T>>
                 let _success =
                     self.strategy
                         .handle_msg(&self.key_states, &mut self.tunings, msg, forward);
+            }
+            ToProcess::ToggleSostenutoIsNextNeighbourhood {} => {
+                self.sostenuto_is_next_neigbourhood = !self.sostenuto_is_next_neigbourhood;
+            }
+            ToProcess::ToggleSoftPedalIsSetReference {} => {
+                self.soft_pedal_is_set_reference = !self.soft_pedal_is_set_reference;
             }
         }
     }
