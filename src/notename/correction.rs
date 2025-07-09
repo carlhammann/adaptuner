@@ -1,7 +1,7 @@
 pub mod fivelimit {
     use std::{fmt, sync::LazyLock};
 
-    use ndarray::{arr1, arr2, Array2, ArrayView1};
+    use ndarray::{arr1, arr2, linalg::general_mat_vec_mul, Array1, Array2, ArrayView1};
     use num_rational::Ratio;
     use num_traits::Zero;
 
@@ -14,9 +14,13 @@ pub mod fivelimit {
     #[derive(PartialEq, Debug)]
     pub enum Correction {
         Semitones(Semitones),
-        DiesisSyntonic([Ratio<StackCoeff>; 2]),
-        PythagoreanSyntonic([Ratio<StackCoeff>; 2]),
-        PythagoreanDiesis([Ratio<StackCoeff>; 2]),
+
+        /// invariant: only at most two entries will ever be non-zero
+        Commas {
+            diesis: Ratio<StackCoeff>,
+            pythagorean: Ratio<StackCoeff>,
+            syntonic: Ratio<StackCoeff>,
+        },
     }
 
     #[derive(PartialEq, Clone, Copy)]
@@ -55,16 +59,27 @@ pub mod fivelimit {
         pub fn is_zero(&self) -> bool {
             match self {
                 Correction::Semitones(x) => *x == 0.0,
-                Correction::DiesisSyntonic([a, b]) => a.is_zero() & b.is_zero(),
-                Correction::PythagoreanSyntonic([a, b]) => a.is_zero() & b.is_zero(),
-                Correction::PythagoreanDiesis([a, b]) => a.is_zero() & b.is_zero(),
+                Correction::Commas {
+                    diesis,
+                    pythagorean,
+                    syntonic,
+                } => diesis.is_zero() & pythagorean.is_zero() & syntonic.is_zero(),
             }
         }
 
+        /// Try to express the deviation of the [Stack::actual] from the [Stack::target] in the
+        /// given basis of two commas:
+        ///
+        /// - If there's a way to write the deviation as a multiple of only one of the three commas
+        ///   (syntonic, pythagorean, (lesser) diesis), use that representation, disregarding the
+        ///   basis.
+        /// - If the deviation cannot be written in terms of the basis, return [Correction::Semitones].
         pub fn new<T: FiveLimitStackType>(stack: &Stack<T>, basis: CorrectionBasis) -> Self {
             Self::from_target_and_actual::<T>((&stack.target).into(), (&stack.actual).into(), basis)
         }
 
+        /// Like [Self::new], only taking the [Stack::target] and [Stack::actual] as separate
+        /// arguments.
         pub fn from_target_and_actual<T: FiveLimitStackType>(
             target: ArrayView1<StackCoeff>,
             actual: ArrayView1<Ratio<StackCoeff>>,
@@ -79,33 +94,93 @@ pub mod fivelimit {
             let the_semitones =
                 || semitones_from_actual::<T>(actual) - semitones_from_target::<T>(target);
 
-            match basis {
-                CorrectionBasis::Semitones => Self::Semitones(the_semitones()),
-                CorrectionBasis::PythagoreanDiesis => {
-                    let coeffs = PYTHAGOREAN_DIESIS.dot(&offset);
-                    if coeffs[0].is_zero() {
-                        Self::PythagoreanDiesis([coeffs[1], coeffs[2]])
-                    } else {
-                        Self::Semitones(the_semitones())
-                    }
+            if basis == CorrectionBasis::Semitones {
+                Self::Semitones(the_semitones())
+            } else {
+                let mut coeffs = Array2::zeros((3, 3));
+                general_mat_vec_mul(
+                    1.into(),
+                    &DIESIS_SYNTONIC,
+                    &offset,
+                    0.into(),
+                    &mut coeffs.column_mut(0),
+                );
+                if coeffs[(0, 0)].is_zero() & (coeffs[(1, 0)].is_zero() | coeffs[(2, 0)].is_zero())
+                {
+                    return Self::Commas {
+                        diesis: coeffs[(1, 0)],
+                        pythagorean: 0.into(),
+                        syntonic: coeffs[(2, 0)],
+                    };
                 }
 
-                CorrectionBasis::PythagoreanSyntonic => {
-                    let coeffs = PYTHAGOREAN_SYNTONIC.dot(&offset);
-                    if coeffs[0].is_zero() {
-                        Self::PythagoreanSyntonic([coeffs[1], coeffs[2]])
-                    } else {
-                        Self::Semitones(the_semitones())
-                    }
+                general_mat_vec_mul(
+                    1.into(),
+                    &PYTHAGOREAN_SYNTONIC,
+                    &offset,
+                    0.into(),
+                    &mut coeffs.column_mut(1),
+                );
+                if coeffs[(0, 1)].is_zero() & (coeffs[(1, 1)].is_zero() | coeffs[(2, 1)].is_zero())
+                {
+                    return Self::Commas {
+                        diesis: 0.into(),
+                        pythagorean: coeffs[(1, 1)],
+                        syntonic: coeffs[(2, 1)],
+                    };
                 }
 
-                CorrectionBasis::DiesisSyntonic => {
-                    let coeffs = DIESIS_SYNTONIC.dot(&offset);
-                    if coeffs[0].is_zero() {
-                        Self::DiesisSyntonic([coeffs[1], coeffs[2]])
-                    } else {
-                        Self::Semitones(the_semitones())
+                general_mat_vec_mul(
+                    1.into(),
+                    &PYTHAGOREAN_DIESIS,
+                    &offset,
+                    0.into(),
+                    &mut coeffs.column_mut(2),
+                );
+                if coeffs[(0, 2)].is_zero() & (coeffs[(1, 2)].is_zero() | coeffs[(2, 2)].is_zero())
+                {
+                    return Self::Commas {
+                        pythagorean: coeffs[(1, 2)],
+                        diesis: coeffs[(2, 2)],
+                        syntonic: 0.into(),
+                    };
+                }
+
+                match basis {
+                    CorrectionBasis::DiesisSyntonic => {
+                        if coeffs[(0, 0)].is_zero() {
+                            Self::Commas {
+                                diesis: coeffs[(1, 0)],
+                                pythagorean: 0.into(),
+                                syntonic: coeffs[(2, 0)],
+                            }
+                        } else {
+                            Self::Semitones(the_semitones())
+                        }
                     }
+                    CorrectionBasis::PythagoreanSyntonic => {
+                        if coeffs[(0, 1)].is_zero() {
+                            Self::Commas {
+                                diesis: 0.into(),
+                                pythagorean: coeffs[(1, 1)],
+                                syntonic: coeffs[(2, 1)],
+                            }
+                        } else {
+                            Self::Semitones(the_semitones())
+                        }
+                    }
+                    CorrectionBasis::PythagoreanDiesis => {
+                        if coeffs[(0, 2)].is_zero() {
+                            Self::Commas {
+                                pythagorean: coeffs[(1, 2)],
+                                diesis: coeffs[(2, 2)],
+                                syntonic: 0.into(),
+                            }
+                        } else {
+                            Self::Semitones(the_semitones())
+                        }
+                    }
+                    CorrectionBasis::Semitones => unreachable!(),
                 }
             }
         }
@@ -134,17 +209,14 @@ pub mod fivelimit {
                         Ok(())
                     }
                 }
-                Correction::DiesisSyntonic([d, s]) => {
-                    write_fraction(d, "d")?;
-                    write_fraction(s, "s")
-                }
-                Correction::PythagoreanSyntonic([p, s]) => {
-                    write_fraction(p, "p")?;
-                    write_fraction(s, "s")
-                }
-                Correction::PythagoreanDiesis([p, d]) => {
-                    write_fraction(p, "p")?;
-                    write_fraction(d, "d")
+                Correction::Commas {
+                    diesis,
+                    pythagorean,
+                    syntonic,
+                } => {
+                    write_fraction(diesis, "d")?;
+                    write_fraction(pythagorean, "p")?;
+                    write_fraction(syntonic, "s")
                 }
             }
         }
@@ -162,7 +234,11 @@ pub mod fivelimit {
                     &Stack::<ConcreteFiveLimitStackType>::new_zero(),
                     CorrectionBasis::PythagoreanDiesis
                 ),
-                Correction::PythagoreanDiesis([0.into(), 0.into()])
+                Correction::Commas {
+                    diesis: 0.into(),
+                    pythagorean: 0.into(),
+                    syntonic: 0.into()
+                }
             );
 
             assert_eq!(
@@ -170,7 +246,11 @@ pub mod fivelimit {
                     &Stack::<ConcreteFiveLimitStackType>::from_target(vec![123, 234, 345]),
                     CorrectionBasis::PythagoreanDiesis
                 ),
-                Correction::PythagoreanDiesis([0.into(), 0.into()])
+                Correction::Commas {
+                    diesis: 0.into(),
+                    pythagorean: 0.into(),
+                    syntonic: 0.into()
+                }
             );
 
             assert_eq!(
@@ -181,7 +261,11 @@ pub mod fivelimit {
                     ),
                     CorrectionBasis::PythagoreanDiesis
                 ),
-                Correction::PythagoreanDiesis([0.into(), 1.into()])
+                Correction::Commas {
+                    diesis: 1.into(),
+                    pythagorean: 0.into(),
+                    syntonic: 0.into()
+                }
             );
 
             assert_eq!(
@@ -192,7 +276,11 @@ pub mod fivelimit {
                     ),
                     CorrectionBasis::PythagoreanDiesis
                 ),
-                Correction::PythagoreanDiesis([Ratio::new(-1, 12), Ratio::new(1, 3)])
+                Correction::Commas {
+                    diesis: Ratio::new(1, 3),
+                    pythagorean: Ratio::new(-1, 12),
+                    syntonic: 0.into()
+                }
             );
 
             assert_eq!(
@@ -203,8 +291,12 @@ pub mod fivelimit {
                     ),
                     CorrectionBasis::PythagoreanDiesis
                 ),
-                // indeed: a quarter syntonic comma is a twelfth diesis plus a twelfth pythagorean comma
-                Correction::PythagoreanDiesis([Ratio::new(-1, 12), Ratio::new(-1, 12)])
+                // this can be written more simply, so the basis is ignored.
+                Correction::Commas {
+                    diesis: 0.into(),
+                    pythagorean: 0.into(),
+                    syntonic: Ratio::new(-1, 4)
+                }
             );
 
             assert_eq!(
@@ -215,7 +307,11 @@ pub mod fivelimit {
                     ),
                     CorrectionBasis::PythagoreanSyntonic
                 ),
-                Correction::PythagoreanSyntonic([0.into(), Ratio::new(-1, 4)])
+                Correction::Commas {
+                    diesis: 0.into(),
+                    pythagorean: 0.into(),
+                    syntonic: Ratio::new(-1, 4)
+                }
             );
 
             assert_eq!(
@@ -226,7 +322,11 @@ pub mod fivelimit {
                     ),
                     CorrectionBasis::PythagoreanSyntonic
                 ),
-                Correction::PythagoreanSyntonic([Ratio::new(-1, 12), Ratio::new(-1, 4)])
+                Correction::Commas {
+                    diesis: 0.into(),
+                    pythagorean: Ratio::new(-1, 12),
+                    syntonic: Ratio::new(-1, 4)
+                }
             );
 
             assert_eq!(
@@ -243,7 +343,11 @@ pub mod fivelimit {
                 // together, that makes
                 //
                 // -1/4 s - 1/12 p + 2/3 d = 3/4 d - 1/2 s
-                Correction::DiesisSyntonic([Ratio::new(3, 4), Ratio::new(-1, 2)])
+                Correction::Commas {
+                    diesis: Ratio::new(3,4),
+                    pythagorean: 0.into(),
+                    syntonic: Ratio::new(-1, 2)
+                }
             );
 
             assert_eq!(
