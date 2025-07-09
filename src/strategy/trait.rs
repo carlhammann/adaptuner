@@ -44,4 +44,20 @@ pub trait Strategy<T: StackType> {
         msg: ToStrategy<T>,
         forward: &mpsc::Sender<FromProcess<T>>,
     ) -> bool;
+
+    fn next_neighbourhood(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        time: Instant,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool;
+
+    fn set_reference(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        time: Instant,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) -> bool;
 }

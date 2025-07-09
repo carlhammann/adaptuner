@@ -1,6 +1,11 @@
 use std::{sync::mpsc, time::Instant};
 
-use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
+use midi_msg::{
+    Channel,
+    ChannelVoiceMsg::*,
+    ControlChange::{Hold, SoftPedal, Sostenuto},
+    MidiMsg,
+};
 
 use crate::{
     interval::{stack::Stack, stacktype::r#trait::StackType},
@@ -14,6 +19,8 @@ pub struct ProcessFromStrategy<T: StackType, S: Strategy<T>> {
     key_states: [KeyState; 128],
     tunings: [Stack<T>; 128],
     pedal_hold: [bool; 16],
+    sostenuto_is_next_neigbourhood: bool,
+    soft_pedal_is_set_reference: bool,
 }
 
 impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
@@ -24,6 +31,8 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
             key_states: core::array::from_fn(|_| KeyState::new(now)),
             tunings: core::array::from_fn(|_| Stack::new_zero()),
             pedal_hold: [false; 16],
+            sostenuto_is_next_neigbourhood: true,
+            soft_pedal_is_set_reference: true,
         }
     }
 }
@@ -69,6 +78,48 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
                     value,
                     time,
                 });
+            }
+
+            MidiMsg::ChannelVoice {
+                channel,
+                msg:
+                    ControlChange {
+                        control: Sostenuto(value),
+                    },
+            } => {
+                if self.sostenuto_is_next_neigbourhood {
+                    if value > 0 {
+                        let _ = self.strategy.next_neighbourhood(
+                            &self.key_states,
+                            &mut self.tunings,
+                            time,
+                            forward,
+                        );
+                    }
+                } else {
+                    todo!()
+                }
+            }
+
+            MidiMsg::ChannelVoice {
+                channel,
+                msg:
+                    ControlChange {
+                        control: SoftPedal(value),
+                    },
+            } => {
+                if self.soft_pedal_is_set_reference {
+                    if value > 0 {
+                        let _ = self.strategy.set_reference(
+                            &self.key_states,
+                            &mut self.tunings,
+                            time,
+                            forward,
+                        );
+                    }
+                } else {
+                    todo!()
+                }
             }
 
             MidiMsg::ChannelVoice {
