@@ -1082,14 +1082,14 @@ mod test {
     use pretty_assertions::assert_eq;
 
     use crate::interval::stacktype::{
-        fivelimit::ConcreteFiveLimitStackType, r#trait::FiveLimitStackType,
+        fivelimit::mock::MockFiveLimitStackType, r#trait::FiveLimitStackType,
     };
 
     use super::*;
 
     #[test]
     fn test_collect_intervals() {
-        type Irrelevant = crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
+        type Irrelevant = crate::interval::stacktype::fivelimit::mock::MockFiveLimitStackType;
         let mut ws = Workspace::<Irrelevant>::new(1, false, false, false);
 
         ws.keys = vec![0, 1, 2, 3];
@@ -1184,7 +1184,7 @@ mod test {
 
     #[test]
     fn test_compute_best_solution() {
-        let mut ws = Workspace::<ConcreteFiveLimitStackType>::new(1, true, true, true);
+        let mut ws = Workspace::<MockFiveLimitStackType>::new(1, true, true, true);
         let mut solver = Solver::new(1, 1, 1);
 
         let provide_candidate_springs = |d: KeyDistance| {
@@ -1567,7 +1567,7 @@ mod test {
                 provide_candidate_anchors,
                 |s| match s[..] {
                     [(7, n)] => {
-                        Stack::from_pure_interval(ConcreteFiveLimitStackType::fifth_index(), n)
+                        Stack::from_pure_interval(MockFiveLimitStackType::fifth_index(), n)
                     }
                     _ => unreachable!(),
                 },

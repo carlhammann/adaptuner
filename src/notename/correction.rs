@@ -225,13 +225,13 @@ pub mod fivelimit {
     #[cfg(test)]
     mod test {
         use super::*;
-        use crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
+        use crate::interval::stacktype::fivelimit::mock::MockFiveLimitStackType;
 
         #[test]
         fn test_correction() {
             assert_eq!(
                 Correction::new(
-                    &Stack::<ConcreteFiveLimitStackType>::new_zero(),
+                    &Stack::<MockFiveLimitStackType>::new_zero(),
                     CorrectionBasis::PythagoreanDiesis
                 ),
                 Correction::Commas {
@@ -243,7 +243,7 @@ pub mod fivelimit {
 
             assert_eq!(
                 Correction::new(
-                    &Stack::<ConcreteFiveLimitStackType>::from_target(vec![123, 234, 345]),
+                    &Stack::<MockFiveLimitStackType>::from_target(vec![123, 234, 345]),
                     CorrectionBasis::PythagoreanDiesis
                 ),
                 Correction::Commas {
@@ -255,7 +255,7 @@ pub mod fivelimit {
 
             assert_eq!(
                 Correction::new(
-                    &Stack::<ConcreteFiveLimitStackType>::from_temperaments_and_target(
+                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
                         &[true, false],
                         vec![0, 0, 3]
                     ),
@@ -270,7 +270,7 @@ pub mod fivelimit {
 
             assert_eq!(
                 Correction::new(
-                    &Stack::<ConcreteFiveLimitStackType>::from_temperaments_and_target(
+                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
                         &[true, false],
                         vec![0, 1, 1]
                     ),
@@ -285,7 +285,7 @@ pub mod fivelimit {
 
             assert_eq!(
                 Correction::new(
-                    &Stack::<ConcreteFiveLimitStackType>::from_temperaments_and_target(
+                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
                         &[false, true],
                         vec![0, 1, 0]
                     ),
@@ -301,7 +301,7 @@ pub mod fivelimit {
 
             assert_eq!(
                 Correction::new(
-                    &Stack::<ConcreteFiveLimitStackType>::from_temperaments_and_target(
+                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
                         &[false, true],
                         vec![0, 1, 0]
                     ),
@@ -316,7 +316,7 @@ pub mod fivelimit {
 
             assert_eq!(
                 Correction::new(
-                    &Stack::<ConcreteFiveLimitStackType>::from_temperaments_and_target(
+                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
                         &[true, true],
                         vec![0, 1, 0]
                     ),
@@ -331,7 +331,7 @@ pub mod fivelimit {
 
             assert_eq!(
                 Correction::new(
-                    &Stack::<ConcreteFiveLimitStackType>::from_temperaments_and_target(
+                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
                         &[true, true],
                         vec![0, 1, 2]
                     ),
@@ -352,7 +352,7 @@ pub mod fivelimit {
 
             assert_eq!(
                 Correction::new(
-                    &Stack::<ConcreteFiveLimitStackType>::from_target_and_actual(
+                    &Stack::<MockFiveLimitStackType>::from_target_and_actual(
                         arr1(&[0, 0, 0]),
                         arr1(&[Ratio::new(1, 120), 0.into(), 0.into()])
                     ),

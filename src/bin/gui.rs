@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use midi_msg::Channel;
+use ndarray::arr2;
 
 use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
@@ -8,7 +9,12 @@ use adaptuner::{
         latticewindow::LatticeWindowConfig, manywindows::ManyWindows,
         referencewindow::ReferenceWindowConfig,
     },
-    interval::{stack::Stack, stacktype::fivelimit::ConcreteFiveLimitStackType},
+    interval::{
+        stack::Stack,
+        stacktype::fivelimit::{
+            FiveLimitTemperamentDefinition, TemperamentDefinition, TheFiveLimitStackType,
+        },
+    },
     neighbourhood::{Neighbourhood, PeriodicCompleteAligned},
     notename::NoteNameStyle,
     process::fromstrategy::ProcessFromStrategy,
@@ -18,7 +24,7 @@ use adaptuner::{
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let tuning_reference = Reference::<ConcreteFiveLimitStackType>::from_frequency(
+    let tuning_reference = Reference::<TheFiveLimitStackType>::from_frequency(
         Stack::from_target(vec![1, -1, 1]),
         440.0,
     );
@@ -29,7 +35,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         12.0 * (3.0 / 2.0 as f32).log2(),
     ];
     let background_stack_distances = vec![0, 3, 2];
-    let no_active_temperaments = vec![false; 2];
     let initial_neighbourhoods = vec![PeriodicCompleteAligned::from_octave_tunings(
         [
             Stack::new_zero(),                  // C
@@ -48,6 +53,53 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Reihe 1".into(),
     )];
     let initial_reference = Stack::new_zero();
+    let temperament_definitions = vec![
+        TemperamentDefinition {
+            name: "equal temperament".into(),
+            tempered: arr2(&[[1, 0, 0], [0, 12, 0], [0, 0, 3]]),
+            pure: arr2(&[[1, 0, 0], [7, 0, 0], [1, 0, 0]]),
+        },
+        TemperamentDefinition {
+            name: "1/4-comma fifths".into(),
+            tempered: arr2(&[[1, 0, 0], [0, 4, 0], [0, 0, 1]]),
+            pure: arr2(&[[1, 0, 0], [2, 0, 1], [0, 0, 1]]),
+        },
+        TemperamentDefinition {
+            name: "1/6-comma fifths".into(),
+            tempered: arr2(&[[1, 0, 0], [0, 6, 0], [0, 0, 1]]),
+            pure: arr2(&[[1, 0, 0], [2, 2, 1], [0, 0, 1]]),
+        },
+        TemperamentDefinition {
+            name: "1/3-comma fifths".into(),
+            tempered: arr2(&[[1, 0, 0], [0, 3, 0], [0, 0, 1]]),
+            pure: arr2(&[[1, 0, 0], [2, -1, 1], [0, 0, 1]]),
+        },
+        TemperamentDefinition {
+            name: "equal thirds".into(),
+            tempered: arr2(&[[1, 0, 0], [0, 1, 0], [0, 0, 3]]),
+            pure: arr2(&[[1, 0, 0], [0, 1, 0], [1, 0, 0]]),
+        },
+    ];
+    let no_active_temperaments = vec![false; temperament_definitions.len()];
+
+    // println!(
+    //     "{}",
+    //     serde_yml::to_string(
+    //         &FiveLimitTemperamentDefinition::from_temperament_definition(
+    //             &temperament_definitions[1]
+    //         )
+    //     )
+    //     .unwrap()
+    // );
+
+    // println!(
+    //     "{:?}",
+    //     serde_yml::from_str::<FiveLimitTemperamentDefinition>(
+    //         &std::fs::read_to_string("foo").unwrap()
+    //     )
+    // );
+
+    let _ = TheFiveLimitStackType::initialise(&temperament_definitions);
 
     let backend_config = Pitchbend12Config {
         channels: [

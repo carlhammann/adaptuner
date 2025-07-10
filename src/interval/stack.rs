@@ -242,7 +242,7 @@ mod test {
     use super::*;
     use approx::assert_relative_eq;
 
-    type MockStackType = crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
+    type MockStackType = crate::interval::stacktype::fivelimit::mock::MockFiveLimitStackType;
 
     #[test]
     fn test_semitones() {

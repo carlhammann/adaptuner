@@ -176,7 +176,7 @@ pub mod fivelimit {
     mod test {
         use super::*;
 
-        type MockStackType = crate::interval::stacktype::fivelimit::ConcreteFiveLimitStackType;
+        type MockStackType = crate::interval::stacktype::fivelimit::mock::MockFiveLimitStackType;
 
         #[test]
         fn test_str_name() {

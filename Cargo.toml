@@ -15,6 +15,7 @@ serde = "1.0.204"
 num-rational = {version = "0.4.2", features = ["serde"]}
 eframe = "0.31.1"
 egui_extras = { version = "0.31.1", features = ["svg"]}
+serde_yml = "0.0.12"
 
 [dev-dependencies]
 approx = "0.5.1"
