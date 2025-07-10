@@ -11,6 +11,7 @@ use crate::{
 };
 
 use super::{
+    backendwindow::{BackendWindow, BackendWindowConfig},
     connectionwindow::{ConnectionWindow, Input, Output},
     latencywindow::LatencyWindow,
     latticewindow::{LatticeWindow, LatticeWindowConfig},
@@ -30,6 +31,8 @@ pub struct ManyWindows<T: StackType, N: Neighbourhood<T>> {
     sostenuto_is_next_neigbourhood: bool,
     soft_pedal_is_set_reference: bool,
 
+    backend_window: BackendWindow,
+
     tuning_reference_window: TuningReferenceWindow<T>,
     show_tuning_reference_window: bool,
 
@@ -47,6 +50,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
     pub fn new(
         lattice_window_config: LatticeWindowConfig<T, N>,
         reference_window_config: ReferenceWindowConfig<T>,
+        backend_window_config: BackendWindowConfig,
         latency_window_length: usize,
         tuning_reference: Reference<T>,
         notenamestyle: NoteNameStyle,
@@ -61,6 +65,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
             show_connection_window: true,
             sostenuto_is_next_neigbourhood: true,
             soft_pedal_is_set_reference: true,
+            backend_window: BackendWindow::new(backend_window_config),
             tuning_reference_window: TuningReferenceWindow::new(tuning_reference, notenamestyle),
             show_tuning_reference_window: false,
             reference_window: ReferenceWindow::new(reference_window_config),
@@ -94,7 +99,10 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> eframe::App for Man
 
                 ui.separator();
 
-                if ui.toggle_value(&mut self.show_lattice_window_controls, "controls").clicked() {
+                if ui
+                    .toggle_value(&mut self.show_lattice_window_controls, "controls")
+                    .clicked()
+                {
                     self.latticewindow.toggle_controls();
                 };
                 ui.toggle_value(&mut self.show_connection_window, "midi connections");
@@ -123,6 +131,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> eframe::App for Man
 
                         ui.separator();
 
+                        ui.vertical_centered(|ui| ui.label("input settings"));
                         if ui
                             .toggle_value(
                                 &mut self.sostenuto_is_next_neigbourhood,
@@ -141,6 +150,11 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> eframe::App for Man
                         {
                             let _ = self.tx.send(FromUi::ToggleSoftPedalIsSetReference {});
                         }
+
+                        ui.separator();
+
+                        ui.vertical_centered(|ui| ui.label("output settings"));
+                        self.backend_window.show(ctx, ui, &self.tx);
                     });
                 });
         }

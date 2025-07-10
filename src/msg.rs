@@ -216,6 +216,14 @@ pub enum ToBackend {
         program: u8,
         time: Instant,
     },
+    BendRange {
+        range: Semitones,
+        time: Instant,
+    },
+    ChannelsToUse {
+        channels: [bool; 16],
+        time: Instant,
+    },
 }
 
 pub enum FromBackend {
@@ -361,6 +369,14 @@ pub enum FromUi<T: StackType> {
     },
     ToggleSostenutoIsNextNeighbourhood {},
     ToggleSoftPedalIsSetReference {},
+    BendRange {
+        range: Semitones,
+        time: Instant,
+    },
+    ChannelsToUse {
+        channels: [bool; 16],
+        time: Instant,
+    },
 }
 
 pub enum ToMidiIn {
@@ -705,6 +721,18 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::ToggleSoftPedalIsSetReference {} => (
                 Some(ToProcess::ToggleSoftPedalIsSetReference {}),
                 None {},
+                None {},
+                None {},
+            ),
+            FromUi::BendRange { range, time } => (
+                None {},
+                Some(ToBackend::BendRange { range, time }),
+                None {},
+                None {},
+            ),
+            FromUi::ChannelsToUse { channels, time } => (
+                None {},
+                Some(ToBackend::ChannelsToUse { channels, time }),
                 None {},
                 None {},
             ),

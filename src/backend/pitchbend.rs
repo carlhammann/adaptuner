@@ -428,6 +428,10 @@ impl HandleMsg<ToBackend, FromBackend> for Pitchbend {
             } => {
                 self.send_tuned_note_on(channel, note, velocity, tuning, time, forward);
             }
+
+            ToBackend::BendRange { range, time } => todo!(),
+
+            ToBackend::ChannelsToUse { channels, time } => todo!(),
         }
     }
 }

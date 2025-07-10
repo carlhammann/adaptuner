@@ -1,3 +1,4 @@
+pub mod backendwindow;
 pub mod common;
 pub mod connectionwindow;
 pub mod latencywindow;

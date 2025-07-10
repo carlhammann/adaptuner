@@ -71,6 +71,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         bend_range: 2.0,
     };
 
+    let backend_window_config = backend_config.clone();
+
     let lattice_window_config = LatticeWindowConfig {
         tuning_reference: tuning_reference.clone(),
         reference: initial_reference.clone(),
@@ -104,11 +106,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         midi_in,
         midi_out,
         || ProcessFromStrategy::new(static_tuning),
-        move || Pitchbend12::new(&backend_config),
+        move || Pitchbend12::new(backend_config),
         move |ctx, tx| {
             ManyWindows::new(
                 lattice_window_config,
                 reference_window_config,
+                backend_window_config,
                 latency_window_length,
                 tuning_reference,
                 notenamestyle,
