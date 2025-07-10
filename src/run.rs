@@ -48,6 +48,38 @@ struct GuiWithConnections<T: StackType, G: HandleMsg<ToUi<T>, FromUi<T>> + efram
     tx: mpsc::Sender<FromUi<T>>,
 }
 
+impl<T: StackType + Send + 'static, G: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App>
+    GuiWithConnections<T, G>
+{
+    fn new(
+        cc: &eframe::CreationContext,
+        gui: G,
+        rx: mpsc::Receiver<ToUi<T>>,
+        tx: mpsc::Sender<FromUi<T>>,
+    ) -> Self {
+        let ctx = cc.egui_ctx.clone();
+        let (forward_tx, forward_rx) = mpsc::channel::<ToUi<T>>();
+
+        // This extra thread is needed to really request the repaint. If `request_repaint` is
+        // called from outside of an UI thread, the UI thread wakes up and runs.
+        thread::spawn(move || loop {
+            match rx.recv() {
+                Ok(msg) => {
+                    ctx.request_repaint();
+                    let _ = forward_tx.send(msg);
+                }
+                Err(_) => break,
+            }
+        });
+
+        Self {
+            gui,
+            rx: forward_rx,
+            tx,
+        }
+    }
+}
+
 impl<T: StackType, G: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App> eframe::App
     for GuiWithConnections<T, G>
 {
@@ -76,27 +108,7 @@ where
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             let gui = new_gui(&cc.egui_ctx, tx.clone());
-
-            let ctx = cc.egui_ctx.clone();
-            let (forward_tx, forward_rx) = mpsc::channel::<ToUi<T>>();
-
-            // This extra thread is needed to really request the repaint. If `request_repaint` is
-            // called from outside of an UI thread, the UI thread wakes up and runs.
-            thread::spawn(move || loop {
-                match rx.recv() {
-                    Ok(msg) => {
-                        ctx.request_repaint();
-                        let _ = forward_tx.send(msg);
-                    }
-                    Err(_) => break,
-                }
-            });
-
-            Ok(Box::new(GuiWithConnections {
-                gui,
-                tx,
-                rx: forward_rx,
-            }))
+            Ok(Box::new(GuiWithConnections::new(cc, gui, rx, tx)))
         }),
     )
 }
