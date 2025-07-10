@@ -387,11 +387,10 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             let correction = Correction::from_target_and_actual::<T>(
                 target.into(),
                 actual.into(),
-                self.correction_basis,
             );
 
             if !correction.is_zero() {
-                let correction_label = format!("{correction}");
+                let correction_label = correction.str(self.correction_basis);
                 ui.painter().with_clip_rect(rect).text(
                     pos2(
                         hpos,

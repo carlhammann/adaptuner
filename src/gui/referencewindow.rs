@@ -47,7 +47,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceWindow<T> {
         ui.label(format!(
             "Current reference is {}   {}{}",
             self.reference.notename(&self.notenamestyle),
-            Correction::new(&self.reference, self.correction_basis),
+            Correction::new(&self.reference).str(self.correction_basis),
             if self.reference.is_pure() & !self.reference.is_target() {
                 format!(" = {}", self.reference.actual_notename(&self.notenamestyle))
             } else {
@@ -75,7 +75,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceWindow<T> {
             ui.label(format!(
                 "New reference will be {}   {}{}",
                 self.new_reference.notename(&self.notenamestyle),
-                Correction::new(&self.new_reference, self.correction_basis),
+                Correction::new(&self.new_reference).str(self.correction_basis),
                 if self.new_reference.is_pure() & !self.new_reference.is_target() {
                     format!(
                         " = {}",
