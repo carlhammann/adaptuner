@@ -10,10 +10,8 @@ use adaptuner::{
         referencewindow::ReferenceWindowConfig,
     },
     interval::{
-        stack::Stack,
-        stacktype::fivelimit::{
-            FiveLimitTemperamentDefinition, TemperamentDefinition, TheFiveLimitStackType,
-        },
+        stack::Stack, stacktype::fivelimit::TheFiveLimitStackType,
+        temperament::TemperamentDefinition,
     },
     neighbourhood::{Neighbourhood, PeriodicCompleteAligned},
     notename::NoteNameStyle,
@@ -35,6 +33,36 @@ fn main() -> Result<(), Box<dyn Error>> {
         12.0 * (3.0 / 2.0 as f32).log2(),
     ];
     let background_stack_distances = vec![0, 3, 2];
+    let temperament_definitions = vec![
+        TemperamentDefinition::new(
+            "equal temperament".into(),
+            arr2(&[[1, 0, 0], [0, 12, 0], [0, 0, 3]]),
+            arr2(&[[1, 0, 0], [7, 0, 0], [1, 0, 0]]),
+        ),
+        TemperamentDefinition::new(
+            "1/4-comma fifths".into(),
+            arr2(&[[1, 0, 0], [0, 4, 0], [0, 0, 1]]),
+            arr2(&[[1, 0, 0], [2, 0, 1], [0, 0, 1]]),
+        ),
+        TemperamentDefinition::new(
+            "1/6-comma fifths".into(),
+            arr2(&[[1, 0, 0], [0, 6, 0], [0, 0, 1]]),
+            arr2(&[[1, 0, 0], [2, 2, 1], [0, 0, 1]]),
+        ),
+        TemperamentDefinition::new(
+            "1/3-comma fifths".into(),
+            arr2(&[[1, 0, 0], [0, 3, 0], [0, 0, 1]]),
+            arr2(&[[1, 0, 0], [2, -1, 1], [0, 0, 1]]),
+        ),
+        TemperamentDefinition::new(
+            "equal thirds".into(),
+            arr2(&[[1, 0, 0], [0, 1, 0], [0, 0, 3]]),
+            arr2(&[[1, 0, 0], [0, 1, 0], [1, 0, 0]]),
+        ),
+    ];
+    let _ = TheFiveLimitStackType::initialise(&temperament_definitions);
+
+    let no_active_temperaments = vec![false; temperament_definitions.len()];
     let initial_neighbourhoods = vec![PeriodicCompleteAligned::from_octave_tunings(
         [
             Stack::new_zero(),                  // C
@@ -53,53 +81,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Reihe 1".into(),
     )];
     let initial_reference = Stack::new_zero();
-    let temperament_definitions = vec![
-        TemperamentDefinition {
-            name: "equal temperament".into(),
-            tempered: arr2(&[[1, 0, 0], [0, 12, 0], [0, 0, 3]]),
-            pure: arr2(&[[1, 0, 0], [7, 0, 0], [1, 0, 0]]),
-        },
-        TemperamentDefinition {
-            name: "1/4-comma fifths".into(),
-            tempered: arr2(&[[1, 0, 0], [0, 4, 0], [0, 0, 1]]),
-            pure: arr2(&[[1, 0, 0], [2, 0, 1], [0, 0, 1]]),
-        },
-        TemperamentDefinition {
-            name: "1/6-comma fifths".into(),
-            tempered: arr2(&[[1, 0, 0], [0, 6, 0], [0, 0, 1]]),
-            pure: arr2(&[[1, 0, 0], [2, 2, 1], [0, 0, 1]]),
-        },
-        TemperamentDefinition {
-            name: "1/3-comma fifths".into(),
-            tempered: arr2(&[[1, 0, 0], [0, 3, 0], [0, 0, 1]]),
-            pure: arr2(&[[1, 0, 0], [2, -1, 1], [0, 0, 1]]),
-        },
-        TemperamentDefinition {
-            name: "equal thirds".into(),
-            tempered: arr2(&[[1, 0, 0], [0, 1, 0], [0, 0, 3]]),
-            pure: arr2(&[[1, 0, 0], [0, 1, 0], [1, 0, 0]]),
-        },
-    ];
-    let no_active_temperaments = vec![false; temperament_definitions.len()];
 
-    // println!(
-    //     "{}",
-    //     serde_yml::to_string(
-    //         &FiveLimitTemperamentDefinition::from_temperament_definition(
-    //             &temperament_definitions[1]
-    //         )
-    //     )
-    //     .unwrap()
-    // );
+    // initial_neighbourhoods[0].for_each_stack(|_, s| {
+    //     println!("{}", serde_yml::to_string(s).unwrap());
+    // });
+
+    // println!("{}", serde_yml::to_string(&initial_neighbourhoods).unwrap());
 
     // println!(
     //     "{:?}",
-    //     serde_yml::from_str::<FiveLimitTemperamentDefinition>(
-    //         &std::fs::read_to_string("foo").unwrap()
-    //     )
+    //     from_reader_yaml::<_, TemperamentDefinition>(std::fs::File::open("foo").unwrap())
     // );
-
-    let _ = TheFiveLimitStackType::initialise(&temperament_definitions);
 
     let backend_config = Pitchbend12Config {
         channels: [

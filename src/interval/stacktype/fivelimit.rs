@@ -1,154 +1,20 @@
-use std::sync::{LazyLock, OnceLock};
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, OnceLock},
+};
 
-use ndarray::{arr2, Array2};
-use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 
 use crate::interval::{
     base::{Interval, Semitones},
     stacktype::r#trait::{
-        FiveLimitStackType, OctavePeriodicStackType, PeriodicStackType, StackCoeff, StackType,
+        FiveLimitStackType, IntervalBasis, OctavePeriodicStackType, PeriodicStackType, StackCoeff,
+        StackType,
     },
-    temperament::{Temperament, TemperamentErr},
+    temperament::{Temperament, TemperamentDefinition, TemperamentErr},
 };
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FiveLimitCoeffs {
-    #[serde(default)]
-    #[serde(skip_serializing_if = "StackCoeff::is_zero")]
-    octaves: StackCoeff,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "StackCoeff::is_zero")]
-    fifths: StackCoeff,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "StackCoeff::is_zero")]
-    thirds: StackCoeff,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FiveLimitTemperamentEquation {
-    tempered: FiveLimitCoeffs,
-    pure: FiveLimitCoeffs,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FiveLimitTemperamentDefinition {
-    pub name: String,
-    pub equations: [FiveLimitTemperamentEquation; 3],
-}
-
-impl FiveLimitTemperamentDefinition {
-    pub fn from_temperament_definition(def: &TemperamentDefinition) -> Self {
-        Self {
-            name: def.name.clone(),
-            equations: [
-                FiveLimitTemperamentEquation {
-                    tempered: FiveLimitCoeffs {
-                        octaves: def.tempered[(0, 0)],
-                        fifths: def.tempered[(0, 1)],
-                        thirds: def.tempered[(0, 2)],
-                    },
-                    pure: FiveLimitCoeffs {
-                        octaves: def.pure[(0, 0)],
-                        fifths: def.pure[(0, 1)],
-                        thirds: def.pure[(0, 2)],
-                    },
-                },
-                FiveLimitTemperamentEquation {
-                    tempered: FiveLimitCoeffs {
-                        octaves: def.tempered[(1, 0)],
-                        fifths: def.tempered[(1, 1)],
-                        thirds: def.tempered[(1, 2)],
-                    },
-                    pure: FiveLimitCoeffs {
-                        octaves: def.pure[(1, 0)],
-                        fifths: def.pure[(1, 1)],
-                        thirds: def.pure[(1, 2)],
-                    },
-                },
-                FiveLimitTemperamentEquation {
-                    tempered: FiveLimitCoeffs {
-                        octaves: def.tempered[(2, 0)],
-                        fifths: def.tempered[(2, 1)],
-                        thirds: def.tempered[(2, 2)],
-                    },
-                    pure: FiveLimitCoeffs {
-                        octaves: def.pure[(2, 0)],
-                        fifths: def.pure[(2, 1)],
-                        thirds: def.pure[(2, 2)],
-                    },
-                },
-            ],
-        }
-    }
-
-    pub fn to_temperament_definition(self) -> TemperamentDefinition {
-        TemperamentDefinition {
-            name: self.name,
-            tempered: arr2(&[
-                [
-                    self.equations[0].tempered.octaves,
-                    self.equations[0].tempered.fifths,
-                    self.equations[0].tempered.thirds,
-                ],
-                [
-                    self.equations[1].tempered.octaves,
-                    self.equations[1].tempered.fifths,
-                    self.equations[1].tempered.thirds,
-                ],
-                [
-                    self.equations[2].tempered.octaves,
-                    self.equations[2].tempered.fifths,
-                    self.equations[2].tempered.thirds,
-                ],
-            ]),
-            pure: arr2(&[
-                [
-                    self.equations[0].pure.octaves,
-                    self.equations[0].pure.fifths,
-                    self.equations[0].pure.thirds,
-                ],
-                [
-                    self.equations[1].pure.octaves,
-                    self.equations[1].pure.fifths,
-                    self.equations[1].pure.thirds,
-                ],
-                [
-                    self.equations[2].pure.octaves,
-                    self.equations[2].pure.fifths,
-                    self.equations[2].pure.thirds,
-                ],
-            ]),
-        }
-    }
-}
-
-pub struct TemperamentDefinition {
-    pub name: String,
-    pub tempered: Array2<StackCoeff>,
-    pub pure: Array2<StackCoeff>,
-}
-
-pub enum TemperamentInitialisationErr {
-    AlreadyInitialised,
-    FromTemperamentErr(TemperamentErr),
-}
-
-pub fn realise_temperaments(
-    definitions: &[TemperamentDefinition],
-) -> Result<Vec<Temperament<StackCoeff>>, TemperamentInitialisationErr> {
-    let f = |def: &TemperamentDefinition| match Temperament::new(
-        def.name.clone(),
-        def.tempered.view(),
-        def.pure.view(),
-    ) {
-        Ok(t) => Ok(t),
-        Err(e) => Err(TemperamentInitialisationErr::FromTemperamentErr(e)),
-    };
-    definitions.iter().map(f).collect()
-}
-
-#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TheFiveLimitStackType {}
 
 static INTERVALS: LazyLock<[Interval; 3]> = LazyLock::new(|| {
@@ -171,24 +37,46 @@ static INTERVALS: LazyLock<[Interval; 3]> = LazyLock::new(|| {
     ]
 });
 
+static INTERVAL_POSITIONS: LazyLock<HashMap<String, usize>> = LazyLock::new(|| {
+    let mut m = HashMap::with_capacity(3);
+    m.insert("octave".into(), 0);
+    m.insert("fifth".into(), 1);
+    m.insert("third".into(), 2);
+    m
+});
+
 static TEMPERAMENTS: OnceLock<Vec<Temperament<StackCoeff>>> = OnceLock::new();
+
+pub enum TemperamentInitialisationErr {
+    AlreadyInitialised,
+    FromTemperamentErr(TemperamentErr),
+}
 
 impl TheFiveLimitStackType {
     pub fn initialise(
-        config: &[TemperamentDefinition],
+        config: &[TemperamentDefinition<TheFiveLimitStackType>],
     ) -> Result<(), TemperamentInitialisationErr> {
-        match TEMPERAMENTS.set(realise_temperaments(config)?) {
-            Ok(()) => Ok(()),
-            Err(_) => Err(TemperamentInitialisationErr::AlreadyInitialised),
+        match config.iter().map(|def| def.realize()).collect() {
+            Err(e) => Err(TemperamentInitialisationErr::FromTemperamentErr(e)),
+            Ok(temperaments) => match TEMPERAMENTS.set(temperaments) {
+                Ok(()) => Ok(()),
+                Err(_) => Err(TemperamentInitialisationErr::AlreadyInitialised),
+            },
         }
     }
 }
 
-impl StackType for TheFiveLimitStackType {
+impl IntervalBasis for TheFiveLimitStackType {
     fn intervals() -> &'static [Interval] {
         &*INTERVALS
     }
 
+    fn interval_positions() -> &'static HashMap<String, usize> {
+        &*&INTERVAL_POSITIONS
+    }
+}
+
+impl StackType for TheFiveLimitStackType {
     fn temperaments() -> &'static [Temperament<StackCoeff>] {
         TEMPERAMENTS.get().expect("temperaments not initialised")
     }
@@ -234,7 +122,7 @@ pub mod mock {
 
     use super::*;
 
-    #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
+    #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy, Deserialize, Serialize)]
     pub struct MockFiveLimitStackType {}
 
     static MOCK_TEMPERAMENTS: LazyLock<[Temperament<StackCoeff>; 2]> = LazyLock::new(|| {
@@ -254,11 +142,17 @@ pub mod mock {
         ]
     });
 
-    impl StackType for MockFiveLimitStackType {
+    impl IntervalBasis for MockFiveLimitStackType {
         fn intervals() -> &'static [Interval] {
             &*INTERVALS
         }
 
+        fn interval_positions() -> &'static HashMap<String, usize> {
+            &*&INTERVAL_POSITIONS
+        }
+    }
+
+    impl StackType for MockFiveLimitStackType {
         fn temperaments() -> &'static [Temperament<StackCoeff>] {
             &*MOCK_TEMPERAMENTS
         }

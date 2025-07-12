@@ -1,7 +1,10 @@
 //! Treating the idea of "tempering intervals" in the abstract setting. A [Temperament] is a
 //! specification of how stacks of tempered intervals relate to stacks of pure intervals.
 
-use std::ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign};
+use std::{
+    marker::PhantomData,
+    ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign},
+};
 
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut1};
 use num_integer::Integer;
@@ -9,6 +12,8 @@ use num_rational::Ratio;
 use num_traits::{One, Signed};
 
 use crate::util::lu::{lu_rational, LUErr};
+
+use super::stacktype::r#trait::{IntervalBasis, StackCoeff};
 
 /// A description of a temperament, i.e. "how much you detune" some intervals.
 ///
@@ -149,5 +154,29 @@ pub enum TemperamentErr {
 impl From<LUErr> for TemperamentErr {
     fn from(value: LUErr) -> Self {
         Self::FromLinalgErr(value)
+    }
+}
+
+/// The arguments to [Temperament::new], wrapped. See the documentation there.
+#[derive(Debug, PartialEq)]
+pub struct TemperamentDefinition<T: IntervalBasis> {
+    _phantom: PhantomData<T>,
+    pub name: String,
+    pub tempered: Array2<StackCoeff>,
+    pub pure: Array2<StackCoeff>,
+}
+
+impl<T: IntervalBasis> TemperamentDefinition<T> {
+    pub fn new(name: String, tempered: Array2<StackCoeff>, pure: Array2<StackCoeff>) -> Self {
+        Self {
+            _phantom: PhantomData,
+            name,
+            tempered,
+            pure,
+        }
+    }
+
+    pub fn realize(&self) -> Result<Temperament<StackCoeff>, TemperamentErr> {
+        Temperament::new(self.name.clone(), self.tempered.view(), self.pure.view())
     }
 }

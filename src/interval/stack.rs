@@ -3,15 +3,14 @@ use std::{marker::PhantomData, ops};
 use ndarray::{Array1, ArrayView1};
 use num_rational::Ratio;
 use num_traits::Zero;
-use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
     base::Semitones,
-    stacktype::r#trait::{StackCoeff, StackType},
+    stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
 };
 
-#[derive(Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Stack<T: StackType> {
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct Stack<T: IntervalBasis> {
     _phantom: PhantomData<T>,
     pub target: Array1<StackCoeff>,
     pub actual: Array1<Ratio<StackCoeff>>,
@@ -21,7 +20,7 @@ pub trait ScaledAdd<S> {
     fn scaled_add<P: ops::Deref<Target = Self>>(&mut self, scalar: S, other: P);
 }
 
-impl<T: StackType> ScaledAdd<StackCoeff> for Stack<T> {
+impl<T: IntervalBasis> ScaledAdd<StackCoeff> for Stack<T> {
     fn scaled_add<P: ops::Deref<Target = Stack<T>>>(&mut self, scalar: StackCoeff, other: P) {
         self.target.scaled_add(scalar, &other.target);
         self.actual
@@ -31,7 +30,7 @@ impl<T: StackType> ScaledAdd<StackCoeff> for Stack<T> {
 
 /// Like [Stack::target_semitones], but for cases when you only have the target coefficients and
 /// not a whole [Stack].
-pub fn semitones_from_target<T: StackType>(target: ArrayView1<StackCoeff>) -> Semitones {
+pub fn semitones_from_target<T: IntervalBasis>(target: ArrayView1<StackCoeff>) -> Semitones {
     let mut res = 0.0;
     for (i, &c) in target.iter().enumerate() {
         res += T::intervals()[i].semitones * c as Semitones;
@@ -41,7 +40,7 @@ pub fn semitones_from_target<T: StackType>(target: ArrayView1<StackCoeff>) -> Se
 
 /// Like [Stack::semitones], but for cases when you only have what would be the [Stack::actual]
 /// coefficients and not a whole [Stack].
-pub fn semitones_from_actual<T: StackType>(actual: ArrayView1<Ratio<StackCoeff>>) -> Semitones {
+pub fn semitones_from_actual<T: IntervalBasis>(actual: ArrayView1<Ratio<StackCoeff>>) -> Semitones {
     let mut res = 0.0;
     for (i, &c) in actual.iter().enumerate() {
         let (n, d) = c.into_raw();
@@ -50,7 +49,7 @@ pub fn semitones_from_actual<T: StackType>(actual: ArrayView1<Ratio<StackCoeff>>
     res
 }
 
-impl<T: StackType> Stack<T> {
+impl<T: IntervalBasis> Stack<T> {
     pub fn from_target_and_actual(
         target: Array1<StackCoeff>,
         actual: Array1<Ratio<StackCoeff>>,
@@ -75,25 +74,6 @@ impl<T: StackType> Stack<T> {
 
     pub fn raw(self) -> (Array1<StackCoeff>, Array1<Ratio<StackCoeff>>) {
         (self.target, self.actual)
-    }
-
-    pub fn from_temperaments_and_target(
-        active_temperaments: &[bool],
-        coefficients: Vec<StackCoeff>,
-    ) -> Self {
-        let mut actual =
-            Array1::from_shape_fn(coefficients.len(), |i| Ratio::from_integer(coefficients[i]));
-        for (t, &active) in active_temperaments.iter().enumerate() {
-            if active {
-                let temperament = &T::temperaments()[t];
-                temperament.add_adjustment(ArrayView1::from(&coefficients), actual.view_mut());
-            }
-        }
-        Stack {
-            _phantom: PhantomData,
-            target: coefficients.into(),
-            actual,
-        }
     }
 
     pub fn new_zero() -> Self {
@@ -122,25 +102,6 @@ impl<T: StackType> Stack<T> {
 
     pub fn actual_coefficients(&self) -> ArrayView1<Ratio<StackCoeff>> {
         self.actual.view()
-    }
-
-    pub fn increment_at_index(
-        &mut self,
-        active_temperaments: &[bool],
-        interval_index: usize,
-        increment: StackCoeff,
-    ) {
-        self.target[interval_index] += increment;
-        self.actual[interval_index] += increment;
-        for (t, &active) in active_temperaments.iter().enumerate() {
-            if active {
-                let temperament = &T::temperaments()[t];
-                self.actual.scaled_add(
-                    Ratio::from_integer(increment),
-                    &temperament.comma(interval_index),
-                );
-            }
-        }
     }
 
     pub fn increment_at_index_pure(&mut self, interval_index: usize, increment: StackCoeff) {
@@ -222,6 +183,46 @@ impl<T: StackType> Stack<T> {
     pub fn reset_to_zero(&mut self) {
         self.target.fill(0);
         self.actual.fill(Ratio::zero());
+    }
+}
+
+impl<T: StackType> Stack<T> {
+    pub fn from_temperaments_and_target(
+        active_temperaments: &[bool],
+        coefficients: Vec<StackCoeff>,
+    ) -> Self {
+        let mut actual =
+            Array1::from_shape_fn(coefficients.len(), |i| Ratio::from_integer(coefficients[i]));
+        for (t, &active) in active_temperaments.iter().enumerate() {
+            if active {
+                let temperament = &T::temperaments()[t];
+                temperament.add_adjustment(ArrayView1::from(&coefficients), actual.view_mut());
+            }
+        }
+        Stack {
+            _phantom: PhantomData,
+            target: coefficients.into(),
+            actual,
+        }
+    }
+
+    pub fn increment_at_index(
+        &mut self,
+        active_temperaments: &[bool],
+        interval_index: usize,
+        increment: StackCoeff,
+    ) {
+        self.target[interval_index] += increment;
+        self.actual[interval_index] += increment;
+        for (t, &active) in active_temperaments.iter().enumerate() {
+            if active {
+                let temperament = &T::temperaments()[t];
+                self.actual.scaled_add(
+                    Ratio::from_integer(increment),
+                    &temperament.comma(interval_index),
+                );
+            }
+        }
     }
 
     pub fn retemper(&mut self, active_temperaments: &[bool]) {

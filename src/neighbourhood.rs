@@ -1,14 +1,12 @@
 //! A neighbourhood is a description of the tunings of some notes, relative to
 //! a reference note.
 
-use serde_derive::{Deserialize, Serialize};
-
 use crate::interval::{
     stack::{ScaledAdd, Stack},
-    stacktype::r#trait::{OctavePeriodicStackType, PeriodicStackType, StackCoeff, StackType},
+    stacktype::r#trait::{IntervalBasis, OctavePeriodicStackType, PeriodicStackType, StackCoeff, StackType},
 };
 
-pub trait Neighbourhood<T: StackType> {
+pub trait Neighbourhood<T: IntervalBasis> {
     /// Insert a tuning. If there's already a tuning for the (relative) note described by Stack,
     /// update. Returns a reference to the actually inserted Stack (which may be different in the
     /// case of [PeriodicNeighbourhood]s, where we store the representative in the "octave" above
@@ -16,9 +14,14 @@ pub trait Neighbourhood<T: StackType> {
     fn insert(&mut self, stack: &Stack<T>) -> &Stack<T>;
 
     /// Go through all stacks _that are actually stored_ (for example, in a
-    /// [PeriodicNeighbourhood], only at most the entries for one peirod are stored) in the
+    /// [PeriodicNeighbourhood], only at most the entries for one period are stored) in the
     /// neighbourhood, with their offset to the reference.
     fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, f: F);
+
+    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+        &self,
+        f: F,
+    ) -> Result<(), E>;
 
     /// like [Neighbourhood::for_each_stack], but allows mutation.
     fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, f: F);
@@ -74,7 +77,7 @@ pub trait Neighbourhood<T: StackType> {
 
 /// Tunings for all notes, described by giving the tunings of all notes in the first "octave" above
 /// the reference.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PeriodicComplete<T: StackType> {
     stacks: Vec<Stack<T>>,
     period: Stack<T>,
@@ -179,6 +182,16 @@ impl<T: StackType> Neighbourhood<T> for PeriodicComplete<T> {
         }
     }
 
+    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+        &self,
+        mut f: F,
+    ) -> Result<(), E> {
+        for (i, stack) in self.stacks.iter().enumerate() {
+            f(i as i8, stack)?;
+        }
+        Ok(())
+    }
+
     fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
         for (i, stack) in self.stacks.iter_mut().enumerate() {
             f(i as i8, stack)
@@ -226,6 +239,13 @@ impl<T: PeriodicStackType> Neighbourhood<T> for PeriodicCompleteAligned<T> {
 
     fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, f: F) {
         self.inner.for_each_stack(f);
+    }
+
+    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+        &self,
+        f: F,
+    ) -> Result<(), E> {
+        self.inner.for_each_stack_failing(f)
     }
 
     fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, f: F) {

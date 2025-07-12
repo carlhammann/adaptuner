@@ -1,24 +1,29 @@
+use std::collections::HashMap;
+
 use crate::interval::{base::Interval, temperament::Temperament};
 
 /// The type of integer coefficients used in [Stack][crate::interval::stack::Stack]s.
 pub type StackCoeff = i64;
 
-/// A description of the [Interval]s and [Temperament]s that may be used in a [Stack][crate::interval::stack::Stack]
-pub trait StackType: Copy {
-    /// The list of "base" [Interval]s that may be used in a [Stack][crate::interval::stack::Stack]
-    /// of this type.
+pub trait IntervalBasis: Copy {
     fn intervals() -> &'static [Interval];
 
-    /// The list of [Temperament]s that may be applied to intervals in a
-    /// [Stack][crate::interval::stack::Stack] of this type. The
-    /// [dimension][Temperament::dimension] of the temperaments must be the
-    /// [StackType::num_intervals].
-    fn temperaments() -> &'static [Temperament<StackCoeff>];
-
-    /// Convenience: the length of the list returned by [intervals][StackType::intervals].
+    /// Convenience: the length of the list returned by [intervals][IntervalBasis::intervals].
     fn num_intervals() -> usize {
         Self::intervals().len()
     }
+
+    /// Convenience: At which position in the list of [IntervalBasis::intervals] is the interval with
+    /// the given name?
+    fn interval_positions() -> &'static HashMap<String, usize>;
+}
+
+/// A description of the [Interval]s and [Temperament]s that may be used in a [Stack][crate::interval::stack::Stack]
+pub trait StackType: IntervalBasis {
+    /// The list of [Temperament]s that may be applied to intervals in a
+    /// [Stack][crate::interval::stack::Stack] of this type. The "dimension" of the temperaments
+    /// must be the [IntervalBasis::num_intervals].
+    fn temperaments() -> &'static [Temperament<StackCoeff>];
 
     /// Convenience: the length of the list returned by [temperaments][StackType::temperaments].
     fn num_temperaments() -> usize {

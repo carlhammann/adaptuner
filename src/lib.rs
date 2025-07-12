@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod custom_serde;
 pub mod gui;
 pub mod interval;
 pub mod keystate;
