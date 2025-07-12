@@ -2,6 +2,7 @@
 //! specification of how stacks of tempered intervals relate to stacks of pure intervals.
 
 use std::{
+    fmt::Display,
     marker::PhantomData,
     ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign},
 };
@@ -124,7 +125,7 @@ where
 
         let mut tempered_lu_perm = Array1::zeros(tempered.shape()[0]);
         let tempered_lu = match lu_rational(tmp.view_mut(), tempered_lu_perm.view_mut()) {
-            Err(LUErr::MatrixDegenerate) => return Err(TemperamentErr::Indeterminate),
+            Err(LUErr::MatrixDegenerate) => return Err(TemperamentErr::Indeterminate { name }),
             Err(e) => return Err(TemperamentErr::FromLinalgErr(e)),
             Ok(x) => x,
         };
@@ -148,7 +149,7 @@ where
 #[derive(Debug)]
 pub enum TemperamentErr {
     FromLinalgErr(LUErr),
-    Indeterminate,
+    Indeterminate { name: String },
 }
 
 impl From<LUErr> for TemperamentErr {
@@ -156,6 +157,23 @@ impl From<LUErr> for TemperamentErr {
         Self::FromLinalgErr(value)
     }
 }
+
+impl Display for TemperamentErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            TemperamentErr::FromLinalgErr(luerr) => write!(f, "linear algebra error: {:?}", luerr),
+            TemperamentErr::Indeterminate { name } => {
+                write!(
+                    f,
+                    "The equations for temperament '{}' form an indeterminate system.",
+                    name
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for TemperamentErr {}
 
 /// The arguments to [Temperament::new], wrapped. See the documentation there.
 #[derive(Debug, PartialEq)]

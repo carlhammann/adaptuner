@@ -1,0 +1,76 @@
+temperaments:
+- name: 'equal temperament'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 12
+    pure:
+      octave: 7
+  - tempered:
+      third: 3
+    pure:
+      octave: 1
+- name: '1/4-comma fifths'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 4
+    pure:
+      octave: 2
+      third: 1
+  - tempered:
+      third: 1
+    pure:
+      third: 1
+- name: '1/6-comma fifths'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 6
+    pure:
+      octave: 2
+      fifth: 2
+      third: 1
+  - tempered:
+      third: 1
+    pure:
+      third: 1
+- name: '1/3-comma fifths'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 3
+    pure:
+      octave: 2
+      fifth: -1
+      third: 1
+  - tempered:
+      third: 1
+    pure:
+      third: 1
+- name: 'equal thirds'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 1
+    pure:
+      fifth: 1
+  - tempered:
+      third: 3
+    pure:
+      octave: 1

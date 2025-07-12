@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Display,
     sync::{LazyLock, OnceLock},
 };
 
@@ -47,20 +48,36 @@ static INTERVAL_POSITIONS: LazyLock<HashMap<String, usize>> = LazyLock::new(|| {
 
 static TEMPERAMENTS: OnceLock<Vec<Temperament<StackCoeff>>> = OnceLock::new();
 
-pub enum TemperamentInitialisationErr {
+#[derive(Debug)]
+pub enum StackTypeInitialisationErr {
     AlreadyInitialised,
     FromTemperamentErr(TemperamentErr),
 }
 
+impl Display for StackTypeInitialisationErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            StackTypeInitialisationErr::AlreadyInitialised => {
+                write!(f, "The stack type was already initialised")
+            }
+            StackTypeInitialisationErr::FromTemperamentErr(temperament_err) => {
+                temperament_err.fmt(f)
+            }
+        }
+    }
+}
+
+impl std::error::Error for StackTypeInitialisationErr {}
+
 impl TheFiveLimitStackType {
     pub fn initialise(
         config: &[TemperamentDefinition<TheFiveLimitStackType>],
-    ) -> Result<(), TemperamentInitialisationErr> {
+    ) -> Result<(), StackTypeInitialisationErr> {
         match config.iter().map(|def| def.realize()).collect() {
-            Err(e) => Err(TemperamentInitialisationErr::FromTemperamentErr(e)),
+            Err(e) => Err(StackTypeInitialisationErr::FromTemperamentErr(e)),
             Ok(temperaments) => match TEMPERAMENTS.set(temperaments) {
                 Ok(()) => Ok(()),
-                Err(_) => Err(TemperamentInitialisationErr::AlreadyInitialised),
+                Err(_) => Err(StackTypeInitialisationErr::AlreadyInitialised),
             },
         }
     }

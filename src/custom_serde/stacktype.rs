@@ -8,6 +8,7 @@ use serde::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
+    stack::key_distance_from_coefficients,
     stacktype::r#trait::{IntervalBasis, StackCoeff},
     temperament::TemperamentDefinition,
 };
@@ -50,10 +51,96 @@ impl<'de, T: IntervalBasis + serde::Deserialize<'de>> serde::Deserialize<'de>
     where
         D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
         struct TemperamentEquation<T: IntervalBasis> {
             tempered: NamedCoefficients<T, StackCoeff>,
             pure: NamedCoefficients<T, StackCoeff>,
+        }
+
+        impl<'de, T: IntervalBasis + serde::Deserialize<'de>> serde::Deserialize<'de>
+            for TemperamentEquation<T>
+        {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                #[derive(Deserialize)]
+                #[serde(field_identifier, rename_all = "lowercase")]
+                enum TemperamentEquationField {
+                    Tempered,
+                    Pure,
+                }
+
+                struct TemperamentEquationVisitor<T: IntervalBasis> {
+                    _phantom: PhantomData<T>,
+                }
+
+                impl<'de, T: IntervalBasis + serde::Deserialize<'de>> Visitor<'de>
+                    for TemperamentEquationVisitor<T>
+                {
+                    type Value = TemperamentEquation<T>;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        write!(formatter, "temperament equation")
+                    }
+
+                    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+                    where
+                        A: serde::de::MapAccess<'de>,
+                    {
+                        let mut pure: Option<NamedCoefficients<T, StackCoeff>> = None {};
+                        let mut tempered: Option<NamedCoefficients<T, StackCoeff>> = None {};
+
+                        while let Some(key) = map.next_key()? {
+                            match key {
+                                TemperamentEquationField::Pure => {
+                                    if pure.is_some() {
+                                        return Err(serde::de::Error::duplicate_field("pure"));
+                                    }
+                                    pure = Some(map.next_value()?);
+                                }
+                                TemperamentEquationField::Tempered => {
+                                    if tempered.is_some() {
+                                        return Err(serde::de::Error::duplicate_field("tempered"));
+                                    }
+                                    tempered = Some(map.next_value()?);
+                                }
+                            }
+                        }
+
+                        if pure.is_none() {
+                            return Err(serde::de::Error::missing_field("pure"));
+                        }
+                        if tempered.is_none() {
+                            return Err(serde::de::Error::missing_field("tempered"));
+                        }
+
+                        let unwrapped_tempered = tempered.unwrap();
+                        let unwrapped_pure = pure.unwrap();
+                        let td =
+                            key_distance_from_coefficients::<T>(unwrapped_tempered.coeffs.view());
+                        let pd = key_distance_from_coefficients::<T>(unwrapped_pure.coeffs.view());
+                        if td != pd {
+                            return Err(serde::de::Error::custom(format!(
+                            "the 'tempered' coefficients describe an interval spanning {} keys, and the 'pure' coefficients an interval spanning {} keys",
+                            td, pd
+                        )));
+                        }
+
+                        Ok(TemperamentEquation {
+                            pure: unwrapped_pure,
+                            tempered: unwrapped_tempered,
+                        })
+                    }
+                }
+
+                deserializer.deserialize_struct(
+                    "temperament equation",
+                    &["tempered", "pure"],
+                    TemperamentEquationVisitor {
+                        _phantom: PhantomData,
+                    },
+                )
+            }
         }
 
         struct TemperamentDefinitionVisitor<T: IntervalBasis> {

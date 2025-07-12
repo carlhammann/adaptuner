@@ -5,13 +5,13 @@ use ndarray::arr2;
 
 use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
+    config::Config,
     gui::{
         latticewindow::LatticeWindowConfig, manywindows::ManyWindows,
         referencewindow::ReferenceWindowConfig,
     },
     interval::{
         stack::Stack, stacktype::fivelimit::TheFiveLimitStackType,
-        temperament::TemperamentDefinition,
     },
     neighbourhood::{Neighbourhood, PeriodicCompleteAligned},
     notename::NoteNameStyle,
@@ -21,7 +21,20 @@ use adaptuner::{
     strategy::r#static::*,
 };
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
+   if let Err(e) = run() {
+      eprintln!("{}", e);
+      std::process::exit(1);
+   }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
+    let config: Config<TheFiveLimitStackType> =
+        serde_yml::from_reader(std::fs::File::open("conf.yaml")?)?;
+    TheFiveLimitStackType::initialise(&config.temperaments)?;
+
+    // serde_yml::to_writer(std::fs::File::create("conf.yaml")?, &config)?;
+
     let tuning_reference = Reference::<TheFiveLimitStackType>::from_frequency(
         Stack::from_target(vec![1, -1, 1]),
         440.0,
@@ -33,36 +46,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         12.0 * (3.0 / 2.0 as f32).log2(),
     ];
     let background_stack_distances = vec![0, 3, 2];
-    let temperament_definitions = vec![
-        TemperamentDefinition::new(
-            "equal temperament".into(),
-            arr2(&[[1, 0, 0], [0, 12, 0], [0, 0, 3]]),
-            arr2(&[[1, 0, 0], [7, 0, 0], [1, 0, 0]]),
-        ),
-        TemperamentDefinition::new(
-            "1/4-comma fifths".into(),
-            arr2(&[[1, 0, 0], [0, 4, 0], [0, 0, 1]]),
-            arr2(&[[1, 0, 0], [2, 0, 1], [0, 0, 1]]),
-        ),
-        TemperamentDefinition::new(
-            "1/6-comma fifths".into(),
-            arr2(&[[1, 0, 0], [0, 6, 0], [0, 0, 1]]),
-            arr2(&[[1, 0, 0], [2, 2, 1], [0, 0, 1]]),
-        ),
-        TemperamentDefinition::new(
-            "1/3-comma fifths".into(),
-            arr2(&[[1, 0, 0], [0, 3, 0], [0, 0, 1]]),
-            arr2(&[[1, 0, 0], [2, -1, 1], [0, 0, 1]]),
-        ),
-        TemperamentDefinition::new(
-            "equal thirds".into(),
-            arr2(&[[1, 0, 0], [0, 1, 0], [0, 0, 3]]),
-            arr2(&[[1, 0, 0], [0, 1, 0], [1, 0, 0]]),
-        ),
-    ];
-    let _ = TheFiveLimitStackType::initialise(&temperament_definitions);
 
-    let no_active_temperaments = vec![false; temperament_definitions.len()];
+    let no_active_temperaments = vec![false; config.temperaments.len()];
     let initial_neighbourhoods = vec![PeriodicCompleteAligned::from_octave_tunings(
         [
             Stack::new_zero(),                  // C

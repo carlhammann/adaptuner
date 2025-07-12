@@ -28,6 +28,18 @@ impl<T: IntervalBasis> ScaledAdd<StackCoeff> for Stack<T> {
     }
 }
 
+/// Like [Stack::key_distance], but for cases when you only have the target coefficients and
+/// not a whole [Stack].
+pub fn key_distance_from_coefficients<T: IntervalBasis>(
+    target: ArrayView1<StackCoeff>,
+) -> StackCoeff {
+    let mut res = 0;
+    for (i, &c) in target.iter().enumerate() {
+        res += T::intervals()[i].key_distance as StackCoeff * c;
+    }
+    res
+}
+
 /// Like [Stack::target_semitones], but for cases when you only have the target coefficients and
 /// not a whole [Stack].
 pub fn semitones_from_target<T: IntervalBasis>(target: ArrayView1<StackCoeff>) -> Semitones {
@@ -164,12 +176,9 @@ impl<T: IntervalBasis> Stack<T> {
         self.semitones() - res
     }
 
+    /// The number of keys on the piano keyboard spanned by the described interval
     pub fn key_distance(&self) -> StackCoeff {
-        let mut res = 0;
-        for (i, &c) in self.target.iter().enumerate() {
-            res += T::intervals()[i].key_distance as StackCoeff * c;
-        }
-        res
+        key_distance_from_coefficients::<T>(self.target.view())
     }
 
     /// If the zero stack corresponds to middle C, return the MIDI note number of the key that this
