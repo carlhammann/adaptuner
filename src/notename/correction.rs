@@ -114,7 +114,7 @@ pub mod fivelimit {
         }
 
         pub fn fmt<W: fmt::Write>(&self, f: &mut W, basis: &CorrectionBasis) -> fmt::Result {
-            let mut write_fraction = |x: &Ratio<StackCoeff>, suffix: &str| {
+            let write_fraction = |f: &mut W, x: &Ratio<StackCoeff>, suffix: &str| {
                 if x.is_zero() {
                     return Ok(());
                 }
@@ -125,48 +125,57 @@ pub mod fivelimit {
                 }
                 Ok(())
             };
+            let write_semitones = |f: &mut W| {
+                if self.semitones == 0.0 {
+                    return Ok(());
+                }
+                if self.semitones > 0.0 {
+                    write!(f, "+")?;
+                }
+                write!(f, "{:.02}ct", self.semitones * 100.0)
+            };
 
             if *basis == CorrectionBasis::Semitones {
-                write!(f, "+{:.02}ct", self.semitones * 100.0)
+                write_semitones(f)
             } else if self.comma_coeffs[(0, 0)].is_zero()
                 & (self.comma_coeffs[(1, 0)].is_zero() | self.comma_coeffs[(2, 0)].is_zero())
             {
-                write_fraction(&self.comma_coeffs[(1, 0)], "d")?;
-                write_fraction(&self.comma_coeffs[(2, 0)], "s")
+                write_fraction(f, &self.comma_coeffs[(1, 0)], "d")?;
+                write_fraction(f, &self.comma_coeffs[(2, 0)], "s")
             } else if self.comma_coeffs[(0, 1)].is_zero()
                 & (self.comma_coeffs[(1, 1)].is_zero() | self.comma_coeffs[(2, 1)].is_zero())
             {
-                write_fraction(&self.comma_coeffs[(1, 1)], "p")?;
-                write_fraction(&self.comma_coeffs[(2, 1)], "s")
+                write_fraction(f, &self.comma_coeffs[(1, 1)], "p")?;
+                write_fraction(f, &self.comma_coeffs[(2, 1)], "s")
             } else if self.comma_coeffs[(0, 2)].is_zero()
                 & (self.comma_coeffs[(1, 2)].is_zero() | self.comma_coeffs[(2, 2)].is_zero())
             {
-                write_fraction(&self.comma_coeffs[(1, 2)], "p")?;
-                write_fraction(&self.comma_coeffs[(2, 2)], "d")
+                write_fraction(f, &self.comma_coeffs[(1, 2)], "p")?;
+                write_fraction(f, &self.comma_coeffs[(2, 2)], "d")
             } else {
                 match basis {
                     CorrectionBasis::DiesisSyntonic => {
                         if self.comma_coeffs[(0, 0)].is_zero() {
-                            write_fraction(&self.comma_coeffs[(1, 0)], "d")?;
-                            write_fraction(&self.comma_coeffs[(2, 0)], "s")
+                            write_fraction(f, &self.comma_coeffs[(1, 0)], "d")?;
+                            write_fraction(f, &self.comma_coeffs[(2, 0)], "s")
                         } else {
-                            write!(f, "+{:.02}ct", self.semitones * 100.0)
+                            write_semitones(f)
                         }
                     }
                     CorrectionBasis::PythagoreanSyntonic => {
                         if self.comma_coeffs[(0, 1)].is_zero() {
-                            write_fraction(&self.comma_coeffs[(1, 1)], "p")?;
-                            write_fraction(&self.comma_coeffs[(2, 1)], "s")
+                            write_fraction(f, &self.comma_coeffs[(1, 1)], "p")?;
+                            write_fraction(f, &self.comma_coeffs[(2, 1)], "s")
                         } else {
-                            write!(f, "+{:.02}ct", self.semitones * 100.0)
+                            write_semitones(f)
                         }
                     }
                     CorrectionBasis::PythagoreanDiesis => {
                         if self.comma_coeffs[(0, 2)].is_zero() {
-                            write_fraction(&self.comma_coeffs[(1, 2)], "p")?;
-                            write_fraction(&self.comma_coeffs[(2, 2)], "d")
+                            write_fraction(f, &self.comma_coeffs[(1, 2)], "p")?;
+                            write_fraction(f, &self.comma_coeffs[(2, 2)], "d")
                         } else {
-                            write!(f, "+{:.02}ct", self.semitones * 100.0)
+                            write_semitones(f)
                         }
                     }
                     CorrectionBasis::Semitones => unreachable!(),
