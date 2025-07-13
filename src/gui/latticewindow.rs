@@ -153,7 +153,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             stacks_to_draw: HashMap::new(),
             correction_basis: CorrectionBasis::DiesisSyntonic,
             tmp_temperaments: vec![false; T::num_temperaments()],
-            show_controls: true,
+            show_controls: false,
         }
     }
 
@@ -786,20 +786,21 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
 
 impl<T: FiveLimitStackType + Hash + Eq> GuiShow<T> for LatticeWindow<T> {
     fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        egui::TopBottomPanel::top("lattice window zoom panel").show_inside(ui, |ui| {
+        egui::TopBottomPanel::bottom("lattice window zoom panel").show_inside(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add(
                     egui::widgets::Slider::new(&mut self.zoom, 5.0..=100.0)
                         .smart_aim(false)
                         .show_value(false)
+                        .logarithmic(true)
                         .text("zoom"),
                 );
-                ui.add(
-                    egui::widgets::Slider::new(&mut self.flatten, 0.0..=1.0)
-                        .smart_aim(false)
-                        .show_value(false)
-                        .text("height"),
-                );
+                // ui.add(
+                //     egui::widgets::Slider::new(&mut self.flatten, 0.0..=1.0)
+                //         .smart_aim(false)
+                //         .show_value(false)
+                //         .text("height"),
+                // );
             });
         });
 

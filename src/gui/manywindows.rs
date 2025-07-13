@@ -55,10 +55,10 @@ impl<T: FiveLimitStackType + Hash + Eq> ManyWindows<T> {
     ) -> Self {
         Self {
             latticewindow: LatticeWindow::new(lattice_window_config),
-            show_lattice_window_controls: true,
+            show_lattice_window_controls: false,
             input_connection_window: ConnectionWindow::new(),
             output_connection_window: ConnectionWindow::new(),
-            show_connection_window: true,
+            show_connection_window: false,
             sostenuto_is_next_neigbourhood: true,
             soft_pedal_is_set_reference: true,
             backend_window: BackendWindow::new(backend_window_config),
