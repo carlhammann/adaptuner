@@ -1,12 +1,15 @@
-use crate::{interval::stacktype::r#trait::StackType, neighbourhood::SomeNeighbourhood};
+use std::marker::PhantomData;
+
+use crate::{interval::stacktype::r#trait::StackType, neighbourhood::Neighbourhood};
 
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Pattern<T: StackType> {
+pub struct Pattern<T: StackType, N: Neighbourhood<T>> {
+    _phantom: PhantomData<T>,
     pub name: String,
     pub keyshape: KeyShape,
-    pub neighbourhood: SomeNeighbourhood<T>,
+    pub neighbourhood: N,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,8 +52,8 @@ impl Fit {
     }
 }
 
-impl<T: StackType> Pattern<T> {
-    pub fn fit<N: HasActivationStatus>(&self, notes: &[N; 128]) -> Fit {
+impl<T: StackType, N: Neighbourhood<T>> Pattern<T, N> {
+    pub fn fit<NS: HasActivationStatus>(&self, notes: &[NS; 128]) -> Fit {
         self.keyshape.fit(notes, 0)
     }
 }

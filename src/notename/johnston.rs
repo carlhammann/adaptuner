@@ -3,7 +3,7 @@ pub mod fivelimit {
 
     use crate::interval::{
         stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
+        stacktype::r#trait::{FiveLimitIntervalBasis, IntervalBasis, StackCoeff},
     };
 
     #[derive(Clone, Copy)]
@@ -48,7 +48,7 @@ pub mod fivelimit {
     const JOHNSTON_BASE_ROW: [BaseName; 7] = [F, A, C, E, G, B, D];
 
     impl NoteName {
-        pub fn new<T: FiveLimitStackType>(s: &Stack<T>) -> Self {
+        pub fn new<T: FiveLimitIntervalBasis>(s: &Stack<T>) -> Self {
             Self::new_from_indices(
                 false,
                 T::octave_index(),
@@ -64,7 +64,7 @@ pub mod fivelimit {
         /// This function makes sense when you know that the [Stack::actual] describes a pure
         /// interval, which is differenf from the the [Stack::target]: I.e. [Stack::is_pure()], but
         /// not [Stack::is_target()].
-        pub fn new_from_actual<T: FiveLimitStackType>(s: &Stack<T>) -> Self {
+        pub fn new_from_actual<T: FiveLimitIntervalBasis>(s: &Stack<T>) -> Self {
             Self::new_from_indices(
                 true,
                 T::octave_index(),
@@ -74,7 +74,7 @@ pub mod fivelimit {
             )
         }
 
-        fn new_from_indices<T: StackType>(
+        fn new_from_indices<T: IntervalBasis>(
             use_actual: bool,
             octave_index: usize,
             fifth_index: usize,

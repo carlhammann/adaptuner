@@ -1,12 +1,12 @@
-use crate::interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType};
+use serde_derive::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
-pub struct Reference<T: StackType> {
+use crate::interval::{base::Semitones, stack::Stack, stacktype::r#trait::IntervalBasis};
+
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Reference<T: IntervalBasis> {
     pub stack: Stack<T>,
     pub semitones: Semitones,
-
-    /// convenience: the [Stack::key_number()] of the [Self::stack]
-    pub key: u8,
 }
 
 pub fn semitones_from_frequency(frequency: f64) -> Semitones {
@@ -17,25 +17,14 @@ pub fn frequency_from_semitones(semitones: Semitones) -> f64 {
     440.0 * ((semitones - 69.0) / 12.0).exp2()
 }
 
-impl<T: StackType> Reference<T> {
+impl<T: IntervalBasis> Reference<T> {
     pub fn from_semitones(stack: Stack<T>, semitones: Semitones) -> Self {
-        let key = stack.key_number() as u8;
-        Self {
-            stack,
-            semitones,
-            key,
-        }
+        Self { stack, semitones }
     }
 
     pub fn from_frequency(stack: Stack<T>, frequency: f64) -> Self {
         let semitones = semitones_from_frequency(frequency);
-
-        let key = stack.key_number() as u8;
-        Self {
-            stack,
-            semitones,
-            key,
-        }
+        Self { stack, semitones }
     }
 
     pub fn get_frequency(&self) -> f64 {

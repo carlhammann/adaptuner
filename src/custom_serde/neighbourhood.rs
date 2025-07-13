@@ -7,12 +7,12 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     interval::{
         stack::Stack,
-        stacktype::r#trait::{IntervalBasis, PeriodicStackType},
+        stacktype::r#trait::{IntervalBasis, PeriodicIntervalBasis},
     },
-    neighbourhood::{Neighbourhood, PeriodicCompleteAligned},
+    neighbourhood::{Neighbourhood, PeriodicComplete},
 };
 
-impl<T: PeriodicStackType + serde::Serialize> serde::Serialize for PeriodicCompleteAligned<T> {
+impl<T: PeriodicIntervalBasis + serde::Serialize> serde::Serialize for PeriodicComplete<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -56,9 +56,9 @@ impl<T: PeriodicStackType + serde::Serialize> serde::Serialize for PeriodicCompl
     }
 }
 
-impl<'de, T> serde::Deserialize<'de> for PeriodicCompleteAligned<T>
+impl<'de, T> serde::Deserialize<'de> for PeriodicComplete<T>
 where
-    T: PeriodicStackType + serde::Deserialize<'de>,
+    T: PeriodicIntervalBasis + serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -83,9 +83,9 @@ where
 
         impl<'de, T> Visitor<'de> for TheVisitor<T>
         where
-            T: PeriodicStackType + serde::Deserialize<'de>,
+            T: PeriodicIntervalBasis + serde::Deserialize<'de>,
         {
-            type Value = PeriodicCompleteAligned<T>;
+            type Value = PeriodicComplete<T>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 write!(formatter, "periodic complete aligned neighbourhood")
@@ -152,7 +152,11 @@ where
                 if stacks.is_none() {
                     return Err(serde::de::Error::missing_field("entries"));
                 }
-                Ok(PeriodicCompleteAligned::new(stacks.unwrap(), name.unwrap()))
+                Ok(PeriodicComplete::new(
+                    stacks.unwrap(),
+                    Stack::from_pure_interval(T::period_index(), 1),
+                    name.unwrap(),
+                ))
             }
         }
 
@@ -175,7 +179,7 @@ mod test {
 
     #[test]
     fn test_serialize_neighbourhood() {
-        let neigh = PeriodicCompleteAligned::from_octave_tunings(
+        let neigh = PeriodicComplete::from_octave_tunings(
             [
                 Stack::<MockFiveLimitStackType>::new_zero(), // C
                 Stack::from_target(vec![0, -1, 2]),          // C#
@@ -251,7 +255,7 @@ entries:
         let test_error_contains = |input, contained| {
             let res = format!(
                 "{:?}",
-                serde_yml::from_str::<PeriodicCompleteAligned<MockFiveLimitStackType>>(input)
+                serde_yml::from_str::<PeriodicComplete<MockFiveLimitStackType>>(input)
             );
             if !res.contains(contained) {
                 panic!("the result\n\n{res}\n\ndoesn't contain the expected error message");

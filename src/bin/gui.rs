@@ -1,82 +1,32 @@
 use std::error::Error;
 
 use midi_msg::Channel;
-use ndarray::arr2;
 
 use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
-    config::Config,
+    config::{Config, StrategyConfig},
     gui::{
         latticewindow::LatticeWindowConfig, manywindows::ManyWindows,
-        referencewindow::ReferenceWindowConfig,
+        referencewindow::ReferenceWindowConfig, tuningreferencewindow::TuningReferenceWindowConfig,
     },
-    interval::{
-        stack::Stack, stacktype::fivelimit::TheFiveLimitStackType,
-    },
-    neighbourhood::{Neighbourhood, PeriodicCompleteAligned},
-    notename::NoteNameStyle,
+    interval::stacktype::fivelimit::TheFiveLimitStackType,
+    notename::{correction::fivelimit::CorrectionBasis, NoteNameStyle},
     process::fromstrategy::ProcessFromStrategy,
-    reference::Reference,
     run::RunState,
     strategy::r#static::*,
 };
 
 fn main() {
-   if let Err(e) = run() {
-      eprintln!("{}", e);
-      std::process::exit(1);
-   }
+    if let Err(e) = run() {
+        eprintln!("{}", e);
+        std::process::exit(1);
+    }
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let config: Config<TheFiveLimitStackType> =
+    let mut config: Config<TheFiveLimitStackType> =
         serde_yml::from_reader(std::fs::File::open("conf.yaml")?)?;
     TheFiveLimitStackType::initialise(&config.temperaments)?;
-
-    // serde_yml::to_writer(std::fs::File::create("conf.yaml")?, &config)?;
-
-    let tuning_reference = Reference::<TheFiveLimitStackType>::from_frequency(
-        Stack::from_target(vec![1, -1, 1]),
-        440.0,
-    );
-    let notenamestyle = NoteNameStyle::JohnstonFiveLimitFull;
-    let interval_heights = vec![
-        0.0,
-        -12.0 * (5.0 / 4.0 as f32).log2(),
-        12.0 * (3.0 / 2.0 as f32).log2(),
-    ];
-    let background_stack_distances = vec![0, 3, 2];
-
-    let no_active_temperaments = vec![false; config.temperaments.len()];
-    let initial_neighbourhoods = vec![PeriodicCompleteAligned::from_octave_tunings(
-        [
-            Stack::new_zero(),                  // C
-            Stack::from_target(vec![0, -1, 2]), // C#
-            Stack::from_target(vec![-1, 2, 0]), // D
-            Stack::from_target(vec![0, 1, -1]), // Eb
-            Stack::from_target(vec![0, 0, 1]),  // E
-            Stack::from_target(vec![1, -1, 0]), // F
-            Stack::from_target(vec![-1, 2, 1]), // F#
-            Stack::from_target(vec![0, 1, 0]),  // G
-            Stack::from_target(vec![0, 0, 2]),  // G#
-            Stack::from_target(vec![1, -1, 1]), // A
-            Stack::from_target(vec![0, 2, -1]), // Bb
-            Stack::from_target(vec![0, 1, 1]),  // B
-        ],
-        "Reihe 1".into(),
-    )];
-    let initial_reference = Stack::new_zero();
-
-    // initial_neighbourhoods[0].for_each_stack(|_, s| {
-    //     println!("{}", serde_yml::to_string(s).unwrap());
-    // });
-
-    // println!("{}", serde_yml::to_string(&initial_neighbourhoods).unwrap());
-
-    // println!(
-    //     "{:?}",
-    //     from_reader_yaml::<_, TemperamentDefinition>(std::fs::File::open("foo").unwrap())
-    // );
 
     let backend_config = Pitchbend12Config {
         channels: [
@@ -103,21 +53,25 @@ fn run() -> Result<(), Box<dyn Error>> {
     let backend_window_config = backend_config.clone();
 
     let lattice_window_config = LatticeWindowConfig {
-        tuning_reference: tuning_reference.clone(),
-        reference: initial_reference.clone(),
-        initial_considered_notes: initial_neighbourhoods[0].clone(),
-        initial_neighbourhood_name: initial_neighbourhoods[0].name().into(),
-        initial_neighbourhood_index: 0,
         zoom: 10.0,
         flatten: 1.0,
-        interval_heights,
-        background_stack_distances,
+        interval_heights: vec![
+            0.0,
+            -12.0 * (5.0 / 4.0 as f32).log2(),
+            12.0 * (3.0 / 2.0 as f32).log2(),
+        ],
+        background_stack_distances: vec![0, 3, 2],
     };
 
+    let notenamestyle = NoteNameStyle::JohnstonFiveLimitFull;
+    let correction_basis = CorrectionBasis::DiesisSyntonic;
     let reference_window_config = ReferenceWindowConfig {
-        reference: initial_reference.clone(),
-        applied_temperaments: no_active_temperaments,
         notenamestyle,
+        correction_basis,
+    };
+    let tuning_reference_window_config = TuningReferenceWindowConfig {
+        notenamestyle,
+        correction_basis,
     };
 
     let latency_window_length = 20;
@@ -125,11 +79,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
 
-    let static_tuning = StaticTuning::new(
-        tuning_reference.clone(),
-        initial_reference.clone(),
-        initial_neighbourhoods,
-    );
+    let first_config = config.strategies.drain(..).next().unwrap();
+    //     StrategyConfig::StaticTuning(sc) => sc,
+    // };
+    let static_tuning_config = match first_config {
+        StrategyConfig::StaticTuning(x) => x,
+    };
+    let static_tuning = StaticTuning::new(static_tuning_config);
 
     let _runstate = RunState::new(
         midi_in,
@@ -142,8 +98,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 reference_window_config,
                 backend_window_config,
                 latency_window_length,
-                tuning_reference,
-                notenamestyle,
+                tuning_reference_window_config,
                 ctx,
                 tx,
             )

@@ -8,7 +8,7 @@ pub mod fivelimit {
     use crate::interval::{
         base::Semitones,
         stack::{semitones_from_actual, semitones_from_target, Stack},
-        stacktype::r#trait::{FiveLimitStackType, StackCoeff},
+        stacktype::r#trait::{FiveLimitIntervalBasis, StackCoeff},
     };
 
     #[derive(PartialEq, Debug)]
@@ -56,13 +56,13 @@ pub mod fivelimit {
                 .all(<Ratio<StackCoeff> as Zero>::is_zero)
         }
 
-        pub fn new<T: FiveLimitStackType>(stack: &Stack<T>) -> Self {
+        pub fn new<T: FiveLimitIntervalBasis>(stack: &Stack<T>) -> Self {
             Self::from_target_and_actual::<T>((&stack.target).into(), (&stack.actual).into())
         }
 
         /// Like [Self::new], only taking the [Stack::target] and [Stack::actual] as separate
         /// arguments.
-        pub fn from_target_and_actual<T: FiveLimitStackType>(
+        pub fn from_target_and_actual<T: FiveLimitIntervalBasis>(
             target: ArrayView1<StackCoeff>,
             actual: ArrayView1<Ratio<StackCoeff>>,
         ) -> Self {
@@ -106,14 +106,14 @@ pub mod fivelimit {
     }
 
     impl Correction {
-        pub fn str(&self, basis: CorrectionBasis) -> String {
+        pub fn str(&self, basis: &CorrectionBasis) -> String {
             let mut res = String::new();
             // the [Write] implementation of [String] never throws any error, so this is fine:
             self.fmt(&mut res, basis).unwrap();
             res
         }
 
-        pub fn fmt<W: fmt::Write>(&self, f: &mut W, basis: CorrectionBasis) -> fmt::Result {
+        pub fn fmt<W: fmt::Write>(&self, f: &mut W, basis: &CorrectionBasis) -> fmt::Result {
             let mut write_fraction = |x: &Ratio<StackCoeff>, suffix: &str| {
                 if x.is_zero() {
                     return Ok(());
@@ -126,7 +126,7 @@ pub mod fivelimit {
                 Ok(())
             };
 
-            if basis == CorrectionBasis::Semitones {
+            if *basis == CorrectionBasis::Semitones {
                 write!(f, "+{:.02}ct", self.semitones * 100.0)
             } else if self.comma_coeffs[(0, 0)].is_zero()
                 & (self.comma_coeffs[(1, 0)].is_zero() | self.comma_coeffs[(2, 0)].is_zero())
@@ -184,7 +184,7 @@ pub mod fivelimit {
         fn test_correction() {
             assert_eq!(
                 Correction::new(&Stack::<MockFiveLimitStackType>::new_zero())
-                    .str(CorrectionBasis::PythagoreanDiesis),
+                    .str(&CorrectionBasis::PythagoreanDiesis),
                 ""
             );
 
@@ -192,7 +192,7 @@ pub mod fivelimit {
                 Correction::new(&Stack::<MockFiveLimitStackType>::from_target(vec![
                     123, 234, 345
                 ]))
-                .str(CorrectionBasis::PythagoreanDiesis),
+                .str(&CorrectionBasis::PythagoreanDiesis),
                 ""
             );
 
@@ -203,7 +203,7 @@ pub mod fivelimit {
                         vec![0, 0, 3]
                     )
                 )
-                .str(CorrectionBasis::PythagoreanDiesis),
+                .str(&CorrectionBasis::PythagoreanDiesis),
                 "+1d"
             );
 
@@ -214,7 +214,7 @@ pub mod fivelimit {
                         vec![0, 1, 1]
                     )
                 )
-                .str(CorrectionBasis::PythagoreanDiesis),
+                .str(&CorrectionBasis::PythagoreanDiesis),
                 "-1/12p+1/3d"
             );
 
@@ -225,7 +225,7 @@ pub mod fivelimit {
                         vec![0, 1, 0]
                     )
                 )
-                .str(CorrectionBasis::PythagoreanDiesis),
+                .str(&CorrectionBasis::PythagoreanDiesis),
                 // this can be written more simply, so the basis argument to [Correction::str] is ignored.
                 "-1/4s"
             );
@@ -237,7 +237,7 @@ pub mod fivelimit {
                         vec![0, 1, 0]
                     )
                 )
-                .str(CorrectionBasis::PythagoreanSyntonic),
+                .str(&CorrectionBasis::PythagoreanSyntonic),
                 "-1/4s"
             );
 
@@ -248,7 +248,7 @@ pub mod fivelimit {
                         vec![0, 1, 0]
                     )
                 )
-                .str(CorrectionBasis::PythagoreanSyntonic),
+                .str(&CorrectionBasis::PythagoreanSyntonic),
                 "-1/12p-1/4s"
             );
 
@@ -259,7 +259,7 @@ pub mod fivelimit {
                         vec![0, 1, 2]
                     )
                 )
-                .str(CorrectionBasis::DiesisSyntonic),
+                .str(&CorrectionBasis::DiesisSyntonic),
                 // the fifth is corrected by one qurter syntonic comma plus a twelfth pythagorean comma down
                 // the thirds are each corrected by one third of a diesis up
                 //
@@ -274,7 +274,7 @@ pub mod fivelimit {
                     arr1(&[0, 0, 0]),
                     arr1(&[Ratio::new(1, 120), 0.into(), 0.into()])
                 ))
-                .str(CorrectionBasis::PythagoreanSyntonic),
+                .str(&CorrectionBasis::PythagoreanSyntonic),
                 "+10.00ct"
             );
         }

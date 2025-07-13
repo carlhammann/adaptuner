@@ -1082,7 +1082,7 @@ mod test {
     use pretty_assertions::assert_eq;
 
     use crate::interval::stacktype::{
-        fivelimit::mock::MockFiveLimitStackType, r#trait::FiveLimitStackType,
+        fivelimit::mock::MockFiveLimitStackType, r#trait::FiveLimitIntervalBasis,
     };
 
     use super::*;

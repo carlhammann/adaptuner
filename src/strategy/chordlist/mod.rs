@@ -1,4 +1,3 @@
-
 use crate::{
     interval::stacktype::r#trait::StackType,
     keystate::KeyState,
@@ -9,8 +8,8 @@ use crate::{
 mod pattern;
 use pattern::*;
 
-pub struct Chordlist<T: StackType> {
-    patterns: Vec<Pattern<T>>,
+pub struct Chordlist<T: StackType, N: Neighbourhood<T>> {
+    patterns: Vec<Pattern<T, N>>,
 }
 
 impl HasActivationStatus for KeyState {
@@ -19,7 +18,7 @@ impl HasActivationStatus for KeyState {
     }
 }
 
-impl<T: StackType> IntervalStrategy<T> for Chordlist<T> {
+impl<T: StackType, N: Neighbourhood<T>> IntervalStrategy<T> for Chordlist<T, N> {
     fn solve(&mut self, keys: &[crate::keystate::KeyState; 128]) -> Option<IntervalSolution<T>> {
         let mut pattern_iter = self.patterns.iter();
 

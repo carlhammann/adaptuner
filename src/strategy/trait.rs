@@ -60,4 +60,6 @@ pub trait Strategy<T: StackType> {
         time: Instant,
         forward: &mpsc::Sender<FromProcess<T>>,
     ) -> bool;
+
+    fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromProcess<T>>);
 }

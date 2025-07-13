@@ -5,105 +5,100 @@ use eframe::egui;
 use crate::{
     interval::{
         stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, StackType},
+        stacktype::r#trait::{FiveLimitStackType, IntervalBasis, StackType},
     },
     msg::{FromUi, HandleMsgRef, ToUi},
-    notename::{
-        correction::fivelimit::{Correction, CorrectionBasis},
-        NoteNameStyle,
-    },
+    notename::{correction::fivelimit::CorrectionBasis, NoteNameStyle},
 };
 
 use super::{common::correction_basis_chooser, r#trait::GuiShow};
 
-pub struct ReferenceWindow<T: StackType> {
+pub struct ReferenceWindow<T: IntervalBasis> {
+    reference: Option<Stack<T>>,
     new_reference: Stack<T>,
-    reference: Stack<T>,
-    applied_temperaments: Vec<bool>,
+    temperaments_applied_to_new_reference: Vec<bool>,
     notenamestyle: NoteNameStyle,
     correction_basis: CorrectionBasis,
 }
 
-pub struct ReferenceWindowConfig<T: StackType> {
-    pub reference: Stack<T>,
-    pub applied_temperaments: Vec<bool>,
+pub struct ReferenceWindowConfig {
     pub notenamestyle: NoteNameStyle,
+    pub correction_basis: CorrectionBasis,
 }
 
 impl<T: StackType> ReferenceWindow<T> {
-    pub fn new(config: ReferenceWindowConfig<T>) -> Self {
+    pub fn new(config: ReferenceWindowConfig) -> Self {
         Self {
-            new_reference: config.reference.clone(),
-            reference: config.reference,
-            applied_temperaments: config.applied_temperaments,
+            reference: None {},
+            new_reference: Stack::new_zero(),
+            temperaments_applied_to_new_reference: vec![false; T::num_temperaments()],
             notenamestyle: config.notenamestyle,
-            correction_basis: CorrectionBasis::DiesisSyntonic,
+            correction_basis: config.correction_basis,
         }
     }
 }
 
 impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceWindow<T> {
     fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        ui.label(format!(
-            "Current reference is {}   {}{}",
-            self.reference.notename(&self.notenamestyle),
-            Correction::new(&self.reference).str(self.correction_basis),
-            if self.reference.is_pure() & !self.reference.is_target() {
-                format!(" = {}", self.reference.actual_notename(&self.notenamestyle))
-            } else {
-                "".into()
-            }
-        ));
+        if let Some(reference) = &self.reference {
+            ui.label(format!(
+                "Current reference is {}",
+                reference.corrected_name(&self.notenamestyle, &self.correction_basis),
+            ));
+        } else {
+            ui.label("Currently no reference");
+        }
 
         ui.separator();
         ui.label("Select new reference, relative to C 4:");
+        let mut target_changed = false;
         ui.horizontal(|ui| {
             for (i, c) in self.new_reference.target.iter_mut().enumerate() {
-                ui.label(format!("{}s:", T::intervals()[i].name));
-                ui.add(egui::DragValue::new(c));
+                ui.label(format!("{}:", T::intervals()[i].name));
+                if ui.add(egui::DragValue::new(c)).changed() {
+                    target_changed = true;
+                }
             }
         });
-        for (i, t) in T::temperaments().iter().enumerate() {
-            ui.checkbox(&mut self.applied_temperaments[i], &t.name);
+        if target_changed {
+            self.new_reference
+                .retemper(&self.temperaments_applied_to_new_reference);
         }
-
-        self.new_reference.retemper(&self.applied_temperaments);
+        for (i, t) in T::temperaments().iter().enumerate() {
+            if ui
+                .checkbox(&mut self.temperaments_applied_to_new_reference[i], &t.name)
+                .clicked()
+            {
+                self.new_reference
+                    .retemper(&self.temperaments_applied_to_new_reference);
+            }
+        }
 
         ui.separator();
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             ui.label(format!(
-                "New reference will be {}   {}{}",
-                self.new_reference.notename(&self.notenamestyle),
-                Correction::new(&self.new_reference).str(self.correction_basis),
-                if self.new_reference.is_pure() & !self.new_reference.is_target() {
-                    format!(
-                        " = {}",
-                        self.new_reference.actual_notename(&self.notenamestyle)
-                    )
-                } else {
-                    "".into()
-                }
+                "New reference will be {}",
+                self.new_reference
+                    .corrected_name(&self.notenamestyle, &self.correction_basis),
             ));
         });
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             if ui
                 .add(
-                    egui::Button::new("update reference")
-                        .selected(self.new_reference != self.reference),
+                    egui::Button::new("update reference").selected(match &self.reference {
+                        None {} => true,
+                        Some(r) => *r != self.new_reference,
+                    }),
                 )
                 .clicked()
             {
-                self.reference.clone_from(&self.new_reference);
+                self.reference = Some(self.new_reference.clone());
                 let _ = forward.send(FromUi::SetReference {
-                    reference: self.reference.clone(),
+                    reference: self.new_reference.clone(),
                     time: Instant::now(),
                 });
-            }
-
-            if ui.button("discard new reference").clicked() {
-                self.new_reference.clone_from(&self.reference);
             }
         });
 
@@ -117,7 +112,7 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for ReferenceWindow<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::SetReference { stack } => {
-                self.reference.clone_from(stack);
+                self.reference = Some(stack.clone());
             }
             _ => {}
         }

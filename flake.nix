@@ -61,7 +61,7 @@
             rust-bin.${system}.rust-analyzer
             rust-bin.${system}.rustfmt
             bacon
-            jq
+            cargo-flamegraph
 
             # # tex
             # texlive.combined.scheme-full

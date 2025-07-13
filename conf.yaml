@@ -1,5 +1,5 @@
 temperaments:
-- name: 'equal temperament'
+- name: equal temperament
   equations:
   - tempered:
       octave: 1
@@ -60,7 +60,7 @@ temperaments:
       third: 1
     pure:
       third: 1
-- name: 'equal thirds'
+- name: equal thirds
   equations:
   - tempered:
       octave: 1
@@ -74,3 +74,60 @@ temperaments:
       third: 3
     pure:
       octave: 1
+strategies:
+- !static-tuning
+  neighbourhoods:
+  - name: just chromatic
+    entries:
+    - offset: 0
+      stack: {}
+    - offset: 1
+      stack:
+        fifth: -1
+        third: 2
+    - offset: 2
+      stack:
+        octave: -1
+        fifth: 2
+    - offset: 3
+      stack:
+        fifth: 1
+        third: -1
+    - offset: 4
+      stack:
+        third: 1
+    - offset: 5
+      stack:
+        octave: 1
+        fifth: -1
+    - offset: 6
+      stack:
+        octave: -1
+        fifth: 2
+        third: 1
+    - offset: 7
+      stack:
+        fifth: 1
+    - offset: 8
+      stack:
+        third: 2
+    - offset: 9
+      stack:
+        octave: 1
+        fifth: -1
+        third: 1
+    - offset: 10
+      stack:
+        fifth: 2
+        third: -1
+    - offset: 11
+      stack:
+        fifth: 1
+        third: 1
+  tuning-reference:
+    stack:
+      octave: 1
+      fifth: -1
+      third: 1
+    semitones: 69.0
+  reference: {}

@@ -10,7 +10,9 @@ use crate::{
     gui::r#trait::GuiShow,
     interval::{
         stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
+        stacktype::r#trait::{
+            FiveLimitIntervalBasis, FiveLimitStackType, IntervalBasis, StackCoeff,
+        },
     },
     keystate::KeyState,
     msg::{FromUi, HandleMsgRef, ToUi},
@@ -93,7 +95,7 @@ enum NoteShape {
     Minus,
 }
 
-struct NoteRenderer<T: StackType> {
+struct NoteRenderer<T: IntervalBasis> {
     _phantom: PhantomData<T>,
 
     /// The distance between note lines. (middle of line to middle of line) This is the unit for
@@ -147,7 +149,7 @@ fn vertical_index(n: &NoteName) -> StackCoeff {
     (n.octave - 4) * 7 + (n.basename as StackCoeff)
 }
 
-impl<T: FiveLimitStackType> NoteRenderer<T> {
+impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
     fn new(ctx: &egui::Context, line_spacing: f32) -> Self {
         Self {
             _phantom: PhantomData,
@@ -661,14 +663,14 @@ impl<T: FiveLimitStackType> NoteRenderer<T> {
     }
 }
 
-pub struct NoteWindow<T: StackType> {
+pub struct NoteWindow<T: IntervalBasis> {
     active_notes: [KeyState; 128],
     pedal_hold: [bool; 16],
     tunings: [Stack<T>; 128],
     note_renderer: NoteRenderer<T>,
 }
 
-impl<T: FiveLimitStackType> NoteWindow<T> {
+impl<T: FiveLimitIntervalBasis> NoteWindow<T> {
     pub fn new(ctx: &egui::Context) -> Self {
         let now = Instant::now();
         ctx.set_theme(egui::ThemePreference::System);
@@ -731,24 +733,7 @@ impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
                 self.tunings[*note as usize].clone_from(tuning_stack);
             }
 
-            ToUi::SetTuningReference { reference } => { // todo!(),
-            }
-
-            ToUi::EventLatency { .. } => {}
-            ToUi::InputConnectionError { .. } => {}
-            ToUi::InputConnected { .. } => {}
-            ToUi::InputDisconnected { .. } => {}
-            ToUi::OutputConnectionError { .. } => {}
-            ToUi::OutputConnected { .. } => {}
-            ToUi::OutputDisconnected { .. } => {}
-            ToUi::NotifyFit { .. } => {}
-            ToUi::SetReference { .. } => {}
-            ToUi::Consider { .. } => {}
-            ToUi::CurrentNeighbourhoodName { .. } => {}
-            ToUi::DetunedNote { .. } => {}
-            ToUi::Stop => {}
-            ToUi::Notify { .. } => {}
-            ToUi::NotifyNoFit => {}
+            _ => {}
         }
     }
 }

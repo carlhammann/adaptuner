@@ -5,9 +5,6 @@ use eframe::{self, egui};
 use crate::{
     interval::stacktype::r#trait::{FiveLimitStackType, StackType},
     msg::{FromUi, HandleMsg, HandleMsgRef, ToUi},
-    neighbourhood::Neighbourhood,
-    notename::NoteNameStyle,
-    reference::Reference,
 };
 
 use super::{
@@ -18,11 +15,11 @@ use super::{
     notewindow::NoteWindow,
     r#trait::GuiShow,
     referencewindow::{ReferenceWindow, ReferenceWindowConfig},
-    tuningreferencewindow::TuningReferenceWindow,
+    tuningreferencewindow::{TuningReferenceWindow, TuningReferenceWindowConfig},
 };
 
-pub struct ManyWindows<T: StackType, N: Neighbourhood<T>> {
-    latticewindow: LatticeWindow<T, N>,
+pub struct ManyWindows<T: StackType> {
+    latticewindow: LatticeWindow<T>,
     show_lattice_window_controls: bool,
 
     input_connection_window: ConnectionWindow<Input>,
@@ -46,14 +43,13 @@ pub struct ManyWindows<T: StackType, N: Neighbourhood<T>> {
     show_note_window: bool,
 }
 
-impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
+impl<T: FiveLimitStackType + Hash + Eq> ManyWindows<T> {
     pub fn new(
-        lattice_window_config: LatticeWindowConfig<T, N>,
-        reference_window_config: ReferenceWindowConfig<T>,
+        lattice_window_config: LatticeWindowConfig,
+        reference_window_config: ReferenceWindowConfig,
         backend_window_config: BackendWindowConfig,
         latency_window_length: usize,
-        tuning_reference: Reference<T>,
-        notenamestyle: NoteNameStyle,
+        tuning_reference_window_config: TuningReferenceWindowConfig,
         ctx: &egui::Context,
         tx: mpsc::Sender<FromUi<T>>,
     ) -> Self {
@@ -66,7 +62,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
             sostenuto_is_next_neigbourhood: true,
             soft_pedal_is_set_reference: true,
             backend_window: BackendWindow::new(backend_window_config),
-            tuning_reference_window: TuningReferenceWindow::new(tuning_reference, notenamestyle),
+            tuning_reference_window: TuningReferenceWindow::new(tuning_reference_window_config),
             show_tuning_reference_window: false,
             reference_window: ReferenceWindow::new(reference_window_config),
             show_reference_window: false,
@@ -78,9 +74,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> ManyWindows<T, N> {
     }
 }
 
-impl<T: FiveLimitStackType, N: Neighbourhood<T>> HandleMsg<ToUi<T>, FromUi<T>>
-    for ManyWindows<T, N>
-{
+impl<T: FiveLimitStackType> HandleMsg<ToUi<T>, FromUi<T>> for ManyWindows<T> {
     fn handle_msg(&mut self, msg: ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         self.latticewindow.handle_msg_ref(&msg, forward);
         self.note_window.handle_msg_ref(&msg, forward);
@@ -88,10 +82,11 @@ impl<T: FiveLimitStackType, N: Neighbourhood<T>> HandleMsg<ToUi<T>, FromUi<T>>
         self.output_connection_window.handle_msg_ref(&msg, forward);
         self.latencywindow.handle_msg_ref(&msg, forward);
         self.reference_window.handle_msg_ref(&msg, forward);
+        self.tuning_reference_window.handle_msg_ref(&msg, forward);
     }
 }
 
-impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> eframe::App for ManyWindows<T, N> {
+impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {

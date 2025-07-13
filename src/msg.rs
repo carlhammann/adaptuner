@@ -52,6 +52,9 @@ pub trait MessageTranslate4<B, C, D, E> {
 
 pub enum ToProcess<T: StackType> {
     Stop,
+    Start {
+        time: Instant,
+    },
     Reset {
         time: Instant,
     },

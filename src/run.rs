@@ -1,4 +1,4 @@
-use std::{cell::Cell, sync::mpsc, thread};
+use std::{cell::Cell, sync::mpsc, thread, time::Instant};
 
 use eframe::egui;
 use midir::{MidiInput, MidiOutput};
@@ -353,13 +353,16 @@ impl<T: StackType> RunState<T> {
                 &to_midi_input_tx,
                 &to_midi_output_tx,
             ),
-            to_process_tx,
+            to_process_tx: to_process_tx.clone(),
             to_backend_tx,
             to_ui_tx,
         };
 
         let _ = to_midi_input_tx.send(ToMidiIn::Start);
         let _ = to_midi_output_tx.send(ToMidiOut::Start);
+        let _ = to_process_tx.send(ToProcess::Start {
+            time: Instant::now(),
+        });
         // TODO: send more start messages?
 
         start_gui("adaptuner", new_ui_state, to_ui_rx, from_ui_tx)?;

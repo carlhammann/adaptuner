@@ -9,11 +9,13 @@ use serde::{Deserialize, Serialize};
 use crate::interval::{
     base::{Interval, Semitones},
     stacktype::r#trait::{
-        FiveLimitStackType, IntervalBasis, OctavePeriodicStackType, PeriodicStackType, StackCoeff,
-        StackType,
+        FiveLimitIntervalBasis, IntervalBasis, OctavePeriodicIntervalBasis, PeriodicIntervalBasis,
+        StackCoeff, StackType,
     },
     temperament::{Temperament, TemperamentDefinition, TemperamentErr},
 };
+
+use super::r#trait::{FiveLimitStackType, OctavePeriodicStackType, PeriodicStackType};
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TheFiveLimitStackType {}
@@ -88,6 +90,10 @@ impl IntervalBasis for TheFiveLimitStackType {
         &*INTERVALS
     }
 
+    fn try_period_index() -> Option<usize> {
+        Some(0)
+    }
+
     fn interval_positions() -> &'static HashMap<String, usize> {
         &*&INTERVAL_POSITIONS
     }
@@ -99,7 +105,7 @@ impl StackType for TheFiveLimitStackType {
     }
 }
 
-impl FiveLimitStackType for TheFiveLimitStackType {
+impl FiveLimitIntervalBasis for TheFiveLimitStackType {
     fn octave_index() -> usize {
         0
     }
@@ -113,11 +119,17 @@ impl FiveLimitStackType for TheFiveLimitStackType {
     }
 }
 
-impl PeriodicStackType for TheFiveLimitStackType {
+impl FiveLimitStackType for TheFiveLimitStackType {}
+
+impl PeriodicIntervalBasis for TheFiveLimitStackType {
     fn period_index() -> usize {
         0
     }
 }
+
+impl PeriodicStackType for TheFiveLimitStackType {}
+
+impl OctavePeriodicIntervalBasis for TheFiveLimitStackType {}
 
 impl OctavePeriodicStackType for TheFiveLimitStackType {}
 
@@ -132,7 +144,8 @@ pub mod mock {
         fundamental::HasFundamental,
         stack::Stack,
         stacktype::r#trait::{
-            FiveLimitStackType, OctavePeriodicStackType, PeriodicStackType, StackCoeff, StackType,
+            FiveLimitIntervalBasis, OctavePeriodicIntervalBasis, PeriodicIntervalBasis, StackCoeff,
+            StackType,
         },
         temperament::Temperament,
     };
@@ -164,6 +177,10 @@ pub mod mock {
             &*INTERVALS
         }
 
+        fn try_period_index() -> Option<usize> {
+            Some(0)
+        }
+
         fn interval_positions() -> &'static HashMap<String, usize> {
             &*&INTERVAL_POSITIONS
         }
@@ -175,7 +192,7 @@ pub mod mock {
         }
     }
 
-    impl FiveLimitStackType for MockFiveLimitStackType {
+    impl FiveLimitIntervalBasis for MockFiveLimitStackType {
         fn octave_index() -> usize {
             0
         }
@@ -189,13 +206,13 @@ pub mod mock {
         }
     }
 
-    impl PeriodicStackType for MockFiveLimitStackType {
+    impl PeriodicIntervalBasis for MockFiveLimitStackType {
         fn period_index() -> usize {
             0
         }
     }
 
-    impl OctavePeriodicStackType for MockFiveLimitStackType {}
+    impl OctavePeriodicIntervalBasis for MockFiveLimitStackType {}
 
     impl HasFundamental for MockFiveLimitStackType {
         fn fundamental_inplace(a: &Stack<Self>, b: &mut Stack<Self>) {

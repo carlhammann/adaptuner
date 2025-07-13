@@ -12,7 +12,7 @@ use crate::{
     },
     keystate::KeyState,
     msg::{FromUi, HandleMsgRef, ToUi},
-    neighbourhood::Neighbourhood,
+    neighbourhood::{Neighbourhood, PartialNeighbourhood},
     notename::{
         correction::fivelimit::{Correction, CorrectionBasis},
         johnston::fivelimit::NoteName,
@@ -40,17 +40,16 @@ const FONT_SIZE: f32 = 2.0;
 const FAINT_GRID_LINE_THICKNESS: f32 = MARKER_THICKNESS;
 const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
 
-pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
-    tuning_reference: Reference<T>,
-
+pub struct LatticeWindow<T: StackType> {
     active_notes: [KeyState; 128],
     pedal_hold: [bool; 16],
     tunings: [Stack<T>; 128],
 
-    reference: Stack<T>,
-    considered_notes: N,
-    curr_neighbourhood_name: String,
-    curr_neighbourhood_index: usize,
+    reference: Option<Stack<T>>,
+    tuning_reference: Option<Reference<T>>,
+
+    considered_notes: PartialNeighbourhood<T>,
+    curr_neighbourhood_name_and_index: Option<(String, usize)>,
     new_neighbourhood_name: String,
 
     zoom: f32,
@@ -67,7 +66,6 @@ pub struct LatticeWindow<T: StackType, N: Neighbourhood<T>> {
     /// should be drawn.
     background_stack_distances: Vec<StackCoeff>,
 
-    // lattice_elements: LatticeElements,
     stacks_to_draw: HashMap<Array1<StackCoeff>, (Array1<Ratio<StackCoeff>>, DrawStyle)>,
 
     correction_basis: CorrectionBasis,
@@ -124,31 +122,28 @@ impl<'a, T: StackType> Iterator for PureStacksAround<'a, T> {
     }
 }
 
-pub struct LatticeWindowConfig<T: StackType, N: Neighbourhood<T>> {
-    pub tuning_reference: Reference<T>,
-    pub reference: Stack<T>,
-    pub initial_considered_notes: N,
-    pub initial_neighbourhood_name: String,
-    pub initial_neighbourhood_index: usize,
+pub struct LatticeWindowConfig {
     pub zoom: f32,
     pub flatten: f32,
     pub interval_heights: Vec<f32>,
     pub background_stack_distances: Vec<StackCoeff>,
 }
 
-impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N> {
-    pub fn new(config: LatticeWindowConfig<T, N>) -> Self {
+impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
+    pub fn new(config: LatticeWindowConfig) -> Self {
         let now = Instant::now();
         Self {
-            tuning_reference: config.tuning_reference,
             active_notes: core::array::from_fn(|_| KeyState::new(now)),
             pedal_hold: [false; 16],
             tunings: core::array::from_fn(|_| Stack::new_zero()),
-            reference: config.reference,
-            considered_notes: config.initial_considered_notes,
-            curr_neighbourhood_name: config.initial_neighbourhood_name,
-            curr_neighbourhood_index: config.initial_neighbourhood_index,
+
+            tuning_reference: None {},
+            reference: None {},
+
+            considered_notes: PartialNeighbourhood::new("lattice window neighbourhood".into()),
+            curr_neighbourhood_name_and_index: None {},
             new_neighbourhood_name: String::with_capacity(64),
+
             zoom: config.zoom,
             flatten: config.flatten,
             keyboard_channel: Channel::Ch1,
@@ -167,10 +162,16 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
     }
 
     fn draw_stacks(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        if self.reference.is_none() | self.tuning_reference.is_none() {
+            return;
+        }
+        let reference: &Stack<T> = self.reference.as_ref().unwrap();
+        let tuning_reference: &Reference<T> = self.tuning_reference.as_ref().unwrap();
+
         let rect = ui.max_rect();
 
         let c4_hpos = rect.left()
-            + self.zoom * ET_SEMITONE_WIDTH * (0.5 + self.tuning_reference.c4_semitones() as f32);
+            + self.zoom * ET_SEMITONE_WIDTH * (0.5 + tuning_reference.c4_semitones() as f32);
 
         // compute the reference position
         let mut max_y_offset = f32::MIN;
@@ -178,9 +179,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             let y_offset = self.zoom * ET_SEMITONE_WIDTH * {
                 let mut y = 0.0;
                 for (i, &c) in target.iter().enumerate() {
-                    y += (c - self.reference.target[i]) as f32
-                        * self.flatten
-                        * self.interval_heights[i];
+                    y += (c - reference.target[i]) as f32 * self.flatten * self.interval_heights[i];
                 }
                 y
             };
@@ -191,7 +190,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             - self.zoom * FREE_SPACE_ABOVE_KEYBOARD
             - max_y_offset;
         let reference_hpos =
-            c4_hpos + self.zoom * ET_SEMITONE_WIDTH * self.reference.target_semitones() as f32;
+            c4_hpos + self.zoom * ET_SEMITONE_WIDTH * reference.target_semitones() as f32;
 
         let grid_line_color = ui
             .style()
@@ -211,7 +210,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 + self.zoom * ET_SEMITONE_WIDTH * {
                     let mut y = 0.0;
                     for (i, &c) in target.iter().enumerate() {
-                        y += (c - self.reference.target[i]) as f32
+                        y += (c - reference.target[i]) as f32
                             * self.flatten
                             * self.interval_heights[i];
                     }
@@ -240,8 +239,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
         for (target, (_actual, style)) in self.stacks_to_draw.iter() {
             let mut in_bounds = true;
             for i in 0..T::num_intervals() {
-                if (target[i] - self.reference.target[i]).abs() > self.background_stack_distances[i]
-                {
+                if (target[i] - reference.target[i]).abs() > self.background_stack_distances[i] {
                     in_bounds = false;
                     break;
                 }
@@ -255,7 +253,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                     + self.zoom * ET_SEMITONE_WIDTH * {
                         let mut y = 0.0;
                         for (i, &c) in target.iter().enumerate() {
-                            y += (c - self.reference.target[i]) as f32
+                            y += (c - reference.target[i]) as f32
                                 * self.flatten
                                 * self.interval_heights[i];
                         }
@@ -263,11 +261,11 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                     };
 
                 for i in 0..T::num_intervals() {
-                    if target[i] == self.reference.target[i] {
+                    if target[i] == reference.target[i] {
                         continue;
                     }
 
-                    let inc = if target[i] > self.reference.target[i] {
+                    let inc = if target[i] > reference.target[i] {
                         -1.0
                     } else {
                         1.0
@@ -301,7 +299,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 let mut end_vpos = reference_vpos;
 
                 for i in (0..T::num_intervals()).rev() {
-                    let mut c = self.reference.target[i];
+                    let mut c = reference.target[i];
 
                     let inc = if target[i] > c { 1 } else { -1 };
 
@@ -350,7 +348,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 + self.zoom * ET_SEMITONE_WIDTH * {
                     let mut y = 0.0;
                     for (i, &c) in target.iter().enumerate() {
-                        y += (c - self.reference.target[i]) as f32
+                        y += (c - reference.target[i]) as f32
                             * self.flatten
                             * self.interval_heights[i];
                     }
@@ -384,13 +382,10 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                 },
             );
 
-            let correction = Correction::from_target_and_actual::<T>(
-                target.into(),
-                actual.into(),
-            );
+            let correction = Correction::from_target_and_actual::<T>(target.into(), actual.into());
 
             if !correction.is_zero() {
-                let correction_label = correction.str(self.correction_basis);
+                let correction_label = correction.str(&self.correction_basis);
                 ui.painter().with_clip_rect(rect).text(
                     pos2(
                         hpos,
@@ -468,7 +463,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                             coefficients: {
                                 let mut v = target.to_vec();
                                 for i in 0..T::num_intervals() {
-                                    v[i] -= self.reference.target[i];
+                                    v[i] -= reference.target[i];
                                 }
                                 v
                             },
@@ -512,7 +507,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                                     coefficients: {
                                         let mut v = target.to_vec();
                                         for i in 0..T::num_intervals() {
-                                            v[i] -= self.reference.target[i];
+                                            v[i] -= reference.target[i];
                                         }
                                         v
                                     },
@@ -529,50 +524,50 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
     }
 
     fn draw_lattice(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        self.stacks_to_draw.clear();
+        if let Some(reference) = &self.reference {
+            self.stacks_to_draw.clear();
 
-        for stack in PureStacksAround::new(&self.background_stack_distances, &self.reference) {
-            self.stacks_to_draw
-                .insert(stack.target, (stack.actual, DrawStyle::Background));
-        }
+            for stack in PureStacksAround::new(&self.background_stack_distances, reference) {
+                self.stacks_to_draw
+                    .insert(stack.target, (stack.actual, DrawStyle::Background));
+            }
 
-        match self.considered_notes.try_period_index() {
-            Some(period_index) => {
-                self.considered_notes.for_each_stack(|_, relative_stack| {
-                    let mut stack = relative_stack.clone();
-                    stack.increment_at_index_pure(period_index, -stack.target[period_index]);
-                    stack.scaled_add(1, &self.reference);
-                    self.stacks_to_draw
-                        .insert(stack.target, (stack.actual, DrawStyle::Considered));
-                });
-
-                for (i, state) in self.active_notes.iter().enumerate() {
-                    if state.is_sounding() {
-                        let mut stack = self.tunings[i].clone();
-
-                        if stack.target.iter().enumerate().any(|(i, c)| {
-                            (self.reference.target[i] - c).abs()
-                                > self.background_stack_distances[i]
-                        }) {
-                            self.stacks_to_draw.insert(
-                                stack.target.clone(),
-                                (stack.actual.clone(), DrawStyle::Antenna),
-                            );
-                        }
-
-                        stack.increment_at_index_pure(
-                            period_index,
-                            self.reference.target[period_index] - stack.target[period_index],
-                        );
+            match T::try_period_index() {
+                Some(period_index) => {
+                    self.considered_notes.for_each_stack(|_, relative_stack| {
+                        let mut stack = relative_stack.clone();
+                        stack.increment_at_index_pure(period_index, -stack.target[period_index]);
+                        stack.scaled_add(1, reference);
                         self.stacks_to_draw
-                            .insert(stack.target, (stack.actual, DrawStyle::Playing));
+                            .insert(stack.target, (stack.actual, DrawStyle::Considered));
+                    });
+
+                    for (i, state) in self.active_notes.iter().enumerate() {
+                        if state.is_sounding() {
+                            let mut stack = self.tunings[i].clone();
+
+                            if stack.target.iter().enumerate().any(|(i, c)| {
+                                (reference.target[i] - c).abs() > self.background_stack_distances[i]
+                            }) {
+                                self.stacks_to_draw.insert(
+                                    stack.target.clone(),
+                                    (stack.actual.clone(), DrawStyle::Antenna),
+                                );
+                            }
+
+                            stack.increment_at_index_pure(
+                                period_index,
+                                reference.target[period_index] - stack.target[period_index],
+                            );
+                            self.stacks_to_draw
+                                .insert(stack.target, (stack.actual, DrawStyle::Playing));
+                        }
                     }
                 }
+                None {} => todo!(),
             }
-            None {} => todo!(),
+            self.draw_stacks(ui, forward);
         }
-
-        self.draw_stacks(ui, forward);
     }
 
     fn draw_keyboard(&self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
@@ -735,10 +730,10 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
             draw_octave(i);
         }
 
-        let mut key_center = rect.left() + self.zoom * OCTAVE_WIDTH / 24.0;
+        let mut reference = rect.left() + self.zoom * OCTAVE_WIDTH / 24.0;
         for _ in 0..128 {
             ui.painter().with_clip_rect(rect).vline(
-                key_center,
+                reference,
                 egui::Rangef {
                     min: rect.bottom() - self.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH),
                     max: rect.bottom() - self.zoom * WHITE_KEY_LENGTH,
@@ -748,7 +743,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
                     ui.style().visuals.strong_text_color(),
                 ),
             );
-            key_center += self.zoom * OCTAVE_WIDTH / 12.0;
+            reference += self.zoom * OCTAVE_WIDTH / 12.0;
         }
     }
 
@@ -789,7 +784,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> LatticeWindow<T, N>
     }
 }
 
-impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for LatticeWindow<T, N> {
+impl<T: FiveLimitStackType + Hash + Eq> GuiShow<T> for LatticeWindow<T> {
     fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         egui::TopBottomPanel::top("lattice window zoom panel").show_inside(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -832,35 +827,44 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for Latt
                     });
 
                     ui.separator();
+                    if let Some((curr_neighbourhood_name, curr_neighbourhood_index)) =
+                        &self.curr_neighbourhood_name_and_index
+                    {
+                        ui.vertical(|ui| {
+                            ui.label(format!(
+                                "neighbourhood {}: \"{}\"",
+                                curr_neighbourhood_index, curr_neighbourhood_name,
+                            ));
 
-                    ui.vertical(|ui| {
-                        ui.label(format!(
-                            "neighbourhood {}: \"{}\"",
-                            self.curr_neighbourhood_index, self.curr_neighbourhood_name,
-                        ));
-
-                        if ui.button("switch to next neighbourhood").clicked() {
-                            let _ = forward.send(FromUi::NextNeighbourhood {
-                                time: Instant::now(),
-                            });
-                        }
-
-                        if ui.button("delete current neighbourhood").clicked() {
-                            let _ = forward.send(FromUi::DeleteCurrentNeighbourhood {
-                                time: Instant::now(),
-                            });
-                        }
-
-                        ui.horizontal(|ui| {
-                            if ui.button("add new neighbourhood named").clicked() {
-                                let _ = forward.send(FromUi::NewNeighbourhood {
-                                    name: self.new_neighbourhood_name.clone(),
+                            if ui.button("switch to next neighbourhood").clicked() {
+                                let _ = forward.send(FromUi::NextNeighbourhood {
+                                    time: Instant::now(),
                                 });
-                                self.new_neighbourhood_name.clear();
                             }
-                            ui.text_edit_singleline(&mut self.new_neighbourhood_name);
+
+                            if ui.button("delete current neighbourhood").clicked() {
+                                let _ = forward.send(FromUi::DeleteCurrentNeighbourhood {
+                                    time: Instant::now(),
+                                });
+                            }
+
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .add_enabled(
+                                        !self.new_neighbourhood_name.is_empty(),
+                                        egui::Button::new("add new neighbourhood"),
+                                    )
+                                    .clicked()
+                                {
+                                    let _ = forward.send(FromUi::NewNeighbourhood {
+                                        name: self.new_neighbourhood_name.clone(),
+                                    });
+                                    self.new_neighbourhood_name.clear();
+                                }
+                                ui.text_edit_singleline(&mut self.new_neighbourhood_name);
+                            });
                         });
-                    });
+                    }
                 });
             },
         );
@@ -882,7 +886,7 @@ impl<T: FiveLimitStackType + Hash + Eq, N: Neighbourhood<T>> GuiShow<T> for Latt
     }
 }
 
-impl<T: StackType, N: Neighbourhood<T>> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindow<T, N> {
+impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindow<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::NoteOn {
@@ -936,11 +940,20 @@ impl<T: StackType, N: Neighbourhood<T>> HandleMsgRef<ToUi<T>, FromUi<T>> for Lat
                 let _ = self.considered_notes.insert(stack);
             }
             ToUi::CurrentNeighbourhoodName { index, name } => {
-                self.curr_neighbourhood_name.clone_from(name);
-                self.curr_neighbourhood_index = *index;
+                if let Some((old_name, old_index)) = &mut self.curr_neighbourhood_name_and_index {
+                    if index != old_index {
+                        *old_index = *index;
+                        old_name.clone_from(name);
+                    }
+                } else {
+                    self.curr_neighbourhood_name_and_index = Some((name.clone(), *index));
+                }
             }
-            ToUi::SetReference { stack } => self.reference.clone_from(stack),
-            ToUi::SetTuningReference { reference } => self.tuning_reference.clone_from(reference),
+            ToUi::SetReference { stack } => self.reference = Some(stack.clone()),
+            ToUi::SetTuningReference { reference } => {
+                self.tuning_reference = Some(reference.clone())
+            }
+
             ToUi::Stop => {}
             ToUi::Notify { .. } => {}
             ToUi::EventLatency { .. } => {}

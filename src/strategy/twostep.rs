@@ -123,4 +123,8 @@ impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> Strategy<T> for
     ) -> bool {
         todo!()
     }
+
+    fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromProcess<T>>) {
+        todo!()
+    }
 }

@@ -203,6 +203,10 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
             time,
         });
     }
+
+    fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromProcess<T>>) {
+        self.strategy.start(time, forward);
+    }
 }
 
 impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess<T>, FromProcess<T>>
@@ -210,6 +214,9 @@ impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess<T>, FromProcess<T>>
 {
     fn handle_msg(&mut self, msg: ToProcess<T>, forward: &mpsc::Sender<FromProcess<T>>) {
         match msg {
+            ToProcess::Stop => {}
+            ToProcess::Reset { time } => self.start(time, forward),
+            ToProcess::Start { time } => self.start(time, forward),
             ToProcess::IncomingMidi { time, bytes } => match MidiMsg::from_midi(&bytes) {
                 Ok((msg, _)) => self.handle_midi(time, msg, forward), // TODO: multi-part messages?
                 Err(e) => {
@@ -228,8 +235,6 @@ impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess<T>, FromProcess<T>>
                 velocity,
                 time,
             } => self.handle_note_off(time, note, channel, velocity, forward),
-            ToProcess::Stop => {}
-            ToProcess::Reset { .. } => {}
             ToProcess::ToStrategy(msg) => {
                 let _success =
                     self.strategy
