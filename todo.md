@@ -1,7 +1,6 @@
 # General
 
-- forbid loop connections
-- busy waiting when MIDI not connected?
+- forbid looping MIDI connections
 - handle the other two pedals correctly
   - treat ChannelVoice Messages in the backend, tweak PedalHold...?
   - get rid of set_reference and next_neighbourhood methods of the Strategy

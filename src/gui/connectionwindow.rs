@@ -5,7 +5,7 @@ use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
     gui::r#trait::GuiShow,
-    interval::stacktype::r#trait::StackType,
+    interval::stacktype::r#trait::{IntervalBasis, StackType},
     msg::{FromUi, HandleMsgRef, ToUi},
 };
 
@@ -78,16 +78,17 @@ impl<X: IO> ConnectionWindow<X> {
     }
 }
 
-pub fn port_selector<X>(
+pub fn port_selector<X, T: StackType>(
     available_ports: &[(X::Port, String)],
     ui: &mut egui::Ui,
+    forward: &mpsc::Sender<FromUi<T>>,
 ) -> Option<(X::Port, String)>
 where
     X: IO,
     <X as IO>::Port: PartialEq + Clone,
 {
     let mut selected_port = None {};
-    egui::ComboBox::from_id_salt(format!("select {}", X::direction_string()))
+    if egui::ComboBox::from_id_salt(format!("select {}", X::direction_string()))
         .selected_text(egui::RichText::new(format!(
             "select {}",
             X::direction_string()
@@ -100,7 +101,12 @@ where
                     pname,
                 );
             }
-        });
+        })
+        .response
+        .clicked()
+    {
+        let _ = forward.send(X::disconnect_msg());
+    }
 
     selected_port
 }
@@ -133,26 +139,19 @@ where
                 error,
                 available_ports,
             } => {
-                // this ensures that the port will be disconnected, and that the list of available ports will update (at least on redraw).
-                let _ = forward.send(X::disconnect_msg());
-                match error {
-                    Some(str) => {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{} connection error:\n{str}",
-                                X::direction_string()
-                            ))
-                            .color(ui.style().visuals.warn_fg_color),
-                        );
-                    }
-                    None {} => {}
+                if let Some(str) = error {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} connection error:\n{str}",
+                            X::direction_string()
+                        ))
+                        .color(ui.style().visuals.warn_fg_color),
+                    );
                 }
 
-                match port_selector::<X>(&available_ports, ui) {
-                    Some((port, portname)) => {
-                        let _ = forward.send(X::connect_msg(port, portname));
-                    }
-                    None {} => {}
+                if let Some((port, portname)) = port_selector::<X, T>(&available_ports, ui, forward)
+                {
+                    let _ = forward.send(X::connect_msg(port, portname));
                 }
             }
         }
