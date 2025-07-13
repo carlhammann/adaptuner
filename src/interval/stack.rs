@@ -193,6 +193,12 @@ impl<T: IntervalBasis> Stack<T> {
         self.target.fill(0);
         self.actual.fill(Ratio::zero());
     }
+
+    pub fn make_pure(&mut self) {
+        self.actual.zip_mut_with(&self.target, |l, r| {
+            *l = Ratio::from_integer(*r);
+        });
+    }
 }
 
 impl<T: StackType> Stack<T> {

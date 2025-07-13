@@ -8,15 +8,22 @@ use crate::{
         stacktype::r#trait::{FiveLimitStackType, IntervalBasis, StackType},
     },
     msg::{FromUi, HandleMsgRef, ToUi},
-    notename::{correction::fivelimit::CorrectionBasis, NoteNameStyle},
+    notename::{
+        correction::fivelimit::{Correction, CorrectionBasis},
+        NoteNameStyle,
+    },
 };
 
-use super::{common::correction_basis_chooser, r#trait::GuiShow};
+use super::{
+    common::{correction_basis_chooser, note_picker},
+    r#trait::GuiShow,
+};
 
 pub struct ReferenceWindow<T: IntervalBasis> {
     reference: Option<Stack<T>>,
     new_reference: Stack<T>,
     temperaments_applied_to_new_reference: Vec<bool>,
+    corrections_applied_to_new_reference: Correction,
     notenamestyle: NoteNameStyle,
     correction_basis: CorrectionBasis,
 }
@@ -32,6 +39,7 @@ impl<T: StackType> ReferenceWindow<T> {
             reference: None {},
             new_reference: Stack::new_zero(),
             temperaments_applied_to_new_reference: vec![false; T::num_temperaments()],
+            corrections_applied_to_new_reference: Correction::new_zero(),
             notenamestyle: config.notenamestyle,
             correction_basis: config.correction_basis,
         }
@@ -51,28 +59,13 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceWindow<T> {
 
         ui.separator();
         ui.label("Select new reference, relative to C 4:");
-        let mut target_changed = false;
-        ui.horizontal(|ui| {
-            for (i, c) in self.new_reference.target.iter_mut().enumerate() {
-                ui.label(format!("{}:", T::intervals()[i].name));
-                if ui.add(egui::DragValue::new(c)).changed() {
-                    target_changed = true;
-                }
-            }
-        });
-        if target_changed {
-            self.new_reference
-                .retemper(&self.temperaments_applied_to_new_reference);
-        }
-        for (i, t) in T::temperaments().iter().enumerate() {
-            if ui
-                .checkbox(&mut self.temperaments_applied_to_new_reference[i], &t.name)
-                .clicked()
-            {
-                self.new_reference
-                    .retemper(&self.temperaments_applied_to_new_reference);
-            }
-        }
+        note_picker(
+            ui,
+            &mut self.temperaments_applied_to_new_reference,
+            &mut self.corrections_applied_to_new_reference,
+            &self.correction_basis,
+            &mut self.new_reference,
+        );
 
         ui.separator();
 

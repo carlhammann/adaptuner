@@ -1,7 +1,7 @@
 pub mod fivelimit {
     use std::{fmt, sync::LazyLock};
 
-    use ndarray::{arr1, arr2, linalg::general_mat_vec_mul, Array2, ArrayView1};
+    use ndarray::{arr1, arr2, linalg::general_mat_vec_mul, s, Array2, ArrayView1};
     use num_rational::Ratio;
     use num_traits::Zero;
 
@@ -13,7 +13,15 @@ pub mod fivelimit {
 
     #[derive(PartialEq, Debug)]
     pub struct Correction {
+        /// A 3x3-matrix containing, by column, coefficients of a decomposition of the correction
+        /// into
+        ///
+        /// - octaves, diesis, syntonic comma
+        /// - octaves, pythagorean comma, syntonic comma
+        /// - octaves, pythagorean comma, diesis
         comma_coeffs: Array2<Ratio<StackCoeff>>,
+
+        /// the size of the interval from the [Stack::target] to the [Stack::actual]
         semitones: Semitones,
     }
 
@@ -23,6 +31,48 @@ pub mod fivelimit {
         DiesisSyntonic,
         PythagoreanSyntonic,
         PythagoreanDiesis,
+    }
+
+    impl<T: FiveLimitIntervalBasis> Stack<T> {
+        /// this will panic if you call it with [CorrectionBasis::Semitones]. Hacky, but for now...
+        ///
+        /// In principle, the basis argument shouldn't matter, but we use it to pick a which values
+        /// to use, in case some values are outdated/invalid, as might happen when you use
+        /// [Correction::mutate].
+        pub fn apply_correction(&mut self, correction: &Correction, basis: &CorrectionBasis) {
+            let mut column: usize = 0;
+            match basis {
+                CorrectionBasis::Semitones => panic!(),
+                CorrectionBasis::DiesisSyntonic => {}
+                CorrectionBasis::PythagoreanSyntonic => column = 1,
+                CorrectionBasis::PythagoreanDiesis => column = 2,
+            }
+            self.actual.zip_mut_with(&self.target, |l, r| {
+                *l = Ratio::from_integer(*r);
+            });
+            let c1 = correction.comma_coeffs[(1, column)];
+            let c2 = correction.comma_coeffs[(2, column)];
+            match basis {
+                CorrectionBasis::Semitones => unreachable!(),
+                CorrectionBasis::DiesisSyntonic => {
+                    self.actual[T::octave_index()] += c1 + c2 * Ratio::from_integer(-2);
+                    self.actual[T::fifth_index()] += c2 * Ratio::from_integer(4);
+                    self.actual[T::third_index()] += c1 * Ratio::from_integer(-3) - c2;
+                }
+                CorrectionBasis::PythagoreanSyntonic => {
+                    self.actual[T::octave_index()] +=
+                        -c1 * Ratio::from_integer(7) + c2 * Ratio::from_integer(-2);
+                    self.actual[T::fifth_index()] +=
+                        c1 * Ratio::from_integer(12) + c2 * Ratio::from_integer(4);
+                    self.actual[T::third_index()] += -c2;
+                }
+                CorrectionBasis::PythagoreanDiesis => {
+                    self.actual[T::octave_index()] += -c1 * Ratio::from_integer(7) + c2;
+                    self.actual[T::fifth_index()] += c1 * Ratio::from_integer(12);
+                    self.actual[T::third_index()] += c2 * Ratio::from_integer(-3);
+                }
+            }
+        }
     }
 
     const DIESIS_SYNTONIC: LazyLock<Array2<Ratio<StackCoeff>>> = LazyLock::new(|| {
@@ -54,6 +104,41 @@ pub mod fivelimit {
             self.comma_coeffs
                 .iter()
                 .all(<Ratio<StackCoeff> as Zero>::is_zero)
+        }
+
+        pub fn new_zero() -> Self {
+            Self {
+                comma_coeffs: Array2::zeros((3, 3)),
+                semitones: 0.0,
+            }
+        }
+
+        pub fn reset_to_zero(&mut self) {
+            self.semitones = 0.0;
+            self.comma_coeffs
+                .iter_mut()
+                .for_each(|x| *x = Ratio::from_integer(0));
+        }
+
+        /// Will give you two references, as described by the basis. These will allow you to change
+        /// the values for that basis -- if you then do something with another basis, you'll get
+        /// inconsistent results.
+        ///
+        /// panics for the [CorrectionBasis::Semitones], because then nothing can be mutated.
+        pub fn mutate<F: FnMut(&mut Ratio<StackCoeff>, &mut Ratio<StackCoeff>)>(
+            &mut self,
+            basis: &CorrectionBasis,
+            mut f: F,
+        ) {
+            let mut column: usize = 0;
+            match basis {
+                CorrectionBasis::Semitones => panic!(),
+                CorrectionBasis::DiesisSyntonic => {}
+                CorrectionBasis::PythagoreanSyntonic => column = 1,
+                CorrectionBasis::PythagoreanDiesis => column = 2,
+            }
+            let (mut row1, mut row2) = self.comma_coeffs.multi_slice_mut((s![1, ..], s![2, ..]));
+            f(&mut row1[column], &mut row2[column]);
         }
 
         pub fn new<T: FiveLimitIntervalBasis>(stack: &Stack<T>) -> Self {
