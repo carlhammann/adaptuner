@@ -1,13 +1,21 @@
 use std::{
     cell::{RefCell, RefMut},
     rc::Rc,
+    sync::mpsc,
+    time::Instant,
 };
 
 use eframe::egui::{self};
+use midi_msg::Channel;
 
-use crate::interval::stacktype::r#trait::StackType;
+use crate::{
+    interval::stacktype::r#trait::StackType,
+    msg::{FromUi, HandleMsgRef, ToUi},
+};
 
-use super::{common::correction_system_chooser, latticewindow::LatticeWindowControls};
+use super::{
+    common::correction_system_chooser, latticewindow::LatticeWindowControls, r#trait::GuiShow,
+};
 
 pub fn lattice_control_window<T: StackType>(
     ui: &mut egui::Ui,
@@ -35,17 +43,67 @@ pub fn lattice_control_window<T: StackType>(
     });
 }
 
-pub fn lattice_zoom_window(ui: &mut egui::Ui, values: &Rc<RefCell<LatticeWindowControls>>) {
-    let _ = RefMut::map(values.borrow_mut(), |x| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add(
-                egui::widgets::Slider::new(&mut x.zoom, 5.0..=100.0)
-                    .smart_aim(false)
-                    .show_value(false)
-                    .logarithmic(true)
-                    .text("zoom"),
-            );
+pub struct LatticeWindowSmallControls(pub Rc<RefCell<LatticeWindowControls>>);
+
+impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindowSmallControls {
+    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
+        match msg {
+            ToUi::PedalHold { channel, value, .. } => {
+                let LatticeWindowSmallControls(control_values) = self;
+                let my_channel = control_values.borrow().keyboard_channel;
+                if *channel == my_channel {
+                    let _ = RefMut::map(control_values.borrow_mut(), |x| {
+                        x.pedal_hold = *value > 0;
+                        &mut x.pedal_hold // whatever
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl<T: StackType> GuiShow<T> for LatticeWindowSmallControls {
+    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        let LatticeWindowSmallControls(control_values) = self;
+        let _ = RefMut::map(control_values.borrow_mut(), |x| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add(
+                    egui::widgets::Slider::new(&mut x.zoom, 5.0..=100.0)
+                        .smart_aim(false)
+                        .show_value(false)
+                        .logarithmic(true)
+                        .text("zoom"),
+                );
+                ui.separator();
+
+                if ui.toggle_value(&mut x.pedal_hold, "sustain").changed() {
+                    let _ = forward.send(FromUi::PedalHold {
+                        time: Instant::now(),
+                        value: if x.pedal_hold { 127 } else { 0 },
+                        channel: x.keyboard_channel,
+                    });
+                }
+
+                ui.add(
+                    // egui::widgets::Slider::new(&mut x.keyboard_velocity, 0..=127).text("velocity"),
+                    egui::DragValue::new(&mut x.keyboard_velocity).range(0..=127),
+                );
+                ui.label("velocity");
+
+                egui::ComboBox::from_id_salt("keyboard MIDI channel")
+                    .width(ui.style().spacing.interact_size.y)
+                    .selected_text(format!("{}", x.keyboard_channel))
+                    .show_ui(ui, |ui| {
+                        for i in 0..16 {
+                            let ch = Channel::from_u8(i);
+                            ui.selectable_value(&mut x.keyboard_channel, ch, format!("{ch}"));
+                        }
+                    });
+
+                ui.label("screen keyboard MIDI:");
+            });
+            &mut x.zoom // whatever
         });
-        &mut x.zoom // whatever
-    });
+    }
 }

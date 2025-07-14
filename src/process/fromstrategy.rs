@@ -60,32 +60,7 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
                 msg: ControlChange {
                     control: Hold(value),
                 },
-            } => {
-                if value > 0 {
-                    self.pedal_hold[channel as usize] = true;
-                } else {
-                    self.pedal_hold[channel as usize] = false;
-                    let mut off_notes: Vec<u8> = vec![];
-                    for (note, state) in self.key_states.iter_mut().enumerate() {
-                        let changed = state.pedal_off(channel, time);
-                        if changed {
-                            off_notes.push(note as u8);
-                        }
-                    }
-                    let _success = self.strategy.note_off(
-                        &self.key_states,
-                        &mut self.tunings,
-                        &off_notes,
-                        time,
-                        forward,
-                    );
-                }
-                let _ = forward.send(FromProcess::PedalHold {
-                    channel,
-                    value,
-                    time,
-                });
-            }
+            } => self.handle_pedal_hold(time, channel, value, forward),
 
             MidiMsg::ChannelVoice {
                 channel: _,
@@ -204,6 +179,39 @@ impl<T: StackType, S: Strategy<T>> ProcessFromStrategy<T, S> {
         });
     }
 
+    fn handle_pedal_hold(
+        &mut self,
+        time: Instant,
+        channel: Channel,
+        value: u8,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) {
+        if value > 0 {
+            self.pedal_hold[channel as usize] = true;
+        } else {
+            self.pedal_hold[channel as usize] = false;
+            let mut off_notes: Vec<u8> = vec![];
+            for (note, state) in self.key_states.iter_mut().enumerate() {
+                let changed = state.pedal_off(channel, time);
+                if changed {
+                    off_notes.push(note as u8);
+                }
+            }
+            let _success = self.strategy.note_off(
+                &self.key_states,
+                &mut self.tunings,
+                &off_notes,
+                time,
+                forward,
+            );
+        }
+        let _ = forward.send(FromProcess::PedalHold {
+            channel,
+            value,
+            time,
+        });
+    }
+
     fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromProcess<T>>) {
         self.strategy.start(time, forward);
     }
@@ -235,6 +243,11 @@ impl<T: StackType, S: Strategy<T>> HandleMsg<ToProcess<T>, FromProcess<T>>
                 velocity,
                 time,
             } => self.handle_note_off(time, note, channel, velocity, forward),
+            ToProcess::PedalHold {
+                channel,
+                value,
+                time,
+            } => self.handle_pedal_hold(time, channel, value, forward),
             ToProcess::ToStrategy(msg) => {
                 let _success =
                     self.strategy

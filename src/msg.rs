@@ -71,6 +71,11 @@ pub enum ToProcess<T: StackType> {
         velocity: u8,
         time: Instant,
     },
+    PedalHold {
+        channel: Channel,
+        value: u8,
+        time: Instant,
+    },
     ToggleSostenutoIsNextNeighbourhood {},
     ToggleSoftPedalIsSetReference {},
 }
@@ -362,6 +367,11 @@ pub enum FromUi<T: StackType> {
         channel: Channel,
         note: u8,
         velocity: u8,
+        time: Instant,
+    },
+    PedalHold {
+        channel: Channel,
+        value: u8,
         time: Instant,
     },
     ToggleSostenutoIsNextNeighbourhood {},
@@ -686,6 +696,16 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                     channel,
                     note,
                     velocity,
+                    time,
+                }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::PedalHold { channel, value, time } => (
+                Some(ToProcess::PedalHold {
+                    channel,
+                    value,
                     time,
                 }),
                 None {},

@@ -11,7 +11,7 @@ use super::{
     backendwindow::{BackendWindow, BackendWindowConfig},
     connectionwindow::{ConnectionWindow, Input, Output},
     latencywindow::LatencyWindow,
-    latticecontrolwindow::{lattice_control_window, lattice_zoom_window},
+    latticecontrolwindow::{lattice_control_window, LatticeWindowSmallControls},
     latticewindow::{LatticeWindow, LatticeWindowControls},
     notewindow::NoteWindow,
     r#trait::GuiShow,
@@ -23,6 +23,7 @@ use super::{
 pub struct ManyWindows<T: StackType> {
     latticewindow: LatticeWindow<T>,
     lattice_window_controls: Rc<RefCell<LatticeWindowControls>>,
+    lattice_window_small_controls: LatticeWindowSmallControls,
 
     show_control_panel: bool,
     static_control_window: StaticControlWindow<T>,
@@ -62,6 +63,9 @@ impl<T: FiveLimitStackType + Hash + Eq> ManyWindows<T> {
 
         Self {
             latticewindow: LatticeWindow::new(lattice_window_controls.clone()),
+            lattice_window_small_controls: LatticeWindowSmallControls(
+                lattice_window_controls.clone(),
+            ),
             lattice_window_controls,
             show_control_panel: false,
             static_control_window: StaticControlWindow::new(),
@@ -86,6 +90,8 @@ impl<T: FiveLimitStackType + Hash + Eq> ManyWindows<T> {
 impl<T: FiveLimitStackType> HandleMsg<ToUi<T>, FromUi<T>> for ManyWindows<T> {
     fn handle_msg(&mut self, msg: ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         self.latticewindow.handle_msg_ref(&msg, forward);
+        self.lattice_window_small_controls
+            .handle_msg_ref(&msg, forward);
         self.static_control_window.handle_msg_ref(&msg, forward);
         self.note_window.handle_msg_ref(&msg, forward);
         self.input_connection_window.handle_msg_ref(&msg, forward);
@@ -127,8 +133,8 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
             });
         }
 
-        egui::TopBottomPanel::bottom("lattice zoom panel").show(ctx, |ui| {
-            lattice_zoom_window(ui, &self.lattice_window_controls);
+        egui::TopBottomPanel::bottom("small lattice control panel").show(ctx, |ui| {
+            self.lattice_window_small_controls.show(ctx, ui, &self.tx);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {

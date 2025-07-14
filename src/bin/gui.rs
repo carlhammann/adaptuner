@@ -55,7 +55,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     let correction_system_index = DIESIS_SYNTONIC;
     let lattice_window_config = LatticeWindowControls {
         zoom: 10.0,
-        // flatten: 1.0,
         notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
         correction_system_index,
         interval_heights: vec![
@@ -66,6 +65,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         background_stack_distances: vec![0, 3, 2],
         keyboard_channel: Channel::Ch1,
         keyboard_velocity: 64,
+        pedal_hold: false,
     };
     let reference_window_config = ReferenceWindowConfig {
         notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,

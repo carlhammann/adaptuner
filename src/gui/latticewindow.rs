@@ -43,6 +43,7 @@ pub struct LatticeWindowControls {
     pub background_stack_distances: Vec<StackCoeff>,
     pub keyboard_channel: Channel,
     pub keyboard_velocity: u8,
+    pub pedal_hold: bool,
     pub notenamestyle: NoteNameStyle,
     pub correction_system_index: usize,
 }

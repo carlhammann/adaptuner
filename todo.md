@@ -1,5 +1,6 @@
 # General
 
+- why the "Context" arugment on GuiShow?
 - forbid looping MIDI connections
 - handle the other two pedals correctly
   - treat ChannelVoice Messages in the backend, tweak PedalHold...?
@@ -11,7 +12,6 @@
 - coordination of zoom and scroll
 - flattening the grid layout to increase space for keyboard
 - multi-touch keyboard
-- sustain switch
 - nicer selection of correction basis: perference order: perference order
 - close button on extra windows
 - hande DetunedNote messages

@@ -100,6 +100,7 @@ pub fn note_picker<T: StackType>(
     });
 }
 
+/// returns true on change
 pub fn temperament_applier<T: StackType>(
     pure_button: bool,
     ui: &mut egui::Ui,
