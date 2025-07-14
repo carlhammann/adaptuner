@@ -143,6 +143,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
 
         if self.show_connection_window {
             egui::containers::Window::new("midi connections")
+                .open(&mut self.show_connection_window)
                 .collapsible(false)
                 .show(ctx, |ui| {
                     ui.vertical(|ui| {
@@ -181,6 +182,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
 
         if self.show_tuning_reference_window {
             egui::containers::Window::new("global tuning")
+                .open(&mut self.show_tuning_reference_window)
                 .collapsible(false)
                 .show(ctx, |ui| {
                     self.tuning_reference_window.show(ui, &self.tx);
@@ -189,6 +191,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
 
         if self.show_reference_window {
             egui::containers::Window::new("reference")
+                .open(&mut self.show_reference_window)
                 .collapsible(false)
                 .show(ctx, |ui| {
                     self.reference_window.show(ui, &self.tx);
@@ -197,8 +200,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
 
         if self.show_note_window {
             egui::containers::Window::new("notes")
-                .collapsible(false)
-                .title_bar(false)
+                .open(&mut self.show_note_window)
                 .show(ctx, |ui| {
                     self.note_window.show(ui, &self.tx);
                 });

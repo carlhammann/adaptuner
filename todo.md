@@ -12,6 +12,5 @@
 - flattening the grid layout to increase space for keyboard
 - multi-touch keyboard
 - nicer selection of correction basis: perference order: perference order
-- close button on extra windows
 - hande DetunedNote messages
 
