@@ -4,16 +4,15 @@ use midi_msg::Channel;
 
 use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
-    config::{Config, StrategyConfig},
+    config::{initialise_strategy, Config},
     gui::{
-        latticewindow::LatticeWindowControls, manywindows::ManyWindows,
-        referencewindow::ReferenceWindowConfig, tuningreferencewindow::TuningReferenceWindowConfig,
+        lattice::LatticeWindowControls, reference::ReferenceWindowConfig, toplevel::ManyWindows,
+        tuningreference::TuningReferenceWindowConfig,
     },
     interval::stacktype::fivelimit::{TheFiveLimitStackType, DIESIS_SYNTONIC},
     notename::NoteNameStyle,
     process::fromstrategy::ProcessFromStrategy,
     run::RunState,
-    strategy::r#static::*,
 };
 
 fn main() {
@@ -81,18 +80,18 @@ fn run() -> Result<(), Box<dyn Error>> {
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
 
-    let first_config = config.strategies.drain(..).next().unwrap();
-    //     StrategyConfig::StaticTuning(sc) => sc,
-    // };
-    let static_tuning_config = match first_config {
-        StrategyConfig::StaticTuning(x) => x,
-    };
-    let static_tuning = StaticTuning::new(static_tuning_config);
-
     let _runstate = RunState::new(
         midi_in,
         midi_out,
-        || ProcessFromStrategy::new(static_tuning),
+        move || {
+            ProcessFromStrategy::<TheFiveLimitStackType>::new(
+                config
+                    .strategies
+                    .drain(..)
+                    .map(initialise_strategy)
+                    .collect(),
+            )
+        },
         move || Pitchbend12::new(backend_config),
         move |ctx, tx| {
             ManyWindows::new(

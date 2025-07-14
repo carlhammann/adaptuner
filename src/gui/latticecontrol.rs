@@ -13,9 +13,7 @@ use crate::{
     msg::{FromUi, HandleMsgRef, ToUi},
 };
 
-use super::{
-    common::correction_system_chooser, latticewindow::LatticeWindowControls, r#trait::GuiShow,
-};
+use super::{common::correction_system_chooser, lattice::LatticeWindowControls, r#trait::GuiShow};
 
 pub fn lattice_control_window<T: StackType>(
     ui: &mut egui::Ui,
@@ -64,7 +62,7 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindowSmallContro
 }
 
 impl<T: StackType> GuiShow<T> for LatticeWindowSmallControls {
-    fn show(&mut self,  ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let LatticeWindowSmallControls(control_values) = self;
         let _ = RefMut::map(control_values.borrow_mut(), |x| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

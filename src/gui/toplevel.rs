@@ -8,16 +8,16 @@ use crate::{
 };
 
 use super::{
-    backendwindow::{BackendWindow, BackendWindowConfig},
-    connectionwindow::{ConnectionWindow, Input, Output},
-    latencywindow::LatencyWindow,
-    latticecontrolwindow::{lattice_control_window, LatticeWindowSmallControls},
-    latticewindow::{LatticeWindow, LatticeWindowControls},
-    notewindow::NoteWindow,
+    backend::{BackendWindow, BackendWindowConfig},
+    connection::{ConnectionWindow, Input, Output},
+    latency::LatencyWindow,
+    lattice::{LatticeWindow, LatticeWindowControls},
+    latticecontrol::{lattice_control_window, LatticeWindowSmallControls},
+    notes::NoteWindow,
     r#trait::GuiShow,
-    referencewindow::{ReferenceWindow, ReferenceWindowConfig},
-    staticcontrolwindow::StaticControlWindow,
-    tuningreferencewindow::{TuningReferenceWindow, TuningReferenceWindowConfig},
+    reference::{ReferenceWindow, ReferenceWindowConfig},
+    strategy::r#static::StaticControlWindow,
+    tuningreference::{TuningReferenceWindow, TuningReferenceWindowConfig},
 };
 
 pub struct ManyWindows<T: StackType> {

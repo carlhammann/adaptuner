@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, time::Instant, sync::mpsc};
+use std::{marker::PhantomData, sync::mpsc, time::Instant};
 
 use eframe::egui;
 
@@ -7,7 +7,7 @@ use crate::{
     msg::{FromUi, HandleMsgRef, ToUi},
 };
 
-use super::r#trait::GuiShow;
+use super::super::r#trait::GuiShow;
 
 pub struct StaticControlWindow<T: IntervalBasis> {
     _phantom: PhantomData<T>,
