@@ -3,6 +3,7 @@ pub mod common;
 pub mod connectionwindow;
 pub mod latencywindow;
 pub mod latticewindow;
+pub mod latticecontrolwindow;
 pub mod manywindows;
 pub mod notewindow;
 pub mod referencewindow;

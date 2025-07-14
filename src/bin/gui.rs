@@ -6,7 +6,7 @@ use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
     config::{Config, StrategyConfig},
     gui::{
-        latticewindow::LatticeWindowConfig, manywindows::ManyWindows,
+        latticewindow::LatticeWindowControls, manywindows::ManyWindows,
         referencewindow::ReferenceWindowConfig, tuningreferencewindow::TuningReferenceWindowConfig,
     },
     interval::stacktype::fivelimit::{TheFiveLimitStackType, DIESIS_SYNTONIC},
@@ -52,12 +52,11 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let backend_window_config = backend_config.clone();
 
-    let notenamestyle = NoteNameStyle::JohnstonFiveLimitFull;
     let correction_system_index = DIESIS_SYNTONIC;
-    let lattice_window_config = LatticeWindowConfig {
+    let lattice_window_config = LatticeWindowControls {
         zoom: 10.0,
-        flatten: 1.0,
-        notenamestyle,
+        // flatten: 1.0,
+        notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
         correction_system_index,
         interval_heights: vec![
             0.0,
@@ -65,13 +64,15 @@ fn run() -> Result<(), Box<dyn Error>> {
             12.0 * (3.0 / 2.0 as f32).log2(),
         ],
         background_stack_distances: vec![0, 3, 2],
+        keyboard_channel: Channel::Ch1,
+        keyboard_velocity: 64,
     };
     let reference_window_config = ReferenceWindowConfig {
-        notenamestyle,
+        notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
         correction_system_index,
     };
     let tuning_reference_window_config = TuningReferenceWindowConfig {
-        notenamestyle,
+        notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
         correction_system_index,
     };
 

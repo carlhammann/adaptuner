@@ -1,4 +1,4 @@
-use std::{hash::Hash, sync::mpsc};
+use std::{cell::RefCell, hash::Hash, rc::Rc, sync::mpsc};
 
 use eframe::{self, egui};
 
@@ -11,7 +11,8 @@ use super::{
     backendwindow::{BackendWindow, BackendWindowConfig},
     connectionwindow::{ConnectionWindow, Input, Output},
     latencywindow::LatencyWindow,
-    latticewindow::{LatticeWindow, LatticeWindowConfig},
+    latticecontrolwindow::{lattice_control_window, lattice_zoom_window},
+    latticewindow::{LatticeWindow, LatticeWindowControls},
     notewindow::NoteWindow,
     r#trait::GuiShow,
     referencewindow::{ReferenceWindow, ReferenceWindowConfig},
@@ -21,6 +22,7 @@ use super::{
 pub struct ManyWindows<T: StackType> {
     latticewindow: LatticeWindow<T>,
     show_lattice_window_controls: bool,
+    lattice_window_controls: Rc<RefCell<LatticeWindowControls>>,
 
     input_connection_window: ConnectionWindow<Input>,
     output_connection_window: ConnectionWindow<Output>,
@@ -45,7 +47,7 @@ pub struct ManyWindows<T: StackType> {
 
 impl<T: FiveLimitStackType + Hash + Eq> ManyWindows<T> {
     pub fn new(
-        lattice_window_config: LatticeWindowConfig,
+        lattice_window_config: LatticeWindowControls,
         reference_window_config: ReferenceWindowConfig,
         backend_window_config: BackendWindowConfig,
         latency_window_length: usize,
@@ -53,8 +55,11 @@ impl<T: FiveLimitStackType + Hash + Eq> ManyWindows<T> {
         ctx: &egui::Context,
         tx: mpsc::Sender<FromUi<T>>,
     ) -> Self {
+        let lattice_window_controls = Rc::new(RefCell::new(lattice_window_config));
+
         Self {
-            latticewindow: LatticeWindow::new(lattice_window_config),
+            latticewindow: LatticeWindow::new(lattice_window_controls.clone()),
+            lattice_window_controls,
             show_lattice_window_controls: false,
             input_connection_window: ConnectionWindow::new(),
             output_connection_window: ConnectionWindow::new(),
@@ -94,12 +99,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
 
                 ui.separator();
 
-                if ui
-                    .toggle_value(&mut self.show_lattice_window_controls, "controls")
-                    .clicked()
-                {
-                    self.latticewindow.toggle_controls();
-                };
+                ui.toggle_value(&mut self.show_lattice_window_controls, "controls");
                 ui.toggle_value(&mut self.show_connection_window, "midi connections");
                 ui.toggle_value(&mut self.show_tuning_reference_window, "global tuning");
                 ui.toggle_value(&mut self.show_reference_window, "reference");
@@ -110,6 +110,16 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
                     ui.separator();
                 })
             });
+        });
+
+        if self.show_lattice_window_controls {
+            egui::TopBottomPanel::bottom("lattice control panel").show(ctx, |ui| {
+                lattice_control_window::<T>(ui, &self.lattice_window_controls);
+            });
+        }
+
+        egui::TopBottomPanel::bottom("lattice zoom panel").show(ctx, |ui| {
+            lattice_zoom_window(ui, &self.lattice_window_controls);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
