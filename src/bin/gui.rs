@@ -9,8 +9,8 @@ use adaptuner::{
         latticewindow::LatticeWindowConfig, manywindows::ManyWindows,
         referencewindow::ReferenceWindowConfig, tuningreferencewindow::TuningReferenceWindowConfig,
     },
-    interval::stacktype::fivelimit::TheFiveLimitStackType,
-    notename::{correction::fivelimit::CorrectionBasis, NoteNameStyle},
+    interval::stacktype::fivelimit::{TheFiveLimitStackType, DIESIS_SYNTONIC},
+    notename::NoteNameStyle,
     process::fromstrategy::ProcessFromStrategy,
     run::RunState,
     strategy::r#static::*,
@@ -64,14 +64,14 @@ fn run() -> Result<(), Box<dyn Error>> {
     };
 
     let notenamestyle = NoteNameStyle::JohnstonFiveLimitFull;
-    let correction_basis = CorrectionBasis::DiesisSyntonic;
+    let correction_system_index = DIESIS_SYNTONIC;
     let reference_window_config = ReferenceWindowConfig {
         notenamestyle,
-        correction_basis,
+        correction_system_index,
     };
     let tuning_reference_window_config = TuningReferenceWindowConfig {
         notenamestyle,
-        correction_basis,
+        correction_system_index,
     };
 
     let latency_window_length = 20;

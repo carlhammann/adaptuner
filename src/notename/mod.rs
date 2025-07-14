@@ -1,8 +1,6 @@
 use std::fmt;
 
-use correction::fivelimit::CorrectionBasis;
-
-use crate::interval::{stack::Stack, stacktype::r#trait::FiveLimitIntervalBasis};
+use crate::interval::{stack::Stack, stacktype::r#trait::{FiveLimitIntervalBasis, FiveLimitStackType}};
 
 pub mod correction;
 pub mod johnston;
@@ -13,7 +11,7 @@ pub enum NoteNameStyle {
     JohnstonFiveLimitClass,
 }
 
-impl<T: FiveLimitIntervalBasis> Stack<T> {
+impl<T: FiveLimitStackType> Stack<T> {
     pub fn write_notename<W: fmt::Write>(&self, f: &mut W, style: &NoteNameStyle) -> fmt::Result {
         match style {
             NoteNameStyle::JohnstonFiveLimitFull => {
@@ -58,12 +56,12 @@ impl<T: FiveLimitIntervalBasis> Stack<T> {
         &self,
         f: &mut W,
         style: &NoteNameStyle,
-        basis: &CorrectionBasis,
+        system_index: usize,
     ) -> fmt::Result {
         self.write_notename(f, style)?;
         if !self.is_target() {
             write!(f, "  ")?;
-            correction::fivelimit::Correction::new(self).fmt(f, basis)?;
+            correction::Correction::new(self, system_index).fmt(f)?;
             if self.is_pure() {
                 write!(f, " = ")?;
                 self.write_actual_notename(f, style)?;
@@ -72,10 +70,11 @@ impl<T: FiveLimitIntervalBasis> Stack<T> {
         Ok(())
     }
 
-    pub fn corrected_name(&self, style: &NoteNameStyle, basis: &CorrectionBasis) -> String {
+    pub fn corrected_name(&self, style: &NoteNameStyle, system_index: usize) -> String {
         let mut res = String::new();
         // the [Write] implementation of [String] never throws any error, so this is fine:
-        self.write_corrected_name(&mut res, style, basis).unwrap();
+        self.write_corrected_name(&mut res, style, system_index)
+            .unwrap();
         res
     }
 }

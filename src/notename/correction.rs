@@ -1,376 +1,264 @@
-pub mod fivelimit {
-    use std::{fmt, sync::LazyLock};
+use std::{
+    cell::{Cell, RefCell},
+    fmt,
+    marker::PhantomData,
+};
 
-    use ndarray::{arr1, arr2, linalg::general_mat_vec_mul, s, Array2, ArrayView1};
-    use num_rational::Ratio;
-    use num_traits::Zero;
+use ndarray::{Array1, ArrayView1};
+use num_rational::Ratio;
+use num_traits::Zero;
 
-    use crate::interval::{
-        base::Semitones,
-        stack::{semitones_from_actual, semitones_from_target, Stack},
-        stacktype::r#trait::{FiveLimitIntervalBasis, StackCoeff},
-    };
+use crate::interval::{
+    stack::Stack,
+    stacktype::r#trait::{StackCoeff, StackType},
+};
 
-    #[derive(PartialEq, Debug)]
-    pub struct Correction {
-        /// A 3x3-matrix containing, by column, coefficients of a decomposition of the correction
-        /// into
-        ///
-        /// - octaves, diesis, syntonic comma
-        /// - octaves, pythagorean comma, syntonic comma
-        /// - octaves, pythagorean comma, diesis
-        comma_coeffs: Array2<Ratio<StackCoeff>>,
+#[derive(Debug)]
+pub struct Correction<T: StackType> {
+    _phantom: PhantomData<T>,
+    system_index: Cell<usize>,
+    coeffs: RefCell<Array1<Ratio<StackCoeff>>>,
+    tmp_coeffs: RefCell<Array1<Ratio<StackCoeff>>>,
+}
 
-        /// the size of the interval from the [Stack::target] to the [Stack::actual]
-        semitones: Semitones,
+impl<T: StackType> Stack<T> {
+    pub fn apply_correction(&mut self, correction: &Correction<T>) {
+        self.make_pure();
+        T::correction_systems()[correction.system_index()].apply_inverse_inplace(
+            correction.coeffs.borrow().view(),
+            correction.tmp_coeffs.borrow_mut().view_mut(),
+        );
+        self.actual
+            .scaled_add(1.into(), &correction.tmp_coeffs.borrow());
     }
+}
 
-    #[derive(PartialEq, Clone, Copy)]
-    pub enum CorrectionBasis {
-        Semitones,
-        DiesisSyntonic,
-        PythagoreanSyntonic,
-        PythagoreanDiesis,
-    }
-
-    impl<T: FiveLimitIntervalBasis> Stack<T> {
-        /// this will panic if you call it with [CorrectionBasis::Semitones]. Hacky, but for now...
-        ///
-        /// In principle, the basis argument shouldn't matter, but we use it to pick a which values
-        /// to use, in case some values are outdated/invalid, as might happen when you use
-        /// [Correction::mutate].
-        pub fn apply_correction(&mut self, correction: &Correction, basis: &CorrectionBasis) {
-            let mut column: usize = 0;
-            match basis {
-                CorrectionBasis::Semitones => panic!(),
-                CorrectionBasis::DiesisSyntonic => {}
-                CorrectionBasis::PythagoreanSyntonic => column = 1,
-                CorrectionBasis::PythagoreanDiesis => column = 2,
-            }
-            self.actual.zip_mut_with(&self.target, |l, r| {
-                *l = Ratio::from_integer(*r);
-            });
-            let c1 = correction.comma_coeffs[(1, column)];
-            let c2 = correction.comma_coeffs[(2, column)];
-            match basis {
-                CorrectionBasis::Semitones => unreachable!(),
-                CorrectionBasis::DiesisSyntonic => {
-                    self.actual[T::octave_index()] += c1 + c2 * Ratio::from_integer(-2);
-                    self.actual[T::fifth_index()] += c2 * Ratio::from_integer(4);
-                    self.actual[T::third_index()] += c1 * Ratio::from_integer(-3) - c2;
-                }
-                CorrectionBasis::PythagoreanSyntonic => {
-                    self.actual[T::octave_index()] +=
-                        -c1 * Ratio::from_integer(7) + c2 * Ratio::from_integer(-2);
-                    self.actual[T::fifth_index()] +=
-                        c1 * Ratio::from_integer(12) + c2 * Ratio::from_integer(4);
-                    self.actual[T::third_index()] += -c2;
-                }
-                CorrectionBasis::PythagoreanDiesis => {
-                    self.actual[T::octave_index()] += -c1 * Ratio::from_integer(7) + c2;
-                    self.actual[T::fifth_index()] += c1 * Ratio::from_integer(12);
-                    self.actual[T::third_index()] += c2 * Ratio::from_integer(-3);
-                }
-            }
+impl<T: StackType> Correction<T> {
+    /// Use the `system_index` you'll later want to use for other operations. That will save
+    /// computation.
+    pub fn new_zero(system_index: usize) -> Self {
+        Self {
+            _phantom: PhantomData,
+            system_index: Cell::new(system_index),
+            coeffs: RefCell::new(Array1::zeros(T::num_intervals())),
+            tmp_coeffs: RefCell::new(Array1::zeros(T::num_intervals())),
         }
     }
 
-    const DIESIS_SYNTONIC: LazyLock<Array2<Ratio<StackCoeff>>> = LazyLock::new(|| {
-        arr2(&[
-            [1.into(), Ratio::new(7, 12), Ratio::new(1, 3)],
-            [0.into(), Ratio::new(-1, 12), Ratio::new(-1, 3)],
-            [0.into(), Ratio::new(1, 4), 0.into()],
-        ])
-    });
+    pub fn reset_to_zero(&mut self) {
+        self.coeffs
+            .get_mut()
+            .iter_mut()
+            .for_each(|x| *x = Ratio::from_integer(0));
+    }
 
-    const PYTHAGOREAN_SYNTONIC: LazyLock<Array2<Ratio<StackCoeff>>> = LazyLock::new(|| {
-        arr2(&[
-            [1.into(), Ratio::new(7, 12), Ratio::new(1, 3)],
-            [0.into(), Ratio::new(1, 12), Ratio::new(1, 3)],
-            [0.into(), 0.into(), (-1).into()],
-        ])
-    });
+    pub fn is_zero(&self) -> bool {
+        self.coeffs.borrow().iter().all(|x| x.is_zero())
+    }
 
-    const PYTHAGOREAN_DIESIS: LazyLock<Array2<Ratio<StackCoeff>>> = LazyLock::new(|| {
-        arr2(&[
-            [1.into(), Ratio::new(7, 12), Ratio::new(1, 3)],
-            [0.into(), Ratio::new(1, 12), 0.into()],
-            [0.into(), 0.into(), Ratio::new(-1, 3)],
-        ])
-    });
+    /// Use the `system_index` you'll later want to use for other operations. That will save
+    /// computation.
+    pub fn new(stack: &Stack<T>, system_index: usize) -> Self {
+        Self::from_target_and_actual((&stack.target).into(), (&stack.actual).into(), system_index)
+    }
 
-    impl Correction {
-        pub fn is_zero(&self) -> bool {
-            self.comma_coeffs
-                .iter()
-                .all(<Ratio<StackCoeff> as Zero>::is_zero)
+    /// Like [Self::new], only taking the [Stack::target] and [Stack::actual] as separate
+    /// arguments.
+    pub fn from_target_and_actual(
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+        system_index: usize,
+    ) -> Self {
+        let mut tmp_coeffs = actual.to_owned();
+        tmp_coeffs.zip_mut_with(&target, |l, r| {
+            *l -= Ratio::from_integer(*r);
+        });
+
+        let mut coeffs = Array1::zeros(tmp_coeffs.len());
+        T::correction_systems()[system_index].apply_inplace(tmp_coeffs.view(), coeffs.view_mut());
+        Self {
+            _phantom: PhantomData,
+            system_index: Cell::new(system_index),
+            coeffs: RefCell::new(coeffs),
+            tmp_coeffs: RefCell::new(tmp_coeffs),
         }
+    }
 
-        pub fn new_zero() -> Self {
-            Self {
-                comma_coeffs: Array2::zeros((3, 3)),
-                semitones: 0.0,
-            }
-        }
+    pub fn mutate<F: FnMut(&mut Array1<Ratio<StackCoeff>>)>(
+        &mut self,
+        system_index: usize,
+        mut f: F,
+    ) {
+        self.change_to_system_mutating(system_index);
+        f(self.coeffs.get_mut());
+    }
 
-        pub fn reset_to_zero(&mut self) {
-            self.semitones = 0.0;
-            self.comma_coeffs
-                .iter_mut()
-                .for_each(|x| *x = Ratio::from_integer(0));
-        }
+    pub fn system_index(&self) -> usize {
+        self.system_index.get()
+    }
 
-        /// Will give you two references, as described by the basis. These will allow you to change
-        /// the values for that basis -- if you then do something with another basis, you'll get
-        /// inconsistent results.
-        ///
-        /// panics for the [CorrectionBasis::Semitones], because then nothing can be mutated.
-        pub fn mutate<F: FnMut(&mut Ratio<StackCoeff>, &mut Ratio<StackCoeff>)>(
-            &mut self,
-            basis: &CorrectionBasis,
-            mut f: F,
-        ) {
-            let mut column: usize = 0;
-            match basis {
-                CorrectionBasis::Semitones => panic!(),
-                CorrectionBasis::DiesisSyntonic => {}
-                CorrectionBasis::PythagoreanSyntonic => column = 1,
-                CorrectionBasis::PythagoreanDiesis => column = 2,
-            }
-            let (mut row1, mut row2) = self.comma_coeffs.multi_slice_mut((s![1, ..], s![2, ..]));
-            f(&mut row1[column], &mut row2[column]);
-        }
+    /// Will write the simplest form (i.e. using as few non-zero coefficients as possible), but if
+    /// all forms are equally simple, the one specified by `self`s [Self::system_index] is used.
+    pub fn str(&self) -> String {
+        let mut res = String::new();
+        self.fmt(&mut res).unwrap();
+        res
+    }
 
-        pub fn new<T: FiveLimitIntervalBasis>(stack: &Stack<T>) -> Self {
-            Self::from_target_and_actual::<T>((&stack.target).into(), (&stack.actual).into())
-        }
+    pub fn change_to_system(self, system_index: usize) -> Self {
+        self.change_to_system_mutating(system_index);
+        self
+    }
 
-        /// Like [Self::new], only taking the [Stack::target] and [Stack::actual] as separate
-        /// arguments.
-        pub fn from_target_and_actual<T: FiveLimitIntervalBasis>(
-            target: ArrayView1<StackCoeff>,
-            actual: ArrayView1<Ratio<StackCoeff>>,
-        ) -> Self {
-            let offset = arr1(&[
-                actual[T::octave_index()] - target[T::octave_index()],
-                actual[T::fifth_index()] - target[T::fifth_index()],
-                actual[T::third_index()] - target[T::third_index()],
-            ]);
-
-            let mut comma_coeffs = Array2::zeros((3, 3));
-
-            general_mat_vec_mul(
-                1.into(),
-                &DIESIS_SYNTONIC,
-                &offset,
-                0.into(),
-                &mut comma_coeffs.column_mut(0),
+    /// Uses interior mutability to change representation.
+    fn change_to_system_mutating(&self, system_index: usize) {
+        if system_index != self.system_index.get() {
+            T::correction_systems()[self.system_index.get()].apply_inverse_inplace(
+                self.coeffs.borrow().view(),
+                self.tmp_coeffs.borrow_mut().view_mut(),
             );
-
-            general_mat_vec_mul(
-                1.into(),
-                &PYTHAGOREAN_SYNTONIC,
-                &offset,
-                0.into(),
-                &mut comma_coeffs.column_mut(1),
+            T::correction_systems()[system_index].apply_inplace(
+                self.tmp_coeffs.borrow().view(),
+                self.coeffs.borrow_mut().view_mut(),
             );
-
-            general_mat_vec_mul(
-                1.into(),
-                &PYTHAGOREAN_DIESIS,
-                &offset,
-                0.into(),
-                &mut comma_coeffs.column_mut(2),
-            );
-
-            Self {
-                comma_coeffs,
-                semitones: semitones_from_actual::<T>(actual) - semitones_from_target::<T>(target),
-            }
+            self.system_index.set(system_index);
         }
     }
 
-    impl Correction {
-        pub fn str(&self, basis: &CorrectionBasis) -> String {
-            let mut res = String::new();
-            // the [Write] implementation of [String] never throws any error, so this is fine:
-            self.fmt(&mut res, basis).unwrap();
-            res
+    /// Uses interior mutability to change to the simplest representation. helper for [Self::fmt]
+    fn simplest(&self) {
+        let mut smallest_count = usize::MAX;
+        let mut simplest_index = self.system_index.get();
+        for _ in 0..T::n_correction_systems() {
+            let count = self.coeffs.borrow().iter().filter(|c| !c.is_zero()).count();
+            if count <= 1 {
+                return;
+            }
+            if count < smallest_count {
+                smallest_count = count;
+                simplest_index = self.system_index.get();
+            }
+            self.change_to_system_mutating(
+                (self.system_index.get() + 1) % T::n_correction_systems(),
+            );
         }
+        self.change_to_system_mutating(simplest_index);
+    }
 
-        pub fn fmt<W: fmt::Write>(&self, f: &mut W, basis: &CorrectionBasis) -> fmt::Result {
-            let write_fraction = |f: &mut W, x: &Ratio<StackCoeff>, suffix: &str| {
-                if x.is_zero() {
-                    return Ok(());
-                }
-                if *x > Ratio::from_integer(0) {
-                    write!(f, "+{x}{suffix}")?;
-                } else {
-                    write!(f, "-{}{suffix}", -x)?;
-                }
-                Ok(())
-            };
-            let write_semitones = |f: &mut W| {
-                if self.semitones == 0.0 {
-                    return Ok(());
-                }
-                if self.semitones > 0.0 {
-                    write!(f, "+")?;
-                }
-                write!(f, "{:.02}ct", self.semitones * 100.0)
-            };
+    pub fn fmt<W: fmt::Write>(&self, f: &mut W) -> fmt::Result {
+        self.simplest();
 
-            if *basis == CorrectionBasis::Semitones {
-                write_semitones(f)
-            } else if self.comma_coeffs[(0, 0)].is_zero()
-                & (self.comma_coeffs[(1, 0)].is_zero() | self.comma_coeffs[(2, 0)].is_zero())
-            {
-                write_fraction(f, &self.comma_coeffs[(1, 0)], "d")?;
-                write_fraction(f, &self.comma_coeffs[(2, 0)], "s")
-            } else if self.comma_coeffs[(0, 1)].is_zero()
-                & (self.comma_coeffs[(1, 1)].is_zero() | self.comma_coeffs[(2, 1)].is_zero())
-            {
-                write_fraction(f, &self.comma_coeffs[(1, 1)], "p")?;
-                write_fraction(f, &self.comma_coeffs[(2, 1)], "s")
-            } else if self.comma_coeffs[(0, 2)].is_zero()
-                & (self.comma_coeffs[(1, 2)].is_zero() | self.comma_coeffs[(2, 2)].is_zero())
-            {
-                write_fraction(f, &self.comma_coeffs[(1, 2)], "p")?;
-                write_fraction(f, &self.comma_coeffs[(2, 2)], "d")
+        for (i, x) in self.coeffs.borrow().iter().enumerate() {
+            let suffix = T::correction_systems()[self.system_index.get()].short_basis_names[i];
+            if x.is_zero() {
+                continue;
+            }
+            if *x > Ratio::from_integer(0) {
+                write!(f, "+{x}{suffix}")?;
             } else {
-                match basis {
-                    CorrectionBasis::DiesisSyntonic => {
-                        if self.comma_coeffs[(0, 0)].is_zero() {
-                            write_fraction(f, &self.comma_coeffs[(1, 0)], "d")?;
-                            write_fraction(f, &self.comma_coeffs[(2, 0)], "s")
-                        } else {
-                            write_semitones(f)
-                        }
-                    }
-                    CorrectionBasis::PythagoreanSyntonic => {
-                        if self.comma_coeffs[(0, 1)].is_zero() {
-                            write_fraction(f, &self.comma_coeffs[(1, 1)], "p")?;
-                            write_fraction(f, &self.comma_coeffs[(2, 1)], "s")
-                        } else {
-                            write_semitones(f)
-                        }
-                    }
-                    CorrectionBasis::PythagoreanDiesis => {
-                        if self.comma_coeffs[(0, 2)].is_zero() {
-                            write_fraction(f, &self.comma_coeffs[(1, 2)], "p")?;
-                            write_fraction(f, &self.comma_coeffs[(2, 2)], "d")
-                        } else {
-                            write_semitones(f)
-                        }
-                    }
-                    CorrectionBasis::Semitones => unreachable!(),
-                }
+                write!(f, "-{}{suffix}", -x)?;
             }
         }
+
+        Ok(())
     }
+}
 
-    #[cfg(test)]
-    mod test {
-        use super::*;
-        use crate::interval::stacktype::fivelimit::mock::MockFiveLimitStackType;
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::interval::stacktype::fivelimit::mock::MockFiveLimitStackType;
+    use crate::interval::stacktype::fivelimit::*;
+    use ndarray::arr1;
 
-        #[test]
-        fn test_correction() {
-            assert_eq!(
-                Correction::new(&Stack::<MockFiveLimitStackType>::new_zero())
-                    .str(&CorrectionBasis::PythagoreanDiesis),
-                ""
-            );
+    #[test]
+    fn test_correction() {
+        assert_eq!(
+            Correction::<MockFiveLimitStackType>::new(&Stack::new_zero(), PYTHAGOREAN_DIESIS).str(),
+            ""
+        );
 
-            assert_eq!(
-                Correction::new(&Stack::<MockFiveLimitStackType>::from_target(vec![
-                    123, 234, 345
-                ]))
-                .str(&CorrectionBasis::PythagoreanDiesis),
-                ""
-            );
+        assert_eq!(
+            Correction::<MockFiveLimitStackType>::new(
+                &Stack::from_target(vec![123, 234, 345]),
+                PYTHAGOREAN_DIESIS
+            )
+            .str(),
+            ""
+        );
 
-            assert_eq!(
-                Correction::new(
-                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
-                        &[true, false],
-                        vec![0, 0, 3]
-                    )
-                )
-                .str(&CorrectionBasis::PythagoreanDiesis),
-                "+1d"
-            );
+        assert_eq!(
+            Correction::<MockFiveLimitStackType>::new(
+                &Stack::from_temperaments_and_target(&[true, false], vec![0, 0, 3]),
+                PYTHAGOREAN_DIESIS
+            )
+            .str(),
+            "+1d"
+        );
 
-            assert_eq!(
-                Correction::new(
-                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
-                        &[true, false],
-                        vec![0, 1, 1]
-                    )
-                )
-                .str(&CorrectionBasis::PythagoreanDiesis),
-                "-1/12p+1/3d"
-            );
+        assert_eq!(
+            Correction::<MockFiveLimitStackType>::new(
+                &Stack::from_temperaments_and_target(&[true, false], vec![0, 1, 1]),
+                PYTHAGOREAN_DIESIS
+            )
+            .str(),
+            "-1/12p+1/3d"
+        );
 
-            assert_eq!(
-                Correction::new(
-                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
-                        &[false, true],
-                        vec![0, 1, 0]
-                    )
-                )
-                .str(&CorrectionBasis::PythagoreanDiesis),
-                // this can be written more simply, so the basis argument to [Correction::str] is ignored.
-                "-1/4s"
-            );
+        assert_eq!(
+            Correction::<MockFiveLimitStackType>::new(
+                &Stack::from_temperaments_and_target(&[false, true], vec![0, 1, 0]),
+                PYTHAGOREAN_DIESIS
+            )
+            .str(),
+            // this can be written more simply, so the basis argument to [Correction::str] is ignored.
+            "-1/4s"
+        );
 
-            assert_eq!(
-                Correction::new(
-                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
-                        &[false, true],
-                        vec![0, 1, 0]
-                    )
-                )
-                .str(&CorrectionBasis::PythagoreanSyntonic),
-                "-1/4s"
-            );
+        assert_eq!(
+            Correction::<MockFiveLimitStackType>::new(
+                &Stack::from_temperaments_and_target(&[false, true], vec![0, 1, 0]),
+                PYTHAGOREAN_DIESIS
+            )
+            .str(),
+            "-1/4s"
+        );
 
-            assert_eq!(
-                Correction::new(
-                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
-                        &[true, true],
-                        vec![0, 1, 0]
-                    )
-                )
-                .str(&CorrectionBasis::PythagoreanSyntonic),
-                "-1/12p-1/4s"
-            );
+        assert_eq!(
+            Correction::<MockFiveLimitStackType>::new(
+                &Stack::from_temperaments_and_target(&[true, true], vec![0, 1, 0]),
+                PYTHAGOREAN_SYNTONIC
+            )
+            .str(),
+            "-1/12p-1/4s"
+        );
 
-            assert_eq!(
-                Correction::new(
-                    &Stack::<MockFiveLimitStackType>::from_temperaments_and_target(
-                        &[true, true],
-                        vec![0, 1, 2]
-                    )
-                )
-                .str(&CorrectionBasis::DiesisSyntonic),
-                // the fifth is corrected by one qurter syntonic comma plus a twelfth pythagorean comma down
-                // the thirds are each corrected by one third of a diesis up
-                //
-                // together, that makes
-                //
-                // -1/4 s - 1/12 p + 2/3 d = 3/4 d - 1/2 s
-                "+3/4d-1/2s"
-            );
+        assert_eq!(
+            Correction::<MockFiveLimitStackType>::new(
+                &Stack::from_temperaments_and_target(&[true, true], vec![0, 1, 2]),
+                PYTHAGOREAN_DIESIS
+            )
+            .change_to_system(DIESIS_SYNTONIC)
+            .str(),
+            // the fifth is corrected by one quarter syntonic comma plus a twelfth pythagorean comma down
+            // the thirds are each corrected by one third of a diesis up
+            //
+            // together, that makes
+            //
+            // -1/4 s - 1/12 p + 2/3 d = 3/4 d - 1/2 s
+            "+3/4d-1/2s"
+        );
 
-            assert_eq!(
-                Correction::new(&Stack::<MockFiveLimitStackType>::from_target_and_actual(
+        assert_eq!(
+            Correction::<MockFiveLimitStackType>::new(
+                &Stack::from_target_and_actual(
                     arr1(&[0, 0, 0]),
                     arr1(&[Ratio::new(1, 120), 0.into(), 0.into()])
-                ))
-                .str(&CorrectionBasis::PythagoreanSyntonic),
-                "+10.00ct"
-            );
-        }
+                ),
+                PYTHAGOREAN_DIESIS
+            )
+            .str(),
+            "+1/120o"
+        );
     }
 }

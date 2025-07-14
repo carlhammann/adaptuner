@@ -13,4 +13,6 @@
 - multi-touch keyboard
 - sustain switch
 - nicer selection of correction basis: perference order: perference order
+- close button on extra windows
+- hande DetunedNote messages
 

@@ -4,30 +4,17 @@ use num_rational::Ratio;
 use crate::{
     interval::{
         stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
+        stacktype::r#trait::{StackCoeff, StackType},
     },
-    notename::correction::fivelimit::{Correction, CorrectionBasis},
+    notename::correction::Correction,
 };
 
-pub fn correction_basis_chooser(ui: &mut egui::Ui, basis: &mut CorrectionBasis) {
+pub fn correction_system_chooser<T: StackType>(ui: &mut egui::Ui, system_index: &mut usize) {
     ui.vertical(|ui| {
-        ui.label("show deviations as:");
-        ui.selectable_value(basis, CorrectionBasis::Semitones, "cent values");
-        ui.selectable_value(
-            basis,
-            CorrectionBasis::DiesisSyntonic,
-            "diesis and syntonic comma",
-        );
-        ui.selectable_value(
-            basis,
-            CorrectionBasis::PythagoreanDiesis,
-            "diesis and pythagorean comma",
-        );
-        ui.selectable_value(
-            basis,
-            CorrectionBasis::PythagoreanSyntonic,
-            "syntonic and pyhtagorean commas",
-        );
+        ui.label("write temperaments in terms of");
+        for (i, system) in T::correction_systems().iter().enumerate() {
+            ui.selectable_value(system_index, i, &system.name);
+        }
     });
 }
 
@@ -76,11 +63,11 @@ pub fn rational_drag_value(ui: &mut egui::Ui, id: egui::Id, value: &mut Ratio<St
     false
 }
 
-pub fn note_picker<T: FiveLimitStackType>(
+pub fn note_picker<T: StackType>(
     ui: &mut egui::Ui,
     tmp_temperaments: &mut [bool],
-    tmp_correction: &mut Correction,
-    correction_basis: &CorrectionBasis,
+    tmp_correction: &mut Correction<T>,
+    correction_system_index: usize,
     stack: &mut Stack<T>,
 ) {
     ui.vertical(|ui| {
@@ -106,17 +93,17 @@ pub fn note_picker<T: FiveLimitStackType>(
             ui,
             tmp_temperaments,
             tmp_correction,
-            correction_basis,
+            correction_system_index,
             stack,
         );
     });
 }
 
-pub fn temperament_applier<T: FiveLimitStackType>(
+pub fn temperament_applier<T: StackType>(
     ui: &mut egui::Ui,
     tmp_temperaments: &mut [bool],
-    tmp_correction: &mut Correction,
-    correction_basis: &CorrectionBasis,
+    tmp_correction: &mut Correction<T>,
+    correction_system_index: usize,
     stack: &mut Stack<T>,
 ) {
     ui.horizontal(|ui| {
@@ -124,52 +111,30 @@ pub fn temperament_applier<T: FiveLimitStackType>(
             for (i, t) in T::temperaments().iter().enumerate() {
                 if ui.checkbox(&mut tmp_temperaments[i], &t.name).clicked() {
                     stack.retemper(tmp_temperaments);
-                    *tmp_correction = Correction::new(stack);
+                    *tmp_correction = Correction::new(stack, correction_system_index);
                 }
             }
         });
 
-        let mut draw_corrections = true;
-        let mut column = 0;
-        match correction_basis {
-            CorrectionBasis::Semitones => draw_corrections = false,
-            CorrectionBasis::DiesisSyntonic => {}
-            CorrectionBasis::PythagoreanSyntonic => column = 1,
-            CorrectionBasis::PythagoreanDiesis => column = 2,
-        }
-        if draw_corrections {
-            let mut changed = false;
-            tmp_correction.mutate(correction_basis, |c1, c2| {
-                ui.separator();
-                ui.vertical(|ui| {
+        let mut correction_changed = false;
+        tmp_correction.mutate(correction_system_index, |coeffs| {
+            ui.separator();
+            ui.vertical(|ui| {
+                for (i, x) in coeffs.indexed_iter_mut() {
                     ui.horizontal(|ui| {
-                        if rational_drag_value(ui, ui.id().with("c1"), c1) {
-                            // if rational_number(ui, c1) {
-                            changed = true;
+                        let name = &T::correction_systems()[correction_system_index].basis_names[i];
+                        if rational_drag_value(ui, ui.id().with(name), x) {
+                            correction_changed = true;
                         }
-                        ui.label(if column == 0 {
-                            "diesis"
-                        } else {
-                            "pythagorean comma"
-                        });
+                        ui.label(name);
                     });
-                    ui.horizontal(|ui| {
-                        if rational_drag_value(ui, ui.id().with("c2"), c2) {
-                            // if rational_number(ui, c2) {
-                            changed = true;
-                        }
-                        ui.label(if column == 2 {
-                            "diesis"
-                        } else {
-                            "syntonic comma"
-                        });
-                    });
-                });
+                }
             });
-            if changed {
-                tmp_temperaments.iter_mut().for_each(|b| *b = false);
-                stack.apply_correction(tmp_correction, correction_basis);
-            }
+        });
+
+        if correction_changed {
+            tmp_temperaments.iter_mut().for_each(|b| *b = false);
+            stack.apply_correction(tmp_correction);
         }
     });
 }

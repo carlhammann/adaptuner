@@ -4,6 +4,7 @@ use std::{
     sync::{LazyLock, OnceLock},
 };
 
+use ndarray::{arr1, arr2};
 use serde::{Deserialize, Serialize};
 
 use crate::interval::{
@@ -15,7 +16,9 @@ use crate::interval::{
     temperament::{Temperament, TemperamentDefinition, TemperamentErr},
 };
 
-use super::r#trait::{FiveLimitStackType, OctavePeriodicStackType, PeriodicStackType};
+use super::r#trait::{
+    CoordinateSystem, FiveLimitStackType, OctavePeriodicStackType, PeriodicStackType,
+};
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TheFiveLimitStackType {}
@@ -47,6 +50,57 @@ static INTERVAL_POSITIONS: LazyLock<HashMap<String, usize>> = LazyLock::new(|| {
     m.insert("third".into(), 2);
     m
 });
+
+static COMMA_SYSTEMS: LazyLock<[CoordinateSystem; 3]> =
+    LazyLock::new(|| {
+        [
+            CoordinateSystem::new(
+                "octave, diesis, syntonic comma".into(),
+                arr1(&["octaves".into(), "dieses".into(), "syntonic commas".into()]),
+                arr1(&['o', 'd', 's']),
+                arr2(&[
+                    [1.into(), 1.into(), (-2).into()],
+                    [0.into(), 0.into(), 4.into()],
+                    [0.into(), (-3).into(), (-1).into()],
+                ]),
+            )
+            .unwrap(),
+            CoordinateSystem::new(
+                "octave, pythagorean comma, syntonic comma".into(),
+                arr1(&[
+                    "octaves".into(),
+                    "pythagorean commas".into(),
+                    "syntonic commas".into(),
+                ]),
+                arr1(&['o', 'p', 's']),
+                arr2(&[
+                    [1.into(), (-7).into(), (-2).into()],
+                    [0.into(), 12.into(), 4.into()],
+                    [0.into(), 0.into(), (-1).into()],
+                ]),
+            )
+            .unwrap(),
+            CoordinateSystem::new(
+                "octave, pythagorean comma, diesis".into(),
+                arr1(&[
+                    "octaves".into(),
+                    "pythagorean commas".into(),
+                    "dieses".into(),
+                ]),
+                arr1(&['o', 'p', 'd']),
+                arr2(&[
+                    [1.into(), (-7).into(), 1.into()],
+                    [0.into(), 12.into(), 0.into()],
+                    [0.into(), 0.into(), (-3).into()],
+                ]),
+            )
+            .unwrap(),
+        ]
+    });
+
+pub static DIESIS_SYNTONIC: usize = 0;
+pub static PYTHAGOREAN_SYNTONIC: usize = 1;
+pub static PYTHAGOREAN_DIESIS: usize = 2;
 
 static TEMPERAMENTS: OnceLock<Vec<Temperament<StackCoeff>>> = OnceLock::new();
 
@@ -102,6 +156,10 @@ impl IntervalBasis for TheFiveLimitStackType {
 impl StackType for TheFiveLimitStackType {
     fn temperaments() -> &'static [Temperament<StackCoeff>] {
         TEMPERAMENTS.get().expect("temperaments not initialised")
+    }
+
+    fn correction_systems() -> &'static [CoordinateSystem] {
+        &*COMMA_SYSTEMS
     }
 }
 
@@ -189,6 +247,10 @@ pub mod mock {
     impl StackType for MockFiveLimitStackType {
         fn temperaments() -> &'static [Temperament<StackCoeff>] {
             &*MOCK_TEMPERAMENTS
+        }
+
+        fn correction_systems() -> &'static [CoordinateSystem] {
+            &*COMMA_SYSTEMS
         }
     }
 

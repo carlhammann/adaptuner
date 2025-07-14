@@ -13,14 +13,11 @@ use crate::{
     keystate::KeyState,
     msg::{FromUi, HandleMsgRef, ToUi},
     neighbourhood::{Neighbourhood, PartialNeighbourhood},
-    notename::{
-        correction::fivelimit::{Correction, CorrectionBasis},
-        johnston::fivelimit::NoteName,
-    },
+    notename::{correction::Correction, johnston::fivelimit::NoteName},
     reference::Reference,
 };
 
-use super::{common::correction_basis_chooser, r#trait::GuiShow};
+use super::{common::correction_system_chooser, r#trait::GuiShow};
 
 // The following measurements are all in units of [LatticeWindow::zoom]
 
@@ -68,7 +65,7 @@ pub struct LatticeWindow<T: StackType> {
 
     stacks_to_draw: HashMap<Array1<StackCoeff>, (Array1<Ratio<StackCoeff>>, DrawStyle)>,
 
-    correction_basis: CorrectionBasis,
+    correction_system_index: usize,
     tmp_temperaments: Vec<bool>,
 
     show_controls: bool,
@@ -151,7 +148,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             interval_heights: config.interval_heights,
             background_stack_distances: config.background_stack_distances,
             stacks_to_draw: HashMap::new(),
-            correction_basis: CorrectionBasis::DiesisSyntonic,
+            correction_system_index: 0,
             tmp_temperaments: vec![false; T::num_temperaments()],
             show_controls: false,
         }
@@ -382,10 +379,14 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
                 },
             );
 
-            let correction = Correction::from_target_and_actual::<T>(target.into(), actual.into());
+            let correction = Correction::<T>::from_target_and_actual(
+                target.into(),
+                actual.into(),
+                self.correction_system_index,
+            );
 
             if !correction.is_zero() {
-                let correction_label = correction.str(&self.correction_basis);
+                let correction_label = correction.str();
                 ui.painter().with_clip_rect(rect).text(
                     pos2(
                         hpos,
@@ -809,7 +810,7 @@ impl<T: FiveLimitStackType + Hash + Eq> GuiShow<T> for LatticeWindow<T> {
             self.show_controls,
             |ui| {
                 ui.horizontal(|ui| {
-                    correction_basis_chooser(ui, &mut self.correction_basis);
+                    correction_system_chooser::<T>(ui, &mut self.correction_system_index);
 
                     ui.separator();
 

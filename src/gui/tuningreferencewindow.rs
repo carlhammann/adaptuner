@@ -8,22 +8,22 @@ use crate::{
         stacktype::r#trait::{FiveLimitStackType, IntervalBasis, StackType},
     },
     msg::{FromUi, HandleMsgRef, ToUi},
-    notename::{correction::fivelimit::CorrectionBasis, NoteNameStyle},
+    notename::NoteNameStyle,
     reference::{frequency_from_semitones, semitones_from_frequency, Reference},
 };
 
-use super::{common::correction_basis_chooser, r#trait::GuiShow};
+use super::{common::correction_system_chooser, r#trait::GuiShow};
 
 pub struct TuningReferenceWindow<T: IntervalBasis> {
     reference: Option<Reference<T>>,
     new_reference: Reference<T>,
     notenamestyle: NoteNameStyle,
-    correction_basis: CorrectionBasis,
+    correction_system_index: usize,
 }
 
 pub struct TuningReferenceWindowConfig {
     pub notenamestyle: NoteNameStyle,
-    pub correction_basis: CorrectionBasis,
+    pub correction_system_index: usize,
 }
 
 impl<T: StackType> TuningReferenceWindow<T> {
@@ -35,7 +35,7 @@ impl<T: StackType> TuningReferenceWindow<T> {
                 semitones: 60.0,
             },
             notenamestyle: config.notenamestyle,
-            correction_basis: config.correction_basis,
+            correction_system_index: config.correction_system_index,
         }
     }
 }
@@ -47,7 +47,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> 
                 "Current tuning reference is {} at {:.02} Hz (MIDI note {:.02}).",
                 reference
                     .stack
-                    .corrected_name(&self.notenamestyle, &self.correction_basis),
+                    .corrected_name(&self.notenamestyle, self.correction_system_index),
                 reference.get_frequency(),
                 reference.semitones
             ));
@@ -70,7 +70,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> 
                 "New reference is {} at",
                 self.new_reference
                     .stack
-                    .corrected_name(&self.notenamestyle, &self.correction_basis)
+                    .corrected_name(&self.notenamestyle, self.correction_system_index)
             ));
 
             let mut new_freq = frequency_from_semitones(self.new_reference.semitones);
@@ -104,7 +104,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> 
 
         ui.separator();
 
-        correction_basis_chooser(ui, &mut self.correction_basis);
+        correction_system_chooser::<T>(ui, &mut self.correction_system_index);
     }
 }
 

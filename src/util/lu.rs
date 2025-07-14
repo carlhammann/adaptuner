@@ -2,7 +2,7 @@
 
 use std::ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign};
 
-use ndarray::{s, ArrayViewMut1, ArrayViewMut2, Zip};
+use ndarray::{s, Array2, ArrayViewMut1, ArrayViewMut2, Zip};
 use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::{One, Signed, Zero};
@@ -143,6 +143,20 @@ where
 }
 
 impl<'a, T> LU<'a, T> {
+    pub fn inverse(&self) -> Result<Array2<T>, LUErr>
+    where
+        T: Clone
+            + for<'x> SubAssign<&'x T>
+            + for<'x> MulAssign<&'x T>
+            + for<'x> DivAssign<&'x T>
+            + Zero
+            + One,
+    {
+        let mut inv = Array2::zeros(self.a.raw_dim());
+        self.inverse_inplace(&mut inv.view_mut())?;
+        Ok(inv)
+    }
+
     /// invariants: `inv` is at least as big as the original matrix. (Only the top left will be
     /// overwritten with the inverse if it is bigger.)
     pub fn inverse_inplace(&self, inv: &mut ArrayViewMut2<T>) -> Result<(), LUErr>
