@@ -415,10 +415,7 @@ pub struct LatticeWindow<T: StackType> {
 
     reference: Option<Stack<T>>,
     tuning_reference: Option<Reference<T>>,
-
     considered_notes: PartialNeighbourhood<T>,
-    curr_neighbourhood_name_and_index: Option<(String, usize)>,
-    new_neighbourhood_name: String,
 
     draw_state: LatticeDrawState<T>,
 
@@ -486,8 +483,6 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             reference: None {},
 
             considered_notes: PartialNeighbourhood::new("lattice window neighbourhood".into()),
-            curr_neighbourhood_name_and_index: None {},
-            new_neighbourhood_name: String::with_capacity(64),
 
             draw_state: LatticeDrawState {
                 stacks_to_draw: HashMap::new(),
@@ -848,16 +843,6 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindow<T> {
 
             ToUi::Consider { stack } => {
                 let _ = self.considered_notes.insert(stack);
-            }
-            ToUi::CurrentNeighbourhoodName { index, name } => {
-                if let Some((old_name, old_index)) = &mut self.curr_neighbourhood_name_and_index {
-                    if index != old_index {
-                        *old_index = *index;
-                        old_name.clone_from(name);
-                    }
-                } else {
-                    self.curr_neighbourhood_name_and_index = Some((name.clone(), *index));
-                }
             }
             ToUi::SetReference { stack } => self.reference = Some(stack.clone()),
             ToUi::SetTuningReference { reference } => {

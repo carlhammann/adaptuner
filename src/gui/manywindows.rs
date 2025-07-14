@@ -16,13 +16,16 @@ use super::{
     notewindow::NoteWindow,
     r#trait::GuiShow,
     referencewindow::{ReferenceWindow, ReferenceWindowConfig},
+    staticcontrolwindow::StaticControlWindow,
     tuningreferencewindow::{TuningReferenceWindow, TuningReferenceWindowConfig},
 };
 
 pub struct ManyWindows<T: StackType> {
     latticewindow: LatticeWindow<T>,
-    show_lattice_window_controls: bool,
     lattice_window_controls: Rc<RefCell<LatticeWindowControls>>,
+
+    show_control_panel: bool,
+    static_control_window: StaticControlWindow<T>,
 
     input_connection_window: ConnectionWindow<Input>,
     output_connection_window: ConnectionWindow<Output>,
@@ -60,7 +63,8 @@ impl<T: FiveLimitStackType + Hash + Eq> ManyWindows<T> {
         Self {
             latticewindow: LatticeWindow::new(lattice_window_controls.clone()),
             lattice_window_controls,
-            show_lattice_window_controls: false,
+            show_control_panel: false,
+            static_control_window: StaticControlWindow::new(),
             input_connection_window: ConnectionWindow::new(),
             output_connection_window: ConnectionWindow::new(),
             show_connection_window: false,
@@ -82,6 +86,7 @@ impl<T: FiveLimitStackType + Hash + Eq> ManyWindows<T> {
 impl<T: FiveLimitStackType> HandleMsg<ToUi<T>, FromUi<T>> for ManyWindows<T> {
     fn handle_msg(&mut self, msg: ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         self.latticewindow.handle_msg_ref(&msg, forward);
+        self.static_control_window.handle_msg_ref(&msg, forward);
         self.note_window.handle_msg_ref(&msg, forward);
         self.input_connection_window.handle_msg_ref(&msg, forward);
         self.output_connection_window.handle_msg_ref(&msg, forward);
@@ -99,7 +104,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
 
                 ui.separator();
 
-                ui.toggle_value(&mut self.show_lattice_window_controls, "controls");
+                ui.toggle_value(&mut self.show_control_panel, "controls");
                 ui.toggle_value(&mut self.show_connection_window, "midi connections");
                 ui.toggle_value(&mut self.show_tuning_reference_window, "global tuning");
                 ui.toggle_value(&mut self.show_reference_window, "reference");
@@ -112,9 +117,13 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
             });
         });
 
-        if self.show_lattice_window_controls {
-            egui::TopBottomPanel::bottom("lattice control panel").show(ctx, |ui| {
-                lattice_control_window::<T>(ui, &self.lattice_window_controls);
+        if self.show_control_panel {
+            egui::TopBottomPanel::bottom("control panel").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    lattice_control_window::<T>(ui, &self.lattice_window_controls);
+                    ui.separator();
+                    self.static_control_window.show(ctx, ui, &self.tx);
+                });
             });
         }
 
