@@ -26,7 +26,7 @@ impl<T: IntervalBasis> StaticControlWindow<T> {
 }
 
 impl<T: StackType> GuiShow<T> for StaticControlWindow<T> {
-    fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         if let Some((curr_neighbourhood_name, curr_neighbourhood_index)) =
             &self.curr_neighbourhood_name_and_index
         {

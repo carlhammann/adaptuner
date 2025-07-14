@@ -40,7 +40,6 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatencyWindow {
 impl<T: StackType> GuiShow<T> for LatencyWindow {
     fn show(
         &mut self,
-        _ctx: &egui::Context,
         ui: &mut egui::Ui,
         _forward: &mpsc::Sender<FromUi<T>>,
     ) {

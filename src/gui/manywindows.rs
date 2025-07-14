@@ -106,7 +106,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                self.latencywindow.show(ctx, ui, &self.tx);
+                self.latencywindow.show(ui, &self.tx);
 
                 ui.separator();
 
@@ -128,17 +128,17 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
                 ui.horizontal(|ui| {
                     lattice_control_window::<T>(ui, &self.lattice_window_controls);
                     ui.separator();
-                    self.static_control_window.show(ctx, ui, &self.tx);
+                    self.static_control_window.show(ui, &self.tx);
                 });
             });
         }
 
         egui::TopBottomPanel::bottom("small lattice control panel").show(ctx, |ui| {
-            self.lattice_window_small_controls.show(ctx, ui, &self.tx);
+            self.lattice_window_small_controls.show(ui, &self.tx);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.latticewindow.show(ctx, ui, &self.tx);
+            self.latticewindow.show(ui, &self.tx);
         });
 
         if self.show_connection_window {
@@ -146,8 +146,8 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
                 .collapsible(false)
                 .show(ctx, |ui| {
                     ui.vertical(|ui| {
-                        self.input_connection_window.show(ctx, ui, &self.tx);
-                        self.output_connection_window.show(ctx, ui, &self.tx);
+                        self.input_connection_window.show(ui, &self.tx);
+                        self.output_connection_window.show(ui, &self.tx);
 
                         ui.separator();
 
@@ -174,7 +174,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
                         ui.separator();
 
                         ui.vertical_centered(|ui| ui.label("output settings"));
-                        self.backend_window.show(ctx, ui, &self.tx);
+                        self.backend_window.show(ui, &self.tx);
                     });
                 });
         }
@@ -183,7 +183,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
             egui::containers::Window::new("global tuning")
                 .collapsible(false)
                 .show(ctx, |ui| {
-                    self.tuning_reference_window.show(ctx, ui, &self.tx);
+                    self.tuning_reference_window.show(ui, &self.tx);
                 });
         }
 
@@ -191,7 +191,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
             egui::containers::Window::new("reference")
                 .collapsible(false)
                 .show(ctx, |ui| {
-                    self.reference_window.show(ctx, ui, &self.tx);
+                    self.reference_window.show(ui, &self.tx);
                 });
         }
 
@@ -200,7 +200,7 @@ impl<T: FiveLimitStackType + Hash + Eq> eframe::App for ManyWindows<T> {
                 .collapsible(false)
                 .title_bar(false)
                 .show(ctx, |ui| {
-                    self.note_window.show(ctx, ui, &self.tx);
+                    self.note_window.show(ui, &self.tx);
                 });
         }
     }

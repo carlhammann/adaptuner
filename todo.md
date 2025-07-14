@@ -1,6 +1,5 @@
 # General
 
-- why the "Context" arugment on GuiShow?
 - forbid looping MIDI connections
 - handle the other two pedals correctly
   - treat ChannelVoice Messages in the backend, tweak PedalHold...?

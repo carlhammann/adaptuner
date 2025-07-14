@@ -39,7 +39,7 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for BackendWindow {
 }
 
 impl<T: StackType> GuiShow<T> for BackendWindow {
-    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.label("pitch bend range:");

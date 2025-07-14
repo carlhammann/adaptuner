@@ -50,7 +50,7 @@ impl<T: StackType> TuningReferenceWindow<T> {
 }
 
 impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> {
-    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         if let Some(reference) = &self.reference {
             ui.label(format!(
                 "Current tuning reference is {} at {:.02} Hz (MIDI note {:.02}).",

@@ -128,7 +128,7 @@ where
     X: IO,
     <X as IO>::Port: PartialEq + Clone,
 {
-    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         match self {
             ConnectionWindow::Connected { portname } => {
                 if disconnector::<X>(&portname, ui) {

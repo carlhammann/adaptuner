@@ -776,7 +776,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
 }
 
 impl<T: FiveLimitStackType + Hash + Eq> GuiShow<T> for LatticeWindow<T> {
-    fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
         egui::ScrollArea::both()
             .stick_to_bottom(true)

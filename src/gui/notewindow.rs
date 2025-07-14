@@ -739,7 +739,7 @@ impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
 }
 
 impl<T: FiveLimitStackType> GuiShow<T> for NoteWindow<T> {
-    fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
+    fn show(&mut self,  ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
         egui::TopBottomPanel::bottom("note window bottom panel").show_inside(ui, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
@@ -755,7 +755,7 @@ impl<T: FiveLimitStackType> GuiShow<T> for NoteWindow<T> {
                     )
                     .drag_stopped()
                 {
-                    self.note_renderer.reload_svg_noteshapes(ctx);
+                    self.note_renderer.reload_svg_noteshapes(ui.ctx());
                 }
             });
         });
