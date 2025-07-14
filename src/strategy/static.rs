@@ -158,14 +158,9 @@ impl<T: StackType + std::fmt::Debug> Strategy<T> for StaticTuning<T> {
     ) -> bool {
         match msg {
             ToStrategy::Consider {
-                coefficients,
-                temperaments,
+                stack: considered_stack,
                 time,
             } => {
-                let considered_stack = match temperaments {
-                    None {} => &Stack::from_target(coefficients),
-                    Some(v) => &Stack::from_temperaments_and_target(&v, coefficients),
-                };
                 let inserted_stack = self.neighbourhoods[self.curr_neighbourhood_index]
                     .insert(&considered_stack)
                     .clone();

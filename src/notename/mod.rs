@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::interval::{stack::Stack, stacktype::r#trait::{FiveLimitIntervalBasis, FiveLimitStackType}};
+use crate::interval::{stack::Stack, stacktype::r#trait::FiveLimitStackType};
 
 pub mod correction;
 pub mod johnston;
@@ -26,7 +26,7 @@ impl<T: FiveLimitStackType> Stack<T> {
     pub fn notename(&self, style: &NoteNameStyle) -> String {
         let mut res = String::new();
         // the [Write] implementation of [String] never throws any error, so this is fine:
-        self.write_actual_notename(&mut res, style).unwrap();
+        self.write_notename(&mut res, style).unwrap();
         res
     }
 
@@ -52,7 +52,7 @@ impl<T: FiveLimitStackType> Stack<T> {
         res
     }
 
-    pub fn write_corrected_name<W: fmt::Write>(
+    pub fn write_corrected_notename<W: fmt::Write>(
         &self,
         f: &mut W,
         style: &NoteNameStyle,
@@ -70,10 +70,10 @@ impl<T: FiveLimitStackType> Stack<T> {
         Ok(())
     }
 
-    pub fn corrected_name(&self, style: &NoteNameStyle, system_index: usize) -> String {
+    pub fn corrected_notename(&self, style: &NoteNameStyle, system_index: usize) -> String {
         let mut res = String::new();
         // the [Write] implementation of [String] never throws any error, so this is fine:
-        self.write_corrected_name(&mut res, style, system_index)
+        self.write_corrected_notename(&mut res, style, system_index)
             .unwrap();
         res
     }

@@ -13,11 +13,14 @@ use crate::{
     keystate::KeyState,
     msg::{FromUi, HandleMsgRef, ToUi},
     neighbourhood::{Neighbourhood, PartialNeighbourhood},
-    notename::{correction::Correction, johnston::fivelimit::NoteName},
+    notename::{correction::Correction, NoteNameStyle},
     reference::Reference,
 };
 
-use super::{common::correction_system_chooser, r#trait::GuiShow};
+use super::{
+    common::{correction_system_chooser, temperament_applier},
+    r#trait::GuiShow,
+};
 
 // The following measurements are all in units of [LatticeWindow::zoom]
 
@@ -52,6 +55,8 @@ pub struct LatticeWindow<T: StackType> {
     zoom: f32,
     flatten: f32,
 
+    notenamestyle: NoteNameStyle,
+
     keyboard_channel: Channel,
     keyboard_velocity: u8,
 
@@ -67,7 +72,9 @@ pub struct LatticeWindow<T: StackType> {
 
     correction_system_index: usize,
     tmp_temperaments: Vec<bool>,
-
+    tmp_correction: Correction<T>,
+    tmp_stack: Stack<T>,
+    tmp_relative_stack: Stack<T>,
     show_controls: bool,
 }
 
@@ -122,6 +129,8 @@ impl<'a, T: StackType> Iterator for PureStacksAround<'a, T> {
 pub struct LatticeWindowConfig {
     pub zoom: f32,
     pub flatten: f32,
+    pub notenamestyle: NoteNameStyle,
+    pub correction_system_index: usize,
     pub interval_heights: Vec<f32>,
     pub background_stack_distances: Vec<StackCoeff>,
 }
@@ -143,13 +152,17 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
 
             zoom: config.zoom,
             flatten: config.flatten,
+            notenamestyle: config.notenamestyle,
+            correction_system_index: config.correction_system_index,
             keyboard_channel: Channel::Ch1,
             keyboard_velocity: 64,
             interval_heights: config.interval_heights,
             background_stack_distances: config.background_stack_distances,
             stacks_to_draw: HashMap::new(),
-            correction_system_index: 0,
             tmp_temperaments: vec![false; T::num_temperaments()],
+            tmp_correction: Correction::new_zero(config.correction_system_index),
+            tmp_stack: Stack::new_zero(),
+            tmp_relative_stack: Stack::new_zero(),
             show_controls: false,
         }
     }
@@ -352,134 +365,43 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
                     y
                 };
 
-            let name = NoteName::new_from_values(
-                target[T::octave_index()],
-                target[T::fifth_index()],
-                target[T::third_index()],
-            )
-            .str_class(); // TODO make this depend on self.notenamestyle
+            self.tmp_stack.target.assign(target);
+            self.tmp_stack.actual.assign(actual);
 
-            ui.painter().with_clip_rect(rect).text(
-                pos2(hpos, vpos),
-                egui::Align2::CENTER_CENTER,
-                &name,
-                match style {
-                    DrawStyle::Background | DrawStyle::Considered | DrawStyle::Antenna => {
-                        egui::FontId::proportional(self.zoom * FONT_SIZE)
-                    }
-                    DrawStyle::Playing => egui::FontId::proportional(self.zoom * 1.5 * FONT_SIZE),
-                },
-                match style {
-                    DrawStyle::Background | DrawStyle::Antenna => {
-                        ui.style().visuals.weak_text_color()
-                    }
-                    DrawStyle::Considered | DrawStyle::Playing => {
-                        ui.style().visuals.strong_text_color()
-                    }
-                },
+            let note_name_height_below_vpos =
+                self.draw_corrected_note_name(ui, hpos, vpos, &self.tmp_stack, style);
+            let interaction_rect = egui::Rect::from_min_max(
+                pos2(hpos - self.zoom * FONT_SIZE, vpos - self.zoom * FONT_SIZE),
+                pos2(
+                    hpos + self.zoom * FONT_SIZE,
+                    vpos + note_name_height_below_vpos,
+                ),
             );
 
-            let correction = Correction::<T>::from_target_and_actual(
-                target.into(),
-                actual.into(),
-                self.correction_system_index,
-            );
-
-            if !correction.is_zero() {
-                let correction_label = correction.str();
-                ui.painter().with_clip_rect(rect).text(
-                    pos2(
-                        hpos,
-                        vpos + match style {
-                            DrawStyle::Background | DrawStyle::Considered | DrawStyle::Antenna => {
-                                self.zoom * 0.5 * FONT_SIZE
-                            }
-                            DrawStyle::Playing => self.zoom * 0.75 * FONT_SIZE,
-                        },
-                    ),
-                    egui::Align2::CENTER_TOP,
-                    correction_label,
-                    egui::FontId::proportional(self.zoom * 0.6 * FONT_SIZE),
-                    match style {
-                        DrawStyle::Background | DrawStyle::Antenna => {
-                            ui.style().visuals.weak_text_color()
-                        }
-                        DrawStyle::Considered | DrawStyle::Playing => {
-                            ui.style().visuals.strong_text_color()
-                        }
-                    },
-                );
-
-                if actual.iter().all(|x| x.is_integer()) {
-                    let actual_name = format!(
-                        "={}",
-                        NoteName::new_from_values(
-                            actual[T::octave_index()].to_integer(),
-                            actual[T::fifth_index()].to_integer(),
-                            actual[T::third_index()].to_integer(),
-                        )
-                        .str_class() // TODO make this depend on self.notenamestyle
-                    );
-                    ui.painter().with_clip_rect(rect).text(
-                        pos2(
-                            hpos,
-                            vpos + match style {
-                                DrawStyle::Background
-                                | DrawStyle::Considered
-                                | DrawStyle::Antenna => self.zoom * (0.5 + 0.6) * FONT_SIZE,
-                                DrawStyle::Playing => self.zoom * (0.75 + 0.6) * FONT_SIZE,
-                            },
-                        ),
-                        egui::Align2::CENTER_TOP,
-                        actual_name,
-                        egui::FontId::proportional(self.zoom * 0.6 * FONT_SIZE),
-                        match style {
-                            DrawStyle::Background | DrawStyle::Antenna => {
-                                ui.style().visuals.weak_text_color()
-                            }
-                            DrawStyle::Considered | DrawStyle::Playing => {
-                                ui.style().visuals.strong_text_color()
-                            }
-                        },
-                    );
-                }
-            }
-
-            // add the interaction zones
+            // add the interaction zones.
             match style {
                 DrawStyle::Antenna => {}
                 DrawStyle::Background => {
                     if ui
                         .interact(
-                            egui::Rect::from_center_size(
-                                pos2(hpos, vpos),
-                                self.zoom * vec2(FONT_SIZE, FONT_SIZE),
-                            ),
+                            interaction_rect,
                             egui::Id::new(target),
                             egui::Sense::click(),
                         )
                         .clicked()
                     {
+                        self.tmp_relative_stack.clone_from(&self.tmp_stack);
+                        self.tmp_relative_stack.scaled_add(-1, reference);
                         let _ = forward.send(FromUi::Consider {
-                            coefficients: {
-                                let mut v = target.to_vec();
-                                for i in 0..T::num_intervals() {
-                                    v[i] -= reference.target[i];
-                                }
-                                v
-                            },
-                            temperaments: None {},
+                            stack: self.tmp_relative_stack.clone(),
                             time: Instant::now(),
                         });
                     }
                 }
                 DrawStyle::Considered | DrawStyle::Playing => {
-                    let popup_id = ui.make_persistent_id(target);
+                    let popup_id = ui.id().with(target);
                     let response = ui.interact(
-                        egui::Rect::from_center_size(
-                            pos2(hpos, vpos),
-                            self.zoom * vec2(FONT_SIZE, FONT_SIZE),
-                        ),
+                        interaction_rect,
                         egui::Id::new(target),
                         egui::Sense::click(),
                     );
@@ -495,33 +417,88 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
                         &response,
                         egui::popup::PopupCloseBehavior::CloseOnClickOutside,
                         |ui| {
-                            ui.set_min_width(200.0);
-                            for i in 0..T::num_temperaments() {
-                                ui.checkbox(
-                                    &mut self.tmp_temperaments[i],
-                                    &T::temperaments()[i].name,
-                                );
-                            }
-
-                            if ui.button("re-temper").clicked() {
+                            self.tmp_relative_stack.clone_from(&self.tmp_stack);
+                            self.tmp_relative_stack.scaled_add(-1, reference);
+                            if temperament_applier(
+                                true,
+                                ui,
+                                &mut self.tmp_temperaments,
+                                &mut self.tmp_correction,
+                                self.correction_system_index,
+                                &mut self.tmp_relative_stack,
+                            ) {
                                 let _ = forward.send(FromUi::Consider {
-                                    coefficients: {
-                                        let mut v = target.to_vec();
-                                        for i in 0..T::num_intervals() {
-                                            v[i] -= reference.target[i];
-                                        }
-                                        v
-                                    },
-                                    temperaments: Some(self.tmp_temperaments.clone()),
+                                    stack: self.tmp_relative_stack.clone(),
                                     time: Instant::now(),
                                 });
-                                ui.memory_mut(|mem| mem.toggle_popup(popup_id));
                             }
                         },
                     );
                 }
             }
         }
+    }
+
+    /// returns the height below vpos of the last text's base (which varies depending on the
+    /// `style` and on whether the stack is target/pure)
+    fn draw_corrected_note_name(
+        &self,
+        ui: &mut egui::Ui,
+        hpos: f32,
+        vpos: f32,
+        stack: &Stack<T>,
+        style: &DrawStyle,
+    ) -> f32 {
+        let rect = ui.max_rect();
+        let first_line_height = match style {
+            DrawStyle::Background | DrawStyle::Considered | DrawStyle::Antenna => {
+                self.zoom * FONT_SIZE
+            }
+            DrawStyle::Playing => self.zoom * 1.5 * FONT_SIZE,
+        };
+        let spacing = self.zoom * 0.5 * FONT_SIZE;
+        let other_lines_height = self.zoom * 0.6 * FONT_SIZE;
+        let second_line_vpos = vpos + 0.5 * first_line_height + spacing;
+        let third_line_vpos = second_line_vpos + 0.5 * other_lines_height + spacing;
+        let text_color = match style {
+            DrawStyle::Background | DrawStyle::Antenna => ui.style().visuals.weak_text_color(),
+            DrawStyle::Considered | DrawStyle::Playing => ui.style().visuals.strong_text_color(),
+        };
+
+        let mut height_below_vpos = 0.0;
+
+        ui.painter().with_clip_rect(rect).text(
+            pos2(hpos, vpos),
+            egui::Align2::CENTER_CENTER,
+            stack.notename(&self.notenamestyle),
+            egui::FontId::proportional(first_line_height),
+            text_color,
+        );
+        height_below_vpos += first_line_height * 0.5;
+
+        if !stack.is_target() {
+            let correction = Correction::new(stack, self.correction_system_index);
+            ui.painter().with_clip_rect(rect).text(
+                pos2(hpos, second_line_vpos),
+                egui::Align2::CENTER_CENTER,
+                correction.str(),
+                egui::FontId::proportional(other_lines_height),
+                text_color,
+            );
+            height_below_vpos += spacing + other_lines_height;
+            if stack.is_pure() {
+                ui.painter().with_clip_rect(rect).text(
+                    pos2(hpos, third_line_vpos),
+                    egui::Align2::CENTER_CENTER,
+                    format!("={}", stack.actual_notename(&self.notenamestyle)),
+                    egui::FontId::proportional(other_lines_height),
+                    text_color,
+                );
+                height_below_vpos += spacing + other_lines_height;
+            }
+        }
+
+        height_below_vpos
     }
 
     fn draw_lattice(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {

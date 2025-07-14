@@ -52,9 +52,13 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let backend_window_config = backend_config.clone();
 
+    let notenamestyle = NoteNameStyle::JohnstonFiveLimitFull;
+    let correction_system_index = DIESIS_SYNTONIC;
     let lattice_window_config = LatticeWindowConfig {
         zoom: 10.0,
         flatten: 1.0,
+        notenamestyle,
+        correction_system_index,
         interval_heights: vec![
             0.0,
             -12.0 * (5.0 / 4.0 as f32).log2(),
@@ -62,9 +66,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         ],
         background_stack_distances: vec![0, 3, 2],
     };
-
-    let notenamestyle = NoteNameStyle::JohnstonFiveLimitFull;
-    let correction_system_index = DIESIS_SYNTONIC;
     let reference_window_config = ReferenceWindowConfig {
         notenamestyle,
         correction_system_index,

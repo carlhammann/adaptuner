@@ -5,18 +5,23 @@ use eframe::egui;
 use crate::{
     interval::{
         stack::Stack,
-        stacktype::r#trait::{FiveLimitStackType, IntervalBasis, StackType},
+        stacktype::r#trait::{FiveLimitStackType, StackType},
     },
     msg::{FromUi, HandleMsgRef, ToUi},
-    notename::NoteNameStyle,
+    notename::{correction::Correction, NoteNameStyle},
     reference::{frequency_from_semitones, semitones_from_frequency, Reference},
 };
 
-use super::{common::correction_system_chooser, r#trait::GuiShow};
+use super::{
+    common::{correction_system_chooser, note_picker},
+    r#trait::GuiShow,
+};
 
-pub struct TuningReferenceWindow<T: IntervalBasis> {
+pub struct TuningReferenceWindow<T: StackType> {
     reference: Option<Reference<T>>,
     new_reference: Reference<T>,
+    temperaments_applied_to_new_reference: Vec<bool>,
+    corrections_applied_to_new_reference: Correction<T>,
     notenamestyle: NoteNameStyle,
     correction_system_index: usize,
 }
@@ -34,6 +39,10 @@ impl<T: StackType> TuningReferenceWindow<T> {
                 stack: Stack::new_zero(),
                 semitones: 60.0,
             },
+            temperaments_applied_to_new_reference: vec![false; T::num_temperaments()],
+            corrections_applied_to_new_reference: Correction::new_zero(
+                config.correction_system_index,
+            ),
             notenamestyle: config.notenamestyle,
             correction_system_index: config.correction_system_index,
         }
@@ -47,7 +56,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> 
                 "Current tuning reference is {} at {:.02} Hz (MIDI note {:.02}).",
                 reference
                     .stack
-                    .corrected_name(&self.notenamestyle, self.correction_system_index),
+                    .corrected_notename(&self.notenamestyle, self.correction_system_index),
                 reference.get_frequency(),
                 reference.semitones
             ));
@@ -57,20 +66,21 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> 
 
         ui.separator();
         ui.label("Select new reference, relative to C 4:");
-        ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
-            for (i, c) in self.new_reference.stack.target.iter_mut().enumerate() {
-                ui.label(format!("{}:", T::intervals()[i].name));
-                ui.add(egui::DragValue::new(c));
-            }
-        });
+        note_picker(
+            ui,
+            &mut self.temperaments_applied_to_new_reference,
+            &mut self.corrections_applied_to_new_reference,
+            self.correction_system_index,
+            &mut self.new_reference.stack,
+        );
 
         ui.separator();
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             ui.label(format!(
-                "New reference is {} at",
+                "New reference will be {} at",
                 self.new_reference
                     .stack
-                    .corrected_name(&self.notenamestyle, self.correction_system_index)
+                    .corrected_notename(&self.notenamestyle, self.correction_system_index)
             ));
 
             let mut new_freq = frequency_from_semitones(self.new_reference.semitones);
@@ -87,7 +97,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             if ui
                 .add(
-                    egui::Button::new("update reference").selected(match &self.reference {
+                    egui::Button::new("update tuning").selected(match &self.reference {
                         None {} => true,
                         Some(r) => *r != self.new_reference,
                     }),

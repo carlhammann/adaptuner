@@ -5,7 +5,7 @@ use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
     gui::r#trait::GuiShow,
-    interval::stacktype::r#trait::{IntervalBasis, StackType},
+    interval::stacktype::r#trait::StackType,
     msg::{FromUi, HandleMsgRef, ToUi},
 };
 

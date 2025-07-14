@@ -90,6 +90,7 @@ pub fn note_picker<T: StackType>(
         ui.label("tempered with:");
 
         temperament_applier(
+            false,
             ui,
             tmp_temperaments,
             tmp_correction,
@@ -100,23 +101,42 @@ pub fn note_picker<T: StackType>(
 }
 
 pub fn temperament_applier<T: StackType>(
+    pure_button: bool,
     ui: &mut egui::Ui,
     tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
     correction_system_index: usize,
     stack: &mut Stack<T>,
-) {
+) -> bool {
+    let mut temperament_select_changed = false;
+    let mut correction_changed = false;
+    let mut made_pure = false;
+    if pure_button {
+        ui.vertical_centered(|ui| {
+            if ui
+                .add_enabled(!stack.is_target(), egui::Button::new("make pure"))
+                .clicked()
+            {
+                tmp_temperaments.iter_mut().for_each(|b| *b = false);
+                tmp_correction.reset_to_zero();
+                stack.make_pure();
+                made_pure = true;
+            }
+        });
+        ui.separator();
+    }
+
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             for (i, t) in T::temperaments().iter().enumerate() {
                 if ui.checkbox(&mut tmp_temperaments[i], &t.name).clicked() {
                     stack.retemper(tmp_temperaments);
                     *tmp_correction = Correction::new(stack, correction_system_index);
+                    temperament_select_changed = true;
                 }
             }
         });
 
-        let mut correction_changed = false;
         tmp_correction.mutate(correction_system_index, |coeffs| {
             ui.separator();
             ui.vertical(|ui| {
@@ -137,4 +157,5 @@ pub fn temperament_applier<T: StackType>(
             stack.apply_correction(tmp_correction);
         }
     });
+    temperament_select_changed | correction_changed | made_pure
 }

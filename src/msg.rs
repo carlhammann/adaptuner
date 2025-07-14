@@ -7,11 +7,7 @@ use midi_msg::Channel;
 use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
-    interval::{
-        base::Semitones,
-        stack::Stack,
-        stacktype::r#trait::{StackCoeff, StackType},
-    },
+    interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     reference::Reference,
 };
 
@@ -123,8 +119,7 @@ pub enum FromProcess<T: StackType> {
 
 pub enum ToStrategy<T: StackType> {
     Consider {
-        coefficients: Vec<StackCoeff>,
-        temperaments: Option<Vec<bool>>,
+        stack: Stack<T>,
         time: Instant,
     },
     ToggleTemperament {
@@ -321,8 +316,7 @@ pub enum ToUi<T: StackType> {
 
 pub enum FromUi<T: StackType> {
     Consider {
-        coefficients: Vec<StackCoeff>,
-        temperaments: Option<Vec<bool>>,
+        stack: Stack<T>,
         time: Instant,
     },
     DeleteCurrentNeighbourhood {
@@ -598,16 +592,8 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
         Option<ToMidiOut>,
     ) {
         match self {
-            FromUi::Consider {
-                coefficients,
-                temperaments,
-                time,
-            } => (
-                Some(ToProcess::ToStrategy(ToStrategy::Consider {
-                    coefficients,
-                    temperaments,
-                    time,
-                })),
+            FromUi::Consider { stack, time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::Consider { stack, time })),
                 None {},
                 None {},
                 None {},

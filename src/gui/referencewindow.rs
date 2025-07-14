@@ -50,7 +50,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceWindow<T> {
         if let Some(reference) = &self.reference {
             ui.label(format!(
                 "Current reference is {}",
-                reference.corrected_name(&self.notenamestyle, self.correction_system_index),
+                reference.corrected_notename(&self.notenamestyle, self.correction_system_index),
             ));
         } else {
             ui.label("Currently no reference");
@@ -72,7 +72,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceWindow<T> {
             ui.label(format!(
                 "New reference will be {}",
                 self.new_reference
-                    .corrected_name(&self.notenamestyle, self.correction_system_index),
+                    .corrected_notename(&self.notenamestyle, self.correction_system_index),
             ));
         });
 
