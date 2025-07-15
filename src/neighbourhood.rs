@@ -3,14 +3,24 @@
 
 use std::collections::HashMap;
 
+use serde_derive::{Deserialize, Serialize};
+
 use crate::interval::{
     stack::{ScaledAdd, Stack},
     stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, StackCoeff},
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 pub enum SomeCompleteNeighbourhood<T: IntervalBasis> {
     PeriodicComplete(PeriodicComplete<T>),
+}
+
+impl<T: IntervalBasis> From<PeriodicComplete<T>> for SomeCompleteNeighbourhood<T> {
+    fn from(pc: PeriodicComplete<T>) -> Self {
+        Self::PeriodicComplete(pc)
+    }
 }
 
 /// Tunings for all notes, described by giving the tunings of all notes in the first "octave-like"
@@ -41,7 +51,7 @@ impl<T: IntervalBasis> PeriodicComplete<T> {
 
 impl<T: OctavePeriodicIntervalBasis> PeriodicComplete<T> {
     /// invariants like [PeriodicComplete::new], only for the [PeriodicStackType::period] of `T`
-    pub fn from_octave_tunings(stacks: [Stack<T>; 12], name: String) -> Self {
+    pub fn from_octave_tunings(name: String, stacks: [Stack<T>; 12]) -> Self {
         Self {
             stacks: stacks.into(),
             period: Stack::from_pure_interval(T::period_index(), 1),

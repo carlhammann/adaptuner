@@ -508,6 +508,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             }
 
             match T::try_period_index() {
+                None {} => todo!(),
                 Some(period_index) => {
                     self.considered_notes.for_each_stack(|_, relative_stack| {
                         let mut stack = relative_stack.clone();
@@ -541,7 +542,6 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
                         }
                     }
                 }
-                None {} => todo!(),
             }
             self.draw_state.draw_stacks(
                 ui,

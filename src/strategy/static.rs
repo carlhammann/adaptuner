@@ -3,16 +3,15 @@ use std::{sync::mpsc, time::Instant};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    config::StrategyConfig,
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
-        stacktype::r#trait::{IntervalBasis, PeriodicIntervalBasis, StackType},
+        stacktype::r#trait::{IntervalBasis, StackType},
     },
     keystate::KeyState,
     msg::{FromProcess, FromStrategy, ToStrategy},
-    neighbourhood::{
-        CompleteNeigbourhood, Neighbourhood, PeriodicComplete, SomeCompleteNeighbourhood,
-    },
+    neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
     reference::Reference,
     strategy::r#trait::Strategy,
 };
@@ -25,25 +24,19 @@ pub struct StaticTuning<T: IntervalBasis> {
     tuning_up_to_date: [bool; 128],
 }
 
-// PeriodicIntervalBasis is required for (De-)Serialize of neighbourhoods (for now...)
-
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
-pub struct StaticTuningConfig<T: PeriodicIntervalBasis> {
-    pub neighbourhoods: Vec<PeriodicComplete<T>>,
+pub struct StaticTuningConfig<T: IntervalBasis> {
+    pub neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
     pub tuning_reference: Reference<T>,
     pub reference: Stack<T>,
 }
 
-impl<T: PeriodicIntervalBasis> StaticTuning<T> {
-    pub fn new(mut config: StaticTuningConfig<T>) -> Self {
+impl<T: IntervalBasis> StaticTuning<T> {
+    pub fn new(config: StaticTuningConfig<T>) -> Self {
         Self {
-            neighbourhoods: config
-                .neighbourhoods
-                .drain(..)
-                .map(|n| SomeCompleteNeighbourhood::PeriodicComplete(n))
-                .collect(),
+            neighbourhoods: config.neighbourhoods,
             curr_neighbourhood_index: 0,
             tuning_reference: config.tuning_reference,
             reference: config.reference,
@@ -303,5 +296,13 @@ impl<T: StackType + std::fmt::Debug> Strategy<T> for StaticTuning<T> {
         });
 
         self.retune_all(keys, tunings, time, forward);
+    }
+
+    fn extract_config(&self) -> StrategyConfig<T> {
+        StrategyConfig::StaticTuning(StaticTuningConfig {
+            neighbourhoods: self.neighbourhoods.clone(),
+            tuning_reference: self.tuning_reference.clone(),
+            reference: self.reference.clone(),
+        })
     }
 }

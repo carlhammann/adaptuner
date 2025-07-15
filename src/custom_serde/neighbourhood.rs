@@ -5,14 +5,11 @@ use serde::ser::{SerializeSeq, SerializeStruct};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    interval::{
-        stack::Stack,
-        stacktype::r#trait::{IntervalBasis, PeriodicIntervalBasis},
-    },
+    interval::{stack::Stack, stacktype::r#trait::IntervalBasis},
     neighbourhood::{Neighbourhood, PeriodicComplete},
 };
 
-impl<T: PeriodicIntervalBasis + serde::Serialize> serde::Serialize for PeriodicComplete<T> {
+impl<T: IntervalBasis + serde::Serialize> serde::Serialize for PeriodicComplete<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -58,7 +55,7 @@ impl<T: PeriodicIntervalBasis + serde::Serialize> serde::Serialize for PeriodicC
 
 impl<'de, T> serde::Deserialize<'de> for PeriodicComplete<T>
 where
-    T: PeriodicIntervalBasis + serde::Deserialize<'de>,
+    T: IntervalBasis + serde::Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -83,7 +80,7 @@ where
 
         impl<'de, T> Visitor<'de> for TheVisitor<T>
         where
-            T: PeriodicIntervalBasis + serde::Deserialize<'de>,
+            T: IntervalBasis + serde::Deserialize<'de>,
         {
             type Value = PeriodicComplete<T>;
 
@@ -95,6 +92,12 @@ where
             where
                 A: serde::de::MapAccess<'de>,
             {
+                let m_period_keys = T::try_period_keys();
+                if m_period_keys.is_none() {
+                    todo!()
+                }
+                let period_keys = m_period_keys.unwrap();
+
                 let mut name = None {};
                 let mut stacks = None {};
                 while let Some(key) = map.next_key()? {
@@ -110,10 +113,10 @@ where
                                 return Err(serde::de::Error::duplicate_field("entries"));
                             }
                             let mut entries = map.next_value::<Vec<Entry<T>>>()?;
-                            if entries.len() != T::period_keys() as usize {
+                            if entries.len() != period_keys as usize {
                                 return Err(serde::de::Error::custom(format!(
                                     "there must be {} entries, but I found {}",
-                                    T::period_keys(),
+                                    period_keys,
                                     entries.len()
                                 )));
                             }
@@ -125,7 +128,7 @@ where
                             {
                                 return Err(serde::de::Error::custom(format!(
                                     "every offset in the (inclusive) range 0 to {} must occur exactly once",
-                                    T::period_keys() - 1,
+                                    period_keys - 1,
                                 )));
                             }
                             match entries
@@ -154,7 +157,7 @@ where
                 }
                 Ok(PeriodicComplete::new(
                     stacks.unwrap(),
-                    Stack::from_pure_interval(T::period_index(), 1),
+                    Stack::from_pure_interval(T::try_period_index().unwrap(), 1),
                     name.unwrap(),
                 ))
             }
@@ -180,6 +183,7 @@ mod test {
     #[test]
     fn test_serialize_neighbourhood() {
         let neigh = PeriodicComplete::from_octave_tunings(
+            "foo".into(),
             [
                 Stack::<MockFiveLimitStackType>::new_zero(), // C
                 Stack::from_target(vec![0, -1, 2]),          // C#
@@ -194,7 +198,6 @@ mod test {
                 Stack::from_target(vec![0, 2, -1]),          // Bb
                 Stack::from_target(vec![0, 1, 1]),           // B
             ],
-            "foo".into(),
         );
 
         assert_eq!(

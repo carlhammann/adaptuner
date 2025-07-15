@@ -15,11 +15,21 @@ pub trait IntervalBasis: Copy {
     fn intervals() -> &'static [Interval];
 
     /// Often, there's a "periodicity" in the intervals (like the octave). This function should
-    /// return the index of that interval, if it exists.
+    /// return that interval, if it exists.
     ///
     /// This interval doesn't have a logically special status, but knowing it may help in
     /// generating more user-friendly note names, animations etc.
+    fn try_period() -> Option<&'static Interval> {
+        Self::try_period_index().map(|i| &Self::intervals()[i])
+    }
+
+    /// The index of the "period" interval, if it exists
     fn try_period_index() -> Option<usize>;
+
+    /// Convenience: the number of keys spanned by the "period" interval, if it exists
+    fn try_period_keys() -> Option<u8> {
+        Self::try_period().map(|i| i.key_distance)
+    }
 
     /// Convenience: the length of the list returned by [intervals][IntervalBasis::intervals].
     fn num_intervals() -> usize {

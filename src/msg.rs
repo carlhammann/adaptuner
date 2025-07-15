@@ -82,6 +82,14 @@ pub enum ToProcess<T: StackType> {
         index: usize,
         time: Instant,
     },
+    CloneStrategy {
+        index: usize,
+        time: Instant,
+    },
+    AddStrategyFromTemplate {
+        index: usize,
+        time: Instant,
+    }
 }
 
 pub enum FromProcess<T: StackType> {
@@ -398,6 +406,14 @@ pub enum FromUi<T: StackType> {
         index: usize,
         time: Instant,
     },
+    CloneStrategy {
+        index: usize,
+        time: Instant,
+    },
+    AddStrategyFromTemplate {
+        index: usize,
+        time: Instant,
+    }
 }
 
 pub enum ToMidiIn {
@@ -768,6 +784,18 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             ),
             FromUi::SwitchToStrategy { index, time } => (
                 Some(ToProcess::SwitchToStrategy { index, time }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::CloneStrategy { index, time } => (
+                Some(ToProcess::CloneStrategy { index, time }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::AddStrategyFromTemplate { index, time } => (
+                Some(ToProcess::AddStrategyFromTemplate { index, time }),
                 None {},
                 None {},
                 None {},

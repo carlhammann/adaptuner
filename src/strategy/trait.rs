@@ -1,9 +1,7 @@
 use std::{sync::mpsc, time::Instant};
 
 use crate::{
-    interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
-    keystate::KeyState,
-    msg::{FromProcess, ToStrategy},
+    config::StrategyConfig, interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType}, keystate::KeyState, msg::{FromProcess, ToStrategy}
 };
 
 pub trait Strategy<T: StackType> {
@@ -68,4 +66,6 @@ pub trait Strategy<T: StackType> {
         time: Instant,
         forward: &mpsc::Sender<FromProcess<T>>,
     );
+
+    fn extract_config(&self) -> StrategyConfig<T>;
 }

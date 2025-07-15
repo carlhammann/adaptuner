@@ -133,4 +133,8 @@ impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> Strategy<T> for
     ) {
         todo!()
     }
+
+    fn extract_config(&self) -> crate::config::StrategyConfig<T> {
+        todo!()
+    }
 }

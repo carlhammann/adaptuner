@@ -3,7 +3,7 @@ use std::{hash::Hash, sync::mpsc};
 use eframe::{self, egui};
 
 use crate::{
-    config::StrategyKind,
+    config::{ExtendedStrategyConfig, StrategyKind},
     interval::stacktype::r#trait::{FiveLimitStackType, StackType},
     msg::{FromUi, HandleMsg, HandleMsgRef, ToUi},
 };
@@ -21,7 +21,7 @@ use super::{
     strategy::{AsStrategyPicker, AsWindows, StrategyWindows},
 };
 
-pub struct Toplevel<T: StackType> {
+pub struct Toplevel<T: StackType + 'static> {
     lattice: LatticeWindow<T>,
     show_controls: u8,
     old_show_controls: u8,
@@ -46,6 +46,7 @@ pub struct Toplevel<T: StackType> {
 impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
     pub fn new(
         strategy_names_and_kinds: Vec<(String, StrategyKind)>,
+        templates: &'static [ExtendedStrategyConfig<T>],
         lattice_config: LatticeWindowControls,
         reference_editor: ReferenceEditorConfig,
         backend_config: BackendWindowConfig,
@@ -61,6 +62,7 @@ impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
 
             strategies: StrategyWindows::new(
                 strategy_names_and_kinds,
+                templates,
                 tuning_editor,
                 reference_editor,
             ),
@@ -79,7 +81,7 @@ impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
     }
 }
 
-impl<T: FiveLimitStackType> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
+impl<T: FiveLimitStackType + 'static> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
     fn handle_msg(&mut self, msg: ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         self.lattice.handle_msg_ref(&msg, forward);
         self.notes.handle_msg_ref(&msg, forward);
@@ -90,7 +92,7 @@ impl<T: FiveLimitStackType> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
     }
 }
 
-impl<T: FiveLimitStackType + Hash + Eq> eframe::App for Toplevel<T> {
+impl<T: FiveLimitStackType + Hash + Eq + 'static> eframe::App for Toplevel<T> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
             ui.horizontal(|ui| {

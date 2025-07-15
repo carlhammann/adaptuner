@@ -4,12 +4,10 @@ use midi_msg::Channel;
 
 use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
-    config::{initialise_strategy, Config},
+    config::{Config, ExtendedStrategyConfig, STRATEGY_TEMPLATES},
     gui::{
+        editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
         lattice::LatticeWindowControls,
-        editor::{
-            reference::ReferenceEditorConfig, tuning::TuningEditorConfig,
-        },
         toplevel::Toplevel,
     },
     interval::stacktype::fivelimit::{TheFiveLimitStackType, DIESIS_SYNTONIC},
@@ -61,8 +59,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         correction_system_index,
         interval_heights: vec![
             0.0,
-            -12.0 * (5.0 / 4.0 as f32).log2(),
-            12.0 * (3.0 / 2.0 as f32).log2(),
+            12.0 * (5.0 / 4.0 as f32).log2(),
+            -12.0 * (3.0 / 2.0 as f32).log2(),
         ],
         background_stack_distances: vec![0, 3, 2],
         screen_keyboard_channel: Channel::Ch1,
@@ -93,14 +91,16 @@ fn run() -> Result<(), Box<dyn Error>> {
                 config
                     .strategies
                     .drain(..)
-                    .map(initialise_strategy)
+                    .map(ExtendedStrategyConfig::realize)
                     .collect(),
+                &*STRATEGY_TEMPLATES,
             )
         },
         move || Pitchbend12::new(backend_config),
         move |ctx, tx| {
             Toplevel::new(
                 strategy_names_and_kinds,
+                &*STRATEGY_TEMPLATES,
                 lattice_window_config,
                 reference_window_config,
                 backend_window_config,

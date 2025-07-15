@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant};
+use std::{fmt, sync::mpsc, time::Instant};
 
 use midi_msg::{
     Channel,
@@ -8,14 +8,16 @@ use midi_msg::{
 };
 
 use crate::{
+    config::ExtendedStrategyConfig,
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromProcess, HandleMsg, ToProcess},
     strategy::r#trait::Strategy,
 };
 
-pub struct ProcessFromStrategy<T: StackType> {
+pub struct ProcessFromStrategy<T: StackType + 'static> {
     strategies: Vec<Box<dyn Strategy<T>>>,
+    templates: &'static [ExtendedStrategyConfig<T>],
     curr_strategy_index: usize,
     key_states: [KeyState; 128],
     tunings: [Stack<T>; 128],
@@ -25,10 +27,14 @@ pub struct ProcessFromStrategy<T: StackType> {
 }
 
 impl<T: StackType> ProcessFromStrategy<T> {
-    pub fn new(strategies: Vec<Box<dyn Strategy<T>>>) -> Self {
+    pub fn new(
+        strategies: Vec<Box<dyn Strategy<T>>>,
+        templates: &'static [ExtendedStrategyConfig<T>],
+    ) -> Self {
         let now = Instant::now();
         Self {
             strategies,
+            templates,
             curr_strategy_index: 0,
             key_states: core::array::from_fn(|_| KeyState::new(now)),
             tunings: core::array::from_fn(|_| Stack::new_zero()),
@@ -232,7 +238,9 @@ impl<T: StackType> ProcessFromStrategy<T> {
     }
 }
 
-impl<T: StackType> HandleMsg<ToProcess<T>, FromProcess<T>> for ProcessFromStrategy<T> {
+impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>>
+    for ProcessFromStrategy<T>
+{
     fn handle_msg(&mut self, msg: ToProcess<T>, forward: &mpsc::Sender<FromProcess<T>>) {
         match msg {
             ToProcess::Stop => {}
@@ -277,8 +285,26 @@ impl<T: StackType> HandleMsg<ToProcess<T>, FromProcess<T>> for ProcessFromStrate
             }
             ToProcess::SwitchToStrategy { index, time } => {
                 self.curr_strategy_index = index;
-                self.start(time, forward);
                 let _ = forward.send(FromProcess::SwitchToStrategy { index });
+                self.start(time, forward);
+            }
+            ToProcess::CloneStrategy { index, time } => {
+                let conf = self.strategies[index % self.strategies.len()].extract_config();
+                self.strategies.push(conf.realize());
+                self.curr_strategy_index = self.strategies.len() - 1;
+                let _ = forward.send(FromProcess::SwitchToStrategy {
+                    index: self.curr_strategy_index,
+                });
+                self.start(time, forward);
+            }
+            ToProcess::AddStrategyFromTemplate { index, time } => {
+                let conf = &self.templates[index];
+                self.strategies.push(conf.clone().realize());
+                self.curr_strategy_index = self.strategies.len() - 1;
+                let _ = forward.send(FromProcess::SwitchToStrategy {
+                    index: self.curr_strategy_index,
+                });
+                self.start(time, forward);
             }
         }
     }
