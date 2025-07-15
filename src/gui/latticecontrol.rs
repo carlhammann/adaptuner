@@ -1,109 +1,105 @@
-use std::{
-    cell::{RefCell, RefMut},
-    rc::Rc,
-    sync::mpsc,
-    time::Instant,
-};
+use std::{sync::mpsc, time::Instant};
 
 use eframe::egui::{self};
 use midi_msg::Channel;
 
 use crate::{
-    interval::stacktype::r#trait::StackType,
-    msg::{FromUi, HandleMsgRef, ToUi},
+    interval::stacktype::r#trait::{FiveLimitStackType, StackType},
+    msg::FromUi,
 };
 
-use super::{common::correction_system_chooser, lattice::LatticeWindowControls, r#trait::GuiShow};
+use super::{common::correction_system_chooser, lattice::LatticeWindow, r#trait::GuiShow};
 
-pub fn lattice_control<T: StackType>(
-    ui: &mut egui::Ui,
-    values: &Rc<RefCell<LatticeWindowControls>>,
-) {
-    let _ = RefMut::map(values.borrow_mut(), |x| {
+pub struct AsSmallControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
+
+impl<'a, T: StackType> GuiShow<T> for AsSmallControls<'a, T> {
+    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        let AsSmallControls(LatticeWindow { controls, .. }) = self;
         ui.horizontal(|ui| {
-            correction_system_chooser::<T>(ui, &mut x.correction_system_index);
+            ui.add(
+                egui::widgets::Slider::new(&mut controls.zoom, 5.0..=100.0)
+                    .smart_aim(false)
+                    .show_value(false)
+                    .logarithmic(true)
+                    .text("zoom"),
+            );
+
+            ui.separator();
+
+            ui.label("screen keyboard MIDI channel:");
+
+            egui::ComboBox::from_id_salt("keyboard MIDI channel")
+                .width(ui.style().spacing.interact_size.y)
+                .selected_text(format!("{}", controls.screen_keyboard_channel))
+                .show_ui(ui, |ui| {
+                    for i in 0..16 {
+                        let ch = Channel::from_u8(i);
+                        ui.selectable_value(
+                            &mut controls.screen_keyboard_channel,
+                            ch,
+                            format!("{ch}"),
+                        );
+                    }
+                });
+
+            ui.label("velocity:");
+            ui.add(egui::DragValue::new(&mut controls.screen_keyboard_velocity).range(0..=127));
+
+            if ui
+                .toggle_value(&mut controls.screen_keyboard_pedal_hold, "sustain")
+                .changed()
+            {
+                let _ = forward.send(FromUi::PedalHold {
+                    time: Instant::now(),
+                    value: if controls.screen_keyboard_pedal_hold {
+                        127
+                    } else {
+                        0
+                    },
+                    channel: controls.screen_keyboard_channel,
+                });
+            }
+        });
+    }
+}
+
+pub struct AsBigControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
+
+impl<'a, T: FiveLimitStackType> GuiShow<T> for AsBigControls<'a, T> {
+    fn show(&mut self, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
+        let AsBigControls(LatticeWindow {
+            controls,
+            reference,
+            ..
+        }) = self;
+
+        ui.horizontal(|ui| {
+            correction_system_chooser::<T>(ui, &mut controls.correction_system_index);
 
             ui.separator();
 
             ui.vertical(|ui| {
-                ui.label("show notes around the reference");
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label("grid range");
+                    reference.as_ref().map(|stack| {
+                        ui.label(" around the reference ( currently ");
+                        ui.strong(stack.corrected_notename(
+                            &controls.notenamestyle,
+                            controls.correction_system_index,
+                        ));
+                        ui.label(" )");
+                    });
+                });
+
                 for i in (0..T::num_intervals()).rev() {
                     ui.add(
-                        egui::Slider::new(&mut x.background_stack_distances[i], 0..=6)
+                        egui::Slider::new(&mut controls.background_stack_distances[i], 0..=6)
                             .smart_aim(false)
                             .text(&T::intervals()[i].name),
                     );
                 }
             });
-        });
-
-        x // whatever
-    });
-}
-
-pub struct LatticeWindowSmallControls(pub Rc<RefCell<LatticeWindowControls>>);
-
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindowSmallControls {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
-        match msg {
-            ToUi::PedalHold { channel, value, .. } => {
-                let LatticeWindowSmallControls(control_values) = self;
-                let my_channel = control_values.borrow().keyboard_channel;
-                if *channel == my_channel {
-                    let _ = RefMut::map(control_values.borrow_mut(), |x| {
-                        x.pedal_hold = *value > 0;
-
-                        x // whatever
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-impl<T: StackType> GuiShow<T> for LatticeWindowSmallControls {
-    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        let LatticeWindowSmallControls(control_values) = self;
-        let _ = RefMut::map(control_values.borrow_mut(), |x| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add(
-                    egui::widgets::Slider::new(&mut x.zoom, 5.0..=100.0)
-                        .smart_aim(false)
-                        .show_value(false)
-                        .logarithmic(true)
-                        .text("zoom"),
-                );
-                ui.separator();
-
-                if ui.toggle_value(&mut x.pedal_hold, "sustain").changed() {
-                    let _ = forward.send(FromUi::PedalHold {
-                        time: Instant::now(),
-                        value: if x.pedal_hold { 127 } else { 0 },
-                        channel: x.keyboard_channel,
-                    });
-                }
-
-                ui.add(
-                    // egui::widgets::Slider::new(&mut x.keyboard_velocity, 0..=127).text("velocity"),
-                    egui::DragValue::new(&mut x.keyboard_velocity).range(0..=127),
-                );
-                ui.label("velocity");
-
-                egui::ComboBox::from_id_salt("keyboard MIDI channel")
-                    .width(ui.style().spacing.interact_size.y)
-                    .selected_text(format!("{}", x.keyboard_channel))
-                    .show_ui(ui, |ui| {
-                        for i in 0..16 {
-                            let ch = Channel::from_u8(i);
-                            ui.selectable_value(&mut x.keyboard_channel, ch, format!("{ch}"));
-                        }
-                    });
-
-                ui.label("screen keyboard MIDI:");
-            });
-
-            x // whatever
         });
     }
 }

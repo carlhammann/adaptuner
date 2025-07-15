@@ -1,4 +1,4 @@
-use std::{cell::RefCell, hash::Hash, rc::Rc, sync::mpsc};
+use std::{hash::Hash, sync::mpsc};
 
 use eframe::{self, egui};
 
@@ -10,11 +10,12 @@ use crate::{
 
 use super::{
     backend::{BackendWindow, BackendWindowConfig},
+    common::show_hide_button,
     connection::{ConnectionWindow, Input, Output},
     editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
     latency::LatencyWindow,
     lattice::{LatticeWindow, LatticeWindowControls},
-    latticecontrol::{lattice_control, LatticeWindowSmallControls},
+    latticecontrol::{AsBigControls, AsSmallControls},
     notes::NoteWindow,
     r#trait::GuiShow,
     strategy::{AsStrategyPicker, AsWindows, StrategyWindows},
@@ -22,9 +23,8 @@ use super::{
 
 pub struct Toplevel<T: StackType> {
     lattice: LatticeWindow<T>,
-    lattice_controls: Rc<RefCell<LatticeWindowControls>>,
-    show_lattice_controls: bool,
-    lattice_small_controls: LatticeWindowSmallControls,
+    show_controls: u8,
+    old_show_controls: u8,
 
     strategies: StrategyWindows<T>,
 
@@ -54,13 +54,10 @@ impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
         ctx: &egui::Context,
         tx: mpsc::Sender<FromUi<T>>,
     ) -> Self {
-        let lattice_controls = Rc::new(RefCell::new(lattice_config));
-
         Self {
-            lattice: LatticeWindow::new(lattice_controls.clone()),
-            lattice_small_controls: LatticeWindowSmallControls(lattice_controls.clone()),
-            lattice_controls,
-            show_lattice_controls: false,
+            lattice: LatticeWindow::new(lattice_config),
+            show_controls: 0,
+            old_show_controls: 1,
 
             strategies: StrategyWindows::new(
                 strategy_names_and_kinds,
@@ -84,10 +81,9 @@ impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
 
 impl<T: FiveLimitStackType> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
     fn handle_msg(&mut self, msg: ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
-        self.strategies.handle_msg_ref(&msg, forward);
         self.lattice.handle_msg_ref(&msg, forward);
-        self.lattice_small_controls.handle_msg_ref(&msg, forward);
         self.notes.handle_msg_ref(&msg, forward);
+        self.strategies.handle_msg_ref(&msg, forward);
         self.input_connection.handle_msg_ref(&msg, forward);
         self.output_connection.handle_msg_ref(&msg, forward);
         self.latency.handle_msg_ref(&msg, forward);
@@ -97,39 +93,63 @@ impl<T: FiveLimitStackType> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
 impl<T: FiveLimitStackType + Hash + Eq> eframe::App for Toplevel<T> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                self.latency.show(ui, &self.tx);
+            ui.horizontal(|ui| {
+                if self.show_controls == 0 {
+                    if ui.button("show controls").clicked() {
+                        self.show_controls = 1;
+                        self.old_show_controls = 0;
+                    }
+                } else if (self.show_controls == 1) & (self.old_show_controls == 0) {
+                    if ui.button("more controls").clicked() {
+                        self.show_controls = 2;
+                        self.old_show_controls = 1;
+                    }
+                } else if (self.show_controls == 1) & (self.old_show_controls == 2) {
+                    if ui.button("hide controls").clicked() {
+                        self.show_controls = 0;
+                        self.old_show_controls = 1;
+                    }
+                } else {
+                    if ui.button("fewer controls").clicked() {
+                        self.show_controls = 1;
+                        self.old_show_controls = 2;
+                    }
+                }
 
-                ui.separator();
-
-                ui.toggle_value(&mut self.show_connection, "midi connections");
-                ui.toggle_value(&mut self.show_notes, "notes");
+                show_hide_button(ui, &mut self.show_connection, "MIDI conncection");
+                show_hide_button(ui, &mut self.show_notes, "notes");
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     egui::widgets::global_theme_preference_buttons(ui);
-                    ui.separator();
-                })
-            });
-        });
-
-        egui::TopBottomPanel::bottom("strategy picker panel").show(ctx, |ui| {
-            AsStrategyPicker(&mut self.strategies).show(ui, &self.tx);
-        });
-
-        egui::TopBottomPanel::top("small lattice control panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.toggle_value(&mut self.show_lattice_controls, "more");
-                self.lattice_small_controls.show(ui, &self.tx);
-            });
-        });
-
-        if self.show_lattice_controls {
-            egui::TopBottomPanel::top("lattice control panel").show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    lattice_control::<T>(ui, &self.lattice_controls);
                 });
             });
-        }
+        });
+
+        egui::TopBottomPanel::bottom("big control bottom panel").show_animated(
+            ctx,
+            self.show_controls > 1,
+            |ui| {
+                AsBigControls(&mut self.lattice).show(ui, &self.tx);
+            },
+        );
+
+        egui::TopBottomPanel::bottom("small control bottom panel").show_animated(
+            ctx,
+            self.show_controls > 0,
+            |ui| {
+                AsSmallControls(&mut self.lattice).show(ui, &self.tx);
+            },
+        );
+
+        egui::TopBottomPanel::top("strategy top panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                AsStrategyPicker(&mut self.strategies).show(ui, &self.tx);
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    self.latency.show(ui, &self.tx);
+                });
+            });
+        });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.lattice.show(ui, &self.tx);

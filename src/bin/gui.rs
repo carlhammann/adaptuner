@@ -65,9 +65,9 @@ fn run() -> Result<(), Box<dyn Error>> {
             12.0 * (3.0 / 2.0 as f32).log2(),
         ],
         background_stack_distances: vec![0, 3, 2],
-        keyboard_channel: Channel::Ch1,
-        keyboard_velocity: 64,
-        pedal_hold: false,
+        screen_keyboard_channel: Channel::Ch1,
+        screen_keyboard_velocity: 64,
+        screen_keyboard_pedal_hold: false,
     };
     let reference_window_config = ReferenceEditorConfig {
         notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,

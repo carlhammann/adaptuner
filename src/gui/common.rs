@@ -9,6 +9,19 @@ use crate::{
     notename::correction::Correction,
 };
 
+pub fn show_hide_button(ui: &mut egui::Ui, state: &mut bool, what: &'static str) {
+    if ui
+        .button(if *state {
+            format!("hide {what}")
+        } else {
+            format!("show {what}")
+        })
+        .clicked()
+    {
+        *state = !*state;
+    }
+}
+
 pub fn correction_system_chooser<T: StackType>(ui: &mut egui::Ui, system_index: &mut usize) {
     ui.vertical(|ui| {
         ui.label("write temperaments in terms of");

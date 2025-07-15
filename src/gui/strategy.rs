@@ -9,12 +9,11 @@ use crate::{
 };
 
 use super::{
-    editor::{
+    common::show_hide_button, editor::{
         neighbourhood::NeighbourhoodEditor,
         reference::{ReferenceEditor, ReferenceEditorConfig},
         tuning::{TuningEditor, TuningEditorConfig},
-    },
-    r#trait::GuiShow,
+    }, r#trait::GuiShow
 };
 
 pub struct StrategyWindows<T: StackType> {
@@ -97,11 +96,9 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
             match current_kind {
                 StrategyKind::Static => {
                     ui.horizontal(|ui| {
-                        ui.toggle_value(&mut x.show_tuning_editor, "global tuning");
-                        ui.toggle_value(&mut x.show_reference_editor, "reference");
-                        ui.toggle_value(&mut x.show_neighbourhood_editor, "neighbourhoods");
-                        // set all other show* variables to false, as they're not relevant to
-                        // StrategyKind::Static
+                        show_hide_button(ui, &mut x.show_tuning_editor, "global tuning");
+                        show_hide_button(ui, &mut x.show_reference_editor, "reference");
+                        show_hide_button(ui, &mut x.show_neighbourhood_editor, "neighbourhoods");
                     });
                 }
             }

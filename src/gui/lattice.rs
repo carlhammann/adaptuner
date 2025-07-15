@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, hash::Hash, rc::Rc, sync::mpsc, time::Instant};
+use std::{collections::HashMap, hash::Hash, sync::mpsc, time::Instant};
 
 use eframe::egui::{self, pos2, vec2};
 use midi_msg::Channel;
@@ -41,9 +41,9 @@ pub struct LatticeWindowControls {
     pub zoom: f32,
     pub interval_heights: Vec<f32>,
     pub background_stack_distances: Vec<StackCoeff>,
-    pub keyboard_channel: Channel,
-    pub keyboard_velocity: u8,
-    pub pedal_hold: bool,
+    pub screen_keyboard_channel: Channel,
+    pub screen_keyboard_velocity: u8,
+    pub screen_keyboard_pedal_hold: bool,
     pub notenamestyle: NoteNameStyle,
     pub correction_system_index: usize,
 }
@@ -54,7 +54,6 @@ struct LatticeDrawState<T: StackType> {
     tmp_correction: Correction<T>,
     tmp_stack: Stack<T>,
     tmp_relative_stack: Stack<T>,
-    controls: Rc<RefCell<LatticeWindowControls>>,
 }
 
 impl<T: FiveLimitStackType> LatticeDrawState<T> {
@@ -74,13 +73,13 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
     fn draw_stacks(
         &mut self,
         ui: &mut egui::Ui,
+        controls: &LatticeWindowControls,
         reference: &Stack<T>,
         tuning_reference: &Reference<T>,
         lowest_height: f32,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
         let rect = ui.max_rect();
-        let controls = self.controls.borrow();
 
         let c4_hpos = rect.left()
             + controls.zoom * ET_SEMITONE_WIDTH * (0.5 + tuning_reference.c4_semitones() as f32);
@@ -271,7 +270,7 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
             self.tmp_stack.actual.assign(actual);
 
             let note_name_height_below_vpos =
-                self.draw_corrected_note_name(ui, hpos, vpos, &self.tmp_stack, style);
+                self.draw_corrected_note_name(ui, controls, hpos, vpos, &self.tmp_stack, style);
             let interaction_rect = egui::Rect::from_min_max(
                 pos2(
                     hpos - controls.zoom * FONT_SIZE,
@@ -329,7 +328,7 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
                                 ui,
                                 &mut self.tmp_temperaments,
                                 &mut self.tmp_correction,
-                                self.controls.borrow().correction_system_index,
+                                controls.correction_system_index,
                                 &mut self.tmp_relative_stack,
                             ) {
                                 let _ = forward.send(FromUi::Consider {
@@ -349,13 +348,13 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
     fn draw_corrected_note_name(
         &self,
         ui: &mut egui::Ui,
+        controls: &LatticeWindowControls,
         hpos: f32,
         vpos: f32,
         stack: &Stack<T>,
         style: &DrawStyle,
     ) -> f32 {
         let rect = ui.max_rect();
-        let controls = self.controls.borrow();
 
         let first_line_height = match style {
             DrawStyle::Background | DrawStyle::Considered | DrawStyle::Antenna => {
@@ -414,13 +413,13 @@ pub struct LatticeWindow<T: StackType> {
     pedal_hold: [bool; 16],
     tunings: [Stack<T>; 128],
 
-    reference: Option<Stack<T>>,
+    pub reference: Option<Stack<T>>,
     tuning_reference: Option<Reference<T>>,
     considered_notes: PartialNeighbourhood<T>,
 
     draw_state: LatticeDrawState<T>,
 
-    controls: Rc<RefCell<LatticeWindowControls>>,
+    pub controls: LatticeWindowControls,
 }
 
 #[derive(PartialEq)]
@@ -472,9 +471,8 @@ impl<'a, T: StackType> Iterator for PureStacksAround<'a, T> {
 }
 
 impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
-    pub fn new(config: Rc<RefCell<LatticeWindowControls>>) -> Self {
+    pub fn new(config: LatticeWindowControls) -> Self {
         let now = Instant::now();
-        let correction_system_index = config.borrow().correction_system_index;
         Self {
             active_notes: core::array::from_fn(|_| KeyState::new(now)),
             pedal_hold: [false; 16],
@@ -488,10 +486,9 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             draw_state: LatticeDrawState {
                 stacks_to_draw: HashMap::new(),
                 tmp_temperaments: vec![false; T::num_temperaments()],
-                tmp_correction: Correction::new_zero(correction_system_index),
+                tmp_correction: Correction::new_zero(config.correction_system_index),
                 tmp_stack: Stack::new_zero(),
                 tmp_relative_stack: Stack::new_zero(),
-                controls: config.clone(),
             },
 
             controls: config,
@@ -503,7 +500,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
         {
             self.draw_state.clear();
 
-            let controls = self.controls.borrow();
+            let controls = &self.controls;
 
             for stack in PureStacksAround::new(&controls.background_stack_distances, reference) {
                 self.draw_state
@@ -548,6 +545,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             }
             self.draw_state.draw_stacks(
                 ui,
+                &controls,
                 reference,
                 tuning_reference,
                 self.keyboard_height(),
@@ -558,7 +556,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
 
     fn draw_keyboard(&self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let rect = ui.max_rect();
-        let controls = self.controls.borrow();
+        let controls = &self.controls;
         let white_key_vertical_center = rect.bottom() - controls.zoom * WHITE_KEY_LENGTH / 2.0;
         let black_key_vertical_center =
             rect.bottom() - controls.zoom * (WHITE_KEY_LENGTH - BLACK_KEY_LENGTH / 2.0);
@@ -595,16 +593,16 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             if response.drag_started() {
                 let _ = forward.send(FromUi::NoteOn {
                     note: key_number as u8,
-                    channel: controls.keyboard_channel,
-                    velocity: controls.keyboard_velocity,
+                    channel: controls.screen_keyboard_channel,
+                    velocity: controls.screen_keyboard_velocity,
                     time: Instant::now(),
                 });
             }
             if response.drag_stopped() {
                 let _ = forward.send(FromUi::NoteOff {
                     note: key_number as u8,
-                    channel: controls.keyboard_channel,
-                    velocity: controls.keyboard_velocity,
+                    channel: controls.screen_keyboard_channel,
+                    velocity: controls.screen_keyboard_velocity,
                     time: Instant::now(),
                 });
             }
@@ -646,16 +644,16 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             if response.drag_started() {
                 let _ = forward.send(FromUi::NoteOn {
                     note: key_number as u8,
-                    channel: controls.keyboard_channel,
-                    velocity: controls.keyboard_velocity,
+                    channel: controls.screen_keyboard_channel,
+                    velocity: controls.screen_keyboard_velocity,
                     time: Instant::now(),
                 });
             }
             if response.drag_stopped() {
                 let _ = forward.send(FromUi::NoteOff {
                     note: key_number as u8,
-                    channel: controls.keyboard_channel,
-                    velocity: controls.keyboard_velocity,
+                    channel: controls.screen_keyboard_channel,
+                    velocity: controls.screen_keyboard_velocity,
                     time: Instant::now(),
                 });
             }
@@ -736,7 +734,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn keyboard_width(&self) -> f32 {
-        self.controls.borrow().zoom * WHITE_KEY_WIDTH * 75.0 // 75 is the number of white keys in the MIDI range
+        self.controls.zoom * WHITE_KEY_WIDTH * 75.0 // 75 is the number of white keys in the MIDI range
     }
 
     fn drawing_width(&self) -> f32 {
@@ -744,11 +742,11 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn keyboard_height(&self) -> f32 {
-        self.controls.borrow().zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH)
+        self.controls.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH)
     }
 
     fn grid_height(&self) -> f32 {
-        let controls = self.controls.borrow();
+        let controls = &self.controls;
         controls.zoom * {
             let mut min_y_offset = f32::MAX;
             let mut max_y_offset = f32::MIN;
@@ -769,9 +767,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn drawing_height(&self) -> f32 {
-        self.keyboard_height()
-            + self.grid_height()
-            + self.controls.borrow().zoom * FREE_SPACE_ABOVE_KEYBOARD
+        self.keyboard_height() + self.grid_height() + self.controls.zoom * FREE_SPACE_ABOVE_KEYBOARD
     }
 }
 
@@ -821,6 +817,8 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindow<T> {
                 time,
             } => {
                 self.pedal_hold[*channel as usize] = *value != 0;
+                self.controls.screen_keyboard_pedal_hold =
+                    (*channel == self.controls.screen_keyboard_channel) & (*value != 0);
                 if *value == 0 {
                     for n in self.active_notes.iter_mut() {
                         n.pedal_off(*channel, *time);

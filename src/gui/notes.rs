@@ -739,25 +739,20 @@ impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
 }
 
 impl<T: FiveLimitStackType> GuiShow<T> for NoteWindow<T> {
-    fn show(&mut self,  ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
+    fn show(&mut self, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
         egui::TopBottomPanel::bottom("note window bottom panel").show_inside(ui, |ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .add(
-                        egui::widgets::Slider::new(
-                            &mut self.note_renderer.line_spacing,
-                            5.0..=100.0,
-                        )
+            if ui
+                .add(
+                    egui::widgets::Slider::new(&mut self.note_renderer.line_spacing, 5.0..=100.0)
                         .smart_aim(false)
                         .logarithmic(true)
                         .show_value(false)
                         .text("zoom"),
-                    )
-                    .drag_stopped()
-                {
-                    self.note_renderer.reload_svg_noteshapes(ui.ctx());
-                }
-            });
+                )
+                .drag_stopped()
+            {
+                self.note_renderer.reload_svg_noteshapes(ui.ctx());
+            }
         });
         egui::CentralPanel::default().show_inside(ui, |ui| {
             self.note_renderer
