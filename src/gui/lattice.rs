@@ -101,7 +101,7 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
             - controls.zoom * FREE_SPACE_ABOVE_KEYBOARD
             - max_y_offset;
         let reference_hpos =
-            c4_hpos + controls.zoom * ET_SEMITONE_WIDTH * reference.target_semitones() as f32;
+            c4_hpos + controls.zoom * ET_SEMITONE_WIDTH * reference.semitones() as f32;
 
         let grid_line_color = ui
             .style()
@@ -147,7 +147,7 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
         }
 
         // then, draw the grid lines. They won't be affected by temperaments
-        for (target, (_actual, style)) in self.stacks_to_draw.iter() {
+        for (target, (actual, style)) in self.stacks_to_draw.iter() {
             let mut in_bounds = true;
             for i in 0..T::num_intervals() {
                 if (target[i] - reference.target[i]).abs() > controls.background_stack_distances[i]
@@ -160,7 +160,7 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
                 let start_hpos = c4_hpos
                     + controls.zoom
                         * ET_SEMITONE_WIDTH
-                        * semitones_from_target::<T>(target.into()) as f32;
+                        * semitones_from_actual::<T>(actual.into()) as f32;
                 let start_vpos = reference_vpos
                     + controls.zoom * ET_SEMITONE_WIDTH * {
                         let mut y = 0.0;
@@ -324,7 +324,13 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
                             self.tmp_relative_stack.clone_from(&self.tmp_stack);
                             self.tmp_relative_stack.scaled_add(-1, reference);
                             if temperament_applier(
-                                true,
+                                Some(&format!(
+                                    "make pure relative to {}",
+                                    reference.corrected_notename(
+                                        &controls.notenamestyle,
+                                        controls.correction_system_index
+                                    )
+                                )),
                                 ui,
                                 &mut self.tmp_temperaments,
                                 &mut self.tmp_correction,

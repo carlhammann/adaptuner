@@ -89,7 +89,7 @@ pub enum ToProcess<T: StackType> {
     AddStrategyFromTemplate {
         index: usize,
         time: Instant,
-    }
+    },
 }
 
 pub enum FromProcess<T: StackType> {
@@ -183,6 +183,7 @@ pub enum FromStrategy<T: StackType> {
     },
     CurrentNeighbourhoodName {
         index: usize,
+        n_neighbourhoods: usize,
         name: String,
     },
     NotifyFit {
@@ -324,6 +325,7 @@ pub enum ToUi<T: StackType> {
     },
     CurrentNeighbourhoodName {
         index: usize,
+        n_neighbourhoods: usize,
         name: String,
     },
     DetunedNote {
@@ -413,7 +415,7 @@ pub enum FromUi<T: StackType> {
     AddStrategyFromTemplate {
         index: usize,
         time: Instant,
-    }
+    },
 }
 
 pub enum ToMidiIn {
@@ -603,9 +605,17 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
             ),
             FromStrategy::SetReference { stack } => (None {}, Some(ToUi::SetReference { stack })),
             FromStrategy::Consider { stack } => (None {}, Some(ToUi::Consider { stack })),
-            FromStrategy::CurrentNeighbourhoodName { index, name } => (
+            FromStrategy::CurrentNeighbourhoodName {
+                index,
+                n_neighbourhoods,
+                name,
+            } => (
                 None {},
-                Some(ToUi::CurrentNeighbourhoodName { index, name }),
+                Some(ToUi::CurrentNeighbourhoodName {
+                    index,
+                    n_neighbourhoods,
+                    name,
+                }),
             ),
             FromStrategy::NotifyFit {
                 pattern_name,

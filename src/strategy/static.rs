@@ -99,6 +99,7 @@ impl<T: StackType> StaticTuning<T> {
         let _ = forward.send(FromProcess::FromStrategy(
             FromStrategy::CurrentNeighbourhoodName {
                 index: self.curr_neighbourhood_index,
+                n_neighbourhoods: self.neighbourhoods.len(),
                 name: self.neighbourhoods[self.curr_neighbourhood_index]
                     .name()
                     .into(),
@@ -187,6 +188,7 @@ impl<T: StackType + std::fmt::Debug> Strategy<T> for StaticTuning<T> {
                 let _ = forward.send(FromProcess::FromStrategy(
                     FromStrategy::CurrentNeighbourhoodName {
                         index: self.curr_neighbourhood_index,
+                        n_neighbourhoods: self.neighbourhoods.len(),
                         name: self.neighbourhoods[self.curr_neighbourhood_index]
                             .name()
                             .into(),
@@ -232,6 +234,7 @@ impl<T: StackType + std::fmt::Debug> Strategy<T> for StaticTuning<T> {
         let _ = forward.send(FromProcess::FromStrategy(
             FromStrategy::CurrentNeighbourhoodName {
                 index: self.curr_neighbourhood_index,
+                n_neighbourhoods: self.neighbourhoods.len(),
                 name: self.neighbourhoods[self.curr_neighbourhood_index]
                     .name()
                     .into(),
@@ -284,6 +287,7 @@ impl<T: StackType + std::fmt::Debug> Strategy<T> for StaticTuning<T> {
         let _ = forward.send(FromProcess::FromStrategy(
             FromStrategy::CurrentNeighbourhoodName {
                 index: self.curr_neighbourhood_index,
+                n_neighbourhoods: self.neighbourhoods.len(),
                 name: self.neighbourhoods[self.curr_neighbourhood_index]
                     .name()
                     .into(),

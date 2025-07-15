@@ -3,10 +3,16 @@ use std::{sync::mpsc, time::Instant};
 use eframe::egui;
 
 use crate::{
-    gui::{common::{correction_system_chooser, note_picker}, r#trait::GuiShow}, interval::{
+    gui::{
+        common::{correction_system_chooser, note_picker},
+        r#trait::GuiShow,
+    },
+    interval::{
         stack::Stack,
         stacktype::r#trait::{FiveLimitStackType, StackType},
-    }, msg::{FromUi, HandleMsgRef, ToUi}, notename::{correction::Correction, NoteNameStyle}
+    },
+    msg::{FromUi, HandleMsgRef, ToUi},
+    notename::{correction::Correction, NoteNameStyle},
 };
 
 pub struct ReferenceEditor<T: StackType> {
@@ -41,10 +47,13 @@ impl<T: StackType> ReferenceEditor<T> {
 impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceEditor<T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         if let Some(reference) = &self.reference {
-            ui.label(format!(
-                "Current reference is {}",
-                reference.corrected_notename(&self.notenamestyle, self.correction_system_index),
-            ));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.label("Current reference is ");
+                ui.strong(
+                    reference.corrected_notename(&self.notenamestyle, self.correction_system_index),
+                );
+            });
         } else {
             ui.label("Currently no reference");
         }
@@ -62,20 +71,24 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceEditor<T> {
         ui.separator();
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
-            ui.label(format!(
-                "New reference will be {}",
-                self.new_reference
-                    .corrected_notename(&self.notenamestyle, self.correction_system_index),
-            ));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.label("New reference will be ");
+                ui.strong(
+                    self.new_reference
+                        .corrected_notename(&self.notenamestyle, self.correction_system_index),
+                );
+            });
         });
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             if ui
-                .add(
-                    egui::Button::new("update reference").selected(match &self.reference {
+                .add_enabled(
+                    match &self.reference {
                         None {} => true,
                         Some(r) => *r != self.new_reference,
-                    }),
+                    },
+                    egui::Button::new("update reference"),
                 )
                 .clicked()
             {

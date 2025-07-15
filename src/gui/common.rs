@@ -24,7 +24,7 @@ pub fn show_hide_button(ui: &mut egui::Ui, state: &mut bool, what: &'static str)
 
 pub fn correction_system_chooser<T: StackType>(ui: &mut egui::Ui, system_index: &mut usize) {
     ui.vertical(|ui| {
-        ui.label("write temperaments in terms of");
+        ui.label("write temperaments as fractions of");
         for (i, system) in T::correction_systems().iter().enumerate() {
             ui.selectable_value(system_index, i, &system.name);
         }
@@ -103,7 +103,7 @@ pub fn note_picker<T: StackType>(
         ui.label("tempered with:");
 
         temperament_applier(
-            false,
+            None {},
             ui,
             tmp_temperaments,
             tmp_correction,
@@ -115,7 +115,7 @@ pub fn note_picker<T: StackType>(
 
 /// returns true on change
 pub fn temperament_applier<T: StackType>(
-    pure_button: bool,
+    reset_button_text: Option<&str>,
     ui: &mut egui::Ui,
     tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
@@ -125,10 +125,13 @@ pub fn temperament_applier<T: StackType>(
     let mut temperament_select_changed = false;
     let mut correction_changed = false;
     let mut made_pure = false;
-    if pure_button {
+    if reset_button_text.is_some() {
         ui.vertical_centered(|ui| {
             if ui
-                .add_enabled(!stack.is_target(), egui::Button::new("make pure"))
+                .add_enabled(
+                    !stack.is_target(),
+                    egui::Button::new(reset_button_text.unwrap()),
+                )
                 .clicked()
             {
                 tmp_temperaments.iter_mut().for_each(|b| *b = false);

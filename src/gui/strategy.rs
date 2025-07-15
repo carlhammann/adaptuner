@@ -140,6 +140,7 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
             egui::containers::Window::new(format!("global tuning ({current_name})"))
                 .open(&mut x.show_tuning_editor)
                 .collapsible(false)
+                .resizable(false)
                 .show(ctx, |ui| {
                     x.tuning_editor.show(ui, forward);
                 });
@@ -149,6 +150,7 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
             egui::containers::Window::new(format!("reference ({current_name})"))
                 .open(&mut x.show_reference_editor)
                 .collapsible(false)
+                .resizable(false)
                 .show(ctx, |ui| {
                     x.reference_editor.show(ui, forward);
                 });
@@ -158,6 +160,7 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
             egui::containers::Window::new(format!("neighbourhoods ({current_name})"))
                 .open(&mut x.show_neighbourhood_editor)
                 .collapsible(false)
+                .resizable(false)
                 .show(ctx, |ui| {
                     x.neigbourhood_editor.show(ui, forward);
                 });
@@ -176,6 +179,8 @@ impl<'a, T: StackType> AsWindows<'a, T> {
         if x.show_new_strategy_window {
             egui::containers::Window::new("new strategy")
                 .collapsible(false)
+                .resizable(false)
+                .open(&mut x.show_new_strategy_window)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("name:");
@@ -185,10 +190,10 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                     ui.separator();
 
                     ui.horizontal(|ui| {
-                        ui.label("clone");
+                        ui.label("copy of");
                         ui.vertical(|ui| {
                             egui::ComboBox::from_id_salt("clone strategy picker")
-                                .selected_text(x.clone_index.map_or("...", |i| &x.strategies[i].0))
+                                .selected_text(x.clone_index.map_or("", |i| &x.strategies[i].0))
                                 .show_ui(ui, |ui| {
                                     for (i, (name, _)) in x.strategies.iter().enumerate() {
                                         if ui
@@ -203,11 +208,11 @@ impl<'a, T: StackType> AsWindows<'a, T> {
 
                         ui.separator();
 
-                        ui.label("template");
+                        ui.label("from template");
                         ui.vertical(|ui| {
                             egui::ComboBox::from_id_salt("template strategy picker")
                                 .selected_text(
-                                    x.template_index.map_or("...", |i| &x.templates[i].name),
+                                    x.template_index.map_or("", |i| &x.templates[i].name),
                                 )
                                 .show_ui(ui, |ui| {
                                     for (i, conf) in x.templates.iter().enumerate() {
@@ -232,7 +237,10 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                         & (x.template_index.is_some() | x.clone_index.is_some());
 
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(finished, egui::Button::new("add")).clicked() {
+                        if ui
+                            .add_enabled(finished, egui::Button::new("create"))
+                            .clicked()
+                        {
                             x.clone_index.map(|i| {
                                 x.strategies
                                     .push((x.new_strategy_name.clone(), x.strategies[i].1));
@@ -256,14 +264,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                             x.new_strategy_name.clear();
                             x.clone_index = None {};
                             x.template_index = None {};
-                            x.show_new_strategy_window = false;
-                        }
-
-                        if ui.button("discard").clicked() {
-                            x.new_strategy_name.clear();
-                            x.clone_index = None {};
-                            x.template_index = None {};
-                            x.show_new_strategy_window = false;
+                            // x.show_new_strategy_window = false;
                         }
                     });
                 });

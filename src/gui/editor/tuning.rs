@@ -51,14 +51,18 @@ impl<T: StackType> TuningEditor<T> {
 impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningEditor<T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         if let Some(reference) = &self.reference {
-            ui.label(format!(
-                "Current tuning reference is {} at {:.02} Hz (MIDI note {:.02}).",
-                reference
-                    .stack
-                    .corrected_notename(&self.notenamestyle, self.correction_system_index),
-                reference.get_frequency(),
-                reference.semitones
-            ));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.label("Current tuning is ");
+                ui.strong(
+                    reference
+                        .stack
+                        .corrected_notename(&self.notenamestyle, self.correction_system_index),
+                );
+                ui.label(" at");
+                ui.strong(format!(" {:.02} Hz", reference.get_frequency()));
+                ui.label(format!(" (MIDI note {:.02})", reference.semitones));
+            });
         } else {
             ui.label("Currently no global tuning");
         }
@@ -74,33 +78,35 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningEditor<T> {
         );
 
         ui.separator();
-        ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
-            ui.label(format!(
-                "New reference will be {} at",
+
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.label("New tuning will be ");
+            ui.strong(
                 self.new_reference
                     .stack
-                    .corrected_notename(&self.notenamestyle, self.correction_system_index)
-            ));
+                    .corrected_notename(&self.notenamestyle, self.correction_system_index),
+            );
+            ui.label(" at ");
 
             let mut new_freq = frequency_from_semitones(self.new_reference.semitones);
             ui.add(egui::DragValue::new(&mut new_freq));
-            ui.label("Hz");
+            ui.label(" Hz");
             self.new_reference.semitones = semitones_from_frequency(new_freq);
 
-            ui.label("(MIDI note");
+            ui.label(" (MIDI note");
             ui.add(egui::DragValue::new(&mut self.new_reference.semitones));
-            ui.label(").");
+            ui.label(")");
         });
 
-        ui.separator();
+        let changed = match &self.reference {
+            None {} => true,
+            Some(r) => *r != self.new_reference,
+        };
+
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             if ui
-                .add(
-                    egui::Button::new("update tuning").selected(match &self.reference {
-                        None {} => true,
-                        Some(r) => *r != self.new_reference,
-                    }),
-                )
+                .add_enabled(changed, egui::Button::new("update tuning"))
                 .clicked()
             {
                 self.reference = Some(self.new_reference.clone());
