@@ -1,12 +1,11 @@
 pub mod backend;
 pub mod common;
 pub mod connection;
+pub mod editor;
 pub mod latency;
 pub mod lattice;
 pub mod latticecontrol;
 pub mod notes;
-pub mod reference;
 pub mod strategy;
 pub mod toplevel;
 pub mod r#trait;
-pub mod tuningreference;

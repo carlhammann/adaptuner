@@ -124,7 +124,13 @@ impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> Strategy<T> for
         todo!()
     }
 
-    fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromProcess<T>>) {
+    fn start(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        time: Instant,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) {
         todo!()
     }
 }

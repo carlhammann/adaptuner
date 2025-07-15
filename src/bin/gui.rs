@@ -6,8 +6,11 @@ use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
     config::{initialise_strategy, Config},
     gui::{
-        lattice::LatticeWindowControls, reference::ReferenceWindowConfig, toplevel::ManyWindows,
-        tuningreference::TuningReferenceWindowConfig,
+        lattice::LatticeWindowControls,
+        editor::{
+            reference::ReferenceEditorConfig, tuning::TuningEditorConfig,
+        },
+        toplevel::Toplevel,
     },
     interval::stacktype::fivelimit::{TheFiveLimitStackType, DIESIS_SYNTONIC},
     notename::NoteNameStyle,
@@ -66,16 +69,18 @@ fn run() -> Result<(), Box<dyn Error>> {
         keyboard_velocity: 64,
         pedal_hold: false,
     };
-    let reference_window_config = ReferenceWindowConfig {
+    let reference_window_config = ReferenceEditorConfig {
         notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
         correction_system_index,
     };
-    let tuning_reference_window_config = TuningReferenceWindowConfig {
+    let tuning_reference_window_config = TuningEditorConfig {
         notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
         correction_system_index,
     };
 
     let latency_window_length = 20;
+
+    let strategy_names_and_kinds = config.strategy_names_and_kinds();
 
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
@@ -84,7 +89,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         midi_in,
         midi_out,
         move || {
-            ProcessFromStrategy::<TheFiveLimitStackType>::new(
+            ProcessFromStrategy::new(
                 config
                     .strategies
                     .drain(..)
@@ -94,7 +99,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         },
         move || Pitchbend12::new(backend_config),
         move |ctx, tx| {
-            ManyWindows::new(
+            Toplevel::new(
+                strategy_names_and_kinds,
                 lattice_window_config,
                 reference_window_config,
                 backend_window_config,

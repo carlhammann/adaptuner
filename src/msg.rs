@@ -78,6 +78,10 @@ pub enum ToProcess<T: StackType> {
     },
     ToggleSostenutoIsNextNeighbourhood {},
     ToggleSoftPedalIsSetReference {},
+    SwitchToStrategy {
+        index: usize,
+        time: Instant,
+    },
 }
 
 pub enum FromProcess<T: StackType> {
@@ -119,6 +123,9 @@ pub enum FromProcess<T: StackType> {
         channel: Channel,
         program: u8,
         time: Instant,
+    },
+    SwitchToStrategy {
+        index: usize,
     },
 }
 
@@ -317,6 +324,9 @@ pub enum ToUi<T: StackType> {
         actual: Semitones,
         explanation: &'static str,
     },
+    SwitchToStrategy {
+        index: usize,
+    },
 }
 
 pub enum FromUi<T: StackType> {
@@ -382,6 +392,10 @@ pub enum FromUi<T: StackType> {
     },
     ChannelsToUse {
         channels: [bool; 16],
+        time: Instant,
+    },
+    SwitchToStrategy {
+        index: usize,
         time: Instant,
     },
 }
@@ -552,6 +566,9 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
                 None {},
                 None {},
             ),
+            FromProcess::SwitchToStrategy { index } => {
+                (None {}, None {}, Some(ToUi::SwitchToStrategy { index }))
+            }
         }
     }
 }
@@ -702,7 +719,11 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::PedalHold { channel, value, time } => (
+            FromUi::PedalHold {
+                channel,
+                value,
+                time,
+            } => (
                 Some(ToProcess::PedalHold {
                     channel,
                     value,
@@ -742,6 +763,12 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::ChannelsToUse { channels, time } => (
                 None {},
                 Some(ToBackend::ChannelsToUse { channels, time }),
+                None {},
+                None {},
+            ),
+            FromUi::SwitchToStrategy { index, time } => (
+                Some(ToProcess::SwitchToStrategy { index, time }),
+                None {},
                 None {},
                 None {},
             ),

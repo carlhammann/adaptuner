@@ -3,42 +3,31 @@ use std::{sync::mpsc, time::Instant};
 use eframe::egui;
 
 use crate::{
-    interval::{
+    gui::{common::{correction_system_chooser, note_picker}, r#trait::GuiShow}, interval::{
         stack::Stack,
         stacktype::r#trait::{FiveLimitStackType, StackType},
-    },
-    msg::{FromUi, HandleMsgRef, ToUi},
-    notename::{correction::Correction, NoteNameStyle},
-    reference::{frequency_from_semitones, semitones_from_frequency, Reference},
+    }, msg::{FromUi, HandleMsgRef, ToUi}, notename::{correction::Correction, NoteNameStyle}
 };
 
-use super::{
-    common::{correction_system_chooser, note_picker},
-    r#trait::GuiShow,
-};
-
-pub struct TuningReferenceWindow<T: StackType> {
-    reference: Option<Reference<T>>,
-    new_reference: Reference<T>,
+pub struct ReferenceEditor<T: StackType> {
+    reference: Option<Stack<T>>,
+    new_reference: Stack<T>,
     temperaments_applied_to_new_reference: Vec<bool>,
     corrections_applied_to_new_reference: Correction<T>,
     notenamestyle: NoteNameStyle,
     correction_system_index: usize,
 }
 
-pub struct TuningReferenceWindowConfig {
+pub struct ReferenceEditorConfig {
     pub notenamestyle: NoteNameStyle,
     pub correction_system_index: usize,
 }
 
-impl<T: StackType> TuningReferenceWindow<T> {
-    pub fn new(config: TuningReferenceWindowConfig) -> Self {
+impl<T: StackType> ReferenceEditor<T> {
+    pub fn new(config: ReferenceEditorConfig) -> Self {
         Self {
             reference: None {},
-            new_reference: Reference {
-                stack: Stack::new_zero(),
-                semitones: 60.0,
-            },
+            new_reference: Stack::new_zero(),
             temperaments_applied_to_new_reference: vec![false; T::num_temperaments()],
             corrections_applied_to_new_reference: Correction::new_zero(
                 config.correction_system_index,
@@ -49,19 +38,15 @@ impl<T: StackType> TuningReferenceWindow<T> {
     }
 }
 
-impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> {
+impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceEditor<T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         if let Some(reference) = &self.reference {
             ui.label(format!(
-                "Current tuning reference is {} at {:.02} Hz (MIDI note {:.02}).",
-                reference
-                    .stack
-                    .corrected_notename(&self.notenamestyle, self.correction_system_index),
-                reference.get_frequency(),
-                reference.semitones
+                "Current reference is {}",
+                reference.corrected_notename(&self.notenamestyle, self.correction_system_index),
             ));
         } else {
-            ui.label("Currently no global tuning");
+            ui.label("Currently no reference");
         }
 
         ui.separator();
@@ -71,33 +56,23 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> 
             &mut self.temperaments_applied_to_new_reference,
             &mut self.corrections_applied_to_new_reference,
             self.correction_system_index,
-            &mut self.new_reference.stack,
+            &mut self.new_reference,
         );
 
         ui.separator();
+
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             ui.label(format!(
-                "New reference will be {} at",
+                "New reference will be {}",
                 self.new_reference
-                    .stack
-                    .corrected_notename(&self.notenamestyle, self.correction_system_index)
+                    .corrected_notename(&self.notenamestyle, self.correction_system_index),
             ));
-
-            let mut new_freq = frequency_from_semitones(self.new_reference.semitones);
-            ui.add(egui::DragValue::new(&mut new_freq));
-            ui.label("Hz");
-            self.new_reference.semitones = semitones_from_frequency(new_freq);
-
-            ui.label("(MIDI note");
-            ui.add(egui::DragValue::new(&mut self.new_reference.semitones));
-            ui.label(").");
         });
 
-        ui.separator();
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             if ui
                 .add(
-                    egui::Button::new("update tuning").selected(match &self.reference {
+                    egui::Button::new("update reference").selected(match &self.reference {
                         None {} => true,
                         Some(r) => *r != self.new_reference,
                     }),
@@ -105,7 +80,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> 
                 .clicked()
             {
                 self.reference = Some(self.new_reference.clone());
-                let _ = forward.send(FromUi::SetTuningReference {
+                let _ = forward.send(FromUi::SetReference {
                     reference: self.new_reference.clone(),
                     time: Instant::now(),
                 });
@@ -118,10 +93,12 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningReferenceWindow<T> 
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for TuningReferenceWindow<T> {
+impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for ReferenceEditor<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
-            ToUi::SetTuningReference { reference } => self.reference = Some(reference.clone()),
+            ToUi::SetReference { stack } => {
+                self.reference = Some(stack.clone());
+            }
             _ => {}
         }
     }

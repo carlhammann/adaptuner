@@ -15,7 +15,7 @@ use crate::{
 
 use super::{common::correction_system_chooser, lattice::LatticeWindowControls, r#trait::GuiShow};
 
-pub fn lattice_control_window<T: StackType>(
+pub fn lattice_control<T: StackType>(
     ui: &mut egui::Ui,
     values: &Rc<RefCell<LatticeWindowControls>>,
 ) {
@@ -37,7 +37,7 @@ pub fn lattice_control_window<T: StackType>(
             });
         });
 
-        &mut x.correction_system_index // whatever
+        x // whatever
     });
 }
 
@@ -52,7 +52,8 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindowSmallContro
                 if *channel == my_channel {
                     let _ = RefMut::map(control_values.borrow_mut(), |x| {
                         x.pedal_hold = *value > 0;
-                        &mut x.pedal_hold // whatever
+
+                        x // whatever
                     });
                 }
             }
@@ -101,7 +102,8 @@ impl<T: StackType> GuiShow<T> for LatticeWindowSmallControls {
 
                 ui.label("screen keyboard MIDI:");
             });
-            &mut x.zoom // whatever
+
+            x // whatever
         });
     }
 }

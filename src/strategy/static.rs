@@ -26,7 +26,7 @@ pub struct StaticTuning<T: IntervalBasis> {
 }
 
 // PeriodicIntervalBasis is required for (De-)Serialize of neighbourhoods (for now...)
-//
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
@@ -271,7 +271,13 @@ impl<T: StackType + std::fmt::Debug> Strategy<T> for StaticTuning<T> {
         false
     }
 
-    fn start(&mut self, _time: Instant, forward: &mpsc::Sender<FromProcess<T>>) {
+    fn start(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        time: Instant,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    ) {
         let _ = forward.send(FromProcess::FromStrategy(
             FromStrategy::SetTuningReference {
                 reference: self.tuning_reference.clone(),
@@ -295,5 +301,7 @@ impl<T: StackType + std::fmt::Debug> Strategy<T> for StaticTuning<T> {
                 stack: stack.clone(),
             }));
         });
+
+        self.retune_all(keys, tunings, time, forward);
     }
 }

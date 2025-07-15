@@ -61,5 +61,11 @@ pub trait Strategy<T: StackType> {
         forward: &mpsc::Sender<FromProcess<T>>,
     ) -> bool;
 
-    fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromProcess<T>>);
+    fn start(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        time: Instant,
+        forward: &mpsc::Sender<FromProcess<T>>,
+    );
 }
