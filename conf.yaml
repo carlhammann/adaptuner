@@ -76,6 +76,9 @@ temperaments:
       octave: 1
 strategies:
 - name: foo strategy
+  description: |
+    not a very good
+    strategy
   config: !static-tuning
     neighbourhoods:
     - !periodic-complete 

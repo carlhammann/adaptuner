@@ -4,7 +4,7 @@ use eframe::egui;
 
 use crate::{
     config::{ExtendedStrategyConfig, StrategyKind},
-    interval::stacktype::r#trait::{FiveLimitStackType, StackType},
+    interval::stacktype::r#trait::{FiveLimitStackType, IntervalBasis, StackType},
     msg::{FromUi, HandleMsgRef, ToUi},
 };
 
@@ -19,14 +19,16 @@ use super::{
 };
 
 pub struct StrategyWindows<T: StackType + 'static> {
-    current_strategy: usize,
-    strategies: Vec<(String, StrategyKind)>,
+    curr_strategy_index: usize,
+    selection: Option<usize>,
+    strategies: Vec<ExtendedStrategyConfig<T>>,
 
     templates: &'static [ExtendedStrategyConfig<T>],
     show_new_strategy_window: bool,
     clone_index: Option<usize>,
     template_index: Option<usize>,
     new_strategy_name: String,
+    new_strategy_description: String,
 
     show_delete_strategy_window: bool,
     delete_index: Option<usize>,
@@ -41,19 +43,21 @@ pub struct StrategyWindows<T: StackType + 'static> {
 
 impl<T: StackType> StrategyWindows<T> {
     pub fn new(
-        strategies: Vec<(String, StrategyKind)>,
+        strategies: Vec<ExtendedStrategyConfig<T>>,
         templates: &'static [ExtendedStrategyConfig<T>],
         tuning_editor: TuningEditorConfig,
         reference_editor: ReferenceEditorConfig,
     ) -> Self {
         Self {
-            current_strategy: 0,
+            curr_strategy_index: 0,
+            selection: Some(0),
             strategies,
             templates,
             show_new_strategy_window: false,
             clone_index: None {},
             template_index: None {},
-            new_strategy_name: String::with_capacity(64),
+            new_strategy_name: String::with_capacity(32),
+            new_strategy_description: String::with_capacity(128),
             show_delete_strategy_window: false,
             delete_index: None {},
             show_tuning_editor: false,
@@ -78,13 +82,13 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::SwitchToStrategy { index } => {
-                self.current_strategy = *index;
+                self.curr_strategy_index = *index;
                 self.hide_all_windows();
             }
             ToUi::DeleteStrategy { index } => {
                 // the next two lines must follow exatcly the same logic as [crate::process::FromStrategy]
                 self.strategies.remove(*index);
-                self.current_strategy = self.current_strategy.min(self.strategies.len() - 1);
+                self.curr_strategy_index = self.curr_strategy_index.min(self.strategies.len() - 1);
             }
             _ => {}
         }
@@ -94,49 +98,60 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
     }
 }
 
+fn strategy_picker<T: IntervalBasis>(
+    ui: &mut egui::Ui,
+    id_salt: &'static str,
+    index: &mut Option<usize>,
+    strategies: &[ExtendedStrategyConfig<T>],
+) {
+    egui::ComboBox::from_id_salt(id_salt)
+        .selected_text(index.map_or("", |i| &strategies[i].name))
+        .show_ui(ui, |ui| {
+            for (i, esc) in strategies.iter().enumerate() {
+                let r = ui.selectable_value(index, Some(i), &esc.name);
+                if !esc.description.is_empty() {
+                    r.on_hover_text_at_pointer(&esc.description);
+                }
+            }
+        });
+}
+
 pub struct AsStrategyPicker<'a, T: StackType + 'static>(pub &'a mut StrategyWindows<T>);
 
 impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let AsStrategyPicker(x) = self;
         ui.horizontal(|ui| {
-            let (current_name, current_kind) = &x.strategies[x.current_strategy];
+            if ui.button("new strategy").clicked() {
+                x.show_new_strategy_window = true;
+            }
 
-            egui::ComboBox::from_id_salt("strategy picker")
-                .selected_text(current_name)
-                .show_ui(ui, |ui| {
-                    for (i, (name, _)) in x.strategies.iter().enumerate() {
-                        if ui
-                            .selectable_value(&mut x.current_strategy, i, name)
-                            .changed()
-                        {
-                            let _ = forward.send(FromUi::SwitchToStrategy {
-                                index: i,
-                                time: Instant::now(),
-                            });
-                        }
-                    }
-
-                    ui.separator();
-
-                    if ui.button("new strategy").clicked() {
-                        x.show_new_strategy_window = true;
-                    }
-
-                    if ui
-                        .add_enabled(
-                            x.strategies.len() > 1,
-                            egui::Button::new("delete a strategy"),
-                        )
-                        .clicked()
-                    {
-                        x.show_delete_strategy_window = true;
-                    }
-                });
+            if ui
+                .add_enabled(
+                    x.strategies.len() > 1,
+                    egui::Button::new("delete a strategy"),
+                )
+                .clicked()
+            {
+                x.show_delete_strategy_window = true;
+            }
 
             ui.separator();
 
-            match current_kind {
+            strategy_picker(ui, "strategy picker", &mut x.selection, &x.strategies);
+            if let Some(i) = x.selection {
+                if i != x.curr_strategy_index {
+                    x.curr_strategy_index = i;
+                    let _ = forward.send(FromUi::SwitchToStrategy {
+                        index: i,
+                        time: Instant::now(),
+                    });
+                }
+            }
+
+            ui.separator();
+
+            match x.strategies[x.curr_strategy_index].strategy_kind() {
                 StrategyKind::StaticTuning => {
                     ui.horizontal(|ui| {
                         show_hide_button(ui, &mut x.show_tuning_editor, "global tuning");
@@ -158,7 +173,7 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
 
         let AsWindows(x) = self;
         let ctx = ui.ctx();
-        let (current_name, _) = &x.strategies[x.current_strategy];
+        let current_name = &x.strategies[x.curr_strategy_index].name;
 
         if x.show_tuning_editor {
             egui::containers::Window::new(format!("global tuning ({current_name})"))
@@ -207,53 +222,40 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                 .open(&mut x.show_new_strategy_window)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("name:");
-                        ui.text_edit_singleline(&mut x.new_strategy_name);
-                    });
-
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
                         ui.label("copy of");
-                        ui.vertical(|ui| {
-                            egui::ComboBox::from_id_salt("clone strategy picker")
-                                .selected_text(x.clone_index.map_or("", |i| &x.strategies[i].0))
-                                .show_ui(ui, |ui| {
-                                    for (i, (name, _)) in x.strategies.iter().enumerate() {
-                                        if ui
-                                            .selectable_value(&mut x.clone_index, Some(i), name)
-                                            .clicked()
-                                        {
-                                            x.template_index = None {};
-                                        }
-                                    }
-                                });
-                        });
+
+                        strategy_picker(
+                            ui,
+                            "clone strategy picker",
+                            &mut x.clone_index,
+                            &x.strategies,
+                        );
+                        if x.clone_index.is_some() {
+                            x.template_index = None {};
+                        }
 
                         ui.separator();
 
                         ui.label("from template");
-                        ui.vertical(|ui| {
-                            egui::ComboBox::from_id_salt("template strategy picker")
-                                .selected_text(
-                                    x.template_index.map_or("", |i| &x.templates[i].name),
-                                )
-                                .show_ui(ui, |ui| {
-                                    for (i, conf) in x.templates.iter().enumerate() {
-                                        if ui
-                                            .selectable_value(
-                                                &mut x.template_index,
-                                                Some(i),
-                                                &conf.name,
-                                            )
-                                            .clicked()
-                                        {
-                                            x.clone_index = None {};
-                                        }
-                                    }
-                                });
-                        });
+
+                        strategy_picker(
+                            ui,
+                            "template strategy picker",
+                            &mut x.template_index,
+                            x.templates,
+                        );
+                        if x.template_index.is_some() {
+                            x.clone_index = None {};
+                        }
                     });
+
+                    ui.separator();
+                    ui.label("name:");
+                    ui.text_edit_singleline(&mut x.new_strategy_name);
+
+                    ui.separator();
+                    ui.label("optional description:");
+                    ui.text_edit_multiline(&mut x.new_strategy_description);
 
                     ui.separator();
 
@@ -266,8 +268,12 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                             .clicked()
                         {
                             x.clone_index.map(|i| {
-                                x.strategies
-                                    .push((x.new_strategy_name.clone(), x.strategies[i].1));
+                                let new_strategy = ExtendedStrategyConfig {
+                                    name: x.new_strategy_name.clone(),
+                                    description: x.new_strategy_description.clone(),
+                                    config: x.strategies[i].config.clone(),
+                                };
+                                x.strategies.push(new_strategy);
                                 let _ = forward.send(FromUi::CloneStrategy {
                                     index: i,
                                     time: Instant::now(),
@@ -275,10 +281,12 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                             });
 
                             x.template_index.map(|i| {
-                                x.strategies.push((
-                                    x.new_strategy_name.clone(),
-                                    x.templates[i].strategy_kind(),
-                                ));
+                                let new_strategy = ExtendedStrategyConfig {
+                                    name: x.new_strategy_name.clone(),
+                                    description: x.new_strategy_description.clone(),
+                                    config: x.templates[i].config.clone(),
+                                };
+                                x.strategies.push(new_strategy);
                                 let _ = forward.send(FromUi::AddStrategyFromTemplate {
                                     index: i,
                                     time: Instant::now(),
@@ -286,6 +294,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                             });
 
                             x.new_strategy_name.clear();
+                            x.new_strategy_description.clear();
                             x.clone_index = None {};
                             x.template_index = None {};
                             // x.show_new_strategy_window = false;
@@ -307,13 +316,12 @@ impl<'a, T: StackType> AsWindows<'a, T> {
             .resizable(false)
             .open(&mut x.show_delete_strategy_window)
             .show(ctx, |ui| {
-                egui::ComboBox::from_id_salt("delete strategy picker")
-                    .selected_text(x.delete_index.map_or("", |i| &x.strategies[i].0))
-                    .show_ui(ui, |ui| {
-                        for (i, (name, _)) in x.strategies.iter().enumerate() {
-                            ui.selectable_value(&mut x.delete_index, Some(i), name);
-                        }
-                    });
+                strategy_picker(
+                    ui,
+                    "delete strategy picker",
+                    &mut x.delete_index,
+                    &x.strategies,
+                );
 
                 ui.separator();
 

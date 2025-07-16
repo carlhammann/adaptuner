@@ -60,6 +60,7 @@ impl<T: StackType + fmt::Debug + 'static> StrategyConfig<T> {
 #[serde(rename_all = "kebab-case")]
 pub struct ExtendedStrategyConfig<T: IntervalBasis> {
     pub name: String,
+    pub description: String,
     pub config: StrategyConfig<T>,
 }
 
@@ -83,10 +84,14 @@ impl<T: StackType + fmt::Debug + 'static> ExtendedStrategyConfig<T> {
 pub static STRATEGY_TEMPLATES: LazyLock<[ExtendedStrategyConfig<TheFiveLimitStackType>; 1]> =
     LazyLock::new(|| {
         [ExtendedStrategyConfig {
-            name: "static tuning".into(),
+            name: "static".into(),
+            description: r#"This strategy allows you to
+• define the (static) tuning of all 12 notes as a "neighbourhood" of the reference note,
+• switch between different neighbourhoods on the fly, and
+• reset the reference note on the fly."#.into(),
             config: StrategyConfig::StaticTuning(StaticTuningConfig {
                 neighbourhoods: vec![PeriodicComplete::from_octave_tunings(
-                    "JI".into(),
+                    "just intonation".into(),
                     [
                         Stack::new_zero(),                  // C
                         Stack::from_target(vec![0, -1, 2]), // C#
@@ -94,7 +99,7 @@ pub static STRATEGY_TEMPLATES: LazyLock<[ExtendedStrategyConfig<TheFiveLimitStac
                         Stack::from_target(vec![0, 1, -1]), // Eb
                         Stack::from_target(vec![0, 0, 1]),  // E
                         Stack::from_target(vec![1, -1, 0]), // F
-                        Stack::from_target(vec![-1, 2, 1]), // F3+
+                        Stack::from_target(vec![-1, 2, 1]), // F#+
                         Stack::from_target(vec![0, 1, 0]),  // G
                         Stack::from_target(vec![0, 0, 2]),  // G#
                         Stack::from_target(vec![1, -1, 1]), // A

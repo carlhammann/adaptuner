@@ -76,9 +76,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         correction_system_index,
     };
 
-    let latency_window_length = 20;
+    let cloned_strategy_config = config.strategies.clone();
 
-    let strategy_names_and_kinds = config.strategy_names_and_kinds();
+    let latency_window_length = 20;
 
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
@@ -99,7 +99,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         move || Pitchbend12::new(backend_config),
         move |ctx, tx| {
             Toplevel::new(
-                strategy_names_and_kinds,
+                cloned_strategy_config,
                 &*STRATEGY_TEMPLATES,
                 lattice_window_config,
                 reference_window_config,

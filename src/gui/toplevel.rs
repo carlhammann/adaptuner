@@ -45,7 +45,7 @@ pub struct Toplevel<T: StackType + 'static> {
 
 impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
     pub fn new(
-        strategy_names_and_kinds: Vec<(String, StrategyKind)>,
+        strategy_names_and_kinds: Vec<ExtendedStrategyConfig<T>>,
         templates: &'static [ExtendedStrategyConfig<T>],
         lattice_config: LatticeWindowControls,
         reference_editor: ReferenceEditorConfig,
