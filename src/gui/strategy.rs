@@ -28,6 +28,9 @@ pub struct StrategyWindows<T: StackType + 'static> {
     template_index: Option<usize>,
     new_strategy_name: String,
 
+    show_delete_strategy_window: bool,
+    delete_index: Option<usize>,
+
     show_tuning_editor: bool,
     show_reference_editor: bool,
     show_neighbourhood_editor: bool,
@@ -51,6 +54,8 @@ impl<T: StackType> StrategyWindows<T> {
             clone_index: None {},
             template_index: None {},
             new_strategy_name: String::with_capacity(64),
+            show_delete_strategy_window: false,
+            delete_index: None {},
             show_tuning_editor: false,
             show_reference_editor: false,
             show_neighbourhood_editor: false,
@@ -61,7 +66,8 @@ impl<T: StackType> StrategyWindows<T> {
     }
 
     fn hide_all_windows(&mut self) {
-        self.show_new_strategy_window = false;
+        // self.show_new_strategy_window = false;
+        // self.show_delete_strategy_window = false;
         self.show_tuning_editor = false;
         self.show_reference_editor = false;
         self.show_neighbourhood_editor = false;
@@ -74,6 +80,11 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
             ToUi::SwitchToStrategy { index } => {
                 self.current_strategy = *index;
                 self.hide_all_windows();
+            }
+            ToUi::DeleteStrategy { index } => {
+                // the next two lines must follow exatcly the same logic as [crate::process::FromStrategy]
+                self.strategies.remove(*index);
+                self.current_strategy = self.current_strategy.min(self.strategies.len() - 1);
             }
             _ => {}
         }
@@ -106,8 +117,20 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
                         }
                     }
 
-                    if ui.button("add new").clicked() {
+                    ui.separator();
+
+                    if ui.button("new strategy").clicked() {
                         x.show_new_strategy_window = true;
+                    }
+
+                    if ui
+                        .add_enabled(
+                            x.strategies.len() > 1,
+                            egui::Button::new("delete a strategy"),
+                        )
+                        .clicked()
+                    {
+                        x.show_delete_strategy_window = true;
                     }
                 });
 
@@ -131,6 +154,7 @@ pub struct AsWindows<'a, T: StackType + 'static>(pub &'a mut StrategyWindows<T>)
 impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         self.display_new_strategy_window(ui, forward);
+        self.display_delete_strategy_window(ui, forward);
 
         let AsWindows(x) = self;
         let ctx = ui.ctx();
@@ -269,5 +293,43 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                     });
                 });
         }
+    }
+
+    fn display_delete_strategy_window(
+        &mut self,
+        ui: &mut egui::Ui,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
+        let AsWindows(x) = self;
+        let ctx = ui.ctx();
+        egui::containers::Window::new("delete a strategy")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut x.show_delete_strategy_window)
+            .show(ctx, |ui| {
+                egui::ComboBox::from_id_salt("delete strategy picker")
+                    .selected_text(x.delete_index.map_or("", |i| &x.strategies[i].0))
+                    .show_ui(ui, |ui| {
+                        for (i, (name, _)) in x.strategies.iter().enumerate() {
+                            ui.selectable_value(&mut x.delete_index, Some(i), name);
+                        }
+                    });
+
+                ui.separator();
+
+                if ui
+                    .add_enabled(
+                        x.delete_index.is_some() & (x.strategies.len() > 1),
+                        egui::Button::new("delete"),
+                    )
+                    .clicked()
+                {
+                    let _ = forward.send(FromUi::DeleteStrategy {
+                        index: x.delete_index.unwrap(),
+                        time: Instant::now(),
+                    });
+                    x.delete_index = None {};
+                }
+            });
     }
 }

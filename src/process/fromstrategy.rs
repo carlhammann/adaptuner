@@ -306,6 +306,13 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                 });
                 self.start(time, forward);
             }
+            ToProcess::DeleteStrategy { index, time } => {
+                // the next two lines must follow exactly the same logic as [crate::gui::strategy]
+                self.strategies.remove(index);
+                self.curr_strategy_index = self.curr_strategy_index.min(self.strategies.len() - 1);
+                let _ = forward.send(FromProcess::DeleteStrategy { index });
+                self.start(time, forward);
+            }
         }
     }
 }

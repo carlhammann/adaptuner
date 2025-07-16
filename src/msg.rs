@@ -90,6 +90,10 @@ pub enum ToProcess<T: StackType> {
         index: usize,
         time: Instant,
     },
+    DeleteStrategy {
+        index: usize,
+        time: Instant,
+    },
 }
 
 pub enum FromProcess<T: StackType> {
@@ -133,6 +137,9 @@ pub enum FromProcess<T: StackType> {
         time: Instant,
     },
     SwitchToStrategy {
+        index: usize,
+    },
+    DeleteStrategy {
         index: usize,
     },
 }
@@ -337,6 +344,9 @@ pub enum ToUi<T: StackType> {
     SwitchToStrategy {
         index: usize,
     },
+    DeleteStrategy {
+        index: usize,
+    },
 }
 
 pub enum FromUi<T: StackType> {
@@ -413,6 +423,10 @@ pub enum FromUi<T: StackType> {
         time: Instant,
     },
     AddStrategyFromTemplate {
+        index: usize,
+        time: Instant,
+    },
+    DeleteStrategy {
         index: usize,
         time: Instant,
     },
@@ -586,6 +600,9 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
             ),
             FromProcess::SwitchToStrategy { index } => {
                 (None {}, None {}, Some(ToUi::SwitchToStrategy { index }))
+            }
+            FromProcess::DeleteStrategy { index } => {
+                (None {}, None {}, Some(ToUi::DeleteStrategy { index }))
             }
         }
     }
@@ -806,6 +823,12 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             ),
             FromUi::AddStrategyFromTemplate { index, time } => (
                 Some(ToProcess::AddStrategyFromTemplate { index, time }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::DeleteStrategy { index, time } => (
+                Some(ToProcess::DeleteStrategy { index, time }),
                 None {},
                 None {},
                 None {},
