@@ -3,6 +3,7 @@ use std::{fmt, sync::LazyLock};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    bindable::{Bindings, OneBinding},
     interval::{
         stack::Stack,
         stacktype::{
@@ -15,7 +16,7 @@ use crate::{
     reference::Reference,
     strategy::{
         r#static::{StaticTuning, StaticTuningConfig},
-        r#trait::Strategy,
+        r#trait::{Strategy, StrategyAction},
     },
 };
 
@@ -31,12 +32,16 @@ pub enum StrategyKind {
     StaticTuning,
 }
 
-impl<T: IntervalBasis> Config<T> {
-    pub fn strategy_names_and_kinds(&self) -> Vec<(String, StrategyKind)> {
-        self.strategies
-            .iter()
-            .map(|conf| (conf.name.clone(), conf.strategy_kind()))
-            .collect()
+impl StrategyKind {
+    pub fn allowed_actions(&self) -> &'static [StrategyAction] {
+        match self {
+            StrategyKind::StaticTuning => &[
+                StrategyAction::NextNeighbourhood,
+                StrategyAction::PrevNeighbourhood,
+                StrategyAction::SetReferenceToLowest,
+                StrategyAction::SetReferenceToHighest,
+            ],
+        }
     }
 }
 
@@ -62,6 +67,7 @@ pub struct ExtendedStrategyConfig<T: IntervalBasis> {
     pub name: String,
     pub description: String,
     pub config: StrategyConfig<T>,
+    pub bindings: Bindings<StrategyAction>,
 }
 
 impl<T: IntervalBasis> ExtendedStrategyConfig<T> {
@@ -75,12 +81,6 @@ impl<T: IntervalBasis> ExtendedStrategyConfig<T> {
     }
 }
 
-impl<T: StackType + fmt::Debug + 'static> ExtendedStrategyConfig<T> {
-    pub fn realize(self) -> Box<dyn Strategy<T>> {
-        self.config.realize()
-    }
-}
-
 pub static STRATEGY_TEMPLATES: LazyLock<[ExtendedStrategyConfig<TheFiveLimitStackType>; 1]> =
     LazyLock::new(|| {
         [ExtendedStrategyConfig {
@@ -88,7 +88,8 @@ pub static STRATEGY_TEMPLATES: LazyLock<[ExtendedStrategyConfig<TheFiveLimitStac
             description: r#"This strategy allows you to
 • define the (static) tuning of all 12 notes as a "neighbourhood" of the reference note,
 • switch between different neighbourhoods on the fly, and
-• reset the reference note on the fly."#.into(),
+• reset the reference note on the fly."#
+                .into(),
             config: StrategyConfig::StaticTuning(StaticTuningConfig {
                 neighbourhoods: vec![PeriodicComplete::from_octave_tunings(
                     "just intonation".into(),
@@ -114,5 +115,15 @@ pub static STRATEGY_TEMPLATES: LazyLock<[ExtendedStrategyConfig<TheFiveLimitStac
                 },
                 reference: Stack::new_zero(),
             }),
+            bindings: Bindings {
+                soft_pedal: OneBinding {
+                    on_down: Some(StrategyAction::SetReferenceToLowest),
+                    on_up: None {},
+                },
+                sostenuto_pedal: OneBinding {
+                    on_down: Some(StrategyAction::NextNeighbourhood),
+                    on_up: Some(StrategyAction::PrevNeighbourhood),
+                },
+            },
         }]
     });

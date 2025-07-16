@@ -136,3 +136,10 @@ strategies:
         third: 1
       semitones: 69.0
     reference: {}
+  bindings:
+    sostenuto-pedal:
+      on-down: next-neighbourhood 
+      on-up: prev-neighbourhood
+    soft-pedal:
+      on-down: set-reference-to-lowest
+      # on-up: null

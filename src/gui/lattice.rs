@@ -334,7 +334,6 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
                                     )
                                 )),
                                 ui,
-                                &mut self.tmp_temperaments,
                                 &mut self.tmp_correction,
                                 controls.correction_system_index,
                                 &mut self.tmp_relative_stack,

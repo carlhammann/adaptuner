@@ -1,6 +1,7 @@
 use std::{sync::mpsc, time::Instant};
 
 use crate::{
+    bindable::Bindable,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromProcess, ToStrategy},
@@ -102,26 +103,6 @@ impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> Strategy<T> for
         forward: &mpsc::Sender<FromProcess<T>>,
     ) -> bool {
         self.anchor_strategy.handle_msg(keys, tunings, msg, forward)
-    }
-
-    fn next_neighbourhood(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        time: Instant,
-        forward: &mpsc::Sender<FromProcess<T>>,
-    ) -> bool {
-        todo!()
-    }
-
-    fn set_reference(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        time: Instant,
-        forward: &mpsc::Sender<FromProcess<T>>,
-    ) -> bool {
-        todo!()
     }
 
     fn start(

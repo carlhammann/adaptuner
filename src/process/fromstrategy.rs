@@ -8,27 +8,28 @@ use midi_msg::{
 };
 
 use crate::{
+    bindable::{Bindable, Bindings},
     config::ExtendedStrategyConfig,
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
-    msg::{FromProcess, HandleMsg, ToProcess},
-    strategy::r#trait::Strategy,
+    msg::{FromProcess, HandleMsg, ToProcess, ToStrategy},
+    strategy::r#trait::{Strategy, StrategyAction},
 };
 
 pub struct ProcessFromStrategy<T: StackType + 'static> {
-    strategies: Vec<Box<dyn Strategy<T>>>,
+    strategies: Vec<(Box<dyn Strategy<T>>, Bindings<StrategyAction>)>,
     templates: &'static [ExtendedStrategyConfig<T>],
     curr_strategy_index: usize,
     key_states: [KeyState; 128],
     tunings: [Stack<T>; 128],
     pedal_hold: [bool; 16],
-    sostenuto_is_next_neigbourhood: bool,
-    soft_pedal_is_set_reference: bool,
+    sostenuto_hold: [bool; 16],
+    soft_hold: [bool; 16],
 }
 
 impl<T: StackType> ProcessFromStrategy<T> {
     pub fn new(
-        strategies: Vec<Box<dyn Strategy<T>>>,
+        strategies: Vec<(Box<dyn Strategy<T>>, Bindings<StrategyAction>)>,
         templates: &'static [ExtendedStrategyConfig<T>],
     ) -> Self {
         let now = Instant::now();
@@ -39,8 +40,8 @@ impl<T: StackType> ProcessFromStrategy<T> {
             key_states: core::array::from_fn(|_| KeyState::new(now)),
             tunings: core::array::from_fn(|_| Stack::new_zero()),
             pedal_hold: [false; 16],
-            sostenuto_is_next_neigbourhood: true,
-            soft_pedal_is_set_reference: true,
+            sostenuto_hold: [false; 16],
+            soft_hold: [false; 16],
         }
     }
 }
@@ -71,42 +72,56 @@ impl<T: StackType> ProcessFromStrategy<T> {
             } => self.handle_pedal_hold(time, channel, value, forward),
 
             MidiMsg::ChannelVoice {
-                channel: _,
+                channel,
                 msg:
                     ControlChange {
                         control: Sostenuto(value),
                     },
             } => {
-                if self.sostenuto_is_next_neigbourhood {
-                    if value > 0 {
-                        let _ = self.strategies[self.curr_strategy_index].next_neighbourhood(
-                            &self.key_states,
-                            &mut self.tunings,
-                            time,
-                            forward,
-                        );
-                    }
+                let (ref mut strategy, ref bindings) = self.strategies[self.curr_strategy_index];
+                let was_down = self.sostenuto_hold.iter().any(|b| *b);
+                self.sostenuto_hold[channel as usize] = value > 0;
+                let is_down = self.sostenuto_hold.iter().any(|b| *b);
+                let action = match (was_down, is_down) {
+                    (false, true) => bindings.get(Bindable::SostenutoPedalDown),
+                    (true, false) => bindings.get(Bindable::SostenutoPedalUp),
+                    _ => None {},
+                };
+                if let Some(&action) = action {
+                    let _ = strategy.handle_msg(
+                        &self.key_states,
+                        &mut self.tunings,
+                        ToStrategy::Action { action, time },
+                        forward,
+                    );
                 } else {
                     forward_untouched();
                 }
             }
 
             MidiMsg::ChannelVoice {
-                channel: _,
+                channel,
                 msg:
                     ControlChange {
                         control: SoftPedal(value),
                     },
             } => {
-                if self.soft_pedal_is_set_reference {
-                    if value > 0 {
-                        let _ = self.strategies[self.curr_strategy_index].set_reference(
-                            &self.key_states,
-                            &mut self.tunings,
-                            time,
-                            forward,
-                        );
-                    }
+                let (ref mut strategy, ref bindings) = self.strategies[self.curr_strategy_index];
+                let was_down = self.soft_hold.iter().any(|b| *b);
+                self.soft_hold[channel as usize] = value > 0;
+                let is_down = self.soft_hold.iter().any(|b| *b);
+                let action = match (was_down, is_down) {
+                    (false, true) => bindings.get(Bindable::SoftPedalDown),
+                    (true, false) => bindings.get(Bindable::SoftPedalUp),
+                    _ => None {},
+                };
+                if let Some(&action) = action {
+                    let _ = strategy.handle_msg(
+                        &self.key_states,
+                        &mut self.tunings,
+                        ToStrategy::Action { action, time },
+                        forward,
+                    );
                 } else {
                     forward_untouched();
                 }
@@ -145,7 +160,7 @@ impl<T: StackType> ProcessFromStrategy<T> {
         };
 
         if self.key_states[note as usize].note_on(channel, time) {
-            match self.strategies[self.curr_strategy_index].note_on(
+            match self.strategies[self.curr_strategy_index].0.note_on(
                 &self.key_states,
                 &mut self.tunings,
                 note,
@@ -179,7 +194,7 @@ impl<T: StackType> ProcessFromStrategy<T> {
     ) {
         if self.key_states[note as usize].note_off(channel, self.pedal_hold[channel as usize], time)
         {
-            self.strategies[self.curr_strategy_index].note_off(
+            self.strategies[self.curr_strategy_index].0.note_off(
                 &self.key_states,
                 &mut self.tunings,
                 &[note],
@@ -213,7 +228,7 @@ impl<T: StackType> ProcessFromStrategy<T> {
                     off_notes.push(note as u8);
                 }
             }
-            let _success = self.strategies[self.curr_strategy_index].note_off(
+            let _success = self.strategies[self.curr_strategy_index].0.note_off(
                 &self.key_states,
                 &mut self.tunings,
                 &off_notes,
@@ -229,12 +244,15 @@ impl<T: StackType> ProcessFromStrategy<T> {
     }
 
     fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromProcess<T>>) {
-        self.strategies[self.curr_strategy_index].start(
+        self.strategies[self.curr_strategy_index].0.start(
             &self.key_states,
             &mut self.tunings,
             time,
             forward,
         );
+        let _ = forward.send(FromProcess::SwitchToStrategy {
+            index: self.curr_strategy_index,
+        });
     }
 }
 
@@ -270,18 +288,12 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                 time,
             } => self.handle_pedal_hold(time, channel, value, forward),
             ToProcess::ToStrategy(msg) => {
-                let _success = self.strategies[self.curr_strategy_index].handle_msg(
+                let _success = self.strategies[self.curr_strategy_index].0.handle_msg(
                     &self.key_states,
                     &mut self.tunings,
                     msg,
                     forward,
                 );
-            }
-            ToProcess::ToggleSostenutoIsNextNeighbourhood {} => {
-                self.sostenuto_is_next_neigbourhood = !self.sostenuto_is_next_neigbourhood;
-            }
-            ToProcess::ToggleSoftPedalIsSetReference {} => {
-                self.soft_pedal_is_set_reference = !self.soft_pedal_is_set_reference;
             }
             ToProcess::SwitchToStrategy { index, time } => {
                 self.curr_strategy_index = index;
@@ -289,8 +301,9 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                 self.start(time, forward);
             }
             ToProcess::CloneStrategy { index, time } => {
-                let conf = self.strategies[index % self.strategies.len()].extract_config();
-                self.strategies.push(conf.realize());
+                let (strat, bindings) = &self.strategies[index % self.strategies.len()];
+                self.strategies
+                    .push((strat.extract_config().realize(), bindings.clone()));
                 self.curr_strategy_index = self.strategies.len() - 1;
                 let _ = forward.send(FromProcess::SwitchToStrategy {
                     index: self.curr_strategy_index,
@@ -299,7 +312,8 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
             }
             ToProcess::AddStrategyFromTemplate { index, time } => {
                 let conf = &self.templates[index];
-                self.strategies.push(conf.clone().realize());
+                self.strategies
+                    .push((conf.config.clone().realize(), conf.bindings.clone()));
                 self.curr_strategy_index = self.strategies.len() - 1;
                 let _ = forward.send(FromProcess::SwitchToStrategy {
                     index: self.curr_strategy_index,
@@ -312,6 +326,10 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                 self.curr_strategy_index = self.curr_strategy_index.min(self.strategies.len() - 1);
                 let _ = forward.send(FromProcess::DeleteStrategy { index });
                 self.start(time, forward);
+            }
+            ToProcess::BindAction { action, bindable } => {
+                let (_, bindings) = &mut self.strategies[self.curr_strategy_index];
+                bindings.set(bindable, action);
             }
         }
     }

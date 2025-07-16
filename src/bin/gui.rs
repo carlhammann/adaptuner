@@ -91,7 +91,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 config
                     .strategies
                     .drain(..)
-                    .map(ExtendedStrategyConfig::realize)
+                    .map(|c| (c.config.realize(), c.bindings))
                     .collect(),
                 &*STRATEGY_TEMPLATES,
             )

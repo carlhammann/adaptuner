@@ -3,6 +3,7 @@ use std::{sync::mpsc, time::Instant};
 use eframe::egui;
 
 use crate::{
+    bindable::Bindable,
     config::{ExtendedStrategyConfig, StrategyKind},
     interval::stacktype::r#trait::{FiveLimitStackType, IntervalBasis, StackType},
     msg::{FromUi, HandleMsgRef, ToUi},
@@ -19,12 +20,11 @@ use super::{
 };
 
 pub struct StrategyWindows<T: StackType + 'static> {
-    curr_strategy_index: usize,
-    selection: Option<usize>,
+    curr_strategy_index: Option<usize>,
     strategies: Vec<ExtendedStrategyConfig<T>>,
 
-    templates: &'static [ExtendedStrategyConfig<T>],
     show_new_strategy_window: bool,
+    templates: &'static [ExtendedStrategyConfig<T>],
     clone_index: Option<usize>,
     template_index: Option<usize>,
     new_strategy_name: String,
@@ -34,11 +34,15 @@ pub struct StrategyWindows<T: StackType + 'static> {
     delete_index: Option<usize>,
 
     show_tuning_editor: bool,
-    show_reference_editor: bool,
-    show_neighbourhood_editor: bool,
     tuning_editor: TuningEditor<T>,
+
+    show_reference_editor: bool,
     reference_editor: ReferenceEditor<T>,
+
+    show_neighbourhood_editor: bool,
     neigbourhood_editor: NeighbourhoodEditor<T>,
+
+    show_binding_editor: bool,
 }
 
 impl<T: StackType> StrategyWindows<T> {
@@ -49,8 +53,7 @@ impl<T: StackType> StrategyWindows<T> {
         reference_editor: ReferenceEditorConfig,
     ) -> Self {
         Self {
-            curr_strategy_index: 0,
-            selection: Some(0),
+            curr_strategy_index: None {},
             strategies,
             templates,
             show_new_strategy_window: false,
@@ -66,6 +69,7 @@ impl<T: StackType> StrategyWindows<T> {
             tuning_editor: TuningEditor::new(tuning_editor),
             reference_editor: ReferenceEditor::new(reference_editor),
             neigbourhood_editor: NeighbourhoodEditor::new(),
+            show_binding_editor: false,
         }
     }
 
@@ -75,6 +79,7 @@ impl<T: StackType> StrategyWindows<T> {
         self.show_tuning_editor = false;
         self.show_reference_editor = false;
         self.show_neighbourhood_editor = false;
+        self.show_binding_editor = false;
     }
 }
 
@@ -82,13 +87,17 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::SwitchToStrategy { index } => {
-                self.curr_strategy_index = *index;
-                self.hide_all_windows();
+                self.curr_strategy_index = Some(*index);
             }
             ToUi::DeleteStrategy { index } => {
-                // the next two lines must follow exatcly the same logic as [crate::process::FromStrategy]
-                self.strategies.remove(*index);
-                self.curr_strategy_index = self.curr_strategy_index.min(self.strategies.len() - 1);
+                if self.curr_strategy_index == Some(*index) {
+                    self.hide_all_windows();
+                }
+                if let Some(curr_strategy_index) = &mut self.curr_strategy_index {
+                    // the next two lines must follow exatcly the same logic as [crate::process::FromStrategy]
+                    self.strategies.remove(*index);
+                    *curr_strategy_index = (*curr_strategy_index).min(self.strategies.len() - 1);
+                }
             }
             _ => {}
         }
@@ -103,17 +112,22 @@ fn strategy_picker<T: IntervalBasis>(
     id_salt: &'static str,
     index: &mut Option<usize>,
     strategies: &[ExtendedStrategyConfig<T>],
-) {
+) -> bool {
+    let mut changed = false;
     egui::ComboBox::from_id_salt(id_salt)
         .selected_text(index.map_or("", |i| &strategies[i].name))
         .show_ui(ui, |ui| {
             for (i, esc) in strategies.iter().enumerate() {
                 let r = ui.selectable_value(index, Some(i), &esc.name);
+                if r.clicked() {
+                    changed = true;
+                }
                 if !esc.description.is_empty() {
                     r.on_hover_text_at_pointer(&esc.description);
                 }
             }
         });
+    changed
 }
 
 pub struct AsStrategyPicker<'a, T: StackType + 'static>(pub &'a mut StrategyWindows<T>);
@@ -138,26 +152,34 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
 
             ui.separator();
 
-            strategy_picker(ui, "strategy picker", &mut x.selection, &x.strategies);
-            if let Some(i) = x.selection {
-                if i != x.curr_strategy_index {
-                    x.curr_strategy_index = i;
-                    let _ = forward.send(FromUi::SwitchToStrategy {
-                        index: i,
-                        time: Instant::now(),
-                    });
-                }
+            if strategy_picker(
+                ui,
+                "strategy picker",
+                &mut x.curr_strategy_index,
+                &x.strategies,
+            ) {
+                let _ = forward.send(FromUi::SwitchToStrategy {
+                    index: x.curr_strategy_index.unwrap(), // this is safe, because the strategy_picker returned true
+                    time: Instant::now(),
+                });
             }
 
             ui.separator();
 
-            match x.strategies[x.curr_strategy_index].strategy_kind() {
-                StrategyKind::StaticTuning => {
-                    ui.horizontal(|ui| {
-                        show_hide_button(ui, &mut x.show_tuning_editor, "global tuning");
-                        show_hide_button(ui, &mut x.show_reference_editor, "reference");
-                        show_hide_button(ui, &mut x.show_neighbourhood_editor, "neighbourhoods");
-                    });
+            if let Some(ix) = x.curr_strategy_index {
+                match x.strategies[ix].strategy_kind() {
+                    StrategyKind::StaticTuning => {
+                        ui.horizontal(|ui| {
+                            show_hide_button(ui, &mut x.show_tuning_editor, "global tuning");
+                            show_hide_button(ui, &mut x.show_reference_editor, "reference");
+                            show_hide_button(
+                                ui,
+                                &mut x.show_neighbourhood_editor,
+                                "neighbourhoods",
+                            );
+                            show_hide_button(ui, &mut x.show_binding_editor, "bindings");
+                        });
+                    }
                 }
             }
         });
@@ -170,10 +192,17 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         self.display_new_strategy_window(ui, forward);
         self.display_delete_strategy_window(ui, forward);
+        self.display_binding_window(ui, forward);
 
         let AsWindows(x) = self;
         let ctx = ui.ctx();
-        let current_name = &x.strategies[x.curr_strategy_index].name;
+
+        if x.curr_strategy_index.is_none() {
+            return;
+        }
+        let curr_strategy_index = x.curr_strategy_index.unwrap();
+
+        let current_name = &x.strategies[curr_strategy_index].name;
 
         if x.show_tuning_editor {
             egui::containers::Window::new(format!("global tuning ({current_name})"))
@@ -272,6 +301,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                                     name: x.new_strategy_name.clone(),
                                     description: x.new_strategy_description.clone(),
                                     config: x.strategies[i].config.clone(),
+                                    bindings: x.strategies[i].bindings.clone(),
                                 };
                                 x.strategies.push(new_strategy);
                                 let _ = forward.send(FromUi::CloneStrategy {
@@ -285,6 +315,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                                     name: x.new_strategy_name.clone(),
                                     description: x.new_strategy_description.clone(),
                                     config: x.templates[i].config.clone(),
+                                    bindings: x.strategies[i].bindings.clone(),
                                 };
                                 x.strategies.push(new_strategy);
                                 let _ = forward.send(FromUi::AddStrategyFromTemplate {
@@ -338,6 +369,62 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                     });
                     x.delete_index = None {};
                 }
+            });
+    }
+
+    fn display_binding_window(&mut self, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
+        let AsWindows(x) = self;
+        let ctx = ui.ctx();
+        // let ExtendedStrategyConfig {
+        //     name: current_name,
+        //     description,
+        //     config: current_config,
+        //     bindings: current_bindings,
+        // } =
+
+        if x.curr_strategy_index.is_none() {
+            return;
+        }
+        let curr_strategy_index = x.curr_strategy_index.unwrap();
+        let current = &mut x.strategies[curr_strategy_index];
+
+        egui::containers::Window::new(format!("bindings ({})", current.name))
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut x.show_binding_editor)
+            .show(ctx, |ui| {
+                egui::Grid::new("binding seletor grid").show(ui, |ui| {
+                    for bindable in [
+                        Bindable::SostenutoPedalDown,
+                        Bindable::SostenutoPedalUp,
+                        Bindable::SoftPedalDown,
+                        Bindable::SoftPedalUp,
+                    ] {
+                        ui.label(format!("{bindable}:"));
+                        egui::ComboBox::from_id_salt(bindable)
+                            .selected_text(
+                                current
+                                    .bindings
+                                    .get(bindable)
+                                    .map_or("--".into(), |action| format!("{action}")),
+                            )
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    current.bindings.get_mut(bindable),
+                                    None {},
+                                    "--",
+                                );
+                                for action in current.strategy_kind().allowed_actions() {
+                                    ui.selectable_value(
+                                        current.bindings.get_mut(bindable),
+                                        Some(action.clone()),
+                                        &format!("{action}"),
+                                    );
+                                }
+                            });
+                        ui.end_row();
+                    }
+                });
             });
     }
 }

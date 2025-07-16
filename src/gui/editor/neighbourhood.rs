@@ -6,6 +6,7 @@ use crate::{
     gui::r#trait::GuiShow,
     interval::stacktype::r#trait::StackType,
     msg::{FromUi, HandleMsgRef, ToUi},
+    strategy::r#trait::StrategyAction,
 };
 
 struct IndexAndName {
@@ -18,7 +19,6 @@ pub struct NeighbourhoodEditor<T: StackType> {
     _phantom: PhantomData<T>,
     curr: Option<IndexAndName>,
     new_neighbourhood_name: String,
-    applied_temperaments: Vec<bool>,
 }
 
 impl<T: StackType> NeighbourhoodEditor<T> {
@@ -27,7 +27,6 @@ impl<T: StackType> NeighbourhoodEditor<T> {
             _phantom: PhantomData,
             curr: None {},
             new_neighbourhood_name: String::with_capacity(64),
-            applied_temperaments: vec![false; T::num_temperaments()],
         }
     }
 }
@@ -51,33 +50,49 @@ impl<T: StackType> GuiShow<T> for NeighbourhoodEditor<T> {
                     ui.strong(curr_neighbourhood_name);
                 });
 
-                if ui
-                    .add_enabled(*n_neighbourhoods > 1, egui::Button::new("next"))
-                    .clicked()
-                {
-                    let _ = forward.send(FromUi::NextNeighbourhood {
-                        time: Instant::now(),
-                    });
-                }
-
-                ui.separator();
-
-                ui.label(format!(
-                    "apply temperament to all notes in \"{curr_neighbourhood_name}\":"
-                ));
-                for (i, t) in T::temperaments().iter().enumerate() {
+                ui.horizontal(|ui| {
                     if ui
-                        .checkbox(&mut self.applied_temperaments[i], &t.name)
+                        .add_enabled(*n_neighbourhoods > 1, egui::Button::new("previous"))
                         .clicked()
                     {
-                        let _ = forward.send(FromUi::SetTemperaments {
+                        let _ = forward.send(FromUi::Action {
+                            action: StrategyAction::PrevNeighbourhood,
                             time: Instant::now(),
-                            temperaments: self.applied_temperaments.clone(),
                         });
                     }
-                }
+
+                    if ui
+                        .add_enabled(*n_neighbourhoods > 1, egui::Button::new("next"))
+                        .clicked()
+                    {
+                        let _ = forward.send(FromUi::Action {
+                            action: StrategyAction::NextNeighbourhood,
+                            time: Instant::now(),
+                        });
+                    }
+                });
 
                 ui.separator();
+
+                if T::num_temperaments() > 0 {
+                    ui.label(format!(
+                        "apply temperament to all notes in \"{curr_neighbourhood_name}\":"
+                    ));
+                    for (i, t) in T::temperaments().iter().enumerate() {
+                        if ui.button(&t.name).clicked() {
+                            let _ = forward.send(FromUi::ApplyTemperamentToCurrentNeighbourhood {
+                                time: Instant::now(),
+                                temperament: i,
+                            });
+                        }
+                    }
+                    if ui.button("no temperament").clicked() {
+                        let _ = forward.send(FromUi::MakeCurrentNeighbourhoodPure {
+                            time: Instant::now(),
+                        });
+                    }
+                    ui.separator();
+                }
 
                 ui.label(format!("new copy of \"{curr_neighbourhood_name}\""));
 

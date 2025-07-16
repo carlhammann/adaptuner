@@ -7,8 +7,10 @@ use midi_msg::Channel;
 use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
+    bindable::Bindable,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     reference::Reference,
+    strategy::r#trait::StrategyAction,
 };
 
 pub trait HandleMsg<I, O> {
@@ -76,8 +78,6 @@ pub enum ToProcess<T: StackType> {
         value: u8,
         time: Instant,
     },
-    ToggleSostenutoIsNextNeighbourhood {},
-    ToggleSoftPedalIsSetReference {},
     SwitchToStrategy {
         index: usize,
         time: Instant,
@@ -93,6 +93,10 @@ pub enum ToProcess<T: StackType> {
     DeleteStrategy {
         index: usize,
         time: Instant,
+    },
+    BindAction {
+        action: Option<StrategyAction>,
+        bindable: Bindable,
     },
 }
 
@@ -149,11 +153,11 @@ pub enum ToStrategy<T: StackType> {
         stack: Stack<T>,
         time: Instant,
     },
-    SetTemperaments {
-        temperaments: Vec<bool>,
+    ApplyTemperamentToCurrentNeighbourhood {
+        temperament: usize,
         time: Instant,
     },
-    NextNeighbourhood {
+    MakeCurrentNeighbourhoodPure {
         time: Instant,
     },
     NewNeighbourhood {
@@ -168,6 +172,10 @@ pub enum ToStrategy<T: StackType> {
     },
     SetReference {
         reference: Stack<T>,
+        time: Instant,
+    },
+    Action {
+        action: StrategyAction,
         time: Instant,
     },
 }
@@ -357,14 +365,14 @@ pub enum FromUi<T: StackType> {
     DeleteCurrentNeighbourhood {
         time: Instant,
     },
-    NextNeighbourhood {
-        time: Instant,
-    },
     NewNeighbourhood {
         name: String,
     },
-    SetTemperaments {
-        temperaments: Vec<bool>,
+    ApplyTemperamentToCurrentNeighbourhood {
+        temperament: usize,
+        time: Instant,
+    },
+    MakeCurrentNeighbourhoodPure {
         time: Instant,
     },
     DisconnectInput,
@@ -404,8 +412,6 @@ pub enum FromUi<T: StackType> {
         value: u8,
         time: Instant,
     },
-    ToggleSostenutoIsNextNeighbourhood {},
-    ToggleSoftPedalIsSetReference {},
     BendRange {
         range: Semitones,
         time: Instant,
@@ -428,6 +434,10 @@ pub enum FromUi<T: StackType> {
     },
     DeleteStrategy {
         index: usize,
+        time: Instant,
+    },
+    Action {
+        action: StrategyAction,
         time: Instant,
     },
 }
@@ -668,14 +678,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::NextNeighbourhood { time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::NextNeighbourhood {
-                    time,
-                })),
-                None {},
-                None {},
-                None {},
-            ),
             FromUi::NewNeighbourhood { name } => (
                 Some(ToProcess::ToStrategy(ToStrategy::NewNeighbourhood { name })),
                 None {},
@@ -690,11 +692,10 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::SetTemperaments { temperaments, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::SetTemperaments {
-                    temperaments,
-                    time,
-                })),
+            FromUi::ApplyTemperamentToCurrentNeighbourhood { temperament, time } => (
+                Some(ToProcess::ToStrategy(
+                    ToStrategy::ApplyTemperamentToCurrentNeighbourhood { temperament, time },
+                )),
                 None {},
                 None {},
                 None {},
@@ -785,18 +786,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::ToggleSostenutoIsNextNeighbourhood {} => (
-                Some(ToProcess::ToggleSostenutoIsNextNeighbourhood {}),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::ToggleSoftPedalIsSetReference {} => (
-                Some(ToProcess::ToggleSoftPedalIsSetReference {}),
-                None {},
-                None {},
-                None {},
-            ),
             FromUi::BendRange { range, time } => (
                 None {},
                 Some(ToBackend::BendRange { range, time }),
@@ -829,6 +818,20 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             ),
             FromUi::DeleteStrategy { index, time } => (
                 Some(ToProcess::DeleteStrategy { index, time }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::Action { action, time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::Action { action, time })),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::MakeCurrentNeighbourhoodPure { time } => (
+                Some(ToProcess::ToStrategy(
+                    ToStrategy::MakeCurrentNeighbourhoodPure { time },
+                )),
                 None {},
                 None {},
                 None {},

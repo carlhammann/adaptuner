@@ -177,28 +177,6 @@ impl<T: FiveLimitStackType + Hash + Eq + 'static> eframe::App for Toplevel<T> {
 
                         ui.separator();
 
-                        ui.vertical_centered(|ui| ui.label("input settings"));
-                        if ui
-                            .toggle_value(
-                                &mut self.sostenuto_is_next_neigbourhood,
-                                "use sostenuto pedal (middle) to switch neighbourhoods",
-                            )
-                            .clicked()
-                        {
-                            let _ = self.tx.send(FromUi::ToggleSostenutoIsNextNeighbourhood {});
-                        };
-                        if ui
-                            .toggle_value(
-                                &mut self.soft_pedal_is_set_reference,
-                                "use soft pedal (left) to reset reference",
-                            )
-                            .clicked()
-                        {
-                            let _ = self.tx.send(FromUi::ToggleSoftPedalIsSetReference {});
-                        }
-
-                        ui.separator();
-
                         ui.vertical_centered(|ui| ui.label("output settings"));
                         self.backend.show(ui, &self.tx);
                     });

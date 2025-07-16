@@ -105,7 +105,6 @@ pub fn note_picker<T: StackType>(
         temperament_applier(
             None {},
             ui,
-            tmp_temperaments,
             tmp_correction,
             correction_system_index,
             stack,
@@ -117,7 +116,6 @@ pub fn note_picker<T: StackType>(
 pub fn temperament_applier<T: StackType>(
     reset_button_text: Option<&str>,
     ui: &mut egui::Ui,
-    tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
     correction_system_index: usize,
     stack: &mut Stack<T>,
@@ -134,7 +132,6 @@ pub fn temperament_applier<T: StackType>(
                 )
                 .clicked()
             {
-                tmp_temperaments.iter_mut().for_each(|b| *b = false);
                 tmp_correction.reset_to_zero();
                 stack.make_pure();
                 made_pure = true;
@@ -144,18 +141,20 @@ pub fn temperament_applier<T: StackType>(
     }
 
     ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            for (i, t) in T::temperaments().iter().enumerate() {
-                if ui.checkbox(&mut tmp_temperaments[i], &t.name).clicked() {
-                    stack.retemper(tmp_temperaments);
-                    *tmp_correction = Correction::new(stack, correction_system_index);
-                    temperament_select_changed = true;
+        if T::num_temperaments() > 0 {
+            ui.vertical(|ui| {
+                for (i, t) in T::temperaments().iter().enumerate() {
+                    if ui.button(&t.name).clicked() {
+                        stack.apply_temperament(i);
+                        *tmp_correction = Correction::new(stack, correction_system_index);
+                        temperament_select_changed = true;
+                    }
                 }
-            }
-        });
+            });
+            ui.separator();
+        }
 
         tmp_correction.mutate(correction_system_index, |coeffs| {
-            ui.separator();
             ui.vertical(|ui| {
                 for (i, x) in coeffs.indexed_iter_mut() {
                     ui.horizontal(|ui| {
@@ -170,7 +169,6 @@ pub fn temperament_applier<T: StackType>(
         });
 
         if correction_changed {
-            tmp_temperaments.iter_mut().for_each(|b| *b = false);
             stack.apply_correction(tmp_correction);
         }
     });

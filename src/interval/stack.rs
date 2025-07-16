@@ -251,6 +251,15 @@ impl<T: StackType> Stack<T> {
             }
         }
     }
+
+    /// clears all other adjustments
+    pub fn apply_temperament(&mut self, temperament_index: usize) {
+        self.actual.zip_mut_with(&self.target, |l, r| {
+            *l = Ratio::from_integer(*r);
+        });
+        let temperament = &T::temperaments()[temperament_index];
+        temperament.add_adjustment(self.target.view(), self.actual.view_mut());
+    }
 }
 
 #[cfg(test)]

@@ -3,8 +3,7 @@
 - forbid looping MIDI connections
 - handle the other two pedals correctly
   - treat ChannelVoice Messages in the backend, tweak PedalHold...?
-  - get rid of set_reference and next_neighbourhood methods of the Strategy
-    trait.
+- I just learned that Rust logical operators have short-circuiting variants. Use them!
 
 # UI 
 

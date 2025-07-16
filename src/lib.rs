@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod bindable;
 pub mod config;
 pub mod custom_serde;
 pub mod gui;
