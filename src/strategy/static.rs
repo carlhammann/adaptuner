@@ -165,7 +165,17 @@ impl<T: StackType + std::fmt::Debug> Strategy<T> for StaticTuning<T> {
 
                 true
             }
-            ToStrategy::ToggleTemperament { index, time } => todo!(),
+            ToStrategy::SetTemperaments { temperaments, time } => {
+                self.neighbourhoods[self.curr_neighbourhood_index].for_each_stack_mut(|_, stack| {
+                    stack.retemper(&temperaments);
+                    let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Consider {
+                        stack: stack.clone(),
+                    }));
+                });
+                self.retune_all(keys, tunings, time, forward); 
+
+                true
+            }
             ToStrategy::NextNeighbourhood { time } => {
                 self.next_neighbourhood(keys, tunings, time, forward)
             }

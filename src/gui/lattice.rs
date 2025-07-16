@@ -314,6 +314,10 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
                             *b = false;
                         }
                         ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                        self.tmp_relative_stack.clone_from(&self.tmp_stack);
+                        self.tmp_relative_stack.scaled_add(-1, reference);
+                        self.tmp_correction
+                            .set_with(&self.tmp_relative_stack, controls.correction_system_index);
                     }
                     egui::popup::popup_below_widget(
                         ui,
@@ -321,8 +325,6 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
                         &response,
                         egui::popup::PopupCloseBehavior::CloseOnClickOutside,
                         |ui| {
-                            self.tmp_relative_stack.clone_from(&self.tmp_stack);
-                            self.tmp_relative_stack.scaled_add(-1, reference);
                             if temperament_applier(
                                 Some(&format!(
                                     "make pure relative to {}",

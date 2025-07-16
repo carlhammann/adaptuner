@@ -149,8 +149,8 @@ pub enum ToStrategy<T: StackType> {
         stack: Stack<T>,
         time: Instant,
     },
-    ToggleTemperament {
-        index: usize,
+    SetTemperaments {
+        temperaments: Vec<bool>,
         time: Instant,
     },
     NextNeighbourhood {
@@ -363,8 +363,8 @@ pub enum FromUi<T: StackType> {
     NewNeighbourhood {
         name: String,
     },
-    ToggleTemperament {
-        index: usize,
+    SetTemperaments {
+        temperaments: Vec<bool>,
         time: Instant,
     },
     DisconnectInput,
@@ -690,9 +690,9 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::ToggleTemperament { index, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::ToggleTemperament {
-                    index,
+            FromUi::SetTemperaments { temperaments, time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::SetTemperaments {
+                    temperaments,
                     time,
                 })),
                 None {},

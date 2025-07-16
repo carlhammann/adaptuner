@@ -4,7 +4,7 @@ use eframe::egui;
 
 use crate::{
     gui::r#trait::GuiShow,
-    interval::stacktype::r#trait::{IntervalBasis, StackType},
+    interval::stacktype::r#trait::StackType,
     msg::{FromUi, HandleMsgRef, ToUi},
 };
 
@@ -14,18 +14,20 @@ struct IndexAndName {
     name: String,
 }
 
-pub struct NeighbourhoodEditor<T: IntervalBasis> {
+pub struct NeighbourhoodEditor<T: StackType> {
     _phantom: PhantomData<T>,
     curr: Option<IndexAndName>,
     new_neighbourhood_name: String,
+    applied_temperaments: Vec<bool>,
 }
 
-impl<T: IntervalBasis> NeighbourhoodEditor<T> {
+impl<T: StackType> NeighbourhoodEditor<T> {
     pub fn new() -> Self {
         Self {
             _phantom: PhantomData,
             curr: None {},
             new_neighbourhood_name: String::with_capacity(64),
+            applied_temperaments: vec![false; T::num_temperaments()],
         }
     }
 }
@@ -41,13 +43,12 @@ impl<T: StackType> GuiShow<T> for NeighbourhoodEditor<T> {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label("current: \"");
-                    ui.strong(curr_neighbourhood_name);
                     ui.label(format!(
-                        "\" ({}/{})",
+                        "current ({}/{}): ",
                         curr_neighbourhood_index + 1,
                         n_neighbourhoods,
                     ));
+                    ui.strong(curr_neighbourhood_name);
                 });
 
                 if ui
@@ -62,8 +63,23 @@ impl<T: StackType> GuiShow<T> for NeighbourhoodEditor<T> {
                 ui.separator();
 
                 ui.label(format!(
-                    "new copy of \"{curr_neighbourhood_name}\""
+                    "apply temperament to all notes in \"{curr_neighbourhood_name}\":"
                 ));
+                for (i, t) in T::temperaments().iter().enumerate() {
+                    if ui
+                        .checkbox(&mut self.applied_temperaments[i], &t.name)
+                        .clicked()
+                    {
+                        let _ = forward.send(FromUi::SetTemperaments {
+                            time: Instant::now(),
+                            temperaments: self.applied_temperaments.clone(),
+                        });
+                    }
+                }
+
+                ui.separator();
+
+                ui.label(format!("new copy of \"{curr_neighbourhood_name}\""));
 
                 ui.horizontal(|ui| {
                     ui.label("name:");

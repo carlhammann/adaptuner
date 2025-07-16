@@ -56,6 +56,17 @@ impl<T: StackType> Correction<T> {
         self.coeffs.borrow().iter().all(|x| x.is_zero())
     }
 
+    pub fn set_with(&mut self, stack: &Stack<T>, system_index: usize) {
+        self.tmp_coeffs
+            .borrow_mut()
+            .indexed_iter_mut()
+            .for_each(|(i, x)| *x = stack.actual[i] - Ratio::from_integer(stack.target[i]));
+        T::correction_systems()[system_index].apply_inplace(
+            self.tmp_coeffs.borrow().view(),
+            self.coeffs.get_mut().view_mut(),
+        );
+    }
+
     /// Use the `system_index` you'll later want to use for other operations. That will save
     /// computation.
     pub fn new(stack: &Stack<T>, system_index: usize) -> Self {
