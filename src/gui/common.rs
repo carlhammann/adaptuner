@@ -10,15 +10,10 @@ use crate::{
 };
 
 pub fn show_hide_button(ui: &mut egui::Ui, state: &mut bool, what: &'static str) {
-    if ui
-        .button(if *state {
-            format!("hide {what}")
-        } else {
-            format!("show {what}")
-        })
-        .clicked()
-    {
-        *state = !*state;
+    if !*state {
+        if  ui.button(what).clicked() {
+            *state = true;
+        }
     }
 }
 

@@ -25,15 +25,15 @@ pub struct StrategyWindows<T: StackType + 'static> {
     curr_strategy_index: Option<usize>,
     strategies: Vec<ExtendedStrategyConfig<T>>,
 
+    marked_for_deletion: Option<usize>,
+
     show_new_strategy_window: bool,
+    bring_new_strategy_window_to_top: bool,
     templates: &'static [ExtendedStrategyConfig<T>],
     clone_index: Option<usize>,
     template_index: Option<usize>,
     new_strategy_name: String,
     new_strategy_description: String,
-
-    show_delete_strategy_window: bool,
-    delete_index: Option<usize>,
 
     show_tuning_editor: bool,
     tuning_editor: TuningEditor<T>,
@@ -61,14 +61,14 @@ impl<T: StackType> StrategyWindows<T> {
         Self {
             curr_strategy_index: None {},
             strategies,
+            marked_for_deletion: None {},
             templates,
             show_new_strategy_window: false,
+            bring_new_strategy_window_to_top: false,
             clone_index: None {},
             template_index: None {},
             new_strategy_name: String::with_capacity(32),
             new_strategy_description: String::with_capacity(128),
-            show_delete_strategy_window: false,
-            delete_index: None {},
             show_tuning_editor: false,
             show_reference_editor: false,
             show_neighbourhood_editor: false,
@@ -82,15 +82,6 @@ impl<T: StackType> StrategyWindows<T> {
             tmp_key_name_invalid: false,
         }
     }
-
-    fn hide_all_windows(&mut self) {
-        // self.show_new_strategy_window = false;
-        // self.show_delete_strategy_window = false;
-        self.show_tuning_editor = false;
-        self.show_reference_editor = false;
-        self.show_neighbourhood_editor = false;
-        self.show_binding_editor = false;
-    }
 }
 
 impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
@@ -100,9 +91,6 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
                 self.curr_strategy_index = Some(*index);
             }
             ToUi::DeleteStrategy { index } => {
-                if self.curr_strategy_index == Some(*index) {
-                    self.hide_all_windows();
-                }
                 if let Some(curr_strategy_index) = &mut self.curr_strategy_index {
                     // the next two lines must follow exatcly the same logic as [crate::process::FromStrategy]
                     self.strategies.remove(*index);
@@ -145,34 +133,65 @@ pub struct AsStrategyPicker<'a, T: StackType + 'static>(pub &'a mut StrategyWind
 impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let AsStrategyPicker(x) = self;
+        let close_popup = |ui: &mut egui::Ui| ui.memory_mut(|m| m.close_popup());
         ui.horizontal(|ui| {
-            if ui.button("new strategy").clicked() {
-                x.show_new_strategy_window = true;
-            }
+            egui::ComboBox::from_id_salt("top level strategy picker")
+                .selected_text(x.curr_strategy_index.map_or("", |i| &x.strategies[i].name))
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show_ui(ui, |ui| {
+                    egui::Grid::new("strategy picker grid").show(ui, |ui| {
+                        for (i, esc) in x.strategies.iter().enumerate() {
+                            let r =
+                                ui.selectable_value(&mut x.curr_strategy_index, Some(i), &esc.name);
+                            if r.changed() {
+                                let _ = forward.send(FromUi::SwitchToStrategy {
+                                    index: i,
+                                    time: Instant::now(),
+                                });
+                            }
+                            if r.clicked() {
+                                x.marked_for_deletion = None {};
+                                close_popup(ui);
+                            }
+                            if !esc.description.is_empty() {
+                                r.on_hover_text_at_pointer(&esc.description);
+                            }
 
-            if ui
-                .add_enabled(
-                    x.strategies.len() > 1,
-                    egui::Button::new("delete a strategy"),
-                )
-                .clicked()
-            {
-                x.show_delete_strategy_window = true;
-            }
+                            let r = ui.add_enabled(
+                                x.strategies.len() > 1,
+                                egui::Button::new(if x.marked_for_deletion == Some(i) {
+                                    "really delete"
+                                } else {
+                                    "delete"
+                                }),
+                            );
+                            if r.clicked() {
+                                if x.marked_for_deletion == Some(i) {
+                                    let _ = forward.send(FromUi::DeleteStrategy {
+                                        index: i,
+                                        time: Instant::now(),
+                                    });
+                                    x.marked_for_deletion = None {};
+                                    close_popup(ui);
+                                } else {
+                                    x.marked_for_deletion = Some(i);
+                                }
+                            }
 
-            ui.separator();
+                            ui.end_row();
+                        }
+                    });
 
-            if strategy_picker(
-                ui,
-                "strategy picker",
-                &mut x.curr_strategy_index,
-                &x.strategies,
-            ) {
-                let _ = forward.send(FromUi::SwitchToStrategy {
-                    index: x.curr_strategy_index.unwrap(), // this is safe, because the strategy_picker returned true
-                    time: Instant::now(),
+                    ui.separator();
+                    if ui.button("new strategy").clicked() {
+                        if x.show_new_strategy_window {
+                            x.bring_new_strategy_window_to_top = true;
+                        }
+                        x.show_new_strategy_window = true;
+                        x.marked_for_deletion = None {};
+                        close_popup(ui);
+                    }
                 });
-            }
 
             ui.separator();
 
@@ -201,7 +220,6 @@ pub struct AsWindows<'a, T: StackType + 'static>(pub &'a mut StrategyWindows<T>)
 impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         self.display_new_strategy_window(ui, forward);
-        self.display_delete_strategy_window(ui, forward);
         self.display_binding_window(ui, forward);
 
         let AsWindows(x) = self;
@@ -216,6 +234,7 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
 
         if x.show_tuning_editor {
             egui::containers::Window::new(format!("global tuning ({current_name})"))
+                .id(egui::Id::new("global tuning window"))
                 .open(&mut x.show_tuning_editor)
                 .collapsible(false)
                 .resizable(false)
@@ -226,6 +245,7 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
 
         if x.show_reference_editor {
             egui::containers::Window::new(format!("reference ({current_name})"))
+                .id(egui::Id::new("reference window"))
                 .open(&mut x.show_reference_editor)
                 .collapsible(false)
                 .resizable(false)
@@ -236,6 +256,7 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
 
         if x.show_neighbourhood_editor {
             egui::containers::Window::new(format!("neighbourhoods ({current_name})"))
+                .id(egui::Id::new("neighbourhoods window"))
                 .open(&mut x.show_neighbourhood_editor)
                 .collapsible(false)
                 .resizable(false)
@@ -254,8 +275,16 @@ impl<'a, T: StackType> AsWindows<'a, T> {
     ) {
         let AsWindows(x) = self;
         let ctx = ui.ctx();
+        let id = egui::Id::new("new strategy");
+        if x.bring_new_strategy_window_to_top {
+            let layer_id = egui::LayerId::new(egui::Order::Middle, id);
+            ctx.move_to_top(layer_id);
+            x.bring_new_strategy_window_to_top = false;
+        }
+
         if x.show_new_strategy_window {
             egui::containers::Window::new("new strategy")
+                .id(id)
                 .collapsible(false)
                 .resizable(false)
                 .open(&mut x.show_new_strategy_window)
@@ -345,43 +374,6 @@ impl<'a, T: StackType> AsWindows<'a, T> {
         }
     }
 
-    fn display_delete_strategy_window(
-        &mut self,
-        ui: &mut egui::Ui,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) {
-        let AsWindows(x) = self;
-        let ctx = ui.ctx();
-        egui::containers::Window::new("delete a strategy")
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut x.show_delete_strategy_window)
-            .show(ctx, |ui| {
-                strategy_picker(
-                    ui,
-                    "delete strategy picker",
-                    &mut x.delete_index,
-                    &x.strategies,
-                );
-
-                ui.separator();
-
-                if ui
-                    .add_enabled(
-                        x.delete_index.is_some() & (x.strategies.len() > 1),
-                        egui::Button::new("delete"),
-                    )
-                    .clicked()
-                {
-                    let _ = forward.send(FromUi::DeleteStrategy {
-                        index: x.delete_index.unwrap(),
-                        time: Instant::now(),
-                    });
-                    x.delete_index = None {};
-                }
-            });
-    }
-
     fn display_binding_window(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let AsWindows(x) = self;
         let ctx = ui.ctx();
@@ -393,6 +385,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
         let current = &mut x.strategies[curr_strategy_index];
 
         egui::containers::Window::new(format!("bindings ({})", current.name))
+            .id(egui::Id::new("bindings window"))
             .collapsible(false)
             .resizable(false)
             .open(&mut x.show_binding_editor)
