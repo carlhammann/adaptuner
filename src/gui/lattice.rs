@@ -785,6 +785,93 @@ impl<T: FiveLimitStackType + Hash + Eq> GuiShow<T> for LatticeWindow<T> {
             .stick_to_bottom(true)
             .scroll_bar_rect(ui.clip_rect())
             .show(ui, |ui| {
+                if ui
+                    .interact(
+                        ui.clip_rect(),
+                        egui::Id::new("lattice window base"),
+                        egui::Sense::hover(),
+                    )
+                    .hovered()
+                {
+                    ui.input(|i| {
+                        for e in &i.events {
+                            match e {
+                                egui::Event::Key {
+                                    key,
+                                    physical_key,
+                                    pressed,
+                                    repeat,
+                                    ..
+                                } => {
+                                    if *repeat {
+                                        return;
+                                    }
+                                    let the_key = physical_key.unwrap_or(*key);
+                                    let offset: Option<i8> = match the_key {
+                                        egui::Key::Q => Some(0), // C
+                                        egui::Key::Num2 => Some(1),
+                                        egui::Key::W => Some(2),
+                                        egui::Key::Num3 => Some(3),
+                                        egui::Key::E => Some(4),
+                                        egui::Key::R => Some(5),
+                                        egui::Key::Num5 => Some(6),
+                                        egui::Key::T => Some(7),
+                                        egui::Key::Num6 => Some(8),
+                                        egui::Key::Y => Some(9),
+                                        egui::Key::Num7 => Some(10),
+                                        egui::Key::U => Some(11),
+                                        egui::Key::I => Some(12), // C above
+                                        egui::Key::Num9 => Some(13),
+                                        egui::Key::O => Some(14),
+                                        egui::Key::Num0 => Some(15),
+                                        egui::Key::P => Some(16),
+                                        egui::Key::OpenBracket => Some(17),
+                                        egui::Key::Equals => Some(18),
+                                        egui::Key::CloseBracket => Some(19), // G above
+                                        egui::Key::Slash => Some(-1),
+                                        egui::Key::Semicolon => Some(-2),
+                                        egui::Key::Period => Some(-3),
+                                        egui::Key::L => Some(-4),
+                                        egui::Key::Comma => Some(-5),
+                                        egui::Key::K => Some(-6),
+                                        egui::Key::M => Some(-7),
+                                        egui::Key::N => Some(-8),
+                                        egui::Key::H => Some(-9),
+                                        egui::Key::B => Some(-10),
+                                        egui::Key::G => Some(-11),
+                                        egui::Key::V => Some(-12), // C below
+                                        egui::Key::C => Some(-13),
+                                        egui::Key::D => Some(-14),
+                                        egui::Key::X => Some(-15),
+                                        egui::Key::S => Some(-16),
+                                        egui::Key::Z => Some(-17), // G below
+                                        egui::Key::A => Some(-18),
+
+                                        _ => None {},
+                                    };
+                                    if let Some(offset) = offset {
+                                        if *pressed {
+                                            let _ = forward.send(FromUi::NoteOn {
+                                                channel: self.controls.screen_keyboard_channel,
+                                                note: (60 + offset) as u8,
+                                                velocity: self.controls.screen_keyboard_velocity,
+                                                time: Instant::now(),
+                                            });
+                                        } else {
+                                            let _ = forward.send(FromUi::NoteOff {
+                                                channel: self.controls.screen_keyboard_channel,
+                                                note: (60 + offset) as u8,
+                                                velocity: self.controls.screen_keyboard_velocity,
+                                                time: Instant::now(),
+                                            });
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    });
+                }
                 ui.allocate_space(vec2(
                     ui.max_rect().width().max(self.drawing_width()),
                     ui.max_rect().height().max(self.drawing_height()),
