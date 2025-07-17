@@ -22,8 +22,8 @@ use super::{common::temperament_applier, r#trait::GuiShow};
 // The following measurements are all in units of [LatticeWindow::zoom]
 
 const OCTAVE_WIDTH: f32 = 12.0;
+const WHITE_KEY_WIDTH: f32 = OCTAVE_WIDTH / 7.0; // don't change this: a white key is always a seventh of an octave wide
 const ET_SEMITONE_WIDTH: f32 = OCTAVE_WIDTH / 12.0;
-const WHITE_KEY_WIDTH: f32 = OCTAVE_WIDTH / 7.0;
 const BLACK_KEY_WIDTH: f32 = OCTAVE_WIDTH / 12.0;
 const WHITE_KEY_LENGTH: f32 = OCTAVE_WIDTH / 2.5;
 const BLACK_KEY_LENGTH: f32 = 3.0 * WHITE_KEY_LENGTH / 5.0;
@@ -415,6 +415,340 @@ impl<T: FiveLimitStackType> LatticeDrawState<T> {
     }
 }
 
+struct KeyDrawState {
+    rect: egui::Rect,
+    gray_out: bool,
+    is_white: bool,
+    active: bool,
+    key_number: u8,
+}
+
+fn set_key_rect(rect: &mut egui::Rect, zoom: f32, key_number: u8, is_white: bool) {
+    if is_white {
+        let quot = key_number / 12;
+        let rem = key_number % 12;
+        let left = zoom
+            * (OCTAVE_WIDTH * quot as f32
+                + WHITE_KEY_WIDTH
+                    * match rem {
+                        0 => 0.0,
+                        2 => 1.0,
+                        4 => 2.0,
+                        5 => 3.0,
+                        7 => 4.0,
+                        9 => 5.0,
+                        11 => 6.0,
+                        _ => unreachable!(),
+                    });
+        let top = -zoom * WHITE_KEY_LENGTH;
+        let right = left + zoom * WHITE_KEY_WIDTH;
+        let bottom = 0.0;
+        rect.min.x = left;
+        rect.min.y = top;
+        rect.max.x = right;
+        rect.max.y = bottom;
+    } else {
+        let left = zoom * (OCTAVE_WIDTH / 12.0 * key_number as f32);// - BLACK_KEY_WIDTH / 2.0);
+        let right = left + zoom * BLACK_KEY_WIDTH;
+        let top = -zoom * WHITE_KEY_LENGTH;
+        let bottom = zoom * (BLACK_KEY_LENGTH - WHITE_KEY_LENGTH);
+        rect.min.x = left;
+        rect.min.y = top;
+        rect.max.x = right;
+        rect.max.y = bottom;
+    }
+}
+
+impl KeyDrawState {
+    fn new(key_number: u8, controls: &LatticeWindowControls) -> Self {
+        let is_white = [0, 2, 4, 5, 7, 9, 11].contains(&(key_number % 12));
+        let mut rect = egui::Rect::ZERO;
+        set_key_rect(&mut rect, controls.zoom, key_number, is_white);
+        Self {
+            rect,
+            gray_out: key_number >= 109 || key_number <= 20,
+            is_white,
+            active: false,
+            key_number,
+        }
+    }
+
+    fn update_controls(&mut self, controls: &LatticeWindowControls) {
+        set_key_rect(
+            &mut self.rect,
+            controls.zoom,
+            self.key_number,
+            self.is_white,
+        );
+    }
+
+    fn update_active(&mut self, active_notes: &KeyState) {
+        self.active = active_notes.is_sounding();
+    }
+
+    fn draw<T: StackType>(
+        &self,
+        controls: &LatticeWindowControls,
+        ui: &mut egui::Ui,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
+        let border_color = if self.gray_out {
+            ui.style().visuals.weak_text_color()
+        } else {
+            ui.style().visuals.strong_text_color()
+        };
+
+        let active_color = ui.style().visuals.selection.bg_fill;
+
+        let left_bottom = vec2(ui.max_rect().min.x, ui.max_rect().max.y);
+
+        if self.active {
+            ui.painter().rect(
+                self.rect.translate(left_bottom),
+                egui::CornerRadius::default(),
+                active_color,
+                egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
+                egui::StrokeKind::Middle,
+            );
+        } else if self.is_white {
+            ui.painter().rect_stroke(
+                self.rect.translate(left_bottom),
+                egui::CornerRadius::default(),
+                egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
+                egui::StrokeKind::Middle,
+            );
+        } else {
+            ui.painter().rect(
+                self.rect.translate(left_bottom),
+                egui::CornerRadius::default(),
+                border_color,
+                egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
+                egui::StrokeKind::Middle,
+            );
+        }
+    }
+}
+
+pub struct KeyboardDrawState {
+    keys: [KeyDrawState; 128],
+}
+
+// let rect = ui.max_rect();
+// let controls = &self.controls;
+// let white_key_vertical_center = rect.bottom() - controls.zoom * WHITE_KEY_LENGTH / 2.0;
+// let black_key_vertical_center =
+//     rect.bottom() - controls.zoom * (WHITE_KEY_LENGTH - BLACK_KEY_LENGTH / 2.0);
+//
+// let draw_black_key = |horizontal_center, key_number| {
+//     let keystate: &KeyState = &self.active_notes[key_number];
+//     let on = keystate.is_sounding();
+//     let border_color = if (key_number < 109) & (key_number > 20) {
+//         ui.style().visuals.strong_text_color()
+//     } else {
+//         ui.style().visuals.weak_text_color()
+//     };
+//     let key_rect = egui::Rect::from_center_size(
+//         pos2(horizontal_center, black_key_vertical_center),
+//         controls.zoom * vec2(BLACK_KEY_WIDTH, BLACK_KEY_LENGTH),
+//     );
+//     ui.painter().with_clip_rect(rect).rect(
+//         key_rect,
+//         egui::CornerRadius::default(),
+//         if on {
+//             ui.style().visuals.selection.bg_fill
+//         } else {
+//             border_color
+//         },
+//         egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
+//         egui::StrokeKind::Middle,
+//     );
+//
+//     let response = ui.interact(
+//         key_rect,
+//         egui::Id::new(format!("black key {}", key_number)),
+//         egui::Sense::drag(),
+//     );
+//     if response.drag_started() {
+//         let _ = forward.send(FromUi::NoteOn {
+//             note: key_number as u8,
+//             channel: controls.screen_keyboard_channel,
+//             velocity: controls.screen_keyboard_velocity,
+//             time: Instant::now(),
+//         });
+//     }
+//     if response.drag_stopped() {
+//         let _ = forward.send(FromUi::NoteOff {
+//             note: key_number as u8,
+//             channel: controls.screen_keyboard_channel,
+//             velocity: controls.screen_keyboard_velocity,
+//             time: Instant::now(),
+//         });
+//     }
+// };
+//
+// let draw_white_key = |horizontal_center, key_number| {
+//     let keystate: &KeyState = &self.active_notes[key_number];
+//     let on = keystate.is_sounding();
+//     let key_rect = egui::Rect::from_center_size(
+//         pos2(horizontal_center, white_key_vertical_center),
+//         controls.zoom * vec2(WHITE_KEY_WIDTH, WHITE_KEY_LENGTH),
+//     );
+//     let border_color = if (key_number < 109) & (key_number > 20) {
+//         ui.style().visuals.strong_text_color()
+//     } else {
+//         ui.style().visuals.weak_text_color()
+//     };
+//     if on {
+//         ui.painter().with_clip_rect(rect).rect(
+//             key_rect,
+//             egui::CornerRadius::default(),
+//             ui.style().visuals.selection.bg_fill,
+//             egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
+//             egui::StrokeKind::Middle,
+//         );
+//     } else {
+//         ui.painter().with_clip_rect(rect).rect_stroke(
+//             key_rect,
+//             egui::CornerRadius::default(),
+//             egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
+//             egui::StrokeKind::Middle,
+//         );
+//     }
+//     let response = ui.interact(
+//         key_rect,
+//         egui::Id::new(format!("white key {}", key_number)),
+//         egui::Sense::drag(),
+//     );
+//     if response.drag_started() {
+//         let _ = forward.send(FromUi::NoteOn {
+//             note: key_number as u8,
+//             channel: controls.screen_keyboard_channel,
+//             velocity: controls.screen_keyboard_velocity,
+//             time: Instant::now(),
+//         });
+//     }
+//     if response.drag_stopped() {
+//         let _ = forward.send(FromUi::NoteOff {
+//             note: key_number as u8,
+//             channel: controls.screen_keyboard_channel,
+//             velocity: controls.screen_keyboard_velocity,
+//             time: Instant::now(),
+//         });
+//     }
+// };
+//
+// let draw_octave = |octave: i16| {
+//     let c_left = rect.left() + controls.zoom * ((octave as f32 + 1.0) * OCTAVE_WIDTH);
+//     let white_key_numbers = [0, 2, 4, 5, 7, 9, 11];
+//     for i in 0..7 {
+//         let x =
+//             c_left + controls.zoom * (i as f32 * WHITE_KEY_WIDTH + WHITE_KEY_WIDTH / 2.0);
+//         let key_number = (60 + 12 * (octave - 4) + white_key_numbers[i]) as usize;
+//         if key_number > 127 {
+//             break;
+//         }
+//         draw_white_key(x, key_number);
+//     }
+//
+//     // widths of the white keys at the top. See
+//     //
+//     // https://www.mathpages.com/home/kmath043.htm
+//     //
+//     // for an explanation.
+//     let cde_width = controls.zoom * (WHITE_KEY_WIDTH - 2.0 * BLACK_KEY_WIDTH / 3.0);
+//     let fgab_width = controls.zoom * (WHITE_KEY_WIDTH - 3.0 * BLACK_KEY_WIDTH / 4.0);
+//
+//     let mut offset = c_left + cde_width + controls.zoom * BLACK_KEY_WIDTH / 2.0;
+//     let mut key_number = (60 + 12 * (octave - 4) + 1) as usize;
+//     if key_number > 127 {
+//         return;
+//     }
+//     draw_black_key(offset, key_number);
+//     offset += cde_width + controls.zoom * BLACK_KEY_WIDTH;
+//     key_number += 2;
+//     if key_number > 127 {
+//         return;
+//     }
+//     draw_black_key(offset, key_number);
+//     offset += fgab_width + cde_width + controls.zoom * BLACK_KEY_WIDTH;
+//     key_number += 3;
+//     if key_number > 127 {
+//         return;
+//     }
+//     draw_black_key(offset, key_number);
+//     offset += fgab_width + controls.zoom * BLACK_KEY_WIDTH;
+//     key_number += 2;
+//     if key_number > 127 {
+//         return;
+//     }
+//     draw_black_key(offset, key_number);
+//     offset += fgab_width + controls.zoom * BLACK_KEY_WIDTH;
+//     key_number += 2;
+//     if key_number > 127 {
+//         return;
+//     }
+//     draw_black_key(offset, key_number);
+// };
+//
+// for i in (-1)..10 {
+//     draw_octave(i);
+// }
+//
+// let mut reference = rect.left() + controls.zoom * OCTAVE_WIDTH / 24.0;
+// for _ in 0..128 {
+//     ui.painter().with_clip_rect(rect).vline(
+//         reference,
+//         egui::Rangef {
+//             min: rect.bottom() - controls.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH),
+//             max: rect.bottom() - controls.zoom * WHITE_KEY_LENGTH,
+//         },
+//         egui::Stroke::new(
+//             controls.zoom * MARKER_THICKNESS,
+//             ui.style().visuals.strong_text_color(),
+//         ),
+//     );
+//     reference += controls.zoom * OCTAVE_WIDTH / 12.0;
+// }
+
+impl KeyboardDrawState {
+    fn new(controls: &LatticeWindowControls) -> Self {
+        Self {
+            keys: core::array::from_fn(|i| KeyDrawState::new(i as u8, controls)),
+        }
+    }
+
+    pub fn update_controls(&mut self, controls: &LatticeWindowControls) {
+        for k in self.keys.iter_mut() {
+            k.update_controls(controls);
+        }
+    }
+
+    fn update_active(&mut self, active_notes: &[KeyState; 128]) {
+        for (i, k) in self.keys.iter_mut().enumerate() {
+            k.update_active(&active_notes[i]);
+        }
+    }
+
+    fn draw<T: StackType>(
+        &self,
+        controls: &LatticeWindowControls,
+        ui: &mut egui::Ui,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
+        // ui.set_clip_rect(ui.);
+        for k in self.keys.iter() {
+            if k.is_white {
+                k.draw(controls, ui, forward);
+            }
+        }
+        for k in self.keys.iter() {
+            if !k.is_white {
+                k.draw(controls, ui, forward);
+            }
+        }
+    }
+}
+
 pub struct LatticeWindow<T: StackType> {
     active_notes: [KeyState; 128],
     pedal_hold: [bool; 16],
@@ -424,7 +758,8 @@ pub struct LatticeWindow<T: StackType> {
     tuning_reference: Option<Reference<T>>,
     considered_notes: PartialNeighbourhood<T>,
 
-    draw_state: LatticeDrawState<T>,
+    lattice_draw_state: LatticeDrawState<T>,
+    pub keyboard_draw_state: KeyboardDrawState,
 
     pub controls: LatticeWindowControls,
 }
@@ -490,13 +825,15 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
 
             considered_notes: PartialNeighbourhood::new("lattice window neighbourhood".into()),
 
-            draw_state: LatticeDrawState {
+            lattice_draw_state: LatticeDrawState {
                 stacks_to_draw: HashMap::new(),
                 tmp_temperaments: vec![false; T::num_temperaments()],
                 tmp_correction: Correction::new_zero(config.correction_system_index),
                 tmp_stack: Stack::new_zero(),
                 tmp_relative_stack: Stack::new_zero(),
             },
+
+            keyboard_draw_state: KeyboardDrawState::new(&config),
 
             controls: config,
         }
@@ -505,12 +842,12 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     fn draw_lattice(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         if let (Some(reference), Some(tuning_reference)) = (&self.reference, &self.tuning_reference)
         {
-            self.draw_state.clear();
+            self.lattice_draw_state.clear();
 
             let controls = &self.controls;
 
             for stack in PureStacksAround::new(&controls.background_stack_distances, reference) {
-                self.draw_state
+                self.lattice_draw_state
                     .insert(stack.target, stack.actual, DrawStyle::Background);
             }
 
@@ -521,8 +858,11 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
                         let mut stack = relative_stack.clone();
                         stack.increment_at_index_pure(period_index, -stack.target[period_index]);
                         stack.scaled_add(1, reference);
-                        self.draw_state
-                            .insert(stack.target, stack.actual, DrawStyle::Considered);
+                        self.lattice_draw_state.insert(
+                            stack.target,
+                            stack.actual,
+                            DrawStyle::Considered,
+                        );
                     });
 
                     for (i, state) in self.active_notes.iter().enumerate() {
@@ -533,7 +873,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
                                 (reference.target[i] - c).abs()
                                     > controls.background_stack_distances[i]
                             }) {
-                                self.draw_state.insert(
+                                self.lattice_draw_state.insert(
                                     stack.target.clone(),
                                     stack.actual.clone(),
                                     DrawStyle::Antenna,
@@ -544,13 +884,16 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
                                 period_index,
                                 reference.target[period_index] - stack.target[period_index],
                             );
-                            self.draw_state
-                                .insert(stack.target, stack.actual, DrawStyle::Playing);
+                            self.lattice_draw_state.insert(
+                                stack.target,
+                                stack.actual,
+                                DrawStyle::Playing,
+                            );
                         }
                     }
                 }
             }
-            self.draw_state.draw_stacks(
+            self.lattice_draw_state.draw_stacks(
                 ui,
                 &controls,
                 reference,
@@ -561,183 +904,10 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
         }
     }
 
-    fn draw_keyboard(&self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        let rect = ui.max_rect();
-        let controls = &self.controls;
-        let white_key_vertical_center = rect.bottom() - controls.zoom * WHITE_KEY_LENGTH / 2.0;
-        let black_key_vertical_center =
-            rect.bottom() - controls.zoom * (WHITE_KEY_LENGTH - BLACK_KEY_LENGTH / 2.0);
-
-        let draw_black_key = |horizontal_center, key_number| {
-            let keystate: &KeyState = &self.active_notes[key_number];
-            let on = keystate.is_sounding();
-            let border_color = if (key_number < 109) & (key_number > 20) {
-                ui.style().visuals.strong_text_color()
-            } else {
-                ui.style().visuals.weak_text_color()
-            };
-            let key_rect = egui::Rect::from_center_size(
-                pos2(horizontal_center, black_key_vertical_center),
-                controls.zoom * vec2(BLACK_KEY_WIDTH, BLACK_KEY_LENGTH),
-            );
-            ui.painter().with_clip_rect(rect).rect(
-                key_rect,
-                egui::CornerRadius::default(),
-                if on {
-                    ui.style().visuals.selection.bg_fill
-                } else {
-                    border_color
-                },
-                egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
-                egui::StrokeKind::Middle,
-            );
-
-            let response = ui.interact(
-                key_rect,
-                egui::Id::new(format!("black key {}", key_number)),
-                egui::Sense::drag(),
-            );
-            if response.drag_started() {
-                let _ = forward.send(FromUi::NoteOn {
-                    note: key_number as u8,
-                    channel: controls.screen_keyboard_channel,
-                    velocity: controls.screen_keyboard_velocity,
-                    time: Instant::now(),
-                });
-            }
-            if response.drag_stopped() {
-                let _ = forward.send(FromUi::NoteOff {
-                    note: key_number as u8,
-                    channel: controls.screen_keyboard_channel,
-                    velocity: controls.screen_keyboard_velocity,
-                    time: Instant::now(),
-                });
-            }
-        };
-
-        let draw_white_key = |horizontal_center, key_number| {
-            let keystate: &KeyState = &self.active_notes[key_number];
-            let on = keystate.is_sounding();
-            let key_rect = egui::Rect::from_center_size(
-                pos2(horizontal_center, white_key_vertical_center),
-                controls.zoom * vec2(WHITE_KEY_WIDTH, WHITE_KEY_LENGTH),
-            );
-            let border_color = if (key_number < 109) & (key_number > 20) {
-                ui.style().visuals.strong_text_color()
-            } else {
-                ui.style().visuals.weak_text_color()
-            };
-            if on {
-                ui.painter().with_clip_rect(rect).rect(
-                    key_rect,
-                    egui::CornerRadius::default(),
-                    ui.style().visuals.selection.bg_fill,
-                    egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
-                    egui::StrokeKind::Middle,
-                );
-            } else {
-                ui.painter().with_clip_rect(rect).rect_stroke(
-                    key_rect,
-                    egui::CornerRadius::default(),
-                    egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
-                    egui::StrokeKind::Middle,
-                );
-            }
-            let response = ui.interact(
-                key_rect,
-                egui::Id::new(format!("white key {}", key_number)),
-                egui::Sense::drag(),
-            );
-            if response.drag_started() {
-                let _ = forward.send(FromUi::NoteOn {
-                    note: key_number as u8,
-                    channel: controls.screen_keyboard_channel,
-                    velocity: controls.screen_keyboard_velocity,
-                    time: Instant::now(),
-                });
-            }
-            if response.drag_stopped() {
-                let _ = forward.send(FromUi::NoteOff {
-                    note: key_number as u8,
-                    channel: controls.screen_keyboard_channel,
-                    velocity: controls.screen_keyboard_velocity,
-                    time: Instant::now(),
-                });
-            }
-        };
-
-        let draw_octave = |octave: i16| {
-            let c_left = rect.left() + controls.zoom * ((octave as f32 + 1.0) * OCTAVE_WIDTH);
-            let white_key_numbers = [0, 2, 4, 5, 7, 9, 11];
-            for i in 0..7 {
-                let x =
-                    c_left + controls.zoom * (i as f32 * WHITE_KEY_WIDTH + WHITE_KEY_WIDTH / 2.0);
-                let key_number = (60 + 12 * (octave - 4) + white_key_numbers[i]) as usize;
-                if key_number > 127 {
-                    break;
-                }
-                draw_white_key(x, key_number);
-            }
-
-            // widths of the white keys at the top. See
-            //
-            // https://www.mathpages.com/home/kmath043.htm
-            //
-            // for an explanation.
-            let cde_width = controls.zoom * (WHITE_KEY_WIDTH - 2.0 * BLACK_KEY_WIDTH / 3.0);
-            let fgab_width = controls.zoom * (WHITE_KEY_WIDTH - 3.0 * BLACK_KEY_WIDTH / 4.0);
-
-            let mut offset = c_left + cde_width + controls.zoom * BLACK_KEY_WIDTH / 2.0;
-            let mut key_number = (60 + 12 * (octave - 4) + 1) as usize;
-            if key_number > 127 {
-                return;
-            }
-            draw_black_key(offset, key_number);
-            offset += cde_width + controls.zoom * BLACK_KEY_WIDTH;
-            key_number += 2;
-            if key_number > 127 {
-                return;
-            }
-            draw_black_key(offset, key_number);
-            offset += fgab_width + cde_width + controls.zoom * BLACK_KEY_WIDTH;
-            key_number += 3;
-            if key_number > 127 {
-                return;
-            }
-            draw_black_key(offset, key_number);
-            offset += fgab_width + controls.zoom * BLACK_KEY_WIDTH;
-            key_number += 2;
-            if key_number > 127 {
-                return;
-            }
-            draw_black_key(offset, key_number);
-            offset += fgab_width + controls.zoom * BLACK_KEY_WIDTH;
-            key_number += 2;
-            if key_number > 127 {
-                return;
-            }
-            draw_black_key(offset, key_number);
-        };
-
-        for i in (-1)..10 {
-            draw_octave(i);
-        }
-
-        let mut reference = rect.left() + controls.zoom * OCTAVE_WIDTH / 24.0;
-        for _ in 0..128 {
-            ui.painter().with_clip_rect(rect).vline(
-                reference,
-                egui::Rangef {
-                    min: rect.bottom() - controls.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH),
-                    max: rect.bottom() - controls.zoom * WHITE_KEY_LENGTH,
-                },
-                egui::Stroke::new(
-                    controls.zoom * MARKER_THICKNESS,
-                    ui.style().visuals.strong_text_color(),
-                ),
-            );
-            reference += controls.zoom * OCTAVE_WIDTH / 12.0;
-        }
+    fn draw_keyboard(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        // self.keyboard_draw_state.update_active(&self.active_notes);
+        // self.keyboard_draw_state.update_controls(&self.controls);
+        self.keyboard_draw_state.draw(&self.controls, ui, forward);
     }
 
     fn keyboard_width(&self) -> f32 {
@@ -757,7 +927,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
         controls.zoom * {
             let mut min_y_offset = f32::MAX;
             let mut max_y_offset = f32::MIN;
-            for (target, (_actual, _style)) in self.draw_state.stacks_to_draw.iter() {
+            for (target, (_actual, _style)) in self.lattice_draw_state.stacks_to_draw.iter() {
                 let y_offset = ET_SEMITONE_WIDTH * {
                     let mut y = 0.0;
                     for (i, &c) in target.iter().enumerate() {
@@ -785,6 +955,93 @@ impl<T: FiveLimitStackType + Hash + Eq> GuiShow<T> for LatticeWindow<T> {
             .stick_to_bottom(true)
             .scroll_bar_rect(ui.clip_rect())
             .show(ui, |ui| {
+                if ui
+                    .interact(
+                        ui.clip_rect(),
+                        egui::Id::new("lattice window base"),
+                        egui::Sense::hover(),
+                    )
+                    .hovered()
+                {
+                    ui.input(|i| {
+                        for e in &i.events {
+                            match e {
+                                egui::Event::Key {
+                                    key,
+                                    physical_key,
+                                    pressed,
+                                    repeat,
+                                    ..
+                                } => {
+                                    if *repeat {
+                                        return;
+                                    }
+                                    let the_key = physical_key.unwrap_or(*key);
+                                    let offset: Option<i8> = match the_key {
+                                        egui::Key::Q => Some(0), // C
+                                        egui::Key::Num2 => Some(1),
+                                        egui::Key::W => Some(2),
+                                        egui::Key::Num3 => Some(3),
+                                        egui::Key::E => Some(4),
+                                        egui::Key::R => Some(5),
+                                        egui::Key::Num5 => Some(6),
+                                        egui::Key::T => Some(7),
+                                        egui::Key::Num6 => Some(8),
+                                        egui::Key::Y => Some(9),
+                                        egui::Key::Num7 => Some(10),
+                                        egui::Key::U => Some(11),
+                                        egui::Key::I => Some(12), // C above
+                                        egui::Key::Num9 => Some(13),
+                                        egui::Key::O => Some(14),
+                                        egui::Key::Num0 => Some(15),
+                                        egui::Key::P => Some(16),
+                                        egui::Key::OpenBracket => Some(17),
+                                        egui::Key::Equals => Some(18),
+                                        egui::Key::CloseBracket => Some(19), // G above
+                                        egui::Key::Slash => Some(-1),
+                                        egui::Key::Semicolon => Some(-2),
+                                        egui::Key::Period => Some(-3),
+                                        egui::Key::L => Some(-4),
+                                        egui::Key::Comma => Some(-5),
+                                        egui::Key::K => Some(-6),
+                                        egui::Key::M => Some(-7),
+                                        egui::Key::N => Some(-8),
+                                        egui::Key::H => Some(-9),
+                                        egui::Key::B => Some(-10),
+                                        egui::Key::G => Some(-11),
+                                        egui::Key::V => Some(-12), // C below
+                                        egui::Key::C => Some(-13),
+                                        egui::Key::D => Some(-14),
+                                        egui::Key::X => Some(-15),
+                                        egui::Key::S => Some(-16),
+                                        egui::Key::Z => Some(-17), // G below
+                                        egui::Key::A => Some(-18),
+
+                                        _ => None {},
+                                    };
+                                    if let Some(offset) = offset {
+                                        if *pressed {
+                                            let _ = forward.send(FromUi::NoteOn {
+                                                channel: self.controls.screen_keyboard_channel,
+                                                note: (60 + offset) as u8,
+                                                velocity: self.controls.screen_keyboard_velocity,
+                                                time: Instant::now(),
+                                            });
+                                        } else {
+                                            let _ = forward.send(FromUi::NoteOff {
+                                                channel: self.controls.screen_keyboard_channel,
+                                                note: (60 + offset) as u8,
+                                                velocity: self.controls.screen_keyboard_velocity,
+                                                time: Instant::now(),
+                                            });
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    });
+                }
                 ui.allocate_space(vec2(
                     ui.max_rect().width().max(self.drawing_width()),
                     ui.max_rect().height().max(self.drawing_height()),

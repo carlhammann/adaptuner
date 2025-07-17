@@ -14,15 +14,17 @@ pub struct AsSmallControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
 
 impl<'a, T: StackType> GuiShow<T> for AsSmallControls<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        let AsSmallControls(LatticeWindow { controls, .. }) = self;
+        let AsSmallControls(LatticeWindow { controls, keyboard_draw_state, .. }) = self;
         ui.horizontal(|ui| {
-            ui.add(
+            if ui.add(
                 egui::widgets::Slider::new(&mut controls.zoom, 5.0..=100.0)
                     .smart_aim(false)
                     .show_value(false)
                     .logarithmic(true)
                     .text("zoom"),
-            );
+            ).changed() {
+                keyboard_draw_state.update_controls(controls);
+            };
 
             ui.separator();
 
