@@ -5,7 +5,7 @@ use std::{
 };
 
 use ndarray::{arr1, arr2};
-use serde::{Deserialize, Serialize};
+use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
     base::{Interval, Semitones},

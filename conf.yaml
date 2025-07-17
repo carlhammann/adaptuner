@@ -137,9 +137,6 @@ strategies:
       semitones: 69.0
     reference: {}
   bindings:
-    sostenuto-pedal:
-      on-down: next-neighbourhood 
-      on-up: prev-neighbourhood
-    soft-pedal:
-      on-down: set-reference-to-lowest
-      # on-up: null
+    sostenuto-pedal-down: !increment-neighbourhood-index 1
+    sostenuto-pedal-up: !increment-neighbourhood-index -1
+    soft-pedal-down: !set-reference-to-lowest

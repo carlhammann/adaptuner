@@ -440,6 +440,10 @@ pub enum FromUi<T: StackType> {
         action: StrategyAction,
         time: Instant,
     },
+    BindAction {
+        action: Option<StrategyAction>,
+        bindable: Bindable,
+    },
 }
 
 pub enum ToMidiIn {
@@ -832,6 +836,12 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 Some(ToProcess::ToStrategy(
                     ToStrategy::MakeCurrentNeighbourhoodPure { time },
                 )),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::BindAction { action, bindable } => (
+                Some(ToProcess::BindAction { action, bindable }),
                 None {},
                 None {},
                 None {},

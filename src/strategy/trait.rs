@@ -11,35 +11,27 @@ use crate::{
 
 /// Why these are not simply variants of [ToStrategy]: I want to expose them to users, to construct
 /// [crate::bindable::Bindings] in the configuration file, and [ToStrategy] doesn't belong there.
-#[derive(Serialize, Deserialize, PartialEq, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum StrategyAction {
-    NextNeighbourhood,
-    PrevNeighbourhood,
+    IncrementNeighbourhoodIndex(isize),
     SetReferenceToLowest,
     SetReferenceToHighest,
 }
 
-
-// impl StrategyAction {
-//     fn human_str(&self) -> &'static str {
-//         match self {
-//             StrategyAction::NextNeighbourhood => "next neighbourhood",
-//             StrategyAction::PrevNeighbourhood => "previous neighbourhood",
-//             StrategyAction::SetReferenceToLowest => "set reference to lowest sounding note",
-//             StrategyAction::SetReferenceToHighest => "set reference to highest sounding note",
-//         }
-//     }
-// }
-
 impl fmt::Display for StrategyAction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            StrategyAction::NextNeighbourhood => write!(f,"next neighbourhood"),
-            StrategyAction::PrevNeighbourhood => write!(f,"previous neighbourhood"),
-            StrategyAction::SetReferenceToLowest => write!(f,"set reference to lowest sounding note"),
-            StrategyAction::SetReferenceToHighest => write!(f,"set reference to highest sounding note"),
+            StrategyAction::IncrementNeighbourhoodIndex(i) => {
+                write!(f, "increment neighbourhood index by {i}")
+            }
+            StrategyAction::SetReferenceToLowest => {
+                write!(f, "set reference to lowest sounding note")
+            }
+            StrategyAction::SetReferenceToHighest => {
+                write!(f, "set reference to highest sounding note")
+            }
         }
     }
 }

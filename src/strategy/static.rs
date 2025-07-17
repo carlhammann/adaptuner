@@ -125,11 +125,8 @@ impl<T: StackType> StaticTuning<T> {
         forward: &mpsc::Sender<FromProcess<T>>,
     ) -> bool {
         match action {
-            StrategyAction::NextNeighbourhood => {
-                self.increment_neighbourhood(1, keys, tunings, time, forward)
-            }
-            StrategyAction::PrevNeighbourhood => {
-                self.increment_neighbourhood(-1, keys, tunings, time, forward)
+            StrategyAction::IncrementNeighbourhoodIndex(inc) => {
+                self.increment_neighbourhood(inc, keys, tunings, time, forward)
             }
             StrategyAction::SetReferenceToLowest => {
                 self.set_reference(keys, tunings, time, forward)

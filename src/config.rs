@@ -1,9 +1,9 @@
-use std::{fmt, sync::LazyLock};
+use std::{collections::BTreeMap, fmt, sync::LazyLock};
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    bindable::{Bindings, OneBinding},
+    bindable::Bindable,
     interval::{
         stack::Stack,
         stacktype::{
@@ -33,14 +33,19 @@ pub enum StrategyKind {
 }
 
 impl StrategyKind {
-    pub fn allowed_actions(&self) -> &'static [StrategyAction] {
+    pub fn increment_neighbourhood_index_allowed(&self) -> bool {
         match self {
-            StrategyKind::StaticTuning => &[
-                StrategyAction::NextNeighbourhood,
-                StrategyAction::PrevNeighbourhood,
-                StrategyAction::SetReferenceToLowest,
-                StrategyAction::SetReferenceToHighest,
-            ],
+            StrategyKind::StaticTuning => true,
+        }
+    }
+    pub fn set_reference_to_lowest_allowed(&self) -> bool {
+        match self {
+            StrategyKind::StaticTuning => true,
+        }
+    }
+    pub fn set_reference_to_highest_allowed(&self) -> bool {
+        match self {
+            StrategyKind::StaticTuning => true,
         }
     }
 }
@@ -67,7 +72,7 @@ pub struct ExtendedStrategyConfig<T: IntervalBasis> {
     pub name: String,
     pub description: String,
     pub config: StrategyConfig<T>,
-    pub bindings: Bindings<StrategyAction>,
+    pub bindings: BTreeMap<Bindable, StrategyAction>,
 }
 
 impl<T: IntervalBasis> ExtendedStrategyConfig<T> {
@@ -115,15 +120,20 @@ pub static STRATEGY_TEMPLATES: LazyLock<[ExtendedStrategyConfig<TheFiveLimitStac
                 },
                 reference: Stack::new_zero(),
             }),
-            bindings: Bindings {
-                soft_pedal: OneBinding {
-                    on_down: Some(StrategyAction::SetReferenceToLowest),
-                    on_up: None {},
-                },
-                sostenuto_pedal: OneBinding {
-                    on_down: Some(StrategyAction::NextNeighbourhood),
-                    on_up: Some(StrategyAction::PrevNeighbourhood),
-                },
-            },
+            bindings: [
+                (
+                    Bindable::SoftPedalDown,
+                    StrategyAction::SetReferenceToLowest,
+                ),
+                (
+                    Bindable::SostenutoPedalDown,
+                    StrategyAction::IncrementNeighbourhoodIndex(1),
+                ),
+                (
+                    Bindable::SostenutoPedalUp,
+                    StrategyAction::IncrementNeighbourhoodIndex(-1),
+                ),
+            ]
+            .into(),
         }]
     });

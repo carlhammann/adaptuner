@@ -1,5 +1,6 @@
 use std::{fmt, marker::PhantomData};
 
+use eframe::egui;
 use ndarray::{Array1, ArrayView1};
 use num_rational::Ratio;
 use num_traits::Zero;
@@ -151,4 +152,38 @@ where
             _phantom: PhantomData,
         })
     }
+}
+
+pub fn serialize_egui_key<S: serde::ser::Serializer>(
+    key: &egui::Key,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    ser.serialize_str(key.symbol_or_name())
+}
+
+pub fn deserialize_egui_key<'de, D>(deserializer: D) -> Result<egui::Key, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct KeyVisitor {}
+    impl<'de> serde::de::Visitor<'de> for KeyVisitor {
+        type Value = egui::Key;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "string, name of key")
+        }
+
+        fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            match egui::Key::from_name(v) {
+                Some(k) => Ok(k),
+                None {} => Err(serde::de::Error::custom(
+                    format!("'{v}' is not a key name",),
+                )),
+            }
+        }
+    }
+    deserializer.deserialize_str(KeyVisitor {})
 }

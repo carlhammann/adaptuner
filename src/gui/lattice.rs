@@ -7,7 +7,7 @@ use num_rational::Ratio;
 
 use crate::{
     interval::{
-        stack::{semitones_from_actual, semitones_from_target, ScaledAdd, Stack},
+        stack::{semitones_from_actual, ScaledAdd, Stack},
         stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
     },
     keystate::KeyState,

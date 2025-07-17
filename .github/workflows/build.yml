@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main" ]
     tags: 
-      - "*"
+      - "**"
   workflow_dispatch:
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: adaptuner-${{ matrix.os }}
-          path: result/bin/adaptuner
+          path: result/bin/*
   release:
     if: startsWith(github.event.ref, 'refs/tags/v')
     needs: build

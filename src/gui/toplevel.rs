@@ -3,7 +3,7 @@ use std::{hash::Hash, sync::mpsc};
 use eframe::{self, egui};
 
 use crate::{
-    config::{ExtendedStrategyConfig, StrategyKind},
+    config::ExtendedStrategyConfig,
     interval::stacktype::r#trait::{FiveLimitStackType, StackType},
     msg::{FromUi, HandleMsg, HandleMsgRef, ToUi},
 };

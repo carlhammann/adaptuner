@@ -1,7 +1,6 @@
 use std::{sync::mpsc, time::Instant};
 
 use crate::{
-    bindable::Bindable,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromProcess, ToStrategy},

@@ -7,11 +7,13 @@ use crate::{
     config::{ExtendedStrategyConfig, StrategyKind},
     interval::stacktype::r#trait::{FiveLimitStackType, IntervalBasis, StackType},
     msg::{FromUi, HandleMsgRef, ToUi},
+    strategy::r#trait::StrategyAction,
 };
 
 use super::{
     common::show_hide_button,
     editor::{
+        binding::{bindable_selector, strategy_action_selector},
         neighbourhood::NeighbourhoodEditor,
         reference::{ReferenceEditor, ReferenceEditorConfig},
         tuning::{TuningEditor, TuningEditorConfig},
@@ -43,6 +45,10 @@ pub struct StrategyWindows<T: StackType + 'static> {
     neigbourhood_editor: NeighbourhoodEditor<T>,
 
     show_binding_editor: bool,
+    tmp_strategy_action: Option<StrategyAction>,
+    tmp_bindable: Bindable,
+    tmp_key_name: String,
+    tmp_key_name_invalid: bool,
 }
 
 impl<T: StackType> StrategyWindows<T> {
@@ -70,6 +76,10 @@ impl<T: StackType> StrategyWindows<T> {
             reference_editor: ReferenceEditor::new(reference_editor),
             neigbourhood_editor: NeighbourhoodEditor::new(),
             show_binding_editor: false,
+            tmp_strategy_action: None {},
+            tmp_bindable: Bindable::SostenutoPedalDown,
+            tmp_key_name: "Space".into(),
+            tmp_key_name_invalid: false,
         }
     }
 
@@ -372,15 +382,9 @@ impl<'a, T: StackType> AsWindows<'a, T> {
             });
     }
 
-    fn display_binding_window(&mut self, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
+    fn display_binding_window(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let AsWindows(x) = self;
         let ctx = ui.ctx();
-        // let ExtendedStrategyConfig {
-        //     name: current_name,
-        //     description,
-        //     config: current_config,
-        //     bindings: current_bindings,
-        // } =
 
         if x.curr_strategy_index.is_none() {
             return;
@@ -393,36 +397,53 @@ impl<'a, T: StackType> AsWindows<'a, T> {
             .resizable(false)
             .open(&mut x.show_binding_editor)
             .show(ctx, |ui| {
-                egui::Grid::new("binding seletor grid").show(ui, |ui| {
-                    for bindable in [
-                        Bindable::SostenutoPedalDown,
-                        Bindable::SostenutoPedalUp,
-                        Bindable::SoftPedalDown,
-                        Bindable::SoftPedalUp,
-                    ] {
-                        ui.label(format!("{bindable}:"));
-                        egui::ComboBox::from_id_salt(bindable)
-                            .selected_text(
-                                current
-                                    .bindings
-                                    .get(bindable)
-                                    .map_or("--".into(), |action| format!("{action}")),
-                            )
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    current.bindings.get_mut(bindable),
-                                    None {},
-                                    "--",
-                                );
-                                for action in current.strategy_kind().allowed_actions() {
-                                    ui.selectable_value(
-                                        current.bindings.get_mut(bindable),
-                                        Some(action.clone()),
-                                        &format!("{action}"),
-                                    );
-                                }
-                            });
+                egui::Grid::new("active binding grid").show(ui, |ui| {
+                    for (k, v) in current.bindings.iter_mut() {
+                        ui.label(format!("{k}"));
+                        // *x.tmp_strategy_action = v;
+                        // if strategy_action_selector(
+                        //     ui,
+                        //     current.strategy_kind(),
+                        //     *k,
+                        //    v,
+                        //     // &mut x.tmp_strategy_action,
+                        // ) {
+                        //     if let Some(action) = x.tmp_strategy_action {
+                        //         current.bindings.insert(*k, action);
+                        //     } else {
+                        //         current.bindings.remove(k);
+                        //     }
+                        // }
+                        ui.label(format!("{v}"));
                         ui.end_row();
+                    }
+                });
+
+                ui.separator();
+                ui.label("add or change a binding:");
+                ui.horizontal(|ui| {
+                    bindable_selector(
+                        ui,
+                        &mut x.tmp_bindable,
+                        &mut x.tmp_key_name,
+                        &mut x.tmp_key_name_invalid,
+                    );
+                    x.tmp_strategy_action = current.bindings.get(&x.tmp_bindable).map(|x| *x);
+                    if strategy_action_selector(
+                        ui,
+                        current.strategy_kind(),
+                        x.tmp_bindable,
+                        &mut x.tmp_strategy_action,
+                    ) {
+                        if let Some(action) = x.tmp_strategy_action {
+                            current.bindings.insert(x.tmp_bindable, action);
+                        } else {
+                            current.bindings.remove(&x.tmp_bindable);
+                        }
+                        let _ = forward.send(FromUi::BindAction {
+                            action: x.tmp_strategy_action,
+                            bindable: x.tmp_bindable,
+                        });
                     }
                 });
             });

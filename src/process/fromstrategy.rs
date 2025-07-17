@@ -1,4 +1,4 @@
-use std::{fmt, sync::mpsc, time::Instant};
+use std::{collections::BTreeMap, fmt, sync::mpsc, time::Instant};
 
 use midi_msg::{
     Channel,
@@ -8,7 +8,7 @@ use midi_msg::{
 };
 
 use crate::{
-    bindable::{Bindable, Bindings},
+    bindable::Bindable,
     config::ExtendedStrategyConfig,
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub struct ProcessFromStrategy<T: StackType + 'static> {
-    strategies: Vec<(Box<dyn Strategy<T>>, Bindings<StrategyAction>)>,
+    strategies: Vec<(Box<dyn Strategy<T>>, BTreeMap<Bindable, StrategyAction>)>,
     templates: &'static [ExtendedStrategyConfig<T>],
     curr_strategy_index: usize,
     key_states: [KeyState; 128],
@@ -29,7 +29,7 @@ pub struct ProcessFromStrategy<T: StackType + 'static> {
 
 impl<T: StackType> ProcessFromStrategy<T> {
     pub fn new(
-        strategies: Vec<(Box<dyn Strategy<T>>, Bindings<StrategyAction>)>,
+        strategies: Vec<(Box<dyn Strategy<T>>, BTreeMap<Bindable, StrategyAction>)>,
         templates: &'static [ExtendedStrategyConfig<T>],
     ) -> Self {
         let now = Instant::now();
@@ -83,8 +83,8 @@ impl<T: StackType> ProcessFromStrategy<T> {
                 self.sostenuto_hold[channel as usize] = value > 0;
                 let is_down = self.sostenuto_hold.iter().any(|b| *b);
                 let action = match (was_down, is_down) {
-                    (false, true) => bindings.get(Bindable::SostenutoPedalDown),
-                    (true, false) => bindings.get(Bindable::SostenutoPedalUp),
+                    (false, true) => bindings.get(&Bindable::SostenutoPedalDown),
+                    (true, false) => bindings.get(&Bindable::SostenutoPedalUp),
                     _ => None {},
                 };
                 if let Some(&action) = action {
@@ -111,8 +111,8 @@ impl<T: StackType> ProcessFromStrategy<T> {
                 self.soft_hold[channel as usize] = value > 0;
                 let is_down = self.soft_hold.iter().any(|b| *b);
                 let action = match (was_down, is_down) {
-                    (false, true) => bindings.get(Bindable::SoftPedalDown),
-                    (true, false) => bindings.get(Bindable::SoftPedalUp),
+                    (false, true) => bindings.get(&Bindable::SoftPedalDown),
+                    (true, false) => bindings.get(&Bindable::SoftPedalUp),
                     _ => None {},
                 };
                 if let Some(&action) = action {
@@ -329,7 +329,12 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
             }
             ToProcess::BindAction { action, bindable } => {
                 let (_, bindings) = &mut self.strategies[self.curr_strategy_index];
-                bindings.set(bindable, action);
+                if let Some(action) = action {
+                    bindings.insert(bindable, action);
+                } else {
+                    bindings.remove(&bindable);
+                }
+                println!("{:?}", bindings);
             }
         }
     }

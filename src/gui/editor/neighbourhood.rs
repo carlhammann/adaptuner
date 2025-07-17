@@ -56,7 +56,7 @@ impl<T: StackType> GuiShow<T> for NeighbourhoodEditor<T> {
                         .clicked()
                     {
                         let _ = forward.send(FromUi::Action {
-                            action: StrategyAction::PrevNeighbourhood,
+                            action: StrategyAction::IncrementNeighbourhoodIndex(-1),
                             time: Instant::now(),
                         });
                     }
@@ -66,7 +66,7 @@ impl<T: StackType> GuiShow<T> for NeighbourhoodEditor<T> {
                         .clicked()
                     {
                         let _ = forward.send(FromUi::Action {
-                            action: StrategyAction::NextNeighbourhood,
+                            action: StrategyAction::IncrementNeighbourhoodIndex(1),
                             time: Instant::now(),
                         });
                     }
