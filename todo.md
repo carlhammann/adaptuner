@@ -12,4 +12,5 @@
 - multi-touch keyboard
 - nicer selection of correction basis: perference order: perference order
 - hande DetunedNote messages
+- "really delete" should disappear upon closing the strategy selection popup
 

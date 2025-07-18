@@ -1,9 +1,7 @@
-use std::{collections::HashMap, hash::Hash, sync::mpsc, time::Instant};
+use std::{hash::Hash, sync::mpsc, time::Instant};
 
 use eframe::egui::{self, pos2, vec2};
 use midi_msg::Channel;
-use ndarray::Array1;
-use num_rational::Ratio;
 
 use crate::{
     interval::{
@@ -12,7 +10,7 @@ use crate::{
     },
     keystate::KeyState,
     msg::{FromUi, HandleMsgRef, ToUi},
-    neighbourhood::{Neighbourhood, PartialNeighbourhood},
+    neighbourhood::{Neighbourhood, PartialNeighbourhood, SomeCompleteNeighbourhood},
     notename::{correction::Correction, NoteNameStyle},
     reference::Reference,
 };
@@ -22,7 +20,6 @@ use super::{common::temperament_applier, r#trait::GuiShow};
 // The following measurements are all in units of [LatticeWindow::zoom]
 
 const OCTAVE_WIDTH: f32 = 12.0;
-const WHITE_KEY_WIDTH: f32 = OCTAVE_WIDTH / 7.0; // don't change this: a white key is always a seventh of an octave wide
 const ET_SEMITONE_WIDTH: f32 = OCTAVE_WIDTH / 12.0;
 const BLACK_KEY_WIDTH: f32 = OCTAVE_WIDTH / 12.0;
 const WHITE_KEY_LENGTH: f32 = OCTAVE_WIDTH / 2.5;
@@ -41,712 +38,20 @@ pub struct LatticeWindowControls {
     pub zoom: f32,
     pub interval_heights: Vec<f32>,
     pub background_stack_distances: Vec<StackCoeff>,
+    pub project_dimension: usize,
     pub screen_keyboard_channel: Channel,
     pub screen_keyboard_velocity: u8,
     pub screen_keyboard_pedal_hold: bool,
+    pub screen_keyboard_center: u8,
     pub notenamestyle: NoteNameStyle,
     pub correction_system_index: usize,
 }
 
-struct LatticeDrawState<T: StackType> {
-    stacks_to_draw: HashMap<Array1<StackCoeff>, (Array1<Ratio<StackCoeff>>, DrawStyle)>,
-    tmp_temperaments: Vec<bool>,
-    tmp_correction: Correction<T>,
-    tmp_stack: Stack<T>,
-    tmp_relative_stack: Stack<T>,
-}
-
-impl<T: FiveLimitStackType> LatticeDrawState<T> {
-    fn clear(&mut self) {
-        self.stacks_to_draw.clear();
-    }
-
-    fn insert(
-        &mut self,
-        actual: Array1<StackCoeff>,
-        target: Array1<Ratio<StackCoeff>>,
-        style: DrawStyle,
-    ) {
-        self.stacks_to_draw.insert(actual, (target, style));
-    }
-
-    fn draw_stacks(
-        &mut self,
-        ui: &mut egui::Ui,
-        controls: &LatticeWindowControls,
-        reference: &Stack<T>,
-        tuning_reference: &Reference<T>,
-        lowest_height: f32,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) {
-        let rect = ui.max_rect();
-
-        let c4_hpos = rect.left()
-            + controls.zoom * ET_SEMITONE_WIDTH * (0.5 + tuning_reference.c4_semitones() as f32);
-
-        // compute the reference position
-        let mut max_y_offset = f32::MIN;
-        for (target, (_actual, _style)) in self.stacks_to_draw.iter() {
-            let y_offset = controls.zoom * ET_SEMITONE_WIDTH * {
-                let mut y = 0.0;
-                for (i, &c) in target.iter().enumerate() {
-                    y += (c - reference.target[i]) as f32 * controls.interval_heights[i];
-                }
-                y
-            };
-            max_y_offset = max_y_offset.max(y_offset);
-        }
-        let reference_vpos = rect.bottom()
-            - lowest_height
-            - controls.zoom * FREE_SPACE_ABOVE_KEYBOARD
-            - max_y_offset;
-        let reference_hpos =
-            c4_hpos + controls.zoom * ET_SEMITONE_WIDTH * reference.semitones() as f32;
-
-        let grid_line_color = ui
-            .style()
-            .visuals
-            .gray_out(ui.style().visuals.weak_text_color());
-
-        // first, draw the vertical lines and highlight circles
-        for (target, (actual, style)) in self.stacks_to_draw.iter() {
-            match style {
-                DrawStyle::Playing | DrawStyle::Antenna => {}
-                _ => continue,
-            }
-
-            let hpos = c4_hpos
-                + controls.zoom
-                    * ET_SEMITONE_WIDTH
-                    * semitones_from_actual::<T>(actual.into()) as f32;
-            let vpos = reference_vpos
-                + controls.zoom * ET_SEMITONE_WIDTH * {
-                    let mut y = 0.0;
-                    for (i, &c) in target.iter().enumerate() {
-                        y += (c - reference.target[i]) as f32 * controls.interval_heights[i];
-                    }
-                    y
-                };
-
-            if *style == DrawStyle::Playing {
-                ui.painter().with_clip_rect(rect).circle_filled(
-                    pos2(hpos, vpos),
-                    controls.zoom * FONT_SIZE,
-                    ui.style().visuals.selection.bg_fill,
-                );
-            }
-
-            ui.painter().with_clip_rect(rect).vline(
-                hpos,
-                egui::Rangef {
-                    min: vpos,
-                    max: rect.bottom() - lowest_height,
-                },
-                egui::Stroke::new(controls.zoom * MARKER_THICKNESS, grid_line_color),
-            );
-        }
-
-        // then, draw the grid lines. They won't be affected by temperaments
-        for (target, (actual, style)) in self.stacks_to_draw.iter() {
-            let mut in_bounds = true;
-            for i in 0..T::num_intervals() {
-                if (target[i] - reference.target[i]).abs() > controls.background_stack_distances[i]
-                {
-                    in_bounds = false;
-                    break;
-                }
-            }
-            if (*style == DrawStyle::Background) | in_bounds {
-                let start_hpos = c4_hpos
-                    + controls.zoom
-                        * ET_SEMITONE_WIDTH
-                        * semitones_from_actual::<T>(actual.into()) as f32;
-                let start_vpos = reference_vpos
-                    + controls.zoom * ET_SEMITONE_WIDTH * {
-                        let mut y = 0.0;
-                        for (i, &c) in target.iter().enumerate() {
-                            y += (c - reference.target[i]) as f32 * controls.interval_heights[i];
-                        }
-                        y
-                    };
-
-                for i in 0..T::num_intervals() {
-                    if target[i] == reference.target[i] {
-                        continue;
-                    }
-
-                    let inc = if target[i] > reference.target[i] {
-                        -1.0
-                    } else {
-                        1.0
-                    };
-
-                    let end_hpos =
-                        start_hpos + inc * controls.zoom * T::intervals()[i].semitones as f32;
-                    let end_vpos = start_vpos + inc * controls.zoom * controls.interval_heights[i];
-
-                    ui.painter().with_clip_rect(rect).line_segment(
-                        [pos2(start_hpos, start_vpos), pos2(end_hpos, end_vpos)],
-                        egui::Stroke::new(
-                            controls.zoom * FAINT_GRID_LINE_THICKNESS,
-                            grid_line_color,
-                        ),
-                    );
-                    ui.painter().with_clip_rect(rect).circle_filled(
-                        pos2(start_hpos, start_vpos),
-                        controls.zoom * GRID_NODE_RADIUS,
-                        grid_line_color,
-                    );
-                    ui.painter().with_clip_rect(rect).circle_filled(
-                        pos2(end_hpos, end_vpos),
-                        controls.zoom * GRID_NODE_RADIUS,
-                        grid_line_color,
-                    );
-                }
-            } else {
-                let mut start_hpos = reference_hpos;
-                let mut start_vpos = reference_vpos;
-
-                let mut end_hpos = reference_hpos;
-                let mut end_vpos = reference_vpos;
-
-                for i in (0..T::num_intervals()).rev() {
-                    let mut c = reference.target[i];
-
-                    let inc = if target[i] > c { 1 } else { -1 };
-
-                    while c != target[i] {
-                        end_hpos += controls.zoom
-                            * ET_SEMITONE_WIDTH
-                            * inc as f32
-                            * T::intervals()[i].semitones as f32;
-                        end_vpos += controls.zoom
-                            * ET_SEMITONE_WIDTH
-                            * inc as f32
-                            * controls.interval_heights[i];
-
-                        ui.painter().with_clip_rect(rect).line_segment(
-                            [pos2(start_hpos, start_vpos), pos2(end_hpos, end_vpos)],
-                            egui::Stroke::new(
-                                controls.zoom * FAINT_GRID_LINE_THICKNESS,
-                                grid_line_color,
-                            ),
-                        );
-                        ui.painter().with_clip_rect(rect).circle_filled(
-                            pos2(start_hpos, start_vpos),
-                            controls.zoom * GRID_NODE_RADIUS,
-                            grid_line_color,
-                        );
-                        ui.painter().with_clip_rect(rect).circle_filled(
-                            pos2(end_hpos, end_vpos),
-                            controls.zoom * GRID_NODE_RADIUS,
-                            grid_line_color,
-                        );
-
-                        start_hpos = end_hpos;
-                        start_vpos = end_vpos;
-                        c += inc;
-                    }
-                }
-            }
-        }
-
-        // last, draw the note names, add the interaction zones
-        for (target, (actual, style)) in self.stacks_to_draw.iter() {
-            let hpos = c4_hpos
-                + controls.zoom
-                    * ET_SEMITONE_WIDTH
-                    * semitones_from_actual::<T>(actual.into()) as f32;
-            let vpos = reference_vpos
-                + controls.zoom * ET_SEMITONE_WIDTH * {
-                    let mut y = 0.0;
-                    for (i, &c) in target.iter().enumerate() {
-                        y += (c - reference.target[i]) as f32 * controls.interval_heights[i];
-                    }
-                    y
-                };
-
-            self.tmp_stack.target.assign(target);
-            self.tmp_stack.actual.assign(actual);
-
-            let note_name_height_below_vpos =
-                self.draw_corrected_note_name(ui, controls, hpos, vpos, &self.tmp_stack, style);
-            let interaction_rect = egui::Rect::from_min_max(
-                pos2(
-                    hpos - controls.zoom * FONT_SIZE,
-                    vpos - controls.zoom * FONT_SIZE,
-                ),
-                pos2(
-                    hpos + controls.zoom * FONT_SIZE,
-                    vpos + note_name_height_below_vpos,
-                ),
-            );
-
-            // add the interaction zones.
-            match style {
-                DrawStyle::Antenna => {}
-                DrawStyle::Background => {
-                    if ui
-                        .interact(
-                            interaction_rect,
-                            egui::Id::new(target),
-                            egui::Sense::click(),
-                        )
-                        .clicked()
-                    {
-                        self.tmp_relative_stack.clone_from(&self.tmp_stack);
-                        self.tmp_relative_stack.scaled_add(-1, reference);
-                        let _ = forward.send(FromUi::Consider {
-                            stack: self.tmp_relative_stack.clone(),
-                            time: Instant::now(),
-                        });
-                    }
-                }
-                DrawStyle::Considered | DrawStyle::Playing => {
-                    let popup_id = ui.id().with(target);
-                    let response = ui.interact(
-                        interaction_rect,
-                        egui::Id::new(target),
-                        egui::Sense::click(),
-                    );
-                    if response.clicked() {
-                        for b in self.tmp_temperaments.iter_mut() {
-                            *b = false;
-                        }
-                        ui.memory_mut(|mem| mem.toggle_popup(popup_id));
-                        self.tmp_relative_stack.clone_from(&self.tmp_stack);
-                        self.tmp_relative_stack.scaled_add(-1, reference);
-                        self.tmp_correction
-                            .set_with(&self.tmp_relative_stack, controls.correction_system_index);
-                    }
-                    egui::popup::popup_below_widget(
-                        ui,
-                        popup_id,
-                        &response,
-                        egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-                        |ui| {
-                            if temperament_applier(
-                                Some(&format!(
-                                    "make pure relative to {}",
-                                    reference.corrected_notename(
-                                        &controls.notenamestyle,
-                                        controls.correction_system_index
-                                    )
-                                )),
-                                ui,
-                                &mut self.tmp_correction,
-                                controls.correction_system_index,
-                                &mut self.tmp_relative_stack,
-                            ) {
-                                let _ = forward.send(FromUi::Consider {
-                                    stack: self.tmp_relative_stack.clone(),
-                                    time: Instant::now(),
-                                });
-                            }
-                        },
-                    );
-                }
-            }
-        }
-    }
-
-    /// returns the height below vpos of the last text's base (which varies depending on the
-    /// `style` and on whether the stack is target/pure)
-    fn draw_corrected_note_name(
-        &self,
-        ui: &mut egui::Ui,
-        controls: &LatticeWindowControls,
-        hpos: f32,
-        vpos: f32,
-        stack: &Stack<T>,
-        style: &DrawStyle,
-    ) -> f32 {
-        let rect = ui.max_rect();
-
-        let first_line_height = match style {
-            DrawStyle::Background | DrawStyle::Considered | DrawStyle::Antenna => {
-                controls.zoom * FONT_SIZE
-            }
-            DrawStyle::Playing => controls.zoom * 1.5 * FONT_SIZE,
-        };
-        let spacing = controls.zoom * 0.5 * FONT_SIZE;
-        let other_lines_height = controls.zoom * 0.6 * FONT_SIZE;
-        let second_line_vpos = vpos + 0.5 * first_line_height + spacing;
-        let third_line_vpos = second_line_vpos + 0.5 * other_lines_height + spacing;
-        let text_color = match style {
-            DrawStyle::Background | DrawStyle::Antenna => ui.style().visuals.weak_text_color(),
-            DrawStyle::Considered | DrawStyle::Playing => ui.style().visuals.strong_text_color(),
-        };
-
-        let mut height_below_vpos = 0.0;
-
-        ui.painter().with_clip_rect(rect).text(
-            pos2(hpos, vpos),
-            egui::Align2::CENTER_CENTER,
-            stack.notename(&controls.notenamestyle),
-            egui::FontId::proportional(first_line_height),
-            text_color,
-        );
-        height_below_vpos += first_line_height * 0.5;
-
-        if !stack.is_target() {
-            let correction = Correction::new(stack, controls.correction_system_index);
-            ui.painter().with_clip_rect(rect).text(
-                pos2(hpos, second_line_vpos),
-                egui::Align2::CENTER_CENTER,
-                correction.str(),
-                egui::FontId::proportional(other_lines_height),
-                text_color,
-            );
-            height_below_vpos += spacing + other_lines_height;
-            if stack.is_pure() {
-                ui.painter().with_clip_rect(rect).text(
-                    pos2(hpos, third_line_vpos),
-                    egui::Align2::CENTER_CENTER,
-                    format!("={}", stack.actual_notename(&controls.notenamestyle)),
-                    egui::FontId::proportional(other_lines_height),
-                    text_color,
-                );
-                height_below_vpos += spacing + other_lines_height;
-            }
-        }
-
-        height_below_vpos
-    }
-}
-
-struct KeyDrawState {
-    rect: egui::Rect,
-    gray_out: bool,
-    is_white: bool,
-    active: bool,
-    key_number: u8,
-}
-
-fn set_key_rect(rect: &mut egui::Rect, zoom: f32, key_number: u8, is_white: bool) {
-    if is_white {
-        let quot = key_number / 12;
-        let rem = key_number % 12;
-        let left = zoom
-            * (OCTAVE_WIDTH * quot as f32
-                + WHITE_KEY_WIDTH
-                    * match rem {
-                        0 => 0.0,
-                        2 => 1.0,
-                        4 => 2.0,
-                        5 => 3.0,
-                        7 => 4.0,
-                        9 => 5.0,
-                        11 => 6.0,
-                        _ => unreachable!(),
-                    });
-        let top = -zoom * WHITE_KEY_LENGTH;
-        let right = left + zoom * WHITE_KEY_WIDTH;
-        let bottom = 0.0;
-        rect.min.x = left;
-        rect.min.y = top;
-        rect.max.x = right;
-        rect.max.y = bottom;
-    } else {
-        let left = zoom * (OCTAVE_WIDTH / 12.0 * key_number as f32);// - BLACK_KEY_WIDTH / 2.0);
-        let right = left + zoom * BLACK_KEY_WIDTH;
-        let top = -zoom * WHITE_KEY_LENGTH;
-        let bottom = zoom * (BLACK_KEY_LENGTH - WHITE_KEY_LENGTH);
-        rect.min.x = left;
-        rect.min.y = top;
-        rect.max.x = right;
-        rect.max.y = bottom;
-    }
-}
-
-impl KeyDrawState {
-    fn new(key_number: u8, controls: &LatticeWindowControls) -> Self {
-        let is_white = [0, 2, 4, 5, 7, 9, 11].contains(&(key_number % 12));
-        let mut rect = egui::Rect::ZERO;
-        set_key_rect(&mut rect, controls.zoom, key_number, is_white);
-        Self {
-            rect,
-            gray_out: key_number >= 109 || key_number <= 20,
-            is_white,
-            active: false,
-            key_number,
-        }
-    }
-
-    fn update_controls(&mut self, controls: &LatticeWindowControls) {
-        set_key_rect(
-            &mut self.rect,
-            controls.zoom,
-            self.key_number,
-            self.is_white,
-        );
-    }
-
-    fn update_active(&mut self, active_notes: &KeyState) {
-        self.active = active_notes.is_sounding();
-    }
-
-    fn draw<T: StackType>(
-        &self,
-        controls: &LatticeWindowControls,
-        ui: &mut egui::Ui,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) {
-        let border_color = if self.gray_out {
-            ui.style().visuals.weak_text_color()
-        } else {
-            ui.style().visuals.strong_text_color()
-        };
-
-        let active_color = ui.style().visuals.selection.bg_fill;
-
-        let left_bottom = vec2(ui.max_rect().min.x, ui.max_rect().max.y);
-
-        if self.active {
-            ui.painter().rect(
-                self.rect.translate(left_bottom),
-                egui::CornerRadius::default(),
-                active_color,
-                egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
-                egui::StrokeKind::Middle,
-            );
-        } else if self.is_white {
-            ui.painter().rect_stroke(
-                self.rect.translate(left_bottom),
-                egui::CornerRadius::default(),
-                egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
-                egui::StrokeKind::Middle,
-            );
-        } else {
-            ui.painter().rect(
-                self.rect.translate(left_bottom),
-                egui::CornerRadius::default(),
-                border_color,
-                egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
-                egui::StrokeKind::Middle,
-            );
-        }
-    }
-}
-
-pub struct KeyboardDrawState {
-    keys: [KeyDrawState; 128],
-}
-
-// let rect = ui.max_rect();
-// let controls = &self.controls;
-// let white_key_vertical_center = rect.bottom() - controls.zoom * WHITE_KEY_LENGTH / 2.0;
-// let black_key_vertical_center =
-//     rect.bottom() - controls.zoom * (WHITE_KEY_LENGTH - BLACK_KEY_LENGTH / 2.0);
-//
-// let draw_black_key = |horizontal_center, key_number| {
-//     let keystate: &KeyState = &self.active_notes[key_number];
-//     let on = keystate.is_sounding();
-//     let border_color = if (key_number < 109) & (key_number > 20) {
-//         ui.style().visuals.strong_text_color()
-//     } else {
-//         ui.style().visuals.weak_text_color()
-//     };
-//     let key_rect = egui::Rect::from_center_size(
-//         pos2(horizontal_center, black_key_vertical_center),
-//         controls.zoom * vec2(BLACK_KEY_WIDTH, BLACK_KEY_LENGTH),
-//     );
-//     ui.painter().with_clip_rect(rect).rect(
-//         key_rect,
-//         egui::CornerRadius::default(),
-//         if on {
-//             ui.style().visuals.selection.bg_fill
-//         } else {
-//             border_color
-//         },
-//         egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
-//         egui::StrokeKind::Middle,
-//     );
-//
-//     let response = ui.interact(
-//         key_rect,
-//         egui::Id::new(format!("black key {}", key_number)),
-//         egui::Sense::drag(),
-//     );
-//     if response.drag_started() {
-//         let _ = forward.send(FromUi::NoteOn {
-//             note: key_number as u8,
-//             channel: controls.screen_keyboard_channel,
-//             velocity: controls.screen_keyboard_velocity,
-//             time: Instant::now(),
-//         });
-//     }
-//     if response.drag_stopped() {
-//         let _ = forward.send(FromUi::NoteOff {
-//             note: key_number as u8,
-//             channel: controls.screen_keyboard_channel,
-//             velocity: controls.screen_keyboard_velocity,
-//             time: Instant::now(),
-//         });
-//     }
-// };
-//
-// let draw_white_key = |horizontal_center, key_number| {
-//     let keystate: &KeyState = &self.active_notes[key_number];
-//     let on = keystate.is_sounding();
-//     let key_rect = egui::Rect::from_center_size(
-//         pos2(horizontal_center, white_key_vertical_center),
-//         controls.zoom * vec2(WHITE_KEY_WIDTH, WHITE_KEY_LENGTH),
-//     );
-//     let border_color = if (key_number < 109) & (key_number > 20) {
-//         ui.style().visuals.strong_text_color()
-//     } else {
-//         ui.style().visuals.weak_text_color()
-//     };
-//     if on {
-//         ui.painter().with_clip_rect(rect).rect(
-//             key_rect,
-//             egui::CornerRadius::default(),
-//             ui.style().visuals.selection.bg_fill,
-//             egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
-//             egui::StrokeKind::Middle,
-//         );
-//     } else {
-//         ui.painter().with_clip_rect(rect).rect_stroke(
-//             key_rect,
-//             egui::CornerRadius::default(),
-//             egui::Stroke::new(controls.zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
-//             egui::StrokeKind::Middle,
-//         );
-//     }
-//     let response = ui.interact(
-//         key_rect,
-//         egui::Id::new(format!("white key {}", key_number)),
-//         egui::Sense::drag(),
-//     );
-//     if response.drag_started() {
-//         let _ = forward.send(FromUi::NoteOn {
-//             note: key_number as u8,
-//             channel: controls.screen_keyboard_channel,
-//             velocity: controls.screen_keyboard_velocity,
-//             time: Instant::now(),
-//         });
-//     }
-//     if response.drag_stopped() {
-//         let _ = forward.send(FromUi::NoteOff {
-//             note: key_number as u8,
-//             channel: controls.screen_keyboard_channel,
-//             velocity: controls.screen_keyboard_velocity,
-//             time: Instant::now(),
-//         });
-//     }
-// };
-//
-// let draw_octave = |octave: i16| {
-//     let c_left = rect.left() + controls.zoom * ((octave as f32 + 1.0) * OCTAVE_WIDTH);
-//     let white_key_numbers = [0, 2, 4, 5, 7, 9, 11];
-//     for i in 0..7 {
-//         let x =
-//             c_left + controls.zoom * (i as f32 * WHITE_KEY_WIDTH + WHITE_KEY_WIDTH / 2.0);
-//         let key_number = (60 + 12 * (octave - 4) + white_key_numbers[i]) as usize;
-//         if key_number > 127 {
-//             break;
-//         }
-//         draw_white_key(x, key_number);
-//     }
-//
-//     // widths of the white keys at the top. See
-//     //
-//     // https://www.mathpages.com/home/kmath043.htm
-//     //
-//     // for an explanation.
-//     let cde_width = controls.zoom * (WHITE_KEY_WIDTH - 2.0 * BLACK_KEY_WIDTH / 3.0);
-//     let fgab_width = controls.zoom * (WHITE_KEY_WIDTH - 3.0 * BLACK_KEY_WIDTH / 4.0);
-//
-//     let mut offset = c_left + cde_width + controls.zoom * BLACK_KEY_WIDTH / 2.0;
-//     let mut key_number = (60 + 12 * (octave - 4) + 1) as usize;
-//     if key_number > 127 {
-//         return;
-//     }
-//     draw_black_key(offset, key_number);
-//     offset += cde_width + controls.zoom * BLACK_KEY_WIDTH;
-//     key_number += 2;
-//     if key_number > 127 {
-//         return;
-//     }
-//     draw_black_key(offset, key_number);
-//     offset += fgab_width + cde_width + controls.zoom * BLACK_KEY_WIDTH;
-//     key_number += 3;
-//     if key_number > 127 {
-//         return;
-//     }
-//     draw_black_key(offset, key_number);
-//     offset += fgab_width + controls.zoom * BLACK_KEY_WIDTH;
-//     key_number += 2;
-//     if key_number > 127 {
-//         return;
-//     }
-//     draw_black_key(offset, key_number);
-//     offset += fgab_width + controls.zoom * BLACK_KEY_WIDTH;
-//     key_number += 2;
-//     if key_number > 127 {
-//         return;
-//     }
-//     draw_black_key(offset, key_number);
-// };
-//
-// for i in (-1)..10 {
-//     draw_octave(i);
-// }
-//
-// let mut reference = rect.left() + controls.zoom * OCTAVE_WIDTH / 24.0;
-// for _ in 0..128 {
-//     ui.painter().with_clip_rect(rect).vline(
-//         reference,
-//         egui::Rangef {
-//             min: rect.bottom() - controls.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH),
-//             max: rect.bottom() - controls.zoom * WHITE_KEY_LENGTH,
-//         },
-//         egui::Stroke::new(
-//             controls.zoom * MARKER_THICKNESS,
-//             ui.style().visuals.strong_text_color(),
-//         ),
-//     );
-//     reference += controls.zoom * OCTAVE_WIDTH / 12.0;
-// }
-
-impl KeyboardDrawState {
-    fn new(controls: &LatticeWindowControls) -> Self {
-        Self {
-            keys: core::array::from_fn(|i| KeyDrawState::new(i as u8, controls)),
-        }
-    }
-
-    pub fn update_controls(&mut self, controls: &LatticeWindowControls) {
-        for k in self.keys.iter_mut() {
-            k.update_controls(controls);
-        }
-    }
-
-    fn update_active(&mut self, active_notes: &[KeyState; 128]) {
-        for (i, k) in self.keys.iter_mut().enumerate() {
-            k.update_active(&active_notes[i]);
-        }
-    }
-
-    fn draw<T: StackType>(
-        &self,
-        controls: &LatticeWindowControls,
-        ui: &mut egui::Ui,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) {
-        // ui.set_clip_rect(ui.);
-        for k in self.keys.iter() {
-            if k.is_white {
-                k.draw(controls, ui, forward);
-            }
-        }
-        for k in self.keys.iter() {
-            if !k.is_white {
-                k.draw(controls, ui, forward);
-            }
-        }
-    }
+struct TmpData<T: StackType> {
+    temperaments: Vec<bool>,
+    correction: Correction<T>,
+    stack: Stack<T>,
+    relative_stack: Stack<T>,
 }
 
 pub struct LatticeWindow<T: StackType> {
@@ -754,22 +59,17 @@ pub struct LatticeWindow<T: StackType> {
     pedal_hold: [bool; 16],
     tunings: [Stack<T>; 128],
 
-    pub reference: Option<Stack<T>>,
-    tuning_reference: Option<Reference<T>>,
+    pub reference: Stack<T>,
+    tuning_reference: Reference<T>,
     considered_notes: PartialNeighbourhood<T>,
 
-    lattice_draw_state: LatticeDrawState<T>,
-    pub keyboard_draw_state: KeyboardDrawState,
+    c4_hpos: f32,
+    reference_pos: egui::Pos2,
+    tmp: TmpData<T>,
+    scene_rect: egui::Rect,
 
     pub controls: LatticeWindowControls,
-}
-
-#[derive(PartialEq)]
-enum DrawStyle {
-    Background,
-    Considered,
-    Playing,
-    Antenna,
+    highlight_playable_keys: bool,
 }
 
 struct PureStacksAround<'a, T: StackType> {
@@ -797,19 +97,25 @@ impl<'a, T: StackType> PureStacksAround<'a, T> {
     }
 }
 
-impl<'a, T: StackType> Iterator for PureStacksAround<'a, T> {
-    type Item = Stack<T>;
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a, T: StackType> PureStacksAround<'a, T> {
+    fn next(&mut self) -> Option<&Stack<T>> {
         for i in (0..T::num_intervals()).rev() {
             if self.curr.target[i] < self.reference.target[i] + self.dists[i] {
                 self.curr.increment_at_index_pure(i, 1);
-                return Some(self.curr.clone());
+                return Some(&self.curr);
             }
             self.curr.increment_at_index_pure(i, -2 * self.dists[i]);
         }
-
         return None {};
     }
+}
+
+#[derive(PartialEq)]
+enum NoteNameDrawStyle {
+    Background,
+    Considered,
+    Playing,
+    Antenna,
 }
 
 impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
@@ -819,99 +125,687 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             active_notes: core::array::from_fn(|_| KeyState::new(now)),
             pedal_hold: [false; 16],
             tunings: core::array::from_fn(|_| Stack::new_zero()),
-
-            tuning_reference: None {},
-            reference: None {},
-
-            considered_notes: PartialNeighbourhood::new("lattice window neighbourhood".into()),
-
-            lattice_draw_state: LatticeDrawState {
-                stacks_to_draw: HashMap::new(),
-                tmp_temperaments: vec![false; T::num_temperaments()],
-                tmp_correction: Correction::new_zero(config.correction_system_index),
-                tmp_stack: Stack::new_zero(),
-                tmp_relative_stack: Stack::new_zero(),
+            tuning_reference: Reference {
+                stack: Stack::new_zero(),
+                semitones: 60.0,
             },
-
-            keyboard_draw_state: KeyboardDrawState::new(&config),
-
+            reference: Stack::new_zero(),
+            considered_notes: PartialNeighbourhood::new("lattice window neighbourhood".into()),
+            highlight_playable_keys: false,
+            c4_hpos: 0.0,
+            reference_pos: pos2(0.0, 0.0),
+            tmp: TmpData {
+                stack: Stack::new_zero(),
+                relative_stack: Stack::new_zero(),
+                temperaments: vec![false; T::num_temperaments()],
+                correction: Correction::new_zero(config.correction_system_index),
+            },
             controls: config,
+            scene_rect: egui::Rect::NAN,
         }
     }
 
-    fn draw_lattice(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        if let (Some(reference), Some(tuning_reference)) = (&self.reference, &self.tuning_reference)
-        {
-            self.lattice_draw_state.clear();
-
-            let controls = &self.controls;
-
-            for stack in PureStacksAround::new(&controls.background_stack_distances, reference) {
-                self.lattice_draw_state
-                    .insert(stack.target, stack.actual, DrawStyle::Background);
+    fn key_border_color(&self, ui: &egui::Ui, key_number: u8) -> egui::Color32 {
+        if !self.highlight_playable_keys {
+            if key_number >= 109 || key_number <= 20
+            // the range of the piano
+            {
+                ui.style().visuals.weak_text_color()
+            } else {
+                ui.style().visuals.strong_text_color()
             }
+        } else {
+            let d = key_number as i16 - self.controls.screen_keyboard_center as i16;
+            if d <= 19 && d >= -18
+            // the range playable in [Self.key_interaction]
+            {
+                ui.style().visuals.strong_text_color()
+            } else if key_number >= 109 || key_number <= 20 {
+                ui.style().visuals.weak_text_color()
+            } else {
+                ui.style().visuals.text_color()
+            }
+        }
+    }
 
-            match T::try_period_index() {
-                None {} => todo!(),
-                Some(period_index) => {
-                    self.considered_notes.for_each_stack(|_, relative_stack| {
-                        let mut stack = relative_stack.clone();
-                        stack.increment_at_index_pure(period_index, -stack.target[period_index]);
-                        stack.scaled_add(1, reference);
-                        self.lattice_draw_state.insert(
-                            stack.target,
-                            stack.actual,
-                            DrawStyle::Considered,
-                        );
-                    });
-
-                    for (i, state) in self.active_notes.iter().enumerate() {
-                        if state.is_sounding() {
-                            let mut stack = self.tunings[i].clone();
-
-                            if stack.target.iter().enumerate().any(|(i, c)| {
-                                (reference.target[i] - c).abs()
-                                    > controls.background_stack_distances[i]
-                            }) {
-                                self.lattice_draw_state.insert(
-                                    stack.target.clone(),
-                                    stack.actual.clone(),
-                                    DrawStyle::Antenna,
-                                );
+    fn keyboard_hover_interaction(&self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        if ui.ui_contains_pointer() {
+            ui.input(|i| {
+                for e in &i.events {
+                    match e {
+                        egui::Event::Key {
+                            key,
+                            physical_key,
+                            pressed,
+                            repeat,
+                            ..
+                        } => {
+                            if *repeat {
+                                return;
                             }
-
-                            stack.increment_at_index_pure(
-                                period_index,
-                                reference.target[period_index] - stack.target[period_index],
-                            );
-                            self.lattice_draw_state.insert(
-                                stack.target,
-                                stack.actual,
-                                DrawStyle::Playing,
-                            );
+                            let the_key = physical_key.unwrap_or(*key);
+                            let offset: Option<i16> = match the_key {
+                                egui::Key::Q => Some(0), // C
+                                egui::Key::Num2 => Some(1),
+                                egui::Key::W => Some(2),
+                                egui::Key::Num3 => Some(3),
+                                egui::Key::E => Some(4),
+                                egui::Key::R => Some(5),
+                                egui::Key::Num5 => Some(6),
+                                egui::Key::T => Some(7),
+                                egui::Key::Num6 => Some(8),
+                                egui::Key::Y => Some(9),
+                                egui::Key::Num7 => Some(10),
+                                egui::Key::U => Some(11),
+                                egui::Key::I => Some(12), // C above
+                                egui::Key::Num9 => Some(13),
+                                egui::Key::O => Some(14),
+                                egui::Key::Num0 => Some(15),
+                                egui::Key::P => Some(16),
+                                egui::Key::OpenBracket => Some(17),
+                                egui::Key::Equals => Some(18),
+                                egui::Key::CloseBracket => Some(19), // G above
+                                egui::Key::Slash => Some(-1),
+                                egui::Key::Semicolon => Some(-2),
+                                egui::Key::Period => Some(-3),
+                                egui::Key::L => Some(-4),
+                                egui::Key::Comma => Some(-5),
+                                egui::Key::K => Some(-6),
+                                egui::Key::M => Some(-7),
+                                egui::Key::N => Some(-8),
+                                egui::Key::H => Some(-9),
+                                egui::Key::B => Some(-10),
+                                egui::Key::G => Some(-11),
+                                egui::Key::V => Some(-12), // C below
+                                egui::Key::C => Some(-13),
+                                egui::Key::D => Some(-14),
+                                egui::Key::X => Some(-15),
+                                egui::Key::S => Some(-16),
+                                egui::Key::Z => Some(-17), // G below
+                                egui::Key::A => Some(-18),
+                                _ => None {},
+                            };
+                            if let Some(offset) = offset {
+                                let note = self.controls.screen_keyboard_center as i16 + offset;
+                                if note <= 127 && note >= 0 {
+                                    if *pressed {
+                                        let _ = forward.send(FromUi::NoteOn {
+                                            channel: self.controls.screen_keyboard_channel,
+                                            note: note as u8,
+                                            velocity: self.controls.screen_keyboard_velocity,
+                                            time: Instant::now(),
+                                        });
+                                    } else {
+                                        let _ = forward.send(FromUi::NoteOff {
+                                            channel: self.controls.screen_keyboard_channel,
+                                            note: note as u8,
+                                            velocity: self.controls.screen_keyboard_velocity,
+                                            time: Instant::now(),
+                                        });
+                                    }
+                                }
+                            }
                         }
+                        _ => {}
                     }
                 }
+            });
+        }
+    }
+
+    fn key_click_interaction(
+        &mut self,
+        rect: egui::Rect,
+        key_number: u8,
+        ui: &mut egui::Ui,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
+        let r = ui.interact(rect, ui.id().with(key_number), egui::Sense::drag());
+
+        if r.drag_started() {
+            let _ = forward.send(FromUi::NoteOn {
+                channel: self.controls.screen_keyboard_channel,
+                note: key_number,
+                velocity: self.controls.screen_keyboard_velocity,
+                time: Instant::now(),
+            });
+        }
+
+        if r.drag_stopped() {
+            let _ = forward.send(FromUi::NoteOff {
+                channel: self.controls.screen_keyboard_channel,
+                note: key_number,
+                velocity: self.controls.screen_keyboard_velocity,
+                time: Instant::now(),
+            });
+        }
+    }
+
+    fn draw_white_keys(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        let egui::Pos2 { x: left, .. } = ui.max_rect().min;
+        let egui::Pos2 { y: bottom, .. } = ui.max_rect().max;
+        let zoom = self.controls.zoom;
+        let white_key_width = zoom * OCTAVE_WIDTH / 7.0;
+        let mut rect = egui::Rect::from_min_max(
+            pos2(left, bottom - zoom * WHITE_KEY_LENGTH),
+            pos2(left + white_key_width, bottom),
+        );
+
+        let active_color = ui.style().visuals.selection.bg_fill;
+
+        let steps = [2, 2, 1, 2, 2, 2, 1];
+        let mut key_number: u8 = 0;
+        let mut pitch_class = 0;
+        while key_number <= 127 {
+            let border_color = self.key_border_color(ui, key_number);
+            if self.active_notes[key_number as usize].is_sounding() {
+                ui.painter().rect(
+                    rect,
+                    egui::CornerRadius::default(),
+                    active_color,
+                    egui::Stroke::new(zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
+                    egui::StrokeKind::Middle,
+                );
+            } else {
+                ui.painter().rect_stroke(
+                    rect,
+                    egui::CornerRadius::default(),
+                    egui::Stroke::new(zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
+                    egui::StrokeKind::Middle,
+                );
             }
-            self.lattice_draw_state.draw_stacks(
-                ui,
-                &controls,
-                reference,
-                tuning_reference,
-                self.keyboard_height(),
-                forward,
+            self.key_click_interaction(rect, key_number, ui, forward);
+            rect = rect.translate(vec2(white_key_width, 0.0));
+            key_number += steps[pitch_class];
+            pitch_class = (pitch_class + 1) % 7;
+        }
+    }
+
+    fn draw_black_keys(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        let egui::Pos2 { x: left, .. } = ui.max_rect().min;
+        let egui::Pos2 { y: bottom, .. } = ui.max_rect().max;
+        let zoom = self.controls.zoom;
+        let key_number_steps = [2, 3, 2, 2, 3];
+        let w = zoom * OCTAVE_WIDTH / 7.0; // bottom width of white key.
+        let b = zoom * BLACK_KEY_WIDTH; // width of a black key;
+        let w1 = b; // top width of a white key that is between two black keys (D, G, A)
+        let w2 = (3.0 * w - 2.0 * b - w1) / 2.0; // top width of C and E keys
+        let w3 = (4.0 * w - 3.0 * b - 2.0 * w1) / 2.0; // top width of F and B keys
+
+        let spacing_steps = [b + w1, b + w2 + w3, b + w1, b + w1, b + w3 + w2];
+
+        let mut rect = egui::Rect::from_min_max(
+            pos2(left + w2, bottom - zoom * WHITE_KEY_LENGTH),
+            pos2(
+                left + w2 + b,
+                bottom - zoom * (WHITE_KEY_LENGTH - BLACK_KEY_LENGTH),
+            ),
+        );
+
+        let active_color = ui.style().visuals.selection.bg_fill;
+
+        let mut key_number: u8 = 1;
+        let mut pitch_class = 0;
+        while key_number <= 127 {
+            let border_color = self.key_border_color(ui, key_number);
+            ui.painter().rect(
+                rect,
+                egui::CornerRadius::default(),
+                if self.active_notes[key_number as usize].is_sounding() {
+                    active_color
+                } else {
+                    border_color
+                },
+                egui::Stroke::new(zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
+                egui::StrokeKind::Middle,
             );
+            self.key_click_interaction(rect, key_number, ui, forward);
+            rect = rect.translate(vec2(spacing_steps[pitch_class], 0.0));
+            key_number += key_number_steps[pitch_class];
+            pitch_class = (pitch_class + 1) % 5;
+        }
+    }
+
+    fn draw_ruler(&self, ui: &mut egui::Ui) {
+        let bottom = ui.max_rect().bottom();
+        let zoom = self.controls.zoom;
+        let mut x = ui.max_rect().left() + zoom * OCTAVE_WIDTH / 24.0;
+        let y = egui::Rangef {
+            min: bottom - zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH),
+            max: bottom - zoom * WHITE_KEY_LENGTH,
+        };
+        for _ in 0..128 {
+            ui.painter().vline(
+                x,
+                y,
+                egui::Stroke::new(zoom * MARKER_THICKNESS, ui.style().visuals.text_color()),
+            );
+            x += zoom * OCTAVE_WIDTH / 12.0;
         }
     }
 
     fn draw_keyboard(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        // self.keyboard_draw_state.update_active(&self.active_notes);
-        // self.keyboard_draw_state.update_controls(&self.controls);
-        self.keyboard_draw_state.draw(&self.controls, ui, forward);
+        self.draw_ruler(ui);
+        self.draw_white_keys(ui, forward);
+        self.draw_black_keys(ui, forward);
+    }
+
+    fn compute_reference_positions(&mut self, ui: &egui::Ui) {
+        self.c4_hpos = ui.max_rect().left()
+            + self.controls.zoom
+                * ET_SEMITONE_WIDTH
+                * (0.5 // half a key width on the ruler above the piano
+                   + self.tuning_reference.c4_semitones() as f32);
+
+        self.reference_pos.x = self.c4_hpos
+            + self.controls.zoom * ET_SEMITONE_WIDTH * self.reference.semitones() as f32;
+    }
+
+    fn vpos(&self, stack: &Stack<T>) -> f32 {
+        self.reference_pos.y
+            + self.controls.zoom * ET_SEMITONE_WIDTH * {
+                let mut y = 0.0;
+                for i in 0..T::num_intervals() {
+                    y += (stack.target[i] - self.reference.target[i]) as f32
+                        * self.controls.interval_heights[i];
+                }
+                y
+            }
+    }
+
+    fn hpos(&self, stack: &Stack<T>) -> f32 {
+        self.c4_hpos + self.controls.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32
+    }
+
+    fn pos(&self, stack: &Stack<T>) -> egui::Pos2 {
+        pos2(self.hpos(stack), self.vpos(stack))
+    }
+
+    fn has_projection(&self, stack: &Stack<T>) -> bool {
+        stack.target[self.controls.project_dimension]
+            != self.reference.target[self.controls.project_dimension]
+    }
+
+    fn projected_pos(&self, stack: &Stack<T>) -> egui::Pos2 {
+        self.pos(stack)
+            - (stack.target[self.controls.project_dimension]
+                - self.reference.target[self.controls.project_dimension]) as f32
+                * self.controls.zoom
+                * ET_SEMITONE_WIDTH
+                * vec2(
+                    T::intervals()[self.controls.project_dimension].semitones as f32,
+                    self.controls.interval_heights[self.controls.project_dimension],
+                )
+    }
+
+    fn background_notename_color(&self, ui: &egui::Ui) -> egui::Color32 {
+        ui.style().visuals.weak_text_color()
+    }
+
+    fn foreground_notename_color(&self, ui: &egui::Ui) -> egui::Color32 {
+        ui.style().visuals.strong_text_color()
+    }
+
+    fn grid_line_color(&self, ui: &egui::Ui) -> egui::Color32 {
+        ui.style().visuals.weak_text_color()
+    }
+
+    fn grid_line_stroke(&self, ui: &egui::Ui) -> egui::Stroke {
+        egui::Stroke::new(
+            self.controls.zoom * FAINT_GRID_LINE_THICKNESS,
+            self.grid_line_color(ui),
+        )
+    }
+
+    fn activation_color(&self, ui: &egui::Ui, stack: &Stack<T>) -> egui::Color32 {
+        ui.style().visuals.selection.bg_fill
+    }
+
+    fn draw_grid_lines(&mut self, ui: &egui::Ui) {
+        let color = self.grid_line_color(ui);
+        let stroke = self.grid_line_stroke(ui);
+
+        let draw_circle = |pos| {
+            ui.painter()
+                .circle_filled(pos, self.controls.zoom * GRID_NODE_RADIUS, color);
+        };
+
+        let draw_limb = |direction: usize, forward: bool, start_pos: egui::Pos2| {
+            let end_pos = start_pos
+                + self.controls.zoom
+                    * ET_SEMITONE_WIDTH
+                    * if forward { 1.0 } else { -1.0 }
+                    * vec2(
+                        T::intervals()[direction].semitones as f32,
+                        self.controls.interval_heights[direction],
+                    );
+            ui.painter().line_segment([start_pos, end_pos], stroke);
+            end_pos
+        };
+
+        let mut background =
+            PureStacksAround::new(&self.controls.background_stack_distances, &self.reference);
+        while let Some(stack) = background.next() {
+            for i in 0..T::num_intervals() {
+                let d = stack.target[i] - self.reference.target[i];
+                if d == 0 {
+                    continue;
+                }
+                let p = self.pos(stack);
+                // draw_circle(p);
+                let _ = draw_limb(i, d < 0, p);
+            }
+        }
+
+        let draw_path_without_projection = |stack: &Stack<T>| {
+            let mut in_bounds = true;
+            for i in 0..T::num_intervals() {
+                if i == self.controls.project_dimension {
+                    continue;
+                }
+                if (stack.target[i] - self.reference.target[i]).abs()
+                    > self.controls.background_stack_distances[i]
+                {
+                    in_bounds = false;
+                    break;
+                }
+            }
+
+            if !in_bounds {
+                let mut pos = self.reference_pos;
+                for i in 0..T::num_intervals() {
+                    if i == self.controls.project_dimension {
+                        continue;
+                    }
+                    let d = stack.target[i] - self.reference.target[i];
+                    for _ in 0..d.abs() {
+                        pos = draw_limb(i, d > 0, pos);
+                        draw_circle(pos);
+                    }
+                }
+            }
+        };
+
+        self.considered_notes.for_each_stack(|_, stk| {
+            self.tmp.stack.clone_from(&self.reference);
+            self.tmp.stack.scaled_add(1, stk);
+            draw_path_without_projection(&self.tmp.stack);
+        });
+
+        for (i, stack) in self.tunings.iter().enumerate() {
+            if self.active_notes[i].is_sounding() {
+                draw_path_without_projection(stack);
+                let mut pos = self.projected_pos(stack);
+                let d = stack.target[self.controls.project_dimension]
+                    - self.reference.target[self.controls.project_dimension];
+                for _ in 0..d.abs() {
+                    pos = draw_limb(self.controls.project_dimension, d > 0, pos);
+                    draw_circle(pos);
+                }
+            }
+        }
+    }
+
+    fn draw_down_lines(&self, ui: &egui::Ui) {
+        let bottom = self.keyboard_top(ui);
+        for (i, stack) in self.tunings.iter().enumerate() {
+            if self.active_notes[i].is_sounding() {
+                let ppos = self.projected_pos(stack);
+                ui.painter().vline(
+                    ppos.x,
+                    egui::Rangef {
+                        min: ppos.y,
+                        max: bottom,
+                    },
+                    self.grid_line_stroke(ui),
+                );
+
+                if self.has_projection(stack) {
+                    let pos = self.pos(stack);
+                    ui.painter().vline(
+                        pos.x,
+                        egui::Rangef {
+                            min: pos.y,
+                            max: bottom,
+                        },
+                        self.grid_line_stroke(ui),
+                    );
+                }
+            }
+        }
+    }
+
+    fn draw_activation_circle(
+        &self,
+        ui: &egui::Ui,
+        stack: &Stack<T>,
+        projected: bool,
+        active: bool,
+    ) {
+        let mut pos = self.pos(stack);
+        if projected {
+            pos = self.projected_pos(stack);
+        }
+        if active {
+            ui.painter().circle_filled(
+                pos,
+                self.controls.zoom * FONT_SIZE,
+                self.activation_color(ui, stack),
+                // self.grid_line_stroke(ui),
+            );
+        } else {
+            ui.painter().circle_filled(
+                pos,
+                self.controls.zoom * 0.6 * FONT_SIZE,
+                ui.style().visuals.window_fill,
+                // self.grid_line_stroke(ui),
+            );
+        }
+    }
+
+    /// returns a rect that may not be as wide as the complete note name, but that is as high as it.
+    fn draw_corrected_note_name(
+        &self,
+        ui: &mut egui::Ui,
+        stack: &Stack<T>,
+        projected: bool,
+        style: NoteNameDrawStyle,
+    ) -> egui::Rect {
+        let egui::Pos2 {
+            x: mut hpos,
+            y: mut vpos,
+        } = self.pos(stack);
+        if projected {
+            egui::Pos2 { x: hpos, y: vpos } = self.projected_pos(stack);
+        }
+
+        let first_line_height = match style {
+            NoteNameDrawStyle::Background
+            | NoteNameDrawStyle::Considered
+            | NoteNameDrawStyle::Antenna => self.controls.zoom * FONT_SIZE,
+            NoteNameDrawStyle::Playing => self.controls.zoom * 1.5 * FONT_SIZE,
+        };
+        let spacing = self.controls.zoom * 0.5 * FONT_SIZE;
+        let other_lines_height = self.controls.zoom * 0.6 * FONT_SIZE;
+        let second_line_vpos = vpos + 0.5 * first_line_height + spacing;
+        let third_line_vpos = second_line_vpos + 0.5 * other_lines_height + spacing;
+        let text_color = match style {
+            NoteNameDrawStyle::Background | NoteNameDrawStyle::Antenna => {
+                self.background_notename_color(ui)
+            }
+            NoteNameDrawStyle::Considered | NoteNameDrawStyle::Playing => {
+                self.foreground_notename_color(ui)
+            }
+        };
+
+        let mut bottom = vpos;
+
+        ui.painter().text(
+            pos2(hpos, vpos),
+            egui::Align2::CENTER_CENTER,
+            stack.notename(&self.controls.notenamestyle),
+            egui::FontId::proportional(first_line_height),
+            text_color,
+        );
+        bottom += first_line_height * 0.5;
+
+        if !stack.is_target() {
+            let correction = Correction::new(stack, self.controls.correction_system_index);
+            ui.painter().text(
+                pos2(hpos, second_line_vpos),
+                egui::Align2::CENTER_CENTER,
+                correction.str(),
+                egui::FontId::proportional(other_lines_height),
+                text_color,
+            );
+            bottom += spacing + other_lines_height;
+            if stack.is_pure() {
+                ui.painter().text(
+                    pos2(hpos, third_line_vpos),
+                    egui::Align2::CENTER_CENTER,
+                    format!("={}", stack.actual_notename(&self.controls.notenamestyle)),
+                    egui::FontId::proportional(other_lines_height),
+                    text_color,
+                );
+                bottom += spacing + other_lines_height;
+            }
+        }
+
+        let dx = 0.5 * ui.style().spacing.interact_size.x;
+        let dy = 0.5 * ui.style().spacing.interact_size.y;
+        egui::Rect::from_min_max(pos2(hpos - dx, vpos - dy), pos2(hpos + dx, bottom))
+    }
+
+    fn draw_note_names_and_interaction_zones(
+        &mut self,
+        ui: &mut egui::Ui,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
+        let relative_same_target_up_to_projection = |relative: &Stack<T>, absolute: &Stack<T>| {
+            for i in 0..T::num_intervals() {
+                if i == self.controls.project_dimension {
+                    continue;
+                }
+                if absolute.target[i] != relative.target[i] + self.reference.target[i] {
+                    return false;
+                }
+            }
+            true
+        };
+
+        self.considered_notes.clear_marks();
+
+        for (i, stack) in self.tunings.iter().enumerate() {
+            if self.active_notes[i].is_sounding() {
+                self.draw_activation_circle(ui, stack, true, true);
+                self.draw_corrected_note_name(ui, stack, true, NoteNameDrawStyle::Playing);
+                if self.has_projection(stack) {
+                    self.draw_activation_circle(ui, stack, false, false);
+                    self.draw_corrected_note_name(ui, stack, false, NoteNameDrawStyle::Antenna);
+                }
+                self.considered_notes
+                    .mark(|_, x| relative_same_target_up_to_projection(x, stack));
+            }
+        }
+
+        let mut background =
+            PureStacksAround::new(&self.controls.background_stack_distances, &self.reference);
+        while let Some(stack) = background.next() {
+            if !self
+                .considered_notes
+                .contains(|x| relative_same_target_up_to_projection(x, stack))
+            {
+                self.draw_activation_circle(ui, stack, true, false);
+
+                let rect =
+                    self.draw_corrected_note_name(ui, stack, true, NoteNameDrawStyle::Background);
+                if ui
+                    .interact(rect, egui::Id::new(stack), egui::Sense::click())
+                    .clicked()
+                {
+                    self.tmp.stack.clone_from(stack);
+                    self.tmp.stack.scaled_add(-1, &self.reference);
+                    let _ = forward.send(FromUi::Consider {
+                        stack: self.tmp.stack.clone(),
+                        time: Instant::now(),
+                    });
+                }
+            }
+        }
+
+        for (_, (stack, mark)) in self.considered_notes.iter() {
+            if !mark {
+                self.tmp.stack.clone_from(stack);
+                self.tmp.stack.scaled_add(1, &self.reference);
+                self.draw_activation_circle(ui, &self.tmp.stack, true, false);
+                let rect = self.draw_corrected_note_name(
+                    ui,
+                    &self.tmp.stack,
+                    true,
+                    NoteNameDrawStyle::Considered,
+                );
+
+                let popup_id = ui.id().with(stack);
+                let response = ui.interact(rect, egui::Id::new(stack), egui::Sense::click());
+                if response.clicked() {
+                    for b in self.tmp.temperaments.iter_mut() {
+                        *b = false;
+                    }
+                    ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                    self.tmp.relative_stack.clone_from(stack);
+                    self.tmp.correction.set_with(
+                        &self.tmp.relative_stack,
+                        self.controls.correction_system_index,
+                    );
+                }
+                egui::popup::popup_below_widget(
+                    ui,
+                    popup_id,
+                    &response,
+                    egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+                    |ui| {
+                        if temperament_applier(
+                            Some(&format!(
+                                "make pure relative to {}",
+                                self.reference.corrected_notename(
+                                    &self.controls.notenamestyle,
+                                    self.controls.correction_system_index
+                                )
+                            )),
+                            ui,
+                            &mut self.tmp.correction,
+                            self.controls.correction_system_index,
+                            &mut self.tmp.relative_stack,
+                        ) {
+                            let _ = forward.send(FromUi::Consider {
+                                stack: self.tmp.relative_stack.clone(),
+                                time: Instant::now(),
+                            });
+                        }
+                    },
+                );
+            }
+        }
+    }
+
+    fn draw_lattice(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+        self.compute_reference_positions(ui);
+        self.draw_down_lines(ui);
+        self.draw_grid_lines(ui);
+        self.draw_note_names_and_interaction_zones(ui, forward);
+    }
+
+    fn keyboard_rect(&self, ui: &egui::Ui) -> egui::Rect {
+        let bottom = ui.max_rect().bottom();
+        let left = ui.max_rect().left();
+        egui::Rect::from_min_max(
+            pos2(left, bottom - self.keyboard_height()),
+            pos2(left + self.keyboard_width(), bottom),
+        )
     }
 
     fn keyboard_width(&self) -> f32 {
-        self.controls.zoom * WHITE_KEY_WIDTH * 75.0 // 75 is the number of white keys in the MIDI range
+        self.controls.zoom * OCTAVE_WIDTH / 7.0 * 75.0 // 75 is the number of white keys in the MIDI range
     }
 
     fn drawing_width(&self) -> f32 {
@@ -922,25 +816,30 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
         self.controls.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH)
     }
 
-    fn grid_height(&self) -> f32 {
-        let controls = &self.controls;
-        controls.zoom * {
-            let mut min_y_offset = f32::MAX;
-            let mut max_y_offset = f32::MIN;
-            for (target, (_actual, _style)) in self.lattice_draw_state.stacks_to_draw.iter() {
-                let y_offset = ET_SEMITONE_WIDTH * {
-                    let mut y = 0.0;
-                    for (i, &c) in target.iter().enumerate() {
-                        y += c as f32 * controls.interval_heights[i];
-                    }
-                    y
-                };
+    fn keyboard_top(&self, ui: &egui::Ui) -> f32 {
+        ui.max_rect().bottom() - self.keyboard_height()
+    }
 
-                min_y_offset = min_y_offset.min(y_offset);
-                max_y_offset = max_y_offset.max(y_offset);
-            }
-            max_y_offset - min_y_offset + FONT_SIZE
-        }
+    fn grid_height(&self) -> f32 {
+        500.0
+        // let controls = &self.controls;
+        // controls.zoom * {
+        //     let mut min_y_offset = f32::MAX;
+        //     let mut max_y_offset = f32::MIN;
+        //     for (target, (_actual, _style)) in self.lattice_draw_state.stacks_to_draw.iter() {
+        //         let y_offset = ET_SEMITONE_WIDTH * {
+        //             let mut y = 0.0;
+        //             for (i, &c) in target.iter().enumerate() {
+        //                 y += c as f32 * controls.interval_heights[i];
+        //             }
+        //             y
+        //         };
+        //
+        //         min_y_offset = min_y_offset.min(y_offset);
+        //         max_y_offset = max_y_offset.max(y_offset);
+        //     }
+        //     max_y_offset - min_y_offset + FONT_SIZE
+        // }
     }
 
     fn drawing_height(&self) -> f32 {
@@ -950,105 +849,74 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
 
 impl<T: FiveLimitStackType + Hash + Eq> GuiShow<T> for LatticeWindow<T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
-        egui::ScrollArea::both()
-            .stick_to_bottom(true)
-            .scroll_bar_rect(ui.clip_rect())
-            .show(ui, |ui| {
-                if ui
-                    .interact(
-                        ui.clip_rect(),
-                        egui::Id::new("lattice window base"),
-                        egui::Sense::hover(),
-                    )
-                    .hovered()
-                {
-                    ui.input(|i| {
-                        for e in &i.events {
-                            match e {
-                                egui::Event::Key {
-                                    key,
-                                    physical_key,
-                                    pressed,
-                                    repeat,
-                                    ..
-                                } => {
-                                    if *repeat {
-                                        return;
-                                    }
-                                    let the_key = physical_key.unwrap_or(*key);
-                                    let offset: Option<i8> = match the_key {
-                                        egui::Key::Q => Some(0), // C
-                                        egui::Key::Num2 => Some(1),
-                                        egui::Key::W => Some(2),
-                                        egui::Key::Num3 => Some(3),
-                                        egui::Key::E => Some(4),
-                                        egui::Key::R => Some(5),
-                                        egui::Key::Num5 => Some(6),
-                                        egui::Key::T => Some(7),
-                                        egui::Key::Num6 => Some(8),
-                                        egui::Key::Y => Some(9),
-                                        egui::Key::Num7 => Some(10),
-                                        egui::Key::U => Some(11),
-                                        egui::Key::I => Some(12), // C above
-                                        egui::Key::Num9 => Some(13),
-                                        egui::Key::O => Some(14),
-                                        egui::Key::Num0 => Some(15),
-                                        egui::Key::P => Some(16),
-                                        egui::Key::OpenBracket => Some(17),
-                                        egui::Key::Equals => Some(18),
-                                        egui::Key::CloseBracket => Some(19), // G above
-                                        egui::Key::Slash => Some(-1),
-                                        egui::Key::Semicolon => Some(-2),
-                                        egui::Key::Period => Some(-3),
-                                        egui::Key::L => Some(-4),
-                                        egui::Key::Comma => Some(-5),
-                                        egui::Key::K => Some(-6),
-                                        egui::Key::M => Some(-7),
-                                        egui::Key::N => Some(-8),
-                                        egui::Key::H => Some(-9),
-                                        egui::Key::B => Some(-10),
-                                        egui::Key::G => Some(-11),
-                                        egui::Key::V => Some(-12), // C below
-                                        egui::Key::C => Some(-13),
-                                        egui::Key::D => Some(-14),
-                                        egui::Key::X => Some(-15),
-                                        egui::Key::S => Some(-16),
-                                        egui::Key::Z => Some(-17), // G below
-                                        egui::Key::A => Some(-18),
+        // ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
+        self.keyboard_hover_interaction(ui, forward);
+        let mut scene_rect = self.scene_rect.clone();
+        egui::Scene::new().show(ui, &mut scene_rect, |ui| {
+            // let size = egui::Vec2::splat(16.0);
+            // let (response, painter) = ui.allocate_painter(size, egui::Sense::hover());
+            // let rect = response.rect;
+            // let c = rect.center();
+            // let r = rect.width() / 2.0 - 1.0;
+            // let color = egui::Color32::from_gray(128);
+            // let stroke = egui::Stroke::new(1.0, color);
+            // painter.circle_stroke(c, r, stroke);
+            // painter.line_segment([c - vec2(0.0, r), c + vec2(0.0, r)], stroke);
+            // // painter.line_segment([c, c + r * egui::Vec2::angled(TAU * 1.0 / 8.0)], stroke);
+            // // painter.line_segment([c, c + r * egui::Vec2::angled(TAU * 3.0 / 8.0)], stroke);
+            //
 
-                                        _ => None {},
-                                    };
-                                    if let Some(offset) = offset {
-                                        if *pressed {
-                                            let _ = forward.send(FromUi::NoteOn {
-                                                channel: self.controls.screen_keyboard_channel,
-                                                note: (60 + offset) as u8,
-                                                velocity: self.controls.screen_keyboard_velocity,
-                                                time: Instant::now(),
-                                            });
-                                        } else {
-                                            let _ = forward.send(FromUi::NoteOff {
-                                                channel: self.controls.screen_keyboard_channel,
-                                                note: (60 + offset) as u8,
-                                                velocity: self.controls.screen_keyboard_velocity,
-                                                time: Instant::now(),
-                                            });
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    });
-                }
-                ui.allocate_space(vec2(
-                    ui.max_rect().width().max(self.drawing_width()),
-                    ui.max_rect().height().max(self.drawing_height()),
-                ));
-                self.draw_lattice(ui, forward);
-                self.draw_keyboard(ui, forward);
-            });
+            // let (response, painter) = ui.allocate_painter(
+            //     vec2(self.keyboard_width(), self.keyboard_height()),
+            //     egui::Sense::drag(),
+            // );
+
+            // ui.allocate_space(vec2(self.keyboard_width(), self.keyboard_height()));
+            // ui.allocate_ui(vec2(0.0, 0.0), |ui| {
+            //     ui.label("hi there");
+            //     self.draw_lattice(ui, forward);
+            //     self.draw_keyboard(ui, forward);
+            // });
+            //
+
+            ui.set_width(self.drawing_width());
+            ui.set_height(self.drawing_height());
+            // ui.set_width(1.0);
+            // ui.set_height(1.0);
+
+            self.draw_keyboard(ui, forward);
+            self.draw_lattice(ui, forward);
+
+            // ui.painter().rect_stroke(
+            //     // self.scene_rect,
+            //     //self.keyboard_rect(ui),
+            //     ui.min_rect(),
+            //     egui::CornerRadius::default(),
+            //     egui::Stroke::new(5.0, egui::Color32::RED),
+            //     egui::StrokeKind::Middle,
+            // );
+            //
+            // ui.painter().rect_stroke(
+            //     // self.scene_rect,
+            //     //self.keyboard_rect(ui),
+            //     ui.max_rect(),
+            //     egui::CornerRadius::default(),
+            //     egui::Stroke::new(5.0, egui::Color32::BLUE),
+            //     egui::StrokeKind::Middle,
+            // );
+        });
+        self.scene_rect.clone_from(&scene_rect);
+        // println!("{}", self.scene_rect);
+        // egui::ScrollArea::both()
+        //     .stick_to_bottom(true)
+        //     .scroll_bar_rect(ui.clip_rect())
+        //     .show(ui, |ui| {
+        //         // println!("{}",self.drawing_width());
+        //         // println!("{}", self.drawing_height());
+        //         ui.allocate_space(vec2(self.drawing_width(), self.drawing_height()));
+        //         // self.draw_lattice(ui, forward);
+        //         self.draw_keyboard(ui, forward);
+        //     });
     }
 }
 
@@ -1107,14 +975,10 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindow<T> {
             ToUi::Consider { stack } => {
                 let _ = self.considered_notes.insert(stack);
             }
-            ToUi::SetReference { stack } => self.reference = Some(stack.clone()),
-            ToUi::SetTuningReference { reference } => {
-                self.tuning_reference = Some(reference.clone())
-            }
+            ToUi::SetReference { stack } => self.reference.clone_from(stack),
+            ToUi::SetTuningReference { reference } => self.tuning_reference.clone_from(reference),
 
-            ToUi::NotifyFit { .. } => {}
-            ToUi::NotifyNoFit => {}
-            ToUi::DetunedNote { .. } => {}
+            ToUi::DetunedNote { .. } => todo!(),
 
             _ => {}
         }

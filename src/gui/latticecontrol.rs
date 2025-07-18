@@ -14,17 +14,15 @@ pub struct AsSmallControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
 
 impl<'a, T: StackType> GuiShow<T> for AsSmallControls<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        let AsSmallControls(LatticeWindow { controls, keyboard_draw_state, .. }) = self;
+        let AsSmallControls(LatticeWindow { controls, .. }) = self;
         ui.horizontal(|ui| {
-            if ui.add(
+            ui.add(
                 egui::widgets::Slider::new(&mut controls.zoom, 5.0..=100.0)
                     .smart_aim(false)
                     .show_value(false)
                     .logarithmic(true)
                     .text("zoom"),
-            ).changed() {
-                keyboard_draw_state.update_controls(controls);
-            };
+            );
 
             ui.separator();
 
@@ -83,15 +81,12 @@ impl<'a, T: FiveLimitStackType> GuiShow<T> for AsBigControls<'a, T> {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label("grid range");
-                    reference.as_ref().map(|stack| {
-                        ui.label(" around the reference ( currently ");
-                        ui.strong(stack.corrected_notename(
-                            &controls.notenamestyle,
-                            controls.correction_system_index,
-                        ));
-                        ui.label(" )");
-                    });
+                    ui.label("grid range around the reference ( currently ");
+                    ui.strong(reference.corrected_notename(
+                        &controls.notenamestyle,
+                        controls.correction_system_index,
+                    ));
+                    ui.label(" )");
                 });
 
                 for i in (0..T::num_intervals()).rev() {
