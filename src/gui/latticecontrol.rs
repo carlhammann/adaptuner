@@ -81,15 +81,12 @@ impl<'a, T: FiveLimitStackType> GuiShow<T> for AsBigControls<'a, T> {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label("grid range");
-                    reference.as_ref().map(|stack| {
-                        ui.label(" around the reference ( currently ");
-                        ui.strong(stack.corrected_notename(
-                            &controls.notenamestyle,
-                            controls.correction_system_index,
-                        ));
-                        ui.label(" )");
-                    });
+                    ui.label("grid range around the reference ( currently ");
+                    ui.strong(reference.corrected_notename(
+                        &controls.notenamestyle,
+                        controls.correction_system_index,
+                    ));
+                    ui.label(" )");
                 });
 
                 for i in (0..T::num_intervals()).rev() {

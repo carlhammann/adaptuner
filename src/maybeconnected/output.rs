@@ -1,4 +1,4 @@
-use std::{cell::Cell, time::Instant, sync::mpsc};
+use std::{cell::Cell, sync::mpsc, time::Instant};
 
 use midir::*;
 

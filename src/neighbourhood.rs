@@ -71,7 +71,7 @@ impl<T: OctavePeriodicIntervalBasis> PeriodicComplete<T> {
 // }
 
 pub struct PartialNeighbourhood<T: IntervalBasis> {
-    stacks: HashMap<i8, Stack<T>>,
+    stacks: HashMap<i8, (Stack<T>, bool)>,
     name: String,
 }
 
@@ -83,8 +83,22 @@ impl<T: IntervalBasis> PartialNeighbourhood<T> {
         }
     }
 
-    pub fn clear(&mut self) {
-        self.stacks.clear();
+    pub fn clear_marks(&mut self) {
+        self.stacks.values_mut().for_each(|(_, b)| *b = false);
+    }
+
+    pub fn mark<F: Fn(i8, &Stack<T>) -> bool>(&mut self, f: F) {
+        for (i, (stack, mark)) in self.stacks.iter_mut() {
+            *mark |= f(*i, stack);
+        }
+    }
+
+    pub fn contains<F: Fn(&Stack<T>) -> bool>(&self, f: F) -> bool {
+        self.stacks.values().any(|(s, _)| f(s))
+    }
+
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, i8, (Stack<T>, bool)> {
+        self.stacks.iter()
     }
 }
 
@@ -232,16 +246,16 @@ impl<T: IntervalBasis> Neighbourhood<T> for PartialNeighbourhood<T> {
     /// this may misbehave! Only insert stacks whose key_distance could be an i8.
     fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
         let offset = stack.key_distance() as i8;
-        if let Some(old_entry) = self.stacks.get_mut(&offset) {
+        if let Some((old_entry, _)) = self.stacks.get_mut(&offset) {
             old_entry.clone_from(stack);
         } else {
-            self.stacks.insert(offset, stack.clone());
+            self.stacks.insert(offset, (stack.clone(), false));
         }
-        self.stacks.get(&offset).unwrap()
+        self.stacks.get(&offset).map(|(s, _)| s).unwrap()
     }
 
     fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, mut f: F) {
-        for (i, stack) in self.stacks.iter() {
+        for (i, (stack, _)) in self.stacks.iter() {
             f(*i, stack);
         }
     }
@@ -250,14 +264,14 @@ impl<T: IntervalBasis> Neighbourhood<T> for PartialNeighbourhood<T> {
         &self,
         mut f: F,
     ) -> Result<(), E> {
-        for (i, stack) in self.stacks.iter() {
+        for (i, (stack, _)) in self.stacks.iter() {
             f(*i, stack)?;
         }
         Ok(())
     }
 
     fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
-        for (i, stack) in self.stacks.iter_mut() {
+        for (i, (stack, _)) in self.stacks.iter_mut() {
             f(*i, stack);
         }
     }
@@ -267,7 +281,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for PartialNeighbourhood<T> {
     }
 
     fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
-        if let Some(stack) = self.stacks.get(&offset) {
+        if let Some((stack, _)) = self.stacks.get(&offset) {
             target.clone_from(stack);
             true
         } else {

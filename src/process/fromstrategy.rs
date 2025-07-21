@@ -334,7 +334,7 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                 } else {
                     bindings.remove(&bindable);
                 }
-                println!("{:?}", bindings);
+                // println!("{:?}", bindings);
             }
         }
     }
