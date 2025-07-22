@@ -45,33 +45,40 @@ pub struct LatticeWindowControls {
     pub screen_keyboard_center: u8,
     pub notenamestyle: NoteNameStyle,
     pub correction_system_index: usize,
+    pub highlight_playable_keys: bool,
 }
 
-struct TmpData<T: StackType> {
-    temperaments: Vec<bool>,
-    correction: Correction<T>,
-    stack: Stack<T>,
-    relative_stack: Stack<T>,
+struct Positions {
     c4_hpos: f32,
     reference_pos: egui::Pos2,
+    bottom: f32,
+    left: f32,
+}
+
+struct OneNodeDrawState<T: StackType> {
+    tmp_temperaments: Vec<bool>,
+    tmp_correction: Correction<T>,
+    tmp_relative_stack: Stack<T>,
 }
 
 pub struct LatticeWindow<T: StackType> {
+    pub controls: LatticeWindowControls,
+
     active_notes: [KeyState; 128],
     pedal_hold: [bool; 16],
     tunings: [Stack<T>; 128],
 
-    pub reference: Stack<T>,
-    tuning_reference: Reference<T>,
+    reference: Stack<T>,
     considered_notes: PartialNeighbourhood<T>,
 
-    bottom: f32,
-    left: f32,
-    reset_position: bool,
-    tmp: TmpData<T>,
+    tuning_reference: Reference<T>,
 
-    pub controls: LatticeWindowControls,
-    highlight_playable_keys: bool,
+    reset_position: bool,
+    positions: Positions,
+
+    draw_state: OneNodeDrawState<T>,
+    tmp_stack: Stack<T>,
+    other_tmp_stack: Stack<T>,
 }
 
 struct PureStacksAround<'a, T: StackType> {
@@ -112,12 +119,202 @@ impl<'a, T: StackType> PureStacksAround<'a, T> {
     }
 }
 
-#[derive(PartialEq)]
-enum NoteNameDrawStyle {
+#[derive(PartialEq, Clone, Copy)]
+enum NoteDrawStyle {
     Background,
     Considered,
     Playing,
     Antenna,
+}
+
+impl<T: FiveLimitStackType> LatticeWindow<T> {
+    pub fn reference_corrected_note_name(&self) -> String {
+        self.reference.corrected_notename(
+            &self.controls.notenamestyle,
+            self.controls.correction_system_index,
+        )
+    }
+}
+
+fn background_notename_color(ui: &egui::Ui) -> egui::Color32 {
+    ui.style().visuals.weak_text_color()
+}
+
+fn foreground_notename_color(ui: &egui::Ui) -> egui::Color32 {
+    ui.style().visuals.strong_text_color()
+}
+
+fn grid_line_color(ui: &egui::Ui) -> egui::Color32 {
+    ui.style().visuals.weak_text_color()
+}
+
+fn activation_color(ui: &egui::Ui) -> egui::Color32 {
+    ui.style().visuals.selection.bg_fill
+}
+
+impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
+    /// returns a rect that may not be as wide as the complete note name, but that is as high as it.
+    fn draw_corrected_note_name(
+        &self,
+        ui: &mut egui::Ui,
+        stack: &Stack<T>,
+        pos: egui::Pos2,
+        controls: &LatticeWindowControls,
+        style: NoteDrawStyle,
+    ) -> egui::Rect {
+        let egui::Pos2 { x: hpos, y: vpos } = pos;
+
+        let first_line_height = match style {
+            NoteDrawStyle::Background | NoteDrawStyle::Considered | NoteDrawStyle::Antenna => {
+                controls.zoom * FONT_SIZE
+            }
+            NoteDrawStyle::Playing => controls.zoom * 1.5 * FONT_SIZE,
+        };
+        let spacing = controls.zoom * 0.5 * FONT_SIZE;
+        let other_lines_height = controls.zoom * 0.6 * FONT_SIZE;
+        let second_line_vpos = vpos + 0.5 * first_line_height + spacing;
+        let third_line_vpos = second_line_vpos + 0.5 * other_lines_height + spacing;
+        let text_color = match style {
+            NoteDrawStyle::Background | NoteDrawStyle::Antenna => background_notename_color(ui),
+            NoteDrawStyle::Considered | NoteDrawStyle::Playing => foreground_notename_color(ui),
+        };
+
+        let mut bottom = vpos;
+
+        ui.painter().text(
+            pos2(hpos, vpos),
+            egui::Align2::CENTER_CENTER,
+            stack.notename(&controls.notenamestyle),
+            egui::FontId::proportional(first_line_height),
+            text_color,
+        );
+        bottom += first_line_height * 0.5;
+
+        if !stack.is_target() {
+            let correction = Correction::new(stack, controls.correction_system_index);
+            ui.painter().text(
+                pos2(hpos, second_line_vpos),
+                egui::Align2::CENTER_CENTER,
+                correction.str(),
+                egui::FontId::proportional(other_lines_height),
+                text_color,
+            );
+            bottom += spacing + other_lines_height;
+            if stack.is_pure() {
+                ui.painter().text(
+                    pos2(hpos, third_line_vpos),
+                    egui::Align2::CENTER_CENTER,
+                    format!("={}", stack.actual_notename(&controls.notenamestyle)),
+                    egui::FontId::proportional(other_lines_height),
+                    text_color,
+                );
+                bottom += spacing + other_lines_height;
+            }
+        }
+
+        let dx = 0.5 * ui.style().spacing.interact_size.x;
+        let dy = 0.5 * ui.style().spacing.interact_size.y;
+        egui::Rect::from_min_max(pos2(hpos - dx, vpos - dy), pos2(hpos + dx, bottom))
+    }
+
+    fn retemper_popup(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        stack: &Stack<T>,
+        reference: &Stack<T>,
+        controls: &LatticeWindowControls,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
+        let popup_id = ui.id().with(stack);
+        let response = ui.interact(rect, egui::Id::new(stack), egui::Sense::click());
+        if response.clicked() {
+            for b in self.tmp_temperaments.iter_mut() {
+                *b = false;
+            }
+            ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+            self.tmp_relative_stack.clone_from(stack);
+            self.tmp_relative_stack.scaled_add(-1, reference);
+            self.tmp_correction
+                .set_with(&self.tmp_relative_stack, controls.correction_system_index);
+        }
+        egui::popup::popup_below_widget(
+            ui,
+            popup_id,
+            &response,
+            egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+            |ui| {
+                if temperament_applier(
+                    Some(&format!(
+                        "make pure relative to {}",
+                        reference.corrected_notename(
+                            &controls.notenamestyle,
+                            controls.correction_system_index
+                        )
+                    )),
+                    ui,
+                    &mut self.tmp_correction,
+                    controls.correction_system_index,
+                    &mut self.tmp_relative_stack,
+                ) {
+                    let _ = forward.send(FromUi::Consider {
+                        stack: self.tmp_relative_stack.clone(),
+                        time: Instant::now(),
+                    });
+                }
+            },
+        );
+    }
+
+    fn draw_note_and_interaction_zone(
+        &mut self,
+        ui: &mut egui::Ui,
+        stack: &Stack<T>,
+        pos: egui::Pos2,
+        reference: &Stack<T>,
+        controls: &LatticeWindowControls,
+        style: NoteDrawStyle,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
+        let draw_activation_circle = |active: bool| {
+            if active {
+                ui.painter()
+                    .circle_filled(pos, controls.zoom * FONT_SIZE, activation_color(ui));
+            } else {
+                ui.painter().circle_filled(
+                    pos,
+                    controls.zoom * 0.6 * FONT_SIZE,
+                    ui.style().visuals.window_fill,
+                );
+            }
+        };
+
+        draw_activation_circle(style == NoteDrawStyle::Playing);
+        let rect = self.draw_corrected_note_name(ui, stack, pos, controls, style);
+
+        match style {
+            NoteDrawStyle::Playing => {}
+            NoteDrawStyle::Antenna => {}
+            NoteDrawStyle::Background => {
+                if ui
+                    .interact(rect, egui::Id::new(stack), egui::Sense::click())
+                    .clicked()
+                {
+                    let _ = forward.send(FromUi::Consider {
+                        stack: {
+                            let mut x = stack.clone();
+                            x.scaled_add(-1, reference);
+                            x
+                        },
+                        time: Instant::now(),
+                    });
+                }
+            }
+            NoteDrawStyle::Considered => {
+                self.retemper_popup(ui, rect, stack, reference, controls, forward);
+            }
+        }
+    }
 }
 
 impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
@@ -133,15 +330,17 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             },
             reference: Stack::new_zero(),
             considered_notes: PartialNeighbourhood::new("lattice window neighbourhood".into()),
-            highlight_playable_keys: false,
-            left: 0.0,
-            bottom: 0.0,
+            draw_state: OneNodeDrawState {
+                tmp_relative_stack: Stack::new_zero(),
+                tmp_temperaments: vec![false; T::num_temperaments()],
+                tmp_correction: Correction::new_zero(config.correction_system_index),
+            },
+            tmp_stack: Stack::new_zero(),
+            other_tmp_stack: Stack::new_zero(),
             reset_position: true,
-            tmp: TmpData {
-                stack: Stack::new_zero(),
-                relative_stack: Stack::new_zero(),
-                temperaments: vec![false; T::num_temperaments()],
-                correction: Correction::new_zero(config.correction_system_index),
+            positions: Positions {
+                left: 0.0,
+                bottom: 0.0,
                 c4_hpos: 0.0,
                 reference_pos: pos2(0.0, 0.0),
             },
@@ -150,7 +349,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn key_border_color(&self, ui: &egui::Ui, key_number: u8) -> egui::Color32 {
-        if !self.highlight_playable_keys {
+        if !self.controls.highlight_playable_keys {
             if key_number >= 109 || key_number <= 20
             // the range of the piano
             {
@@ -286,8 +485,8 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn draw_white_keys(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        let bottom = self.bottom;
-        let left = self.left;
+        let bottom = self.positions.bottom;
+        let left = self.positions.left;
         let zoom = self.controls.zoom;
         let white_key_width = zoom * OCTAVE_WIDTH / 7.0;
         let mut rect = egui::Rect::from_min_max(
@@ -326,8 +525,8 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn draw_black_keys(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        let bottom = self.bottom;
-        let left = self.left;
+        let bottom = self.positions.bottom;
+        let left = self.positions.left;
         let zoom = self.controls.zoom;
         let key_number_steps = [2, 3, 2, 2, 3];
         let w = zoom * OCTAVE_WIDTH / 7.0; // bottom width of white key.
@@ -371,9 +570,9 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn draw_ruler(&self, ui: &mut egui::Ui) {
-        let bottom = self.bottom;
+        let bottom = self.positions.bottom;
         let zoom = self.controls.zoom;
-        let mut x = self.left + self.controls.zoom * ET_SEMITONE_WIDTH / 2.0;
+        let mut x = self.positions.left + self.controls.zoom * ET_SEMITONE_WIDTH / 2.0;
         let y = egui::Rangef {
             min: bottom - zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH),
             max: bottom - zoom * WHITE_KEY_LENGTH,
@@ -402,9 +601,9 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn compute_reference_positions(&mut self) {
-        self.tmp.c4_hpos = self.left + self.c4_offset();
+        self.positions.c4_hpos = self.positions.left + self.c4_offset();
 
-        self.tmp.reference_pos.x = self.tmp.c4_hpos
+        self.positions.reference_pos.x = self.positions.c4_hpos
             + self.controls.zoom * ET_SEMITONE_WIDTH * self.reference.semitones() as f32;
 
         let lowest_background = self
@@ -419,15 +618,20 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
                     * self.controls.interval_heights[i].abs()
             });
 
-        let lowest_considered =
-            self.considered_notes
-                .iter()
-                .fold(0.0, |acc: f32, (_i, (stack, _mark))| {
-                    let d = self.vpos_relative_to_reference(stack);
-                    acc.max(d)
+        let lowest_considered = self
+            .considered_notes
+            .iter()
+            .fold(0.0, |acc: f32, (_i, stack)| {
+                let d = stack.target.iter().enumerate().fold(0.0, |acc, (i, c)| {
+                    acc + *c as f32
+                        * self.controls.zoom
+                        * ET_SEMITONE_WIDTH
+                        * self.controls.interval_heights[i].abs()
                 });
+                acc.max(d)
+            });
 
-        self.tmp.reference_pos.y = self.bottom
+        self.positions.reference_pos.y = self.positions.bottom
             - self.keyboard_height()
             - self.controls.zoom * FREE_SPACE_ABOVE_KEYBOARD
             - lowest_considered.max(lowest_background);
@@ -445,11 +649,11 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn vpos(&self, stack: &Stack<T>) -> f32 {
-        self.tmp.reference_pos.y + self.vpos_relative_to_reference(stack)
+        self.positions.reference_pos.y + self.vpos_relative_to_reference(stack)
     }
 
     fn hpos(&self, stack: &Stack<T>) -> f32 {
-        self.tmp.c4_hpos + self.controls.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32
+        self.positions.c4_hpos + self.controls.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32
     }
 
     fn pos(&self, stack: &Stack<T>) -> egui::Pos2 {
@@ -473,31 +677,15 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
                 )
     }
 
-    fn background_notename_color(&self, ui: &egui::Ui) -> egui::Color32 {
-        ui.style().visuals.weak_text_color()
-    }
-
-    fn foreground_notename_color(&self, ui: &egui::Ui) -> egui::Color32 {
-        ui.style().visuals.strong_text_color()
-    }
-
-    fn grid_line_color(&self, ui: &egui::Ui) -> egui::Color32 {
-        ui.style().visuals.weak_text_color()
-    }
-
     fn grid_line_stroke(&self, ui: &egui::Ui) -> egui::Stroke {
         egui::Stroke::new(
             self.controls.zoom * FAINT_GRID_LINE_THICKNESS,
-            self.grid_line_color(ui),
+            grid_line_color(ui),
         )
     }
 
-    fn activation_color(&self, ui: &egui::Ui, stack: &Stack<T>) -> egui::Color32 {
-        ui.style().visuals.selection.bg_fill
-    }
-
     fn draw_grid_lines(&mut self, ui: &egui::Ui) {
-        let color = self.grid_line_color(ui);
+        let color = grid_line_color(ui);
         let stroke = self.grid_line_stroke(ui);
 
         let draw_circle = |pos| {
@@ -547,7 +735,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             }
 
             if !in_bounds {
-                let mut pos = self.tmp.reference_pos;
+                let mut pos = self.positions.reference_pos;
                 for i in 0..T::num_intervals() {
                     if i == self.controls.project_dimension {
                         continue;
@@ -562,9 +750,9 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
         };
 
         self.considered_notes.for_each_stack(|_, stk| {
-            self.tmp.stack.clone_from(&self.reference);
-            self.tmp.stack.scaled_add(1, stk);
-            draw_path_without_projection(&self.tmp.stack);
+            self.tmp_stack.clone_from(&self.reference);
+            self.tmp_stack.scaled_add(1, stk);
+            draw_path_without_projection(&self.tmp_stack);
         });
 
         for (i, stack) in self.tunings.iter().enumerate() {
@@ -610,214 +798,100 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
         }
     }
 
-    fn draw_activation_circle(&self, ui: &egui::Ui, stack: &Stack<T>, active: bool) {
-        let pos = self.pos(stack);
-        if active {
-            ui.painter().circle_filled(
-                pos,
-                self.controls.zoom * FONT_SIZE,
-                self.activation_color(ui, stack),
-            );
-        } else {
-            ui.painter().circle_filled(
-                pos,
-                self.controls.zoom * 0.6 * FONT_SIZE,
-                ui.style().visuals.window_fill,
-            );
-        }
-    }
-
-    /// returns a rect that may not be as wide as the complete note name, but that is as high as it.
-    fn draw_corrected_note_name(
-        &self,
-        ui: &mut egui::Ui,
-        stack: &Stack<T>,
-        style: NoteNameDrawStyle,
-    ) -> egui::Rect {
-        let egui::Pos2 { x: hpos, y: vpos } = self.pos(stack);
-
-        let first_line_height = match style {
-            NoteNameDrawStyle::Background
-            | NoteNameDrawStyle::Considered
-            | NoteNameDrawStyle::Antenna => self.controls.zoom * FONT_SIZE,
-            NoteNameDrawStyle::Playing => self.controls.zoom * 1.5 * FONT_SIZE,
-        };
-        let spacing = self.controls.zoom * 0.5 * FONT_SIZE;
-        let other_lines_height = self.controls.zoom * 0.6 * FONT_SIZE;
-        let second_line_vpos = vpos + 0.5 * first_line_height + spacing;
-        let third_line_vpos = second_line_vpos + 0.5 * other_lines_height + spacing;
-        let text_color = match style {
-            NoteNameDrawStyle::Background | NoteNameDrawStyle::Antenna => {
-                self.background_notename_color(ui)
-            }
-            NoteNameDrawStyle::Considered | NoteNameDrawStyle::Playing => {
-                self.foreground_notename_color(ui)
-            }
-        };
-
-        let mut bottom = vpos;
-
-        ui.painter().text(
-            pos2(hpos, vpos),
-            egui::Align2::CENTER_CENTER,
-            stack.notename(&self.controls.notenamestyle),
-            egui::FontId::proportional(first_line_height),
-            text_color,
-        );
-        bottom += first_line_height * 0.5;
-
-        if !stack.is_target() {
-            let correction = Correction::new(stack, self.controls.correction_system_index);
-            ui.painter().text(
-                pos2(hpos, second_line_vpos),
-                egui::Align2::CENTER_CENTER,
-                correction.str(),
-                egui::FontId::proportional(other_lines_height),
-                text_color,
-            );
-            bottom += spacing + other_lines_height;
-            if stack.is_pure() {
-                ui.painter().text(
-                    pos2(hpos, third_line_vpos),
-                    egui::Align2::CENTER_CENTER,
-                    format!("={}", stack.actual_notename(&self.controls.notenamestyle)),
-                    egui::FontId::proportional(other_lines_height),
-                    text_color,
-                );
-                bottom += spacing + other_lines_height;
-            }
-        }
-
-        let dx = 0.5 * ui.style().spacing.interact_size.x;
-        let dy = 0.5 * ui.style().spacing.interact_size.y;
-        egui::Rect::from_min_max(pos2(hpos - dx, vpos - dy), pos2(hpos + dx, bottom))
-    }
-
     fn draw_note_names_and_interaction_zones(
         &mut self,
         ui: &mut egui::Ui,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
-        let same_target_relative_projected = |relative: &Stack<T>, absolute: &Stack<T>| {
-            for i in 0..T::num_intervals() {
-                if i == self.controls.project_dimension {
-                    continue;
-                }
-                if absolute.target[i] != relative.target[i] + self.reference.target[i] {
-                    return false;
-                }
-            }
-            true
+        let write_considered_stack_to_draw = |considered: &Stack<T>, output: &mut Stack<T>| {
+            output.clone_from(considered);
+            output.increment_at_index_pure(
+                self.controls.project_dimension,
+                -considered.target[self.controls.project_dimension],
+            );
+            output.scaled_add(1, &self.reference);
         };
 
-        let same_target_relative = |relative: &Stack<T>, absolute: &Stack<T>| {
-            for i in 0..T::num_intervals() {
-                if absolute.target[i] != relative.target[i] + self.reference.target[i] {
-                    return false;
-                }
-            }
-            true
+        let write_sounding_stack_to_draw = |sounding: &Stack<T>, output: &mut Stack<T>| {
+            output.clone_from(sounding);
+            output.increment_at_index_pure(
+                self.controls.project_dimension,
+                self.reference.target[self.controls.project_dimension]
+                    - sounding.target[self.controls.project_dimension],
+            );
         };
-
-        self.considered_notes.clear_marks();
 
         let mut background =
             PureStacksAround::new(&self.controls.background_stack_distances, &self.reference);
         while let Some(stack) = background.next() {
-            if !self
-                .considered_notes
-                .contains(|x| same_target_relative(stack, x))
-                || self.has_projection(stack)
-            {
-                self.draw_activation_circle(ui, stack, false);
-
-                let rect = self.draw_corrected_note_name(ui, stack, NoteNameDrawStyle::Background);
-                if ui
-                    .interact(rect, egui::Id::new(stack), egui::Sense::click())
-                    .clicked()
-                {
-                    self.tmp.stack.clone_from(stack);
-                    self.tmp.stack.scaled_add(-1, &self.reference);
-                    let _ = forward.send(FromUi::Consider {
-                        stack: self.tmp.stack.clone(),
-                        time: Instant::now(),
-                    });
+            let draw_this = self.considered_notes.iter().all(|(_, considered)| {
+                write_considered_stack_to_draw(considered, &mut self.tmp_stack);
+                self.tmp_stack.target != stack.target
+            }) && self.tunings.iter().enumerate().all(|(i, sounding)| {
+                if !self.active_notes[i].is_sounding() {
+                    return true;
                 }
+                write_sounding_stack_to_draw(sounding, &mut self.tmp_stack);
+                self.tmp_stack.target != stack.target
+            });
+            if draw_this {
+                self.draw_state.draw_note_and_interaction_zone(
+                    ui,
+                    stack,
+                    self.pos(stack),
+                    &self.reference,
+                    &self.controls,
+                    NoteDrawStyle::Background,
+                    forward,
+                );
+            }
+        }
+
+        for (_, stack) in self.considered_notes.iter() {
+            write_considered_stack_to_draw(stack, &mut self.tmp_stack);
+            let draw_this = self.tunings.iter().enumerate().all(|(i, sounding)| {
+                if !self.active_notes[i].is_sounding() {
+                    return true;
+                }
+                write_sounding_stack_to_draw(sounding, &mut self.other_tmp_stack);
+                self.tmp_stack.target != self.other_tmp_stack.target
+            });
+            if draw_this {
+                self.draw_state.draw_note_and_interaction_zone(
+                    ui,
+                    &self.tmp_stack,
+                    self.pos(&self.tmp_stack),
+                    &self.reference,
+                    &self.controls,
+                    NoteDrawStyle::Considered,
+                    forward,
+                );
             }
         }
 
         for (i, stack) in self.tunings.iter().enumerate() {
             if self.active_notes[i].is_sounding() {
-                self.tmp.stack.clone_from(stack);
-                self.tmp.stack.increment_at_index_pure(
-                    self.controls.project_dimension,
-                    -stack.target[self.controls.project_dimension],
-                );
-                self.draw_activation_circle(ui, &self.tmp.stack, true);
-                self.draw_corrected_note_name(ui, &self.tmp.stack, NoteNameDrawStyle::Playing);
-                if self.has_projection(stack) {
-                    self.draw_activation_circle(ui, stack, false);
-                    self.draw_corrected_note_name(ui, stack, NoteNameDrawStyle::Antenna);
-                }
-                self.considered_notes
-                    .mark(|_, x| same_target_relative_projected(x, stack));
-            }
-        }
-
-        for (_, (stack, mark)) in self.considered_notes.iter() {
-            if !mark {
-                self.tmp.stack.clone_from(stack);
-                self.tmp.stack.scaled_add(1, &self.reference);
-                self.tmp.stack.increment_at_index_pure(
-                    self.controls.project_dimension,
-                    -stack.target[self.controls.project_dimension],
-                );
-                self.draw_activation_circle(ui, &self.tmp.stack, false);
-                let rect = self.draw_corrected_note_name(
+                write_sounding_stack_to_draw(stack, &mut self.tmp_stack);
+                self.draw_state.draw_note_and_interaction_zone(
                     ui,
-                    &self.tmp.stack,
-                    NoteNameDrawStyle::Considered,
+                    &self.tmp_stack,
+                    self.pos(&self.tmp_stack),
+                    &self.reference,
+                    &self.controls,
+                    NoteDrawStyle::Playing,
+                    forward,
                 );
-
-                let popup_id = ui.id().with(stack);
-                let response = ui.interact(rect, egui::Id::new(stack), egui::Sense::click());
-                if response.clicked() {
-                    for b in self.tmp.temperaments.iter_mut() {
-                        *b = false;
-                    }
-                    ui.memory_mut(|mem| mem.toggle_popup(popup_id));
-                    self.tmp.relative_stack.clone_from(stack);
-                    self.tmp.correction.set_with(
-                        &self.tmp.relative_stack,
-                        self.controls.correction_system_index,
+                if self.has_projection(stack) {
+                    self.draw_state.draw_note_and_interaction_zone(
+                        ui,
+                        stack,
+                        self.pos(stack),
+                        &self.reference,
+                        &self.controls,
+                        NoteDrawStyle::Antenna,
+                        forward,
                     );
                 }
-                egui::popup::popup_below_widget(
-                    ui,
-                    popup_id,
-                    &response,
-                    egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-                    |ui| {
-                        if temperament_applier(
-                            Some(&format!(
-                                "make pure relative to {}",
-                                self.reference.corrected_notename(
-                                    &self.controls.notenamestyle,
-                                    self.controls.correction_system_index
-                                )
-                            )),
-                            ui,
-                            &mut self.tmp.correction,
-                            self.controls.correction_system_index,
-                            &mut self.tmp.relative_stack,
-                        ) {
-                            let _ = forward.send(FromUi::Consider {
-                                stack: self.tmp.relative_stack.clone(),
-                                time: Instant::now(),
-                            });
-                        }
-                    },
-                );
             }
         }
     }
@@ -834,7 +908,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn keyboard_top(&self, ui: &egui::Ui) -> f32 {
-        self.bottom - self.keyboard_height()
+        self.positions.bottom - self.keyboard_height()
     }
 }
 
@@ -847,8 +921,8 @@ impl<T: FiveLimitStackType + Hash + Eq> GuiShow<T> for LatticeWindow<T> {
         );
         if r.dragged() {
             let egui::Vec2 { x, y } = r.drag_delta();
-            self.left += x;
-            self.bottom = (self.bottom + y).max(ui.max_rect().bottom());
+            self.positions.left += x;
+            self.positions.bottom = (self.positions.bottom + y).max(ui.max_rect().bottom());
             self.reset_position = false;
         }
         if r.double_clicked() {
@@ -860,8 +934,8 @@ impl<T: FiveLimitStackType + Hash + Eq> GuiShow<T> for LatticeWindow<T> {
                 y: bottom,
             } = ui.max_rect().center_bottom();
             let left = ui.max_rect().left();
-            self.left = left - (self.c4_offset() - center);
-            self.bottom = bottom;
+            self.positions.left = left - (self.c4_offset() - center);
+            self.positions.bottom = bottom;
         }
         self.keyboard_hover_interaction(ui, forward);
         egui::Frame::new().show(ui, |ui| {

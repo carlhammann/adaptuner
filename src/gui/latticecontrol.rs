@@ -67,11 +67,9 @@ pub struct AsBigControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
 
 impl<'a, T: FiveLimitStackType> GuiShow<T> for AsBigControls<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
-        let AsBigControls(LatticeWindow {
-            controls,
-            reference,
-            ..
-        }) = self;
+        let AsBigControls(lw) = self;
+        let reference_name = lw.reference_corrected_note_name();
+        let controls = &mut lw.controls;
 
         ui.horizontal(|ui| {
             correction_system_chooser::<T>(ui, &mut controls.correction_system_index);
@@ -82,10 +80,7 @@ impl<'a, T: FiveLimitStackType> GuiShow<T> for AsBigControls<'a, T> {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label("grid range around the reference ( currently ");
-                    ui.strong(reference.corrected_notename(
-                        &controls.notenamestyle,
-                        controls.correction_system_index,
-                    ));
+                    ui.strong(reference_name);
                     ui.label(" )");
                 });
 

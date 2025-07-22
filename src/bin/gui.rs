@@ -68,6 +68,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         screen_keyboard_channel: Channel::Ch1,
         screen_keyboard_velocity: 64,
         screen_keyboard_pedal_hold: false,
+        highlight_playable_keys: false,
     };
     let reference_window_config = ReferenceEditorConfig {
         notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
