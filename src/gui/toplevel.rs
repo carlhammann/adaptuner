@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     backend::{BackendWindow, BackendWindowConfig},
-    common::show_hide_button,
+    common::{show_hide_button, SmallFloatingWindow},
     connection::{ConnectionWindow, Input, Output},
     editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
     latency::LatencyWindow,
@@ -30,9 +30,7 @@ pub struct Toplevel<T: StackType + 'static> {
 
     input_connection: ConnectionWindow<Input>,
     output_connection: ConnectionWindow<Output>,
-    show_connection: bool,
-    sostenuto_is_next_neigbourhood: bool,
-    soft_pedal_is_set_reference: bool,
+    connection_window: SmallFloatingWindow,
 
     backend: BackendWindow,
 
@@ -41,6 +39,7 @@ pub struct Toplevel<T: StackType + 'static> {
 
     notes: NoteWindow<T>,
     show_notes: bool,
+    notes_to_foreground: bool,
 }
 
 impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
@@ -69,13 +68,12 @@ impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
 
             input_connection: ConnectionWindow::new(),
             output_connection: ConnectionWindow::new(),
-            show_connection: false,
-            sostenuto_is_next_neigbourhood: true,
-            soft_pedal_is_set_reference: true,
+            connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window")),
             backend: BackendWindow::new(backend_config),
             latency: LatencyWindow::new(latency_length),
             notes: NoteWindow::new(ctx),
             show_notes: false,
+            notes_to_foreground: false,
             tx,
         }
     }
@@ -118,8 +116,14 @@ impl<T: FiveLimitStackType + Hash + Eq + 'static> eframe::App for Toplevel<T> {
                     }
                 }
 
-                show_hide_button(ui, &mut self.show_connection, "MIDI conncection");
-                show_hide_button(ui, &mut self.show_notes, "notes");
+                self.connection_window
+                    .show_hide_button(ui, "MIDI connections");
+                show_hide_button(
+                    ui,
+                    "notes",
+                    &mut self.show_notes,
+                    &mut self.notes_to_foreground,
+                );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     egui::widgets::global_theme_preference_buttons(ui);
@@ -158,29 +162,32 @@ impl<T: FiveLimitStackType + Hash + Eq + 'static> eframe::App for Toplevel<T> {
             AsWindows(&mut self.strategies).show(ui, &self.tx);
         });
 
+        let note_window_id = egui::Id::new("note_window_id");
         if self.show_notes {
             egui::containers::Window::new("notes")
+                .id(note_window_id)
                 .open(&mut self.show_notes)
                 .show(ctx, |ui| {
                     self.notes.show(ui, &self.tx);
                 });
         }
-
-        if self.show_connection {
-            egui::containers::Window::new("midi connections")
-                .open(&mut self.show_connection)
-                .collapsible(false)
-                .show(ctx, |ui| {
-                    ui.vertical(|ui| {
-                        self.input_connection.show(ui, &self.tx);
-                        self.output_connection.show(ui, &self.tx);
-
-                        ui.separator();
-
-                        ui.vertical_centered(|ui| ui.label("output settings"));
-                        self.backend.show(ui, &self.tx);
-                    });
-                });
+        if self.notes_to_foreground {
+            let layer_id = egui::LayerId::new(egui::Order::Middle, note_window_id);
+            ctx.move_to_top(layer_id);
+            self.notes_to_foreground = false;
         }
+
+
+        self.connection_window.show("midi connections", ctx, |ui| {
+            ui.vertical(|ui| {
+                self.input_connection.show(ui, &self.tx);
+                self.output_connection.show(ui, &self.tx);
+
+                ui.separator();
+
+                ui.vertical_centered(|ui| ui.label("output settings"));
+                self.backend.show(ui, &self.tx);
+            });
+        });
     }
 }

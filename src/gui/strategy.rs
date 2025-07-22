@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    common::show_hide_button,
+    common::SmallFloatingWindow,
     editor::{
         binding::{bindable_selector, strategy_action_selector},
         neighbourhood::NeighbourhoodEditor,
@@ -27,24 +27,23 @@ pub struct StrategyWindows<T: StackType + 'static> {
 
     marked_for_deletion: Option<usize>,
 
-    show_new_strategy_window: bool,
-    bring_new_strategy_window_to_top: bool,
+    new_strategy_window: SmallFloatingWindow,
     templates: &'static [ExtendedStrategyConfig<T>],
     clone_index: Option<usize>,
     template_index: Option<usize>,
     new_strategy_name: String,
     new_strategy_description: String,
 
-    show_tuning_editor: bool,
+    tuning_editor_window: SmallFloatingWindow,
     tuning_editor: TuningEditor<T>,
 
-    show_reference_editor: bool,
+    reference_editor_window: SmallFloatingWindow,
     reference_editor: ReferenceEditor<T>,
 
-    show_neighbourhood_editor: bool,
-    neigbourhood_editor: NeighbourhoodEditor<T>,
+    neighbourhood_editor_window: SmallFloatingWindow,
+    neighbourhood_editor: NeighbourhoodEditor<T>,
 
-    show_binding_editor: bool,
+    binding_editor_window: SmallFloatingWindow,
     tmp_strategy_action: Option<StrategyAction>,
     tmp_bindable: Bindable,
     tmp_key_name: String,
@@ -63,19 +62,26 @@ impl<T: StackType> StrategyWindows<T> {
             strategies,
             marked_for_deletion: None {},
             templates,
-            show_new_strategy_window: false,
-            bring_new_strategy_window_to_top: false,
+            new_strategy_window: SmallFloatingWindow::new(egui::Id::new("new_strategy_window")),
             clone_index: None {},
             template_index: None {},
             new_strategy_name: String::with_capacity(32),
             new_strategy_description: String::with_capacity(128),
-            show_tuning_editor: false,
-            show_reference_editor: false,
-            show_neighbourhood_editor: false,
+            tuning_editor_window: SmallFloatingWindow::new(egui::Id::new(
+                "tuning_editor_window",
+            )),
+            reference_editor_window: SmallFloatingWindow::new(egui::Id::new(
+                "reference_editor_window",
+            )),
+            neighbourhood_editor_window: SmallFloatingWindow::new(egui::Id::new(
+                "neigbourhood_editor_window",
+            )),
             tuning_editor: TuningEditor::new(tuning_editor),
             reference_editor: ReferenceEditor::new(reference_editor),
-            neigbourhood_editor: NeighbourhoodEditor::new(),
-            show_binding_editor: false,
+            neighbourhood_editor: NeighbourhoodEditor::new(),
+            binding_editor_window: SmallFloatingWindow::new(egui::Id::new(
+                "binding_editor_window",
+            )),
             tmp_strategy_action: None {},
             tmp_bindable: Bindable::SostenutoPedalDown,
             tmp_key_name: "Space".into(),
@@ -101,7 +107,7 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
         }
         self.reference_editor.handle_msg_ref(msg, forward);
         self.tuning_editor.handle_msg_ref(msg, forward);
-        self.neigbourhood_editor.handle_msg_ref(msg, forward);
+        self.neighbourhood_editor.handle_msg_ref(msg, forward);
     }
 }
 
@@ -183,11 +189,7 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
                     });
 
                     ui.separator();
-                    if ui.button("new strategy").clicked() {
-                        if x.show_new_strategy_window {
-                            x.bring_new_strategy_window_to_top = true;
-                        }
-                        x.show_new_strategy_window = true;
+                    if x.new_strategy_window.show_hide_button(ui, "new strategy") {
                         x.marked_for_deletion = None {};
                         close_popup(ui);
                     }
@@ -199,14 +201,11 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
                 match x.strategies[ix].strategy_kind() {
                     StrategyKind::StaticTuning => {
                         ui.horizontal(|ui| {
-                            show_hide_button(ui, &mut x.show_tuning_editor, "global tuning");
-                            show_hide_button(ui, &mut x.show_reference_editor, "reference");
-                            show_hide_button(
-                                ui,
-                                &mut x.show_neighbourhood_editor,
-                                "neighbourhoods",
-                            );
-                            show_hide_button(ui, &mut x.show_binding_editor, "bindings");
+                            x.tuning_editor_window.show_hide_button(ui, "global tuning");
+                            x.reference_editor_window.show_hide_button(ui, "reference");
+                            x.neighbourhood_editor_window
+                                .show_hide_button(ui, "neighbourhoods");
+                            x.binding_editor_window.show_hide_button(ui, "bindings");
                         });
                     }
                 }
@@ -232,38 +231,20 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
 
         let current_name = &x.strategies[curr_strategy_index].name;
 
-        if x.show_tuning_editor {
-            egui::containers::Window::new(format!("global tuning ({current_name})"))
-                .id(egui::Id::new("global tuning window"))
-                .open(&mut x.show_tuning_editor)
-                .collapsible(false)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    x.tuning_editor.show(ui, forward);
-                });
-        }
+        x.tuning_editor_window
+            .show(&format!("global tuning ({current_name})"), ctx, |ui| {
+                x.tuning_editor.show(ui, forward);
+            });
 
-        if x.show_reference_editor {
-            egui::containers::Window::new(format!("reference ({current_name})"))
-                .id(egui::Id::new("reference window"))
-                .open(&mut x.show_reference_editor)
-                .collapsible(false)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    x.reference_editor.show(ui, forward);
-                });
-        }
+        x.reference_editor_window
+            .show(&format!("reference ({current_name})"), ctx, |ui| {
+                x.reference_editor.show(ui, forward);
+            });
 
-        if x.show_neighbourhood_editor {
-            egui::containers::Window::new(format!("neighbourhoods ({current_name})"))
-                .id(egui::Id::new("neighbourhoods window"))
-                .open(&mut x.show_neighbourhood_editor)
-                .collapsible(false)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    x.neigbourhood_editor.show(ui, forward);
-                });
-        }
+        x.neighbourhood_editor_window
+            .show(&format!("neighbourhoods ({current_name})"), ctx, |ui| {
+                x.neighbourhood_editor.show(ui, forward);
+            });
     }
 }
 
@@ -275,121 +256,102 @@ impl<'a, T: StackType> AsWindows<'a, T> {
     ) {
         let AsWindows(x) = self;
         let ctx = ui.ctx();
-        let id = egui::Id::new("new strategy");
-        if x.bring_new_strategy_window_to_top {
-            let layer_id = egui::LayerId::new(egui::Order::Middle, id);
-            ctx.move_to_top(layer_id);
-            x.bring_new_strategy_window_to_top = false;
-        }
+        x.new_strategy_window.show("new strategy", ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("copy of");
 
-        if x.show_new_strategy_window {
-            egui::containers::Window::new("new strategy")
-                .id(id)
-                .collapsible(false)
-                .resizable(false)
-                .open(&mut x.show_new_strategy_window)
-                .show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("copy of");
+                strategy_picker(
+                    ui,
+                    "clone strategy picker",
+                    &mut x.clone_index,
+                    &x.strategies,
+                );
+                if x.clone_index.is_some() {
+                    x.template_index = None {};
+                }
 
-                        strategy_picker(
-                            ui,
-                            "clone strategy picker",
-                            &mut x.clone_index,
-                            &x.strategies,
-                        );
-                        if x.clone_index.is_some() {
-                            x.template_index = None {};
-                        }
+                ui.separator();
 
-                        ui.separator();
+                ui.label("from template");
 
-                        ui.label("from template");
+                strategy_picker(
+                    ui,
+                    "template strategy picker",
+                    &mut x.template_index,
+                    x.templates,
+                );
+                if x.template_index.is_some() {
+                    x.clone_index = None {};
+                }
+            });
 
-                        strategy_picker(
-                            ui,
-                            "template strategy picker",
-                            &mut x.template_index,
-                            x.templates,
-                        );
-                        if x.template_index.is_some() {
-                            x.clone_index = None {};
-                        }
+            ui.separator();
+            ui.label("name:");
+            ui.text_edit_singleline(&mut x.new_strategy_name);
+
+            ui.separator();
+            ui.label("optional description:");
+            ui.text_edit_multiline(&mut x.new_strategy_description);
+
+            ui.separator();
+
+            let finished = !x.new_strategy_name.is_empty()
+                & (x.template_index.is_some() | x.clone_index.is_some());
+
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(finished, egui::Button::new("create"))
+                    .clicked()
+                {
+                    x.clone_index.map(|i| {
+                        let new_strategy = ExtendedStrategyConfig {
+                            name: x.new_strategy_name.clone(),
+                            description: x.new_strategy_description.clone(),
+                            config: x.strategies[i].config.clone(),
+                            bindings: x.strategies[i].bindings.clone(),
+                        };
+                        x.strategies.push(new_strategy);
+                        let _ = forward.send(FromUi::CloneStrategy {
+                            index: i,
+                            time: Instant::now(),
+                        });
                     });
 
-                    ui.separator();
-                    ui.label("name:");
-                    ui.text_edit_singleline(&mut x.new_strategy_name);
-
-                    ui.separator();
-                    ui.label("optional description:");
-                    ui.text_edit_multiline(&mut x.new_strategy_description);
-
-                    ui.separator();
-
-                    let finished = !x.new_strategy_name.is_empty()
-                        & (x.template_index.is_some() | x.clone_index.is_some());
-
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(finished, egui::Button::new("create"))
-                            .clicked()
-                        {
-                            x.clone_index.map(|i| {
-                                let new_strategy = ExtendedStrategyConfig {
-                                    name: x.new_strategy_name.clone(),
-                                    description: x.new_strategy_description.clone(),
-                                    config: x.strategies[i].config.clone(),
-                                    bindings: x.strategies[i].bindings.clone(),
-                                };
-                                x.strategies.push(new_strategy);
-                                let _ = forward.send(FromUi::CloneStrategy {
-                                    index: i,
-                                    time: Instant::now(),
-                                });
-                            });
-
-                            x.template_index.map(|i| {
-                                let new_strategy = ExtendedStrategyConfig {
-                                    name: x.new_strategy_name.clone(),
-                                    description: x.new_strategy_description.clone(),
-                                    config: x.templates[i].config.clone(),
-                                    bindings: x.strategies[i].bindings.clone(),
-                                };
-                                x.strategies.push(new_strategy);
-                                let _ = forward.send(FromUi::AddStrategyFromTemplate {
-                                    index: i,
-                                    time: Instant::now(),
-                                });
-                            });
-
-                            x.new_strategy_name.clear();
-                            x.new_strategy_description.clear();
-                            x.clone_index = None {};
-                            x.template_index = None {};
-                            // x.show_new_strategy_window = false;
-                        }
+                    x.template_index.map(|i| {
+                        let new_strategy = ExtendedStrategyConfig {
+                            name: x.new_strategy_name.clone(),
+                            description: x.new_strategy_description.clone(),
+                            config: x.templates[i].config.clone(),
+                            bindings: x.strategies[i].bindings.clone(),
+                        };
+                        x.strategies.push(new_strategy);
+                        let _ = forward.send(FromUi::AddStrategyFromTemplate {
+                            index: i,
+                            time: Instant::now(),
+                        });
                     });
-                });
-        }
+
+                    x.new_strategy_name.clear();
+                    x.new_strategy_description.clear();
+                    x.clone_index = None {};
+                    x.template_index = None {};
+                }
+            });
+        });
     }
 
     fn display_binding_window(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let AsWindows(x) = self;
-        let ctx = ui.ctx();
-
         if x.curr_strategy_index.is_none() {
             return;
         }
         let curr_strategy_index = x.curr_strategy_index.unwrap();
         let current = &mut x.strategies[curr_strategy_index];
 
-        egui::containers::Window::new(format!("bindings ({})", current.name))
-            .id(egui::Id::new("bindings window"))
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut x.show_binding_editor)
-            .show(ctx, |ui| {
+        let ctx = ui.ctx();
+
+        x.binding_editor_window
+            .show(&format!("bindings ({})", current.name), ctx, |ui| {
                 egui::Grid::new("active binding grid").show(ui, |ui| {
                     for (k, v) in current.bindings.iter_mut() {
                         ui.label(format!("{k}"));

@@ -9,12 +9,93 @@ use crate::{
     notename::correction::Correction,
 };
 
-pub fn show_hide_button(ui: &mut egui::Ui, state: &mut bool, what: &'static str) {
-    if !*state {
-        if  ui.button(what).clicked() {
-            *state = true;
+pub struct SmallFloatingWindow {
+    id: egui::Id,
+    open: bool,
+    bring_to_foreground: bool,
+}
+
+impl SmallFloatingWindow {
+    pub fn new(id: egui::Id) -> Self {
+        Self {
+            id,
+            open: false,
+            bring_to_foreground: false,
         }
     }
+
+    pub fn show<R>(
+        &mut self,
+        title: &str,
+        ctx: &egui::Context,
+        add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> Option<egui::InnerResponse<Option<R>>> {
+        if self.bring_to_foreground {
+            let layer_id = egui::LayerId::new(egui::Order::Middle, self.id);
+            ctx.move_to_top(layer_id);
+            self.bring_to_foreground = false;
+        }
+
+        egui::containers::Window::new(title)
+            .id(self.id)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut self.open)
+            .show(ctx, add_contents)
+    }
+
+    pub fn show_hide_button(&mut self, ui: &mut egui::Ui, description: &str) -> bool {
+        show_hide_button(
+            ui,
+            description,
+            &mut self.open,
+            &mut self.bring_to_foreground,
+        )
+    }
+}
+
+pub fn show_hide_button(
+    ui: &mut egui::Ui,
+    description: &str,
+    open: &mut bool,
+    bring_to_foreground: &mut bool,
+) -> bool {
+    let mut clicked = false;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        if ui
+            .add(
+                egui::Button::new(description).corner_radius(egui::CornerRadius {
+                    ne: 0,
+                    nw: ui.style().visuals.menu_corner_radius.nw,
+                    se: 0,
+                    sw: ui.style().visuals.menu_corner_radius.sw,
+                }),
+            )
+            .clicked()
+        {
+            *open = true;
+            *bring_to_foreground = true;
+            clicked = true;
+        }
+
+        if ui
+            .add_enabled(
+                *open,
+                egui::Button::new("x").corner_radius(egui::CornerRadius {
+                    nw: 0,
+                    ne: ui.style().visuals.menu_corner_radius.ne,
+                    sw: 0,
+                    se: ui.style().visuals.menu_corner_radius.se,
+                }),
+            )
+            .clicked()
+        {
+            *open = false;
+            clicked = true;
+        }
+    });
+    clicked
 }
 
 pub fn correction_system_chooser<T: StackType>(ui: &mut egui::Ui, system_index: &mut usize) {
@@ -97,13 +178,7 @@ pub fn note_picker<T: StackType>(
 
         ui.label("tempered with:");
 
-        temperament_applier(
-            None {},
-            ui,
-            tmp_correction,
-            correction_system_index,
-            stack,
-        );
+        temperament_applier(None {}, ui, tmp_correction, correction_system_index, stack);
     });
 }
 
