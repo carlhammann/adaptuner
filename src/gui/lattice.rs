@@ -17,10 +17,10 @@ use crate::{
 
 use super::{common::temperament_applier, r#trait::GuiShow};
 
-// The following measurements are all in units of [LatticeWindow::zoom]
+// The following measurements are all in units of [LatticeWindow::zoom], which is the width of one
+// equally tempered semitone.
 
 const OCTAVE_WIDTH: f32 = 12.0;
-const ET_SEMITONE_WIDTH: f32 = OCTAVE_WIDTH / 12.0;
 const BLACK_KEY_WIDTH: f32 = OCTAVE_WIDTH / 12.0;
 const WHITE_KEY_LENGTH: f32 = OCTAVE_WIDTH / 2.5;
 const BLACK_KEY_LENGTH: f32 = 3.0 * WHITE_KEY_LENGTH / 5.0;
@@ -572,7 +572,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     fn draw_ruler(&self, ui: &mut egui::Ui) {
         let bottom = self.positions.bottom;
         let zoom = self.controls.zoom;
-        let mut x = self.positions.left + self.controls.zoom * ET_SEMITONE_WIDTH / 2.0;
+        let mut x = self.positions.left + self.controls.zoom / 2.0;
         let y = egui::Rangef {
             min: bottom - zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH),
             max: bottom - zoom * WHITE_KEY_LENGTH,
@@ -595,7 +595,6 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
 
     fn c4_offset(&self) -> f32 {
         self.controls.zoom
-            * ET_SEMITONE_WIDTH
             * (0.5 // half a key width on the ruler above the piano
                    + self.tuning_reference.c4_semitones() as f32)
     }
@@ -603,8 +602,8 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     fn compute_reference_positions(&mut self) {
         self.positions.c4_hpos = self.positions.left + self.c4_offset();
 
-        self.positions.reference_pos.x = self.positions.c4_hpos
-            + self.controls.zoom * ET_SEMITONE_WIDTH * self.reference.semitones() as f32;
+        self.positions.reference_pos.x =
+            self.positions.c4_hpos + self.controls.zoom * self.reference.semitones() as f32;
 
         let lowest_background = self
             .controls
@@ -612,10 +611,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             .iter()
             .enumerate()
             .fold(0.0, |acc, (i, c)| {
-                acc + *c as f32
-                    * self.controls.zoom
-                    * ET_SEMITONE_WIDTH
-                    * self.controls.interval_heights[i].abs()
+                acc + *c as f32 * self.controls.zoom * self.controls.interval_heights[i].abs()
             });
 
         let lowest_considered = self
@@ -623,10 +619,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             .iter()
             .fold(0.0, |acc: f32, (_i, stack)| {
                 let d = stack.target.iter().enumerate().fold(0.0, |acc, (i, c)| {
-                    acc + *c as f32
-                        * self.controls.zoom
-                        * ET_SEMITONE_WIDTH
-                        * self.controls.interval_heights[i].abs()
+                    acc + *c as f32 * self.controls.zoom * self.controls.interval_heights[i].abs()
                 });
                 acc.max(d)
             });
@@ -638,7 +631,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn vpos_relative_to_reference(&self, stack: &Stack<T>) -> f32 {
-        self.controls.zoom * ET_SEMITONE_WIDTH * {
+        self.controls.zoom * {
             let mut y = 0.0;
             for i in 0..T::num_intervals() {
                 y += (stack.target[i] - self.reference.target[i]) as f32
@@ -653,7 +646,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn hpos(&self, stack: &Stack<T>) -> f32 {
-        self.positions.c4_hpos + self.controls.zoom * ET_SEMITONE_WIDTH * stack.semitones() as f32
+        self.positions.c4_hpos + self.controls.zoom * stack.semitones() as f32
     }
 
     fn pos(&self, stack: &Stack<T>) -> egui::Pos2 {
@@ -670,7 +663,6 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             - (stack.target[self.controls.project_dimension]
                 - self.reference.target[self.controls.project_dimension]) as f32
                 * self.controls.zoom
-                * ET_SEMITONE_WIDTH
                 * vec2(
                     T::intervals()[self.controls.project_dimension].semitones as f32,
                     self.controls.interval_heights[self.controls.project_dimension],
@@ -696,7 +688,6 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
         let draw_limb = |direction: usize, forward: bool, start_pos: egui::Pos2| {
             let end_pos = start_pos
                 + self.controls.zoom
-                    * ET_SEMITONE_WIDTH
                     * if forward { 1.0 } else { -1.0 }
                     * vec2(
                         T::intervals()[direction].semitones as f32,
@@ -770,7 +761,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 
     fn draw_down_lines(&self, ui: &egui::Ui) {
-        let bottom = self.keyboard_top(ui);
+        let bottom = self.keyboard_top();
         for (i, stack) in self.tunings.iter().enumerate() {
             if self.active_notes[i].is_sounding() {
                 let ppos = self.projected_pos(stack);
@@ -907,7 +898,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
         self.controls.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH)
     }
 
-    fn keyboard_top(&self, ui: &egui::Ui) -> f32 {
+    fn keyboard_top(&self) -> f32 {
         self.positions.bottom - self.keyboard_height()
     }
 }
