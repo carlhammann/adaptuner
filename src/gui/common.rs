@@ -317,11 +317,18 @@ pub fn show_hide_button(
     clicked
 }
 
-pub fn correction_system_chooser<T: StackType>(ui: &mut egui::Ui, system_index: &mut usize) {
+pub fn correction_system_chooser<T: StackType>(
+    ui: &mut egui::Ui,
+    system_index: &mut usize,
+    use_cent_values: &mut bool,
+) {
     ui.vertical(|ui| {
-        ui.label("write temperaments as fractions of");
-        for (i, system) in T::correction_systems().iter().enumerate() {
-            ui.selectable_value(system_index, i, &system.name);
+        ui.checkbox(use_cent_values, "write temperaments as cent values");
+        if T::correction_systems().len() > 0 {
+            ui.label("edit temperaments as fractions of");
+            for (i, system) in T::correction_systems().iter().enumerate() {
+                ui.selectable_value(system_index, i, &system.name);
+            }
         }
     });
 }

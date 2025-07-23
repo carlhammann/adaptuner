@@ -22,11 +22,13 @@ pub struct ReferenceEditor<T: StackType> {
     corrections_applied_to_new_reference: Correction<T>,
     notenamestyle: NoteNameStyle,
     correction_system_index: usize,
+    use_cent_values: bool,
 }
 
 pub struct ReferenceEditorConfig {
     pub notenamestyle: NoteNameStyle,
     pub correction_system_index: usize,
+    pub use_cent_values: bool,
 }
 
 impl<T: StackType> ReferenceEditor<T> {
@@ -40,6 +42,7 @@ impl<T: StackType> ReferenceEditor<T> {
             ),
             notenamestyle: config.notenamestyle,
             correction_system_index: config.correction_system_index,
+            use_cent_values: config.use_cent_values,
         }
     }
 }
@@ -50,9 +53,11 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceEditor<T> {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.label("Current reference is ");
-                ui.strong(
-                    reference.corrected_notename(&self.notenamestyle, self.correction_system_index),
-                );
+                ui.strong(reference.corrected_notename(
+                    &self.notenamestyle,
+                    self.correction_system_index,
+                    self.use_cent_values,
+                ));
             });
         } else {
             ui.label("Currently no reference");
@@ -74,10 +79,11 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceEditor<T> {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.label("New reference will be ");
-                ui.strong(
-                    self.new_reference
-                        .corrected_notename(&self.notenamestyle, self.correction_system_index),
-                );
+                ui.strong(self.new_reference.corrected_notename(
+                    &self.notenamestyle,
+                    self.correction_system_index,
+                    self.use_cent_values,
+                ));
             });
         });
 
@@ -102,7 +108,11 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceEditor<T> {
 
         ui.separator();
 
-        correction_system_chooser::<T>(ui, &mut self.correction_system_index);
+        correction_system_chooser::<T>(
+            ui,
+            &mut self.correction_system_index,
+            &mut self.use_cent_values,
+        );
     }
 }
 

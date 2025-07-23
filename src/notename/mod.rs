@@ -57,11 +57,20 @@ impl<T: FiveLimitStackType> Stack<T> {
         f: &mut W,
         style: &NoteNameStyle,
         system_index: usize,
+        use_cent_values: bool,
     ) -> fmt::Result {
         self.write_notename(f, style)?;
         if !self.is_target() {
             write!(f, "  ")?;
-            correction::Correction::new(self, system_index).fmt(f)?;
+            if use_cent_values {
+                let d = self.semitones() - self.target_semitones();
+                if d > 0.0 {
+                    write!(f, "+")?;
+                }
+                write!(f, "{:.02}ct", d * 100.0)?;
+            } else {
+                correction::Correction::new(self, system_index).fmt(f)?;
+            }
             if self.is_pure() {
                 write!(f, " = ")?;
                 self.write_actual_notename(f, style)?;
@@ -70,10 +79,15 @@ impl<T: FiveLimitStackType> Stack<T> {
         Ok(())
     }
 
-    pub fn corrected_notename(&self, style: &NoteNameStyle, system_index: usize) -> String {
+    pub fn corrected_notename(
+        &self,
+        style: &NoteNameStyle,
+        system_index: usize,
+        use_cent_values: bool,
+    ) -> String {
         let mut res = String::new();
         // the [Write] implementation of [String] never throws any error, so this is fine:
-        self.write_corrected_notename(&mut res, style, system_index)
+        self.write_corrected_notename(&mut res, style, system_index, use_cent_values)
             .unwrap();
         res
     }

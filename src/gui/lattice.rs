@@ -45,6 +45,7 @@ pub struct LatticeWindowControls {
     pub screen_keyboard_center: u8,
     pub notenamestyle: NoteNameStyle,
     pub correction_system_index: usize,
+    pub use_cent_values: bool,
     pub highlight_playable_keys: bool,
 }
 
@@ -132,6 +133,7 @@ impl<T: FiveLimitStackType> LatticeWindow<T> {
         self.reference.corrected_notename(
             &self.controls.notenamestyle,
             self.controls.correction_system_index,
+            self.controls.use_cent_values,
         )
     }
 }
@@ -191,14 +193,25 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
         bottom += first_line_height * 0.5;
 
         if !stack.is_target() {
-            let correction = Correction::new(stack, controls.correction_system_index);
-            ui.painter().text(
-                pos2(hpos, second_line_vpos),
-                egui::Align2::CENTER_CENTER,
-                correction.str(),
-                egui::FontId::proportional(other_lines_height),
-                text_color,
-            );
+            if controls.use_cent_values {
+                let d = stack.semitones() - stack.target_semitones();
+                ui.painter().text(
+                    pos2(hpos, second_line_vpos),
+                    egui::Align2::CENTER_CENTER,
+                    format!("{}{:.02}ct", if d > 0.0 { "+" } else { "" }, d * 100.0),
+                    egui::FontId::proportional(other_lines_height),
+                    text_color,
+                );
+            } else {
+                let correction = Correction::new(stack, controls.correction_system_index);
+                ui.painter().text(
+                    pos2(hpos, second_line_vpos),
+                    egui::Align2::CENTER_CENTER,
+                    correction.str(),
+                    egui::FontId::proportional(other_lines_height),
+                    text_color,
+                );
+            }
             bottom += spacing + other_lines_height;
             if stack.is_pure() {
                 ui.painter().text(
@@ -249,7 +262,8 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
                         "make pure relative to {}",
                         reference.corrected_notename(
                             &controls.notenamestyle,
-                            controls.correction_system_index
+                            controls.correction_system_index,
+                            controls.use_cent_values
                         )
                     )),
                     ui,

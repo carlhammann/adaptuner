@@ -72,7 +72,7 @@ impl<'a, T: FiveLimitStackType> GuiShow<T> for AsBigControls<'a, T> {
         let controls = &mut lw.controls;
 
         ui.horizontal(|ui| {
-            correction_system_chooser::<T>(ui, &mut controls.correction_system_index);
+            correction_system_chooser::<T>(ui, &mut controls.correction_system_index, &mut controls.use_cent_values);
 
             ui.separator();
 
