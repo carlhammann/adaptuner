@@ -30,7 +30,6 @@ impl<T: IntervalBasis> From<PeriodicComplete<T>> for SomeCompleteNeighbourhood<T
 pub struct PeriodicComplete<T: IntervalBasis> {
     stacks: Vec<Stack<T>>,
     period: Stack<T>,
-    name: String,
     period_index: Option<usize>,
 }
 
@@ -39,11 +38,10 @@ impl<T: IntervalBasis> PeriodicComplete<T> {
     /// - the [Stack::key_distance] of the stack on index `ì` of `stacks` is `i`. In particular,
     ///   the first one (at index zero) must map to a unison on the keyboard.
     /// - the length of `stacks` is the [Stack::key_distance] of the `period`.
-    pub fn new(stacks: Vec<Stack<T>>, period: Stack<T>, name: String) -> Self {
+    pub fn new(stacks: Vec<Stack<T>>, period: Stack<T>) -> Self {
         Self {
             stacks,
             period,
-            name,
             period_index: None {},
         }
     }
@@ -51,12 +49,11 @@ impl<T: IntervalBasis> PeriodicComplete<T> {
 
 impl<T: OctavePeriodicIntervalBasis> PeriodicComplete<T> {
     /// invariants like [PeriodicComplete::new], only for the [PeriodicStackType::period] of `T`
-    pub fn from_octave_tunings(name: String, stacks: [Stack<T>; 12]) -> Self {
+    pub fn from_octave_tunings(stacks: [Stack<T>; 12]) -> Self {
         Self {
             stacks: stacks.into(),
             period: Stack::from_pure_interval(T::period_index(), 1),
             period_index: Some(T::period_index()),
-            name,
         }
     }
 }
@@ -72,14 +69,12 @@ impl<T: OctavePeriodicIntervalBasis> PeriodicComplete<T> {
 
 pub struct PartialNeighbourhood<T: IntervalBasis> {
     stacks: HashMap<i8, Stack<T>>,
-    name: String,
 }
 
 impl<T: IntervalBasis> PartialNeighbourhood<T> {
-    pub fn new(name: String) -> Self {
+    pub fn new() -> Self {
         Self {
             stacks: HashMap::new(),
-            name,
         }
     }
 
@@ -152,10 +147,6 @@ pub trait Neighbourhood<T: IntervalBasis> {
         });
         (min, max)
     }
-
-    fn name(&self) -> &str;
-
-    fn set_name(&mut self, name: String);
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
@@ -209,18 +200,6 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
     fn try_period_index(&self) -> Option<usize> {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.try_period_index(),
-        }
-    }
-
-    fn name(&self) -> &str {
-        match self {
-            SomeCompleteNeighbourhood::PeriodicComplete(n) => n.name(),
-        }
-    }
-
-    fn set_name(&mut self, name: String) {
-        match self {
-            SomeCompleteNeighbourhood::PeriodicComplete(n) => n.set_name(name),
         }
     }
 }
@@ -282,14 +261,6 @@ impl<T: IntervalBasis> Neighbourhood<T> for PartialNeighbourhood<T> {
     fn try_period_index(&self) -> Option<usize> {
         None {}
     }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn set_name(&mut self, name: String) {
-        self.name = name;
-    }
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
@@ -343,14 +314,6 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
 
     fn try_period_index(&self) -> Option<usize> {
         self.period_index
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn set_name(&mut self, name: String) {
-        self.name = name;
     }
 }
 

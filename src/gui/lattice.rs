@@ -329,7 +329,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
                 semitones: 60.0,
             },
             reference: Stack::new_zero(),
-            considered_notes: PartialNeighbourhood::new("lattice window neighbourhood".into()),
+            considered_notes: PartialNeighbourhood::new(),
             draw_state: OneNodeDrawState {
                 tmp_relative_stack: Stack::new_zero(),
                 tmp_temperaments: vec![false; T::num_temperaments()],

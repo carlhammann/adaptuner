@@ -10,43 +10,6 @@ use crate::{
     util::list_action::ListAction,
 };
 
-pub struct ListPicker<'a, X> {
-    elems: &'a [X],
-    selected: Option<usize>,
-}
-
-impl<'a, X> ListPicker<'a, X> {
-    pub fn new(elems: &'a [X]) -> Self {
-        Self {
-            elems,
-            selected: None {},
-        }
-    }
-
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        elem_name: impl Fn(&X) -> &str,
-        elem_description: impl Fn(&X) -> Option<&str>,
-    ) -> Option<(usize, &X)> {
-        show_list_picker(
-            &self.elems,
-            &mut self.selected,
-            ui,
-            elem_name,
-            elem_description,
-        )
-    }
-
-    pub fn current_selected(&self) -> Option<&'a X> {
-        self.selected.map(|i| &self.elems[i])
-    }
-
-    pub fn deselect(&mut self) {
-        self.selected = None {};
-    }
-}
-
 fn show_list_picker<'a, X>(
     elems: &'a [X],
     selected: &mut Option<usize>,
@@ -80,14 +43,22 @@ pub struct ListEdit<X> {
     selected: Option<usize>,
 }
 
-pub struct ListEditOpts {
+pub struct ListEditOpts<X, M> {
     pub empty_allowed: bool,
     pub select_allowed: bool,
     pub no_selection_allowed: bool,
     pub delete_allowed: bool,
+    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X) -> Option<M>>,
+    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>) -> Option<usize>>>,
 }
 
-impl<X: Clone> ListEdit<X> {
+pub enum ListEditResult<M> {
+    Message(M),
+    Action(ListAction),
+    None,
+}
+
+impl<X> ListEdit<X> {
     pub fn new(elems: Vec<X>) -> Self {
         Self {
             elems,
@@ -100,8 +71,22 @@ impl<X: Clone> ListEdit<X> {
         self
     }
 
-    pub fn apply(&mut self, action: ListAction<X>) {
-        action.apply_to(&mut self.elems, &mut self.selected);
+    pub fn get_all(&self) -> &[X] {
+        &self.elems
+    }
+
+    pub fn set_all(&mut self, elems: &[X])
+    where
+        X: Clone,
+    {
+        self.elems = elems.into();
+    }
+
+    pub fn apply(&mut self, action: ListAction)
+    where
+        X: Clone,
+    {
+        action.apply_to(|x| x.clone(), &mut self.elems, &mut self.selected);
     }
 
     pub fn current_selected(&self) -> Option<&X> {
@@ -128,48 +113,18 @@ impl<X: Clone> ListEdit<X> {
         )
     }
 
-    pub fn show_with_add(
+    fn show_dont_handle<M>(
         &mut self,
         ui: &mut egui::Ui,
         id_salt: &'static str,
-        opts: &ListEditOpts,
-        show_one: impl Fn(&mut egui::Ui, &mut X),
-        add: impl FnOnce(&mut egui::Ui, &[X], Option<usize>) -> Option<X>,
-    ) -> Option<ListAction<X>> {
-        let mut res = self.show_dont_handle(ui, id_salt, opts, show_one);
-        let mut update_res = |new_res: ListAction<X>| match res {
-            None {} => {
-                res = Some(new_res);
+        opts: ListEditOpts<X, M>,
+    ) -> ListEditResult<M> {
+        let mut res = ListEditResult::None;
+        let mut update_res = |new_res: ListEditResult<M>| match res {
+            ListEditResult::None => {
+                res = new_res;
             }
-            Some(_) => {}
-        };
-
-        ui.separator();
-
-        if let Some(new_entry) = add(ui, &self.elems, self.selected) {
-            update_res(ListAction::Add(new_entry));
-        }
-
-        if let Some(action) = &res {
-            action.clone().apply_to(&mut self.elems, &mut self.selected);
-        }
-
-        res
-    }
-
-    fn show_dont_handle(
-        &mut self,
-        ui: &mut egui::Ui,
-        id_salt: &'static str,
-        opts: &ListEditOpts,
-        show_one: impl Fn(&mut egui::Ui, &mut X),
-    ) -> Option<ListAction<X>> {
-        let mut res = None {};
-        let mut update_res = |new_res: ListAction<X>| match res {
-            None {} => {
-                res = Some(new_res);
-            }
-            Some(_) => {}
+            _ => {}
         };
         let selected = self.selected;
         egui::Grid::new(id_salt)
@@ -188,16 +143,18 @@ impl<X: Clone> ListEdit<X> {
                         let is_current = self.selected == Some(i);
                         if ui.radio(is_current, "").clicked() {
                             if !is_current {
-                                update_res(ListAction::Select(i));
+                                update_res(ListEditResult::Action(ListAction::Select(i)));
                             } else {
                                 if opts.no_selection_allowed {
-                                    update_res(ListAction::Deselect);
+                                    update_res(ListEditResult::Action(ListAction::Deselect));
                                 }
                             }
                         }
                     }
 
-                    show_one(ui, elem);
+                    if let Some(m) = (opts.show_one)(ui, i, elem) {
+                        update_res(ListEditResult::Message(m));
+                    }
 
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
@@ -213,7 +170,7 @@ impl<X: Clone> ListEdit<X> {
                             )
                             .clicked()
                         {
-                            update_res(ListAction::SwapWithPrev(i));
+                            update_res(ListEditResult::Action(ListAction::SwapWithPrev(i)));
                         }
                         if ui
                             .add_enabled(
@@ -227,7 +184,7 @@ impl<X: Clone> ListEdit<X> {
                             )
                             .clicked()
                         {
-                            update_res(ListAction::SwapWithPrev(i + 1));
+                            update_res(ListEditResult::Action(ListAction::SwapWithPrev(i + 1)));
                         }
                     });
 
@@ -236,7 +193,7 @@ impl<X: Clone> ListEdit<X> {
                             .add_enabled(opts.empty_allowed || n > 1, egui::Button::new("delete"))
                             .clicked()
                         {
-                            update_res(ListAction::Delete(i));
+                            update_res(ListEditResult::Action(ListAction::Delete(i)));
                         }
                     }
 
@@ -244,19 +201,28 @@ impl<X: Clone> ListEdit<X> {
                 }
             });
 
+        if let Some(f) = opts.clone {
+            ui.separator();
+            if let Some(i) = f(ui, &self.elems, self.selected) {
+                update_res(ListEditResult::Action(ListAction::Clone(i)));
+            }
+        }
+
         res
     }
 
-    pub fn show(
+    pub fn show<M>(
         &mut self,
         ui: &mut egui::Ui,
         id_salt: &'static str,
-        opts: &ListEditOpts,
-        show_one: impl Fn(&mut egui::Ui, &mut X),
-    ) -> Option<ListAction<X>> {
-        let res = self.show_dont_handle(ui, id_salt, opts, show_one);
-        if let Some(action) = &res {
-            action.clone().apply_to(&mut self.elems, &mut self.selected);
+        opts: ListEditOpts<X, M>,
+    ) -> ListEditResult<M>
+    where
+        X: Clone,
+    {
+        let res = self.show_dont_handle(ui, id_salt, opts);
+        if let ListEditResult::Action(action) = &res {
+            action.apply_to(|x| x.clone(), &mut self.elems, &mut self.selected);
         }
         res
     }

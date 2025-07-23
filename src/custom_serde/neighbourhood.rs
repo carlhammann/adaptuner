@@ -40,8 +40,8 @@ impl<T: IntervalBasis + serde::Serialize> serde::Serialize for PeriodicComplete<
             }
         }
 
-        let mut t = serializer.serialize_struct("periodic complete aligned neighbourhood", 2)?;
-        t.serialize_field("name", self.name())?;
+        let mut t = serializer.serialize_struct("periodic complete aligned neighbourhood", 1)?;
+        // t.serialize_field("name", self.name())?;
         t.serialize_field(
             "entries",
             &EntriesView {
@@ -68,7 +68,6 @@ where
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "lowercase")]
         enum NeighbourhoodField {
-            Name,
             Entries,
         }
 
@@ -98,16 +97,9 @@ where
                 }
                 let period_keys = m_period_keys.unwrap();
 
-                let mut name = None {};
                 let mut stacks = None {};
                 while let Some(key) = map.next_key()? {
                     match key {
-                        NeighbourhoodField::Name => {
-                            if name.is_some() {
-                                return Err(serde::de::Error::duplicate_field("name"));
-                            }
-                            name = Some(map.next_value()?);
-                        }
                         NeighbourhoodField::Entries => {
                             if stacks.is_some() {
                                 return Err(serde::de::Error::duplicate_field("entries"));
@@ -149,23 +141,19 @@ where
                         }
                     }
                 }
-                if name.is_none() {
-                    return Err(serde::de::Error::missing_field("name"));
-                }
                 if stacks.is_none() {
                     return Err(serde::de::Error::missing_field("entries"));
                 }
                 Ok(PeriodicComplete::new(
                     stacks.unwrap(),
                     Stack::from_pure_interval(T::try_period_index().unwrap(), 1),
-                    name.unwrap(),
                 ))
             }
         }
 
         deserializer.deserialize_struct(
-            "neighbourhood",
-            &["target", "actual"],
+            "periodic-complete",
+            &["entries"],
             TheVisitor {
                 _phantom: PhantomData,
             },
@@ -182,28 +170,24 @@ mod test {
 
     #[test]
     fn test_serialize_neighbourhood() {
-        let neigh = PeriodicComplete::from_octave_tunings(
-            "foo".into(),
-            [
-                Stack::<MockFiveLimitStackType>::new_zero(), // C
-                Stack::from_target(vec![0, -1, 2]),          // C#
-                Stack::from_target(vec![-1, 2, 0]),          // D
-                Stack::from_target(vec![0, 1, -1]),          // Eb
-                Stack::from_target(vec![0, 0, 1]),           // E
-                Stack::from_target(vec![1, -1, 0]),          // F
-                Stack::from_target(vec![-1, 2, 1]),          // F#
-                Stack::from_target(vec![0, 1, 0]),           // G
-                Stack::from_target(vec![0, 0, 2]),           // G#
-                Stack::from_target(vec![1, -1, 1]),          // A
-                Stack::from_target(vec![0, 2, -1]),          // Bb
-                Stack::from_target(vec![0, 1, 1]),           // B
-            ],
-        );
+        let neigh = PeriodicComplete::from_octave_tunings([
+            Stack::<MockFiveLimitStackType>::new_zero(), // C
+            Stack::from_target(vec![0, -1, 2]),          // C#
+            Stack::from_target(vec![-1, 2, 0]),          // D
+            Stack::from_target(vec![0, 1, -1]),          // Eb
+            Stack::from_target(vec![0, 0, 1]),           // E
+            Stack::from_target(vec![1, -1, 0]),          // F
+            Stack::from_target(vec![-1, 2, 1]),          // F#
+            Stack::from_target(vec![0, 1, 0]),           // G
+            Stack::from_target(vec![0, 0, 2]),           // G#
+            Stack::from_target(vec![1, -1, 1]),          // A
+            Stack::from_target(vec![0, 2, -1]),          // Bb
+            Stack::from_target(vec![0, 1, 1]),           // B
+        ]);
 
         assert_eq!(
             serde_yml::to_string(&neigh).unwrap(),
-            r#"name: foo
-entries:
+            r#"entries:
 - offset: 0
   stack: {}
 - offset: 1
@@ -266,8 +250,7 @@ entries:
         };
 
         test_error_contains(
-            r#"name: foo
-entries:
+            r#"entries:
 - offset: 0
   stack: {}
 - offset: 1
@@ -279,8 +262,7 @@ entries:
         );
 
         test_error_contains(
-            r#"name: foo
-entries:
+            r#"entries:
 - offset: 0
   stack: {}
 - offset: 0
@@ -331,8 +313,7 @@ entries:
         );
 
         test_error_contains(
-            r#"name: foo
-entries:
+            r#"entries:
 - offset: 0
   stack: {}
 - offset: 1

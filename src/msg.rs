@@ -8,7 +8,6 @@ use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
     bindable::Bindable,
-    config::ExtendedStrategyConfig,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     reference::Reference,
     strategy::r#trait::StrategyAction,
@@ -85,7 +84,7 @@ pub enum ToProcess<T: StackType> {
         bindable: Bindable,
     },
     StrategyListAction {
-        action: ListAction<ExtendedStrategyConfig<T>>,
+        action: ListAction,
         time: Instant,
     },
 }
@@ -138,17 +137,17 @@ pub enum ToStrategy<T: StackType> {
         stack: Stack<T>,
         time: Instant,
     },
-    ApplyTemperamentToCurrentNeighbourhood {
+    ApplyTemperamentToNeighbourhood {
+        neighbourhood: usize,
         temperament: usize,
         time: Instant,
     },
-    MakeCurrentNeighbourhoodPure {
+    MakeNeighbourhoodPure {
+        neighbourhood: usize,
         time: Instant,
     },
-    NewNeighbourhood {
-        name: String,
-    },
-    DeleteCurrentNeighbourhood {
+    NeighbourhoodListAction {
+        action: ListAction,
         time: Instant,
     },
     SetTuningReference {
@@ -181,10 +180,8 @@ pub enum FromStrategy<T: StackType> {
     Consider {
         stack: Stack<T>,
     },
-    CurrentNeighbourhoodName {
+    CurrentNeighbourhoodIndex {
         index: usize,
-        n_neighbourhoods: usize,
-        name: String,
     },
     NotifyFit {
         pattern_name: String,
@@ -323,10 +320,8 @@ pub enum ToUi<T: StackType> {
     Consider {
         stack: Stack<T>,
     },
-    CurrentNeighbourhoodName {
+    CurrentNeighbourhoodIndex {
         index: usize,
-        n_neighbourhoods: usize,
-        name: String,
     },
     DetunedNote {
         note: u8,
@@ -342,17 +337,17 @@ pub enum FromUi<T: StackType> {
         stack: Stack<T>,
         time: Instant,
     },
-    DeleteCurrentNeighbourhood {
+    NeighbourhoodListAction {
+        action: ListAction,
         time: Instant,
     },
-    NewNeighbourhood {
-        name: String,
-    },
-    ApplyTemperamentToCurrentNeighbourhood {
+    ApplyTemperamentToNeighbourhood {
+        neighbourhood: usize,
         temperament: usize,
         time: Instant,
     },
-    MakeCurrentNeighbourhoodPure {
+    MakeNeighbourhoodPure {
+        neighbourhood: usize,
         time: Instant,
     },
     DisconnectInput,
@@ -401,7 +396,7 @@ pub enum FromUi<T: StackType> {
         time: Instant,
     },
     StrategyListAction {
-        action: ListAction<ExtendedStrategyConfig<T>>,
+        action: ListAction,
         time: Instant,
     },
     Action {
@@ -580,11 +575,9 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
                 None {},
                 None {},
             ),
-            FromProcess::CurrentStrategyIndex(i) => (
-                None {},
-                None {},
-                Some(ToUi::CurrentStrategyIndex(i))
-            )
+            FromProcess::CurrentStrategyIndex(i) => {
+                (None {}, None {}, Some(ToUi::CurrentStrategyIndex(i)))
+            }
         }
     }
 }
@@ -603,18 +596,9 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
             ),
             FromStrategy::SetReference { stack } => (None {}, Some(ToUi::SetReference { stack })),
             FromStrategy::Consider { stack } => (None {}, Some(ToUi::Consider { stack })),
-            FromStrategy::CurrentNeighbourhoodName {
-                index,
-                n_neighbourhoods,
-                name,
-            } => (
-                None {},
-                Some(ToUi::CurrentNeighbourhoodName {
-                    index,
-                    n_neighbourhoods,
-                    name,
-                }),
-            ),
+            FromStrategy::CurrentNeighbourhoodIndex { index } => {
+                (None {}, Some(ToUi::CurrentNeighbourhoodIndex { index }))
+            }
             FromStrategy::NotifyFit {
                 pattern_name,
                 reference_stack,
@@ -649,23 +633,9 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::NewNeighbourhood { name } => (
-                Some(ToProcess::ToStrategy(ToStrategy::NewNeighbourhood { name })),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::DeleteCurrentNeighbourhood { time } => (
+            FromUi::ApplyTemperamentToNeighbourhood { temperament, neighbourhood, time } => (
                 Some(ToProcess::ToStrategy(
-                    ToStrategy::DeleteCurrentNeighbourhood { time },
-                )),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::ApplyTemperamentToCurrentNeighbourhood { temperament, time } => (
-                Some(ToProcess::ToStrategy(
-                    ToStrategy::ApplyTemperamentToCurrentNeighbourhood { temperament, time },
+                    ToStrategy::ApplyTemperamentToNeighbourhood { temperament, neighbourhood, time },
                 )),
                 None {},
                 None {},
@@ -775,9 +745,9 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::MakeCurrentNeighbourhoodPure { time } => (
+            FromUi::MakeNeighbourhoodPure { time , neighbourhood} => (
                 Some(ToProcess::ToStrategy(
-                    ToStrategy::MakeCurrentNeighbourhoodPure { time },
+                    ToStrategy::MakeNeighbourhoodPure { time, neighbourhood },
                 )),
                 None {},
                 None {},
@@ -791,6 +761,15 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             ),
             FromUi::StrategyListAction { action, time } => (
                 Some(ToProcess::StrategyListAction { action, time }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::NeighbourhoodListAction { action, time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::NeighbourhoodListAction {
+                    action,
+                    time,
+                })),
                 None {},
                 None {},
                 None {},

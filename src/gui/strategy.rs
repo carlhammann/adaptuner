@@ -4,7 +4,7 @@ use eframe::egui::{self, vec2};
 
 use crate::{
     bindable::Bindable,
-    config::{ExtendedStrategyConfig, StrategyKind},
+    config::{StrategyKind, StrategyNamesAndBindings},
     interval::stacktype::r#trait::{FiveLimitStackType, StackType},
     msg::{FromUi, HandleMsgRef, ToUi},
     strategy::r#trait::StrategyAction,
@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    common::{ListEdit, ListEditOpts, ListPicker, SmallFloatingWindow},
+    common::{ListEdit, ListEditOpts, SmallFloatingWindow},
     editor::{
         binding::{bindable_selector, strategy_action_selector},
         neighbourhood::NeighbourhoodEditor,
@@ -24,8 +24,7 @@ use super::{
 
 pub struct StrategyWindows<T: StackType + 'static> {
     strategy_list_editor_window: SmallFloatingWindow,
-    strategies: ListEdit<ExtendedStrategyConfig<T>>,
-    templates: ListPicker<'static, ExtendedStrategyConfig<T>>,
+    strategies: ListEdit<StrategyNamesAndBindings>,
 
     tuning_editor_window: SmallFloatingWindow,
     tuning_editor: TuningEditor<T>,
@@ -45,14 +44,12 @@ pub struct StrategyWindows<T: StackType + 'static> {
 
 impl<T: StackType> StrategyWindows<T> {
     pub fn new(
-        strategies: Vec<ExtendedStrategyConfig<T>>,
-        templates: &'static [ExtendedStrategyConfig<T>],
+        strategies: Vec<StrategyNamesAndBindings>,
         tuning_editor: TuningEditorConfig,
         reference_editor: ReferenceEditorConfig,
     ) -> Self {
         Self {
             strategies: ListEdit::new(strategies),
-            templates: ListPicker::new(templates),
             strategy_list_editor_window: SmallFloatingWindow::new(egui::Id::new(
                 "strategy_list_editor_window",
             )),
@@ -65,7 +62,7 @@ impl<T: StackType> StrategyWindows<T> {
             neighbourhood_editor_window: SmallFloatingWindow::new(egui::Id::new(
                 "neigbourhood_editor_window",
             )),
-            neighbourhood_editor: NeighbourhoodEditor::new(),
+            neighbourhood_editor: NeighbourhoodEditor::new(vec![]),
             binding_editor_window: SmallFloatingWindow::new(egui::Id::new("binding_editor_window")),
             tmp_strategy_action: None {},
             tmp_bindable: Bindable::SostenutoPedalDown,
@@ -79,10 +76,16 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::CurrentStrategyIndex(index) => {
+                if let Some(strn) = self.strategies.current_selected_mut() {
+                    strn.neighbourhood_names = self.neighbourhood_editor.get_all().into();
+                }
                 if let Some(i) = index {
                     self.strategies.apply(ListAction::Select(*i));
                 } else {
                     self.strategies.apply(ListAction::Deselect);
+                }
+                if let Some(strn) = self.strategies.current_selected() {
+                    self.neighbourhood_editor.set_all(&strn.neighbourhood_names);
                 }
             }
             _ => {}
@@ -103,7 +106,7 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
                 .selected_text(x.strategies.current_selected().map_or("", |x| &x.name))
                 .show_ui(ui, |ui| {
                     ui.shrink_width_to_current();
-                    if let Some((i, _esc)) =
+                    if let Some((i, _)) =
                         x.strategies
                             .show_as_list_picker(ui, |x| &x.name, |x| Some(&x.description))
                     {
@@ -121,8 +124,8 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
 
             ui.separator();
 
-            if let Some(esc) = x.strategies.current_selected() {
-                match esc.strategy_kind() {
+            if let Some(strn) = x.strategies.current_selected() {
+                match strn.strategy_kind {
                     StrategyKind::StaticTuning => {
                         ui.horizontal(|ui| {
                             x.tuning_editor_window.show_hide_button(ui, "global tuning");
@@ -148,10 +151,8 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
         let AsWindows(x) = self;
         let ctx = ui.ctx();
 
-        if let Some(ExtendedStrategyConfig {
-            name: current_name, ..
-        }) = x.strategies.current_selected()
-        {
+        if let Some(strn) = x.strategies.current_selected() {
+            let current_name = &strn.name;
             x.tuning_editor_window
                 .show(&format!("global tuning ({current_name})"), ctx, |ui| {
                     x.tuning_editor.show(ui, forward);
@@ -184,64 +185,52 @@ impl<'a, T: StackType> AsWindows<'a, T> {
         x.strategy_list_editor_window
             .show("edit strategies", ctx, |ui| {
                 ui.shrink_width_to_current();
-                let action = x.strategies.show_with_add(
+                let list_edit_res = x.strategies.show(
                     ui,
                     "strategy editor",
-                    &ListEditOpts {
+                    ListEditOpts {
                         empty_allowed: false,
                         select_allowed: true,
                         no_selection_allowed: false,
                         delete_allowed: true,
-                    },
-                    |ui, elem| {
-                        ui.add(egui::TextEdit::singleline(&mut elem.name).min_size(vec2(
-                            ui.style().spacing.text_edit_width / 2.0,
-                            ui.style().spacing.interact_size.y,
-                        )));
-                        ui.add(
-                            egui::TextEdit::multiline(&mut elem.description)
-                                .min_size(vec2(
-                                    ui.style().spacing.text_edit_width,
-                                    ui.style().spacing.interact_size.y,
-                                ))
-                                .desired_rows(1),
-                        );
-                    },
-                    |ui, elems, selected| {
-                        let mut new: Option<ExtendedStrategyConfig<T>> = None {};
-                        ui.horizontal(|ui| {
-                            ui.label("add new");
-                            if ui.button("copy of currently selected").clicked() {
-                                new = selected.map(|i| elems[i].clone());
-                                x.templates.deselect();
+                        show_one: Box::new(|ui, _i,  elem| {
+                            ui.add(egui::TextEdit::singleline(&mut elem.name).min_size(vec2(
+                                ui.style().spacing.text_edit_width / 2.0,
+                                ui.style().spacing.interact_size.y,
+                            )));
+                            ui.add(
+                                egui::TextEdit::multiline(&mut elem.description)
+                                    .min_size(vec2(
+                                        ui.style().spacing.text_edit_width,
+                                        ui.style().spacing.interact_size.y,
+                                    ))
+                                    .desired_rows(1),
+                            );
+                            None::<()> {}
+                        }),
+                        clone: Some(Box::new(|ui, _elems, selected| {
+                            if let Some(i) = selected {
+                                if ui.button("create copy of selected").clicked() {
+                                    Some(i)
+                                } else {
+                                    None {}
+                                }
+                            } else {
+                                None {}
                             }
-                            ui.separator();
-                            ui.label("from template");
-
-                            egui::ComboBox::from_id_salt("template picker")
-                                .selected_text(
-                                    x.templates.current_selected().map_or("", |x| &x.name),
-                                )
-                                .show_ui(ui, |ui| {
-                                    ui.shrink_width_to_current();
-                                    if let Some((_, template)) =
-                                        x.templates.show(ui, |x| &x.name, |x| Some(&x.description))
-                                    {
-                                        new = Some(template.clone());
-                                        x.templates.deselect();
-                                    }
-                                });
-                        });
-
-                        new
+                        })),
                     },
                 );
 
-                if let Some(action) = action {
-                    let _ = forward.send(FromUi::StrategyListAction {
-                        action,
-                        time: Instant::now(),
-                    });
+                match list_edit_res {
+                    super::common::ListEditResult::Message(_) => unreachable!(),
+                    super::common::ListEditResult::Action(action) => {
+                        let _ = forward.send(FromUi::StrategyListAction {
+                            action,
+                            time: Instant::now(),
+                        });
+                    }
+                    super::common::ListEditResult::None => {}
                 }
             });
     }
@@ -288,7 +277,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                         x.tmp_strategy_action = current.bindings.get(&x.tmp_bindable).map(|x| *x);
                         if strategy_action_selector(
                             ui,
-                            current.strategy_kind(),
+                            current.strategy_kind,
                             x.tmp_bindable,
                             &mut x.tmp_strategy_action,
                         ) {

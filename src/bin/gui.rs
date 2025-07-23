@@ -4,7 +4,7 @@ use midi_msg::Channel;
 
 use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
-    config::{Config, STRATEGY_TEMPLATES},
+    config::Config,
     gui::{
         editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
         lattice::LatticeWindowControls,
@@ -79,7 +79,16 @@ fn run() -> Result<(), Box<dyn Error>> {
         correction_system_index,
     };
 
-    let cloned_strategy_config = config.strategies.clone();
+    // let cloned_strategy_config = config.strategies.clone();
+
+    let mut strategy_configs = Vec::with_capacity(config.strategies.len());
+    let mut strategy_names_and_bindings = Vec::with_capacity(config.strategies.len());
+
+    for x in config.strategies.drain(..) {
+        let (a, b) = x.split();
+        strategy_configs.push(a);
+        strategy_names_and_bindings.push(b);
+    }
 
     let latency_window_length = 20;
 
@@ -91,18 +100,16 @@ fn run() -> Result<(), Box<dyn Error>> {
         midi_out,
         move || {
             ProcessFromStrategy::new(
-                config
-                    .strategies
+                strategy_configs
                     .drain(..)
-                    .map(|c| (c.config.realize(), c.bindings))
+                    .map(|(c, b)| (c.realize(), b))
                     .collect(),
             )
         },
         move || Pitchbend12::new(backend_config),
         move |ctx, tx| {
             Toplevel::new(
-                cloned_strategy_config,
-                &*STRATEGY_TEMPLATES,
+                strategy_names_and_bindings,
                 lattice_window_config,
                 reference_window_config,
                 backend_window_config,

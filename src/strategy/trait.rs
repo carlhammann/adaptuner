@@ -15,6 +15,7 @@ use crate::{
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum StrategyAction {
+    // SwitchToNeighbourhood(usize),
     IncrementNeighbourhoodIndex(isize),
     SetReferenceToLowest,
     SetReferenceToHighest,
@@ -23,6 +24,9 @@ pub enum StrategyAction {
 impl fmt::Display for StrategyAction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            // StrategyAction::SwitchToNeighbourhood(i) => {
+            //     write!(f, "switch to neighbourhood {}", i + 1)
+            // }
             StrategyAction::IncrementNeighbourhoodIndex(i) => {
                 write!(f, "increment neighbourhood index by {i}")
             }

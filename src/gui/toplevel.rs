@@ -3,7 +3,7 @@ use std::{hash::Hash, sync::mpsc};
 use eframe::{self, egui};
 
 use crate::{
-    config::ExtendedStrategyConfig,
+    config::StrategyNamesAndBindings,
     interval::stacktype::r#trait::{FiveLimitStackType, StackType},
     msg::{FromUi, HandleMsg, HandleMsgRef, ToUi},
 };
@@ -44,8 +44,7 @@ pub struct Toplevel<T: StackType + 'static> {
 
 impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
     pub fn new(
-        strategy_names_and_kinds: Vec<ExtendedStrategyConfig<T>>,
-        templates: &'static [ExtendedStrategyConfig<T>],
+        strategy_names_and_bindings: Vec<StrategyNamesAndBindings>,
         lattice_config: LatticeWindowControls,
         reference_editor: ReferenceEditorConfig,
         backend_config: BackendWindowConfig,
@@ -60,8 +59,7 @@ impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
             old_show_controls: 1,
 
             strategies: StrategyWindows::new(
-                strategy_names_and_kinds,
-                templates,
+                strategy_names_and_bindings,
                 tuning_editor,
                 reference_editor,
             ),

@@ -187,3 +187,15 @@ where
     }
     deserializer.deserialize_str(KeyVisitor {})
 }
+
+pub fn deserialize_nonempty<'de, D: serde::Deserializer<'de>, X: serde::Deserialize<'de>>(
+    description: &'static str,
+    deserializer: D,
+) -> Result<Vec<X>, D::Error> {
+    let x = <Vec<X> as serde::Deserialize<'de>>::deserialize(deserializer)?;
+    if x.len() > 0 {
+        Ok(x)
+    } else {
+        Err(serde::de::Error::custom(description))
+    }
+}

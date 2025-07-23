@@ -309,8 +309,11 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
             }
             ToProcess::StrategyListAction { action, time } => {
                 action
-                    .map(|esc| (esc.config.realize(), esc.bindings))
-                    .apply_to(&mut self.strategies, &mut self.curr_strategy_index);
+                    .apply_to(
+                        |(strat, bind)| (strat.extract_config().realize(), bind.clone()),
+                        &mut self.strategies,
+                        &mut self.curr_strategy_index,
+                    );
                 self.start(time, forward);
             }
             ToProcess::BindAction { action, bindable } => {

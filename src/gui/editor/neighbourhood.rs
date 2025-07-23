@@ -1,133 +1,111 @@
 use std::{marker::PhantomData, sync::mpsc, time::Instant};
 
-use eframe::egui;
+use eframe::egui::{self, vec2};
 
 use crate::{
-    gui::r#trait::GuiShow,
+    gui::{
+        common::{ListEdit, ListEditOpts},
+        r#trait::GuiShow,
+    },
     interval::stacktype::r#trait::StackType,
     msg::{FromUi, HandleMsgRef, ToUi},
-    strategy::r#trait::StrategyAction,
+    util::list_action::ListAction,
 };
-
-struct IndexAndName {
-    index: usize,
-    n_neighbourhoods: usize,
-    name: String,
-}
 
 pub struct NeighbourhoodEditor<T: StackType> {
     _phantom: PhantomData<T>,
-    curr: Option<IndexAndName>,
-    new_neighbourhood_name: String,
+    names: ListEdit<String>,
 }
 
 impl<T: StackType> NeighbourhoodEditor<T> {
-    pub fn new() -> Self {
+    pub fn new(names: Vec<String>) -> Self {
         Self {
             _phantom: PhantomData,
-            curr: None {},
-            new_neighbourhood_name: String::with_capacity(64),
+            names: ListEdit::new(names),
         }
+    }
+
+    pub fn get_all(&self) -> &[String] {
+        self.names.get_all()
+    }
+
+    pub fn set_all(&mut self, names: &[String]) {
+        self.names.set_all(names);
     }
 }
 
 impl<T: StackType> GuiShow<T> for NeighbourhoodEditor<T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        if let Some(IndexAndName {
-            index: curr_neighbourhood_index,
-            n_neighbourhoods,
-            name: curr_neighbourhood_name,
-        }) = &self.curr
-        {
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label(format!(
-                        "current ({}/{}): ",
-                        curr_neighbourhood_index + 1,
-                        n_neighbourhoods,
-                    ));
-                    ui.strong(curr_neighbourhood_name);
-                });
+        let list_edit_res = self.names.show(
+            ui,
+            "neighbourhood editor",
+            ListEditOpts {
+                empty_allowed: false,
+                select_allowed: true,
+                no_selection_allowed: false,
+                delete_allowed: true,
+                show_one: Box::new(|ui, i, elem| {
+                    ui.add(egui::TextEdit::singleline(elem).min_size(vec2(
+                        ui.style().spacing.text_edit_width / 2.0,
+                        ui.style().spacing.interact_size.y,
+                    )));
 
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(*n_neighbourhoods > 1, egui::Button::new("previous"))
-                        .clicked()
-                    {
-                        let _ = forward.send(FromUi::Action {
-                            action: StrategyAction::IncrementNeighbourhoodIndex(-1),
-                            time: Instant::now(),
-                        });
-                    }
+                    let mut msg: Option<FromUi<T>> = None {};
+                    if T::num_temperaments() > 0 {
+                        egui::ComboBox::from_id_salt(format!("temperament picker {i}"))
+                            .selected_text("apply temperament")
+                            .show_ui(ui, |ui| {
+                                for (j, t) in T::temperaments().iter().enumerate() {
+                                    if ui.button(&t.name).clicked() {
+                                        msg = Some(FromUi::ApplyTemperamentToNeighbourhood {
+                                            time: Instant::now(),
+                                            temperament: j,
+                                            neighbourhood: i,
+                                        });
+                                    }
+                                }
 
-                    if ui
-                        .add_enabled(*n_neighbourhoods > 1, egui::Button::new("next"))
-                        .clicked()
-                    {
-                        let _ = forward.send(FromUi::Action {
-                            action: StrategyAction::IncrementNeighbourhoodIndex(1),
-                            time: Instant::now(),
-                        });
-                    }
-                });
+                                ui.separator();
 
-                ui.separator();
-
-                if T::num_temperaments() > 0 {
-                    ui.label(format!(
-                        "apply temperament to all notes in \"{curr_neighbourhood_name}\":"
-                    ));
-                    for (i, t) in T::temperaments().iter().enumerate() {
-                        if ui.button(&t.name).clicked() {
-                            let _ = forward.send(FromUi::ApplyTemperamentToCurrentNeighbourhood {
-                                time: Instant::now(),
-                                temperament: i,
+                                if ui.button("no temperament").clicked() {
+                                    msg = Some(FromUi::MakeNeighbourhoodPure {
+                                        time: Instant::now(),
+                                        neighbourhood: i,
+                                    });
+                                }
                             });
+                    }
+                    msg
+                }),
+                clone: Some(Box::new(|ui, _elems, selected| {
+                    if let Some(i) = selected {
+                        if ui.button("create copy of selected").clicked() {
+                            // let _ = forward.send(FromUi::Action {
+                            //     action: StrategyAction::SwitchToNeighbourhood(i),
+                            //     time: Instant::now(),
+                            // });
+                            Some(i)
+                        } else {
+                            None {}
                         }
+                    } else {
+                        None {}
                     }
-                    if ui.button("no temperament").clicked() {
-                        let _ = forward.send(FromUi::MakeCurrentNeighbourhoodPure {
-                            time: Instant::now(),
-                        });
-                    }
-                    ui.separator();
-                }
+                })),
+            },
+        );
 
-                ui.label(format!("new copy of \"{curr_neighbourhood_name}\""));
-
-                ui.horizontal(|ui| {
-                    ui.label("name:");
-                    ui.text_edit_singleline(&mut self.new_neighbourhood_name);
+        match list_edit_res {
+            crate::gui::common::ListEditResult::Message(message) => {
+                let _ = forward.send(message);
+            }
+            crate::gui::common::ListEditResult::Action(action) => {
+                let _ = forward.send(FromUi::NeighbourhoodListAction {
+                    action,
+                    time: Instant::now(),
                 });
-
-                if ui
-                    .add_enabled(
-                        !self.new_neighbourhood_name.is_empty(),
-                        egui::Button::new("create"),
-                    )
-                    .clicked()
-                {
-                    let _ = forward.send(FromUi::NewNeighbourhood {
-                        name: self.new_neighbourhood_name.clone(),
-                    });
-                    self.new_neighbourhood_name.clear();
-                }
-
-                ui.separator();
-
-                if ui
-                    .add_enabled(
-                        *n_neighbourhoods > 1,
-                        egui::Button::new(format!("delete \"{curr_neighbourhood_name}\"")),
-                    )
-                    .clicked()
-                {
-                    let _ = forward.send(FromUi::DeleteCurrentNeighbourhood {
-                        time: Instant::now(),
-                    });
-                }
-            });
+            }
+            crate::gui::common::ListEditResult::None => {}
         }
     }
 }
@@ -135,16 +113,13 @@ impl<T: StackType> GuiShow<T> for NeighbourhoodEditor<T> {
 impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NeighbourhoodEditor<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
-            ToUi::CurrentNeighbourhoodName {
-                index,
-                n_neighbourhoods,
-                name,
-            } => {
-                self.curr = Some(IndexAndName {
-                    name: name.clone(),
-                    index: *index,
-                    n_neighbourhoods: *n_neighbourhoods,
-                });
+            ToUi::CurrentNeighbourhoodIndex { index } => {
+                self.names.apply(ListAction::Select(*index));
+                // self.curr = Some(IndexAndName {
+                //     name: name.clone(),
+                //     index: *index,
+                //     n_neighbourhoods: *n_neighbourhoods,
+                // });
             }
 
             _ => {}

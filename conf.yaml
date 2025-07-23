@@ -13,7 +13,7 @@ temperaments:
       third: 3
     pure:
       octave: 1
-- name: '1/4-comma fifths'
+- name: '1/4-comma meantone'
   equations:
   - tempered:
       octave: 1
@@ -28,7 +28,7 @@ temperaments:
       third: 1
     pure:
       third: 1
-- name: '1/6-comma fifths'
+- name: '1/6-comma meantone'
   equations:
   - tempered:
       octave: 1
@@ -41,10 +41,12 @@ temperaments:
       fifth: 2
       third: 1
   - tempered:
-      third: 1
+      third: 6
     pure:
-      third: 1
-- name: '1/3-comma fifths'
+      octave: -4 
+      fifth: 8 
+      third: 4
+- name: '1/3-comma meantone'
   equations:
   - tempered:
       octave: 1
@@ -57,85 +59,75 @@ temperaments:
       fifth: -1
       third: 1
   - tempered:
-      third: 1
-    pure:
-      third: 1
-- name: equal thirds
-  equations:
-  - tempered:
-      octave: 1
-    pure:
-      octave: 1
-  - tempered:
-      fifth: 1
-    pure:
-      fifth: 1
-  - tempered:
       third: 3
     pure:
-      octave: 1
+      octave: 2
+      fifth: -4
+      third: 4
 strategies:
-- name: foo strategy
-  description: |
-    not a very good
-    strategy
-  config: !static-tuning
-    neighbourhoods:
-    - !periodic-complete 
-      name: just chromatic
-      entries:
-      - offset: 0
-        stack: {}
-      - offset: 1
-        stack:
-          fifth: -1
-          third: 2
-      - offset: 2
-        stack:
-          octave: -1
-          fifth: 2
-      - offset: 3
-        stack:
-          fifth: 1
-          third: -1
-      - offset: 4
-        stack:
-          third: 1
-      - offset: 5
-        stack:
-          octave: 1
-          fifth: -1
-      - offset: 6
-        stack:
-          octave: -1
-          fifth: 2
-          third: 1
-      - offset: 7
-        stack:
-          fifth: 1
-      - offset: 8
-        stack:
-          third: 2
-      - offset: 9
-        stack:
-          octave: 1
-          fifth: -1
-          third: 1
-      - offset: 10
-        stack:
-          fifth: 2
-          third: -1
-      - offset: 11
-        stack:
-          fifth: 1
-          third: 1
-    tuning-reference:
+- !static-tuning
+  name: static
+  description: |-
+    This strategy allows you to
+    • define the (static) tuning of all 12 notes as a "neighbourhood" of the reference note,
+    • switch between different neighbourhoods on the fly, and
+    • reset the reference note on the fly.
+  neighbourhoods: 
+  - !periodic-complete 
+    name: chromatic
+    entries:
+    - offset: 0
+      stack: {}
+    - offset: 1
+      stack:
+        fifth: -1
+        third: 2
+    - offset: 2
+      stack:
+        octave: -1
+        fifth: 2
+    - offset: 3
+      stack:
+        fifth: 1
+        third: -1
+    - offset: 4
+      stack:
+        third: 1
+    - offset: 5
+      stack:
+        octave: 1
+        fifth: -1
+    - offset: 6
+      stack:
+        octave: -1
+        fifth: 2
+        third: 1
+    - offset: 7
+      stack:
+        fifth: 1
+    - offset: 8
+      stack:
+        third: 2
+    - offset: 9
       stack:
         octave: 1
         fifth: -1
         third: 1
-      semitones: 69.0
-    reference: {}
+    - offset: 10
+      stack:
+        fifth: 2
+        third: -1
+    - offset: 11
+      stack:
+        fifth: 1
+        third: 1
+  tuning-reference:
+    stack:
+      octave: 1
+      fifth: -1
+      third: 1
+    semitones: 69.0
+  reference: {}
   bindings:
     sostenuto-pedal-down: !increment-neighbourhood-index 1
     sostenuto-pedal-up: !increment-neighbourhood-index -1

@@ -1,24 +1,15 @@
-#[derive(Clone)]
-pub enum ListAction<X> {
+#[derive(Clone, Copy)]
+pub enum ListAction {
     Delete(usize),
     SwapWithPrev(usize),
     Select(usize),
     Deselect,
-    Add(X),
+    Clone(usize),
 }
 
-impl<X> ListAction<X> {
-    pub fn map<Y>(self, f: impl Fn(X) -> Y) -> ListAction<Y> {
-        match self {
-            ListAction::Delete(i) => ListAction::Delete(i),
-            ListAction::SwapWithPrev(i) => ListAction::SwapWithPrev(i),
-            ListAction::Select(i) => ListAction::Select(i),
-            ListAction::Deselect => ListAction::Deselect,
-            ListAction::Add(x) => ListAction::Add(f(x)),
-        }
-    }
+impl ListAction {
 
-    pub fn apply_to(self, vec: &mut Vec<X>, selected: &mut Option<usize>) {
+    pub fn apply_to<X>(self, clone: impl Fn(&X) -> X, vec: &mut Vec<X>, selected: &mut Option<usize>) {
         match self {
             ListAction::Delete(i) => {
                 vec.remove(i);
@@ -47,8 +38,8 @@ impl<X> ListAction<X> {
             ListAction::Deselect => {
                 *selected = None {};
             }
-            ListAction::Add(x) => {
-                vec.push(x);
+            ListAction::Clone(i) => {
+                vec.push(clone(&vec[i]));
                 if let Some(j) = selected {
                     *j = vec.len() - 1;
                 }
