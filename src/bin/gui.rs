@@ -4,7 +4,7 @@ use midi_msg::Channel;
 
 use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
-    config::{Config, ExtendedStrategyConfig, STRATEGY_TEMPLATES},
+    config::{Config, STRATEGY_TEMPLATES},
     gui::{
         editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
         lattice::LatticeWindowControls,
@@ -96,7 +96,6 @@ fn run() -> Result<(), Box<dyn Error>> {
                     .drain(..)
                     .map(|c| (c.config.realize(), c.bindings))
                     .collect(),
-                &*STRATEGY_TEMPLATES,
             )
         },
         move || Pitchbend12::new(backend_config),

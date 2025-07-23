@@ -177,7 +177,6 @@ impl<T: FiveLimitStackType + Hash + Eq + 'static> eframe::App for Toplevel<T> {
             self.notes_to_foreground = false;
         }
 
-
         self.connection_window.show("midi connections", ctx, |ui| {
             ui.vertical(|ui| {
                 self.input_connection.show(ui, &self.tx);

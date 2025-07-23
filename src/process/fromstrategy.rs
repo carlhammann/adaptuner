@@ -9,7 +9,6 @@ use midi_msg::{
 
 use crate::{
     bindable::Bindable,
-    config::ExtendedStrategyConfig,
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromProcess, HandleMsg, ToProcess, ToStrategy},
@@ -18,8 +17,7 @@ use crate::{
 
 pub struct ProcessFromStrategy<T: StackType + 'static> {
     strategies: Vec<(Box<dyn Strategy<T>>, BTreeMap<Bindable, StrategyAction>)>,
-    templates: &'static [ExtendedStrategyConfig<T>],
-    curr_strategy_index: usize,
+    curr_strategy_index: Option<usize>,
     key_states: [KeyState; 128],
     tunings: [Stack<T>; 128],
     pedal_hold: [bool; 16],
@@ -30,13 +28,15 @@ pub struct ProcessFromStrategy<T: StackType + 'static> {
 impl<T: StackType> ProcessFromStrategy<T> {
     pub fn new(
         strategies: Vec<(Box<dyn Strategy<T>>, BTreeMap<Bindable, StrategyAction>)>,
-        templates: &'static [ExtendedStrategyConfig<T>],
     ) -> Self {
         let now = Instant::now();
         Self {
+            curr_strategy_index: if strategies.len() > 0 {
+                Some(0)
+            } else {
+                None {}
+            },
             strategies,
-            templates,
-            curr_strategy_index: 0,
             key_states: core::array::from_fn(|_| KeyState::new(now)),
             tunings: core::array::from_fn(|_| Stack::new_zero()),
             pedal_hold: [false; 16],
@@ -78,24 +78,26 @@ impl<T: StackType> ProcessFromStrategy<T> {
                         control: Sostenuto(value),
                     },
             } => {
-                let (ref mut strategy, ref bindings) = self.strategies[self.curr_strategy_index];
-                let was_down = self.sostenuto_hold.iter().any(|b| *b);
-                self.sostenuto_hold[channel as usize] = value > 0;
-                let is_down = self.sostenuto_hold.iter().any(|b| *b);
-                let action = match (was_down, is_down) {
-                    (false, true) => bindings.get(&Bindable::SostenutoPedalDown),
-                    (true, false) => bindings.get(&Bindable::SostenutoPedalUp),
-                    _ => None {},
-                };
-                if let Some(&action) = action {
-                    let _ = strategy.handle_msg(
-                        &self.key_states,
-                        &mut self.tunings,
-                        ToStrategy::Action { action, time },
-                        forward,
-                    );
-                } else {
-                    forward_untouched();
+                if let Some(csi) = self.curr_strategy_index {
+                    let (ref mut strategy, ref bindings) = self.strategies[csi];
+                    let was_down = self.sostenuto_hold.iter().any(|b| *b);
+                    self.sostenuto_hold[channel as usize] = value > 0;
+                    let is_down = self.sostenuto_hold.iter().any(|b| *b);
+                    let action = match (was_down, is_down) {
+                        (false, true) => bindings.get(&Bindable::SostenutoPedalDown),
+                        (true, false) => bindings.get(&Bindable::SostenutoPedalUp),
+                        _ => None {},
+                    };
+                    if let Some(&action) = action {
+                        let _ = strategy.handle_msg(
+                            &self.key_states,
+                            &mut self.tunings,
+                            ToStrategy::Action { action, time },
+                            forward,
+                        );
+                    } else {
+                        forward_untouched();
+                    }
                 }
             }
 
@@ -106,24 +108,26 @@ impl<T: StackType> ProcessFromStrategy<T> {
                         control: SoftPedal(value),
                     },
             } => {
-                let (ref mut strategy, ref bindings) = self.strategies[self.curr_strategy_index];
-                let was_down = self.soft_hold.iter().any(|b| *b);
-                self.soft_hold[channel as usize] = value > 0;
-                let is_down = self.soft_hold.iter().any(|b| *b);
-                let action = match (was_down, is_down) {
-                    (false, true) => bindings.get(&Bindable::SoftPedalDown),
-                    (true, false) => bindings.get(&Bindable::SoftPedalUp),
-                    _ => None {},
-                };
-                if let Some(&action) = action {
-                    let _ = strategy.handle_msg(
-                        &self.key_states,
-                        &mut self.tunings,
-                        ToStrategy::Action { action, time },
-                        forward,
-                    );
-                } else {
-                    forward_untouched();
+                if let Some(csi) = self.curr_strategy_index {
+                    let (ref mut strategy, ref bindings) = self.strategies[csi];
+                    let was_down = self.soft_hold.iter().any(|b| *b);
+                    self.soft_hold[channel as usize] = value > 0;
+                    let is_down = self.soft_hold.iter().any(|b| *b);
+                    let action = match (was_down, is_down) {
+                        (false, true) => bindings.get(&Bindable::SoftPedalDown),
+                        (true, false) => bindings.get(&Bindable::SoftPedalUp),
+                        _ => None {},
+                    };
+                    if let Some(&action) = action {
+                        let _ = strategy.handle_msg(
+                            &self.key_states,
+                            &mut self.tunings,
+                            ToStrategy::Action { action, time },
+                            forward,
+                        );
+                    } else {
+                        forward_untouched();
+                    }
                 }
             }
 
@@ -159,28 +163,30 @@ impl<T: StackType> ProcessFromStrategy<T> {
             });
         };
 
-        if self.key_states[note as usize].note_on(channel, time) {
-            match self.strategies[self.curr_strategy_index].0.note_on(
-                &self.key_states,
-                &mut self.tunings,
-                note,
-                time,
-                forward,
-            ) {
-                Some((tuning, tuning_stack)) => {
-                    let _ = forward.send(FromProcess::TunedNoteOn {
-                        channel,
-                        note,
-                        velocity,
-                        tuning,
-                        tuning_stack: tuning_stack.clone(),
-                        time,
-                    });
+        if let Some(csi) = self.curr_strategy_index {
+            if self.key_states[note as usize].note_on(channel, time) {
+                match self.strategies[csi].0.note_on(
+                    &self.key_states,
+                    &mut self.tunings,
+                    note,
+                    time,
+                    forward,
+                ) {
+                    Some((tuning, tuning_stack)) => {
+                        let _ = forward.send(FromProcess::TunedNoteOn {
+                            channel,
+                            note,
+                            velocity,
+                            tuning,
+                            tuning_stack: tuning_stack.clone(),
+                            time,
+                        });
+                    }
+                    None {} => send_simple_note_on(),
                 }
-                None {} => send_simple_note_on(),
+            } else {
+                send_simple_note_on();
             }
-        } else {
-            send_simple_note_on();
         }
     }
 
@@ -192,22 +198,27 @@ impl<T: StackType> ProcessFromStrategy<T> {
         velocity: u8,
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
-        if self.key_states[note as usize].note_off(channel, self.pedal_hold[channel as usize], time)
-        {
-            self.strategies[self.curr_strategy_index].0.note_off(
-                &self.key_states,
-                &mut self.tunings,
-                &[note],
+        if let Some(csi) = self.curr_strategy_index {
+            if self.key_states[note as usize].note_off(
+                channel,
+                self.pedal_hold[channel as usize],
                 time,
-                forward,
-            );
+            ) {
+                self.strategies[csi].0.note_off(
+                    &self.key_states,
+                    &mut self.tunings,
+                    &[note],
+                    time,
+                    forward,
+                );
+            }
+            let _ = forward.send(FromProcess::NoteOff {
+                channel,
+                note,
+                velocity,
+                time,
+            });
         }
-        let _ = forward.send(FromProcess::NoteOff {
-            channel,
-            note,
-            velocity,
-            time,
-        });
     }
 
     fn handle_pedal_hold(
@@ -217,42 +228,41 @@ impl<T: StackType> ProcessFromStrategy<T> {
         value: u8,
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
-        if value > 0 {
-            self.pedal_hold[channel as usize] = true;
-        } else {
-            self.pedal_hold[channel as usize] = false;
-            let mut off_notes: Vec<u8> = vec![];
-            for (note, state) in self.key_states.iter_mut().enumerate() {
-                let changed = state.pedal_off(channel, time);
-                if changed {
-                    off_notes.push(note as u8);
+        if let Some(csi) = self.curr_strategy_index {
+            if value > 0 {
+                self.pedal_hold[channel as usize] = true;
+            } else {
+                self.pedal_hold[channel as usize] = false;
+                let mut off_notes: Vec<u8> = vec![];
+                for (note, state) in self.key_states.iter_mut().enumerate() {
+                    let changed = state.pedal_off(channel, time);
+                    if changed {
+                        off_notes.push(note as u8);
+                    }
                 }
+                let _success = self.strategies[csi].0.note_off(
+                    &self.key_states,
+                    &mut self.tunings,
+                    &off_notes,
+                    time,
+                    forward,
+                );
             }
-            let _success = self.strategies[self.curr_strategy_index].0.note_off(
-                &self.key_states,
-                &mut self.tunings,
-                &off_notes,
+            let _ = forward.send(FromProcess::PedalHold {
+                channel,
+                value,
                 time,
-                forward,
-            );
+            });
         }
-        let _ = forward.send(FromProcess::PedalHold {
-            channel,
-            value,
-            time,
-        });
     }
 
     fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromProcess<T>>) {
-        self.strategies[self.curr_strategy_index].0.start(
-            &self.key_states,
-            &mut self.tunings,
-            time,
-            forward,
-        );
-        let _ = forward.send(FromProcess::SwitchToStrategy {
-            index: self.curr_strategy_index,
-        });
+        if let Some(csi) = self.curr_strategy_index {
+            self.strategies[csi]
+                .0
+                .start(&self.key_states, &mut self.tunings, time, forward);
+        }
+        let _ = forward.send(FromProcess::CurrentStrategyIndex(self.curr_strategy_index));
     }
 }
 
@@ -288,53 +298,30 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                 time,
             } => self.handle_pedal_hold(time, channel, value, forward),
             ToProcess::ToStrategy(msg) => {
-                let _success = self.strategies[self.curr_strategy_index].0.handle_msg(
-                    &self.key_states,
-                    &mut self.tunings,
-                    msg,
-                    forward,
-                );
+                if let Some(csi) = self.curr_strategy_index {
+                    let _success = self.strategies[csi].0.handle_msg(
+                        &self.key_states,
+                        &mut self.tunings,
+                        msg,
+                        forward,
+                    );
+                }
             }
-            ToProcess::SwitchToStrategy { index, time } => {
-                self.curr_strategy_index = index;
-                let _ = forward.send(FromProcess::SwitchToStrategy { index });
-                self.start(time, forward);
-            }
-            ToProcess::CloneStrategy { index, time } => {
-                let (strat, bindings) = &self.strategies[index % self.strategies.len()];
-                self.strategies
-                    .push((strat.extract_config().realize(), bindings.clone()));
-                self.curr_strategy_index = self.strategies.len() - 1;
-                let _ = forward.send(FromProcess::SwitchToStrategy {
-                    index: self.curr_strategy_index,
-                });
-                self.start(time, forward);
-            }
-            ToProcess::AddStrategyFromTemplate { index, time } => {
-                let conf = &self.templates[index];
-                self.strategies
-                    .push((conf.config.clone().realize(), conf.bindings.clone()));
-                self.curr_strategy_index = self.strategies.len() - 1;
-                let _ = forward.send(FromProcess::SwitchToStrategy {
-                    index: self.curr_strategy_index,
-                });
-                self.start(time, forward);
-            }
-            ToProcess::DeleteStrategy { index, time } => {
-                // the next two lines must follow exactly the same logic as [crate::gui::strategy]
-                self.strategies.remove(index);
-                self.curr_strategy_index = self.curr_strategy_index.min(self.strategies.len() - 1);
-                let _ = forward.send(FromProcess::DeleteStrategy { index });
+            ToProcess::StrategyListAction { action, time } => {
+                action
+                    .map(|esc| (esc.config.realize(), esc.bindings))
+                    .apply_to(&mut self.strategies, &mut self.curr_strategy_index);
                 self.start(time, forward);
             }
             ToProcess::BindAction { action, bindable } => {
-                let (_, bindings) = &mut self.strategies[self.curr_strategy_index];
-                if let Some(action) = action {
-                    bindings.insert(bindable, action);
-                } else {
-                    bindings.remove(&bindable);
+                if let Some(csi) = self.curr_strategy_index {
+                    let (_, bindings) = &mut self.strategies[csi];
+                    if let Some(action) = action {
+                        bindings.insert(bindable, action);
+                    } else {
+                        bindings.remove(&bindable);
+                    }
                 }
-                // println!("{:?}", bindings);
             }
         }
     }

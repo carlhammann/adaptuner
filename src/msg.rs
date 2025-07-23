@@ -8,9 +8,11 @@ use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
     bindable::Bindable,
+    config::ExtendedStrategyConfig,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     reference::Reference,
     strategy::r#trait::StrategyAction,
+    util::list_action::ListAction,
 };
 
 pub trait HandleMsg<I, O> {
@@ -78,25 +80,13 @@ pub enum ToProcess<T: StackType> {
         value: u8,
         time: Instant,
     },
-    SwitchToStrategy {
-        index: usize,
-        time: Instant,
-    },
-    CloneStrategy {
-        index: usize,
-        time: Instant,
-    },
-    AddStrategyFromTemplate {
-        index: usize,
-        time: Instant,
-    },
-    DeleteStrategy {
-        index: usize,
-        time: Instant,
-    },
     BindAction {
         action: Option<StrategyAction>,
         bindable: Bindable,
+    },
+    StrategyListAction {
+        action: ListAction<ExtendedStrategyConfig<T>>,
+        time: Instant,
     },
 }
 
@@ -140,12 +130,7 @@ pub enum FromProcess<T: StackType> {
         program: u8,
         time: Instant,
     },
-    SwitchToStrategy {
-        index: usize,
-    },
-    DeleteStrategy {
-        index: usize,
-    },
+    CurrentStrategyIndex(Option<usize>),
 }
 
 pub enum ToStrategy<T: StackType> {
@@ -349,12 +334,7 @@ pub enum ToUi<T: StackType> {
         actual: Semitones,
         explanation: &'static str,
     },
-    SwitchToStrategy {
-        index: usize,
-    },
-    DeleteStrategy {
-        index: usize,
-    },
+    CurrentStrategyIndex(Option<usize>),
 }
 
 pub enum FromUi<T: StackType> {
@@ -420,20 +400,8 @@ pub enum FromUi<T: StackType> {
         channels: [bool; 16],
         time: Instant,
     },
-    SwitchToStrategy {
-        index: usize,
-        time: Instant,
-    },
-    CloneStrategy {
-        index: usize,
-        time: Instant,
-    },
-    AddStrategyFromTemplate {
-        index: usize,
-        time: Instant,
-    },
-    DeleteStrategy {
-        index: usize,
+    StrategyListAction {
+        action: ListAction<ExtendedStrategyConfig<T>>,
         time: Instant,
     },
     Action {
@@ -612,12 +580,11 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
                 None {},
                 None {},
             ),
-            FromProcess::SwitchToStrategy { index } => {
-                (None {}, None {}, Some(ToUi::SwitchToStrategy { index }))
-            }
-            FromProcess::DeleteStrategy { index } => {
-                (None {}, None {}, Some(ToUi::DeleteStrategy { index }))
-            }
+            FromProcess::CurrentStrategyIndex(i) => (
+                None {},
+                None {},
+                Some(ToUi::CurrentStrategyIndex(i))
+            )
         }
     }
 }
@@ -802,30 +769,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::SwitchToStrategy { index, time } => (
-                Some(ToProcess::SwitchToStrategy { index, time }),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::CloneStrategy { index, time } => (
-                Some(ToProcess::CloneStrategy { index, time }),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::AddStrategyFromTemplate { index, time } => (
-                Some(ToProcess::AddStrategyFromTemplate { index, time }),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::DeleteStrategy { index, time } => (
-                Some(ToProcess::DeleteStrategy { index, time }),
-                None {},
-                None {},
-                None {},
-            ),
             FromUi::Action { action, time } => (
                 Some(ToProcess::ToStrategy(ToStrategy::Action { action, time })),
                 None {},
@@ -842,6 +785,12 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             ),
             FromUi::BindAction { action, bindable } => (
                 Some(ToProcess::BindAction { action, bindable }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::StrategyListAction { action, time } => (
+                Some(ToProcess::StrategyListAction { action, time }),
                 None {},
                 None {},
                 None {},

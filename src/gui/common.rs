@@ -7,7 +7,260 @@ use crate::{
         stacktype::r#trait::{StackCoeff, StackType},
     },
     notename::correction::Correction,
+    util::list_action::ListAction,
 };
+
+pub struct ListPicker<'a, X> {
+    elems: &'a [X],
+    selected: Option<usize>,
+}
+
+impl<'a, X> ListPicker<'a, X> {
+    pub fn new(elems: &'a [X]) -> Self {
+        Self {
+            elems,
+            selected: None {},
+        }
+    }
+
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        elem_name: impl Fn(&X) -> &str,
+        elem_description: impl Fn(&X) -> Option<&str>,
+    ) -> Option<(usize, &X)> {
+        show_list_picker(
+            &self.elems,
+            &mut self.selected,
+            ui,
+            elem_name,
+            elem_description,
+        )
+    }
+
+    pub fn current_selected(&self) -> Option<&'a X> {
+        self.selected.map(|i| &self.elems[i])
+    }
+
+    pub fn deselect(&mut self) {
+        self.selected = None {};
+    }
+}
+
+fn show_list_picker<'a, X>(
+    elems: &'a [X],
+    selected: &mut Option<usize>,
+    ui: &mut egui::Ui,
+    elem_name: impl Fn(&X) -> &str,
+    elem_description: impl Fn(&X) -> Option<&str>,
+) -> Option<(usize, &'a X)> {
+    let mut new_selection = None {};
+    // egui::ComboBox::from_id_salt(id_salt)
+    //     .selected_text(selected.map_or("", |i| elem_name(&elems[i])))
+    // .show_ui(ui, |ui| {
+    // ui.shrink_width_to_current();
+    for (i, elem) in elems.iter().enumerate() {
+        let old_selected = selected.clone();
+        let r = ui.selectable_value(selected, Some(i), elem_name(elem));
+        if r.clicked() {
+            if Some(i) != old_selected {
+                new_selection = Some((i, elem));
+            }
+        }
+        if let Some(description) = elem_description(elem) {
+            r.on_hover_text_at_pointer(description);
+        }
+    }
+    // });
+    new_selection
+}
+
+pub struct ListEdit<X> {
+    elems: Vec<X>,
+    selected: Option<usize>,
+}
+
+pub struct ListEditOpts {
+    pub empty_allowed: bool,
+    pub select_allowed: bool,
+    pub no_selection_allowed: bool,
+    pub delete_allowed: bool,
+}
+
+impl<X: Clone> ListEdit<X> {
+    pub fn new(elems: Vec<X>) -> Self {
+        Self {
+            elems,
+            selected: None {},
+        }
+    }
+
+    pub fn select(mut self, i: usize) -> Self {
+        self.selected = Some(i);
+        self
+    }
+
+    pub fn apply(&mut self, action: ListAction<X>) {
+        action.apply_to(&mut self.elems, &mut self.selected);
+    }
+
+    pub fn current_selected(&self) -> Option<&X> {
+        self.selected.map(|i| &self.elems[i])
+    }
+
+    pub fn current_selected_mut(&mut self) -> Option<&mut X> {
+        self.selected.map(|i| &mut self.elems[i])
+    }
+
+    /// will return the new selection index, if it changed
+    pub fn show_as_list_picker(
+        &mut self,
+        ui: &mut egui::Ui,
+        elem_name: impl Fn(&X) -> &str,
+        elem_description: impl Fn(&X) -> Option<&str>,
+    ) -> Option<(usize, &X)> {
+        show_list_picker(
+            &self.elems,
+            &mut self.selected,
+            ui,
+            elem_name,
+            elem_description,
+        )
+    }
+
+    pub fn show_with_add(
+        &mut self,
+        ui: &mut egui::Ui,
+        id_salt: &'static str,
+        opts: &ListEditOpts,
+        show_one: impl Fn(&mut egui::Ui, &mut X),
+        add: impl FnOnce(&mut egui::Ui, &[X], Option<usize>) -> Option<X>,
+    ) -> Option<ListAction<X>> {
+        let mut res = self.show_dont_handle(ui, id_salt, opts, show_one);
+        let mut update_res = |new_res: ListAction<X>| match res {
+            None {} => {
+                res = Some(new_res);
+            }
+            Some(_) => {}
+        };
+
+        ui.separator();
+
+        if let Some(new_entry) = add(ui, &self.elems, self.selected) {
+            update_res(ListAction::Add(new_entry));
+        }
+
+        if let Some(action) = &res {
+            action.clone().apply_to(&mut self.elems, &mut self.selected);
+        }
+
+        res
+    }
+
+    fn show_dont_handle(
+        &mut self,
+        ui: &mut egui::Ui,
+        id_salt: &'static str,
+        opts: &ListEditOpts,
+        show_one: impl Fn(&mut egui::Ui, &mut X),
+    ) -> Option<ListAction<X>> {
+        let mut res = None {};
+        let mut update_res = |new_res: ListAction<X>| match res {
+            None {} => {
+                res = Some(new_res);
+            }
+            Some(_) => {}
+        };
+        let selected = self.selected;
+        egui::Grid::new(id_salt)
+            .min_col_width(ui.style().spacing.interact_size.y)
+            .with_row_color(move |i, style| {
+                if Some(i) == selected {
+                    Some(style.visuals.selection.bg_fill)
+                } else {
+                    None {}
+                }
+            })
+            .show(ui, |ui| {
+                let n = self.elems.len();
+                for (i, elem) in self.elems.iter_mut().enumerate() {
+                    if opts.select_allowed {
+                        let is_current = self.selected == Some(i);
+                        if ui.radio(is_current, "").clicked() {
+                            if !is_current {
+                                update_res(ListAction::Select(i));
+                            } else {
+                                if opts.no_selection_allowed {
+                                    update_res(ListAction::Deselect);
+                                }
+                            }
+                        }
+                    }
+
+                    show_one(ui, elem);
+
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        if ui
+                            .add_enabled(
+                                i > 0,
+                                egui::Button::new("⏶").corner_radius(egui::CornerRadius {
+                                    ne: 0,
+                                    nw: ui.style().visuals.menu_corner_radius.nw,
+                                    se: 0,
+                                    sw: ui.style().visuals.menu_corner_radius.sw,
+                                }),
+                            )
+                            .clicked()
+                        {
+                            update_res(ListAction::SwapWithPrev(i));
+                        }
+                        if ui
+                            .add_enabled(
+                                i < n - 1,
+                                egui::Button::new("⏷").corner_radius(egui::CornerRadius {
+                                    nw: 0,
+                                    ne: ui.style().visuals.menu_corner_radius.ne,
+                                    sw: 0,
+                                    se: ui.style().visuals.menu_corner_radius.se,
+                                }),
+                            )
+                            .clicked()
+                        {
+                            update_res(ListAction::SwapWithPrev(i + 1));
+                        }
+                    });
+
+                    if opts.delete_allowed {
+                        if ui
+                            .add_enabled(opts.empty_allowed || n > 1, egui::Button::new("delete"))
+                            .clicked()
+                        {
+                            update_res(ListAction::Delete(i));
+                        }
+                    }
+
+                    ui.end_row();
+                }
+            });
+
+        res
+    }
+
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        id_salt: &'static str,
+        opts: &ListEditOpts,
+        show_one: impl Fn(&mut egui::Ui, &mut X),
+    ) -> Option<ListAction<X>> {
+        let res = self.show_dont_handle(ui, id_salt, opts, show_one);
+        if let Some(action) = &res {
+            action.clone().apply_to(&mut self.elems, &mut self.selected);
+        }
+        res
+    }
+}
 
 pub struct SmallFloatingWindow {
     id: egui::Id,
