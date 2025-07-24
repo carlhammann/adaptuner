@@ -249,8 +249,8 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
         controls: &LatticeWindowControls<T>,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
-        let popup_id = ui.id().with(stack);
-        let response = ui.interact(rect, egui::Id::new(stack), egui::Sense::click());
+        let popup_id = ui.id().with(&stack.target);
+        let response = ui.interact(rect, egui::Id::new(&stack.target), egui::Sense::click());
         if response.clicked() {
             for b in self.tmp_temperaments.iter_mut() {
                 *b = false;
