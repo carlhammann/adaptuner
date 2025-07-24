@@ -42,28 +42,17 @@ pub trait IntervalBasis: Copy {
 }
 
 pub struct CoordinateSystem {
-    pub name: String,
-    pub basis_names: Array1<String>,
-    pub short_basis_names: Array1<char>,
     pub basis: Array2<Ratio<StackCoeff>>,
     pub basis_inv: Array2<Ratio<StackCoeff>>,
 }
 
 impl CoordinateSystem {
-    pub fn new(
-        name: String,
-        basis_names: Array1<String>,
-        short_basis_names: Array1<char>,
-        basis_columnwise: Array2<Ratio<StackCoeff>>,
-    ) -> Result<Self, LUErr> {
+    pub fn new(basis_columnwise: Array2<Ratio<StackCoeff>>) -> Result<Self, LUErr> {
         let mut tmp = basis_columnwise.clone();
         let mut lu_perm = Array1::zeros(basis_columnwise.shape()[0]);
         let lu = lu_rational(tmp.view_mut(), lu_perm.view_mut())?;
         let basis_inv = lu.inverse()?;
         Ok(Self {
-            name,
-            basis_names,
-            short_basis_names,
             basis: basis_columnwise,
             basis_inv,
         })
@@ -110,13 +99,23 @@ pub trait StackType: IntervalBasis {
         Self::temperaments().len()
     }
 
-    /// A list of alternative Coordinate systems, to (say) write intervals in terms of commas.
-    fn correction_systems() -> &'static [CoordinateSystem];
+    /// A list of special intervals that have names. Used for commas in note names.
+    fn named_intervals() -> &'static [(Array1<Ratio<StackCoeff>>, String, char)];
 
-    /// Convenience: the length of the list returned by [StackType::correction_systems]
-    fn n_correction_systems() -> usize {
-        Self::correction_systems().len()
+    /// Convenience: the length of the list returned by [StackType::named_intervals()]
+    fn num_named_intervals() -> usize {
+        Self::named_intervals().len()
     }
+
+    /// The `basis_indices` should have length [IntervalBasis::num_intervals()] and contain indices
+    /// into the [StackType::named_intervals()]. If the the intervals at the indices form a
+    /// coordinate system, i.e. are linearly independent, return a [CoordinateSystem], together
+    /// with the order in which the intervals are the [CoordinateSystem::basis] of that system.
+    /// (i.e. the returned `Vec<usize>` will contain exactly the same entries as `basis_indices`,
+    /// mut maybe in a different order.)
+    fn coordinate_system(
+        basis_indices: &[usize],
+    ) -> Option<&'static (Vec<usize>, CoordinateSystem)>;
 }
 
 pub trait FiveLimitIntervalBasis: IntervalBasis {

@@ -8,7 +8,7 @@ use crate::{
     msg::FromUi,
 };
 
-use super::{common::correction_system_chooser, lattice::LatticeWindow, r#trait::GuiShow};
+use super::{lattice::LatticeWindow, r#trait::GuiShow};
 
 pub struct AsSmallControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
 
@@ -72,7 +72,7 @@ impl<'a, T: FiveLimitStackType> GuiShow<T> for AsBigControls<'a, T> {
         let controls = &mut lw.controls;
 
         ui.horizontal(|ui| {
-            correction_system_chooser::<T>(ui, &mut controls.correction_system_index, &mut controls.use_cent_values);
+            controls.correction_system_chooser.show(ui);
 
             ui.separator();
 

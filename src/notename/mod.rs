@@ -56,20 +56,27 @@ impl<T: FiveLimitStackType> Stack<T> {
         &self,
         f: &mut W,
         style: &NoteNameStyle,
-        system_index: usize,
+        preference_order: &[usize],
         use_cent_values: bool,
     ) -> fmt::Result {
         self.write_notename(f, style)?;
         if !self.is_target() {
             write!(f, "  ")?;
-            if use_cent_values {
+            let mut write_cents = || {
                 let d = self.semitones() - self.target_semitones();
                 if d > 0.0 {
                     write!(f, "+")?;
                 }
-                write!(f, "{:.02}ct", d * 100.0)?;
+                write!(f, "{:.02}ct", d * 100.0)
+            };
+            if use_cent_values {
+                write_cents()?;
             } else {
-                correction::Correction::new(self, system_index).fmt(f)?;
+                if let Some(corr) = correction::Correction::new(self, preference_order) {
+                    corr.fmt(f)?;
+                } else {
+                    write_cents()?;
+                }
             }
             if self.is_pure() {
                 write!(f, " = ")?;
@@ -82,33 +89,13 @@ impl<T: FiveLimitStackType> Stack<T> {
     pub fn corrected_notename(
         &self,
         style: &NoteNameStyle,
-        system_index: usize,
+        preference_order: &[usize],
         use_cent_values: bool,
     ) -> String {
         let mut res = String::new();
         // the [Write] implementation of [String] never throws any error, so this is fine:
-        self.write_corrected_notename(&mut res, style, system_index, use_cent_values)
+        self.write_corrected_notename(&mut res, style, preference_order, use_cent_values)
             .unwrap();
         res
     }
 }
-
-// impl<T: StackType> Stack<T> {
-//     pub fn indexed_notename(
-//         &self,
-//         fifth_index: usize,
-//         third_index: usize,
-//         style: &NoteNameStyle,
-//     ) -> String {
-//         match style {
-//             NoteNameStyle::JohnstonFiveLimitFull => {
-//                 johnston::fivelimit::NoteName::new_with_indices(fifth_index, third_index, &self)
-//                     .str_full()
-//             }
-//             NoteNameStyle::JohnstonFiveLimitClass => {
-//                 johnston::fivelimit::NoteName::new_with_indices(fifth_index, third_index, &self)
-//                     .str_class()
-//             }
-//         }
-//     }
-// }

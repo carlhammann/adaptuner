@@ -6,11 +6,12 @@ use adaptuner::{
     backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
     config::Config,
     gui::{
+        common::CorrectionSystemChooser,
         editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
         lattice::LatticeWindowControls,
         toplevel::Toplevel,
     },
-    interval::stacktype::fivelimit::{TheFiveLimitStackType, DIESIS_SYNTONIC},
+    interval::stacktype::fivelimit::TheFiveLimitStackType,
     notename::NoteNameStyle,
     process::fromstrategy::ProcessFromStrategy,
     run::RunState,
@@ -52,13 +53,9 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let backend_window_config = backend_config.clone();
 
-    let correction_system_index = DIESIS_SYNTONIC;
-    let use_cent_values = false;
     let lattice_window_config = LatticeWindowControls {
         zoom: 10.0,
         notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
-        correction_system_index,
-        use_cent_values,
         interval_heights: vec![
             0.0,
             12.0 * (5.0 / 4.0 as f32).log2(),
@@ -71,16 +68,15 @@ fn run() -> Result<(), Box<dyn Error>> {
         screen_keyboard_velocity: 64,
         screen_keyboard_pedal_hold: false,
         highlight_playable_keys: false,
+        correction_system_chooser: CorrectionSystemChooser::new(
+            "lattice window correction system chooser",
+        ),
     };
     let reference_window_config = ReferenceEditorConfig {
         notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
-        correction_system_index,
-        use_cent_values,
     };
     let tuning_reference_window_config = TuningEditorConfig {
         notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
-        correction_system_index,
-        use_cent_values,
     };
 
     // let cloned_strategy_config = config.strategies.clone();

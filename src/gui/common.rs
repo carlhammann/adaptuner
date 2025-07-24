@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use eframe::egui;
 use num_rational::Ratio;
 
@@ -317,20 +319,64 @@ pub fn show_hide_button(
     clicked
 }
 
-pub fn correction_system_chooser<T: StackType>(
-    ui: &mut egui::Ui,
-    system_index: &mut usize,
-    use_cent_values: &mut bool,
-) {
-    ui.vertical(|ui| {
-        ui.checkbox(use_cent_values, "write temperaments as cent values");
-        if T::correction_systems().len() > 0 {
-            ui.label("edit temperaments as fractions of");
-            for (i, system) in T::correction_systems().iter().enumerate() {
-                ui.selectable_value(system_index, i, &system.name);
-            }
+pub struct CorrectionSystemChooser<T: StackType> {
+    _phantom: PhantomData<T>,
+    pub use_cent_values: bool,
+    preference_order: ListEdit<usize>,
+    id_salt: &'static str,
+}
+
+impl<T: StackType> CorrectionSystemChooser<T> {
+    pub fn new(id_salt: &'static str) -> Self {
+        Self {
+            _phantom: PhantomData,
+            use_cent_values: false,
+            preference_order: {
+                let mut v = Vec::with_capacity(T::num_named_intervals());
+                (0..T::num_named_intervals()).for_each(|i| v.push(i));
+                ListEdit::new(v)
+            },
+            id_salt,
         }
-    });
+    }
+
+    pub fn preference_order(&self) -> &[usize] {
+        &self.preference_order.elems
+    }
+
+    pub fn show(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            ui.checkbox(
+                &mut self.use_cent_values,
+                "write temperaments as cent values",
+            );
+            ui.vertical(|ui| {
+                if self.use_cent_values {
+                    ui.disable();
+                }
+                ui.label("preference for note names:");
+                let _ = self.preference_order.show(
+                    ui,
+                    self.id_salt,
+                    ListEditOpts {
+                        empty_allowed: false,
+                        select_allowed: false,
+                        no_selection_allowed: false,
+                        delete_allowed: false,
+                        show_one: Box::new(|ui, _, i| {
+                            ui.label(format!(
+                                "{} ('{}')",
+                                T::named_intervals()[*i].1,
+                                T::named_intervals()[*i].2
+                            ));
+                            None::<()> {}
+                        }),
+                        clone: None {},
+                    },
+                );
+            });
+        });
+    }
 }
 
 /// returns true iff the number changed
@@ -382,7 +428,6 @@ pub fn note_picker<T: StackType>(
     ui: &mut egui::Ui,
     tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
-    correction_system_index: usize,
     stack: &mut Stack<T>,
 ) {
     ui.vertical(|ui| {
@@ -404,7 +449,7 @@ pub fn note_picker<T: StackType>(
 
         ui.label("tempered with:");
 
-        temperament_applier(None {}, ui, tmp_correction, correction_system_index, stack);
+        temperament_applier(None {}, ui, tmp_correction, stack);
     });
 }
 
@@ -413,7 +458,6 @@ pub fn temperament_applier<T: StackType>(
     reset_button_text: Option<&str>,
     ui: &mut egui::Ui,
     tmp_correction: &mut Correction<T>,
-    correction_system_index: usize,
     stack: &mut Stack<T>,
 ) -> bool {
     let mut temperament_select_changed = false;
@@ -442,7 +486,7 @@ pub fn temperament_applier<T: StackType>(
                 for (i, t) in T::temperaments().iter().enumerate() {
                     if ui.button(&t.name).clicked() {
                         stack.apply_temperament(i);
-                        *tmp_correction = Correction::new(stack, correction_system_index);
+                        tmp_correction.reset_to_zero();
                         temperament_select_changed = true;
                     }
                 }
@@ -450,18 +494,16 @@ pub fn temperament_applier<T: StackType>(
             ui.separator();
         }
 
-        tmp_correction.mutate(correction_system_index, |coeffs| {
-            ui.vertical(|ui| {
-                for (i, x) in coeffs.indexed_iter_mut() {
-                    ui.horizontal(|ui| {
-                        let name = &T::correction_systems()[correction_system_index].basis_names[i];
-                        if rational_drag_value(ui, ui.id().with(name), x) {
-                            correction_changed = true;
-                        }
-                        ui.label(name);
-                    });
-                }
-            });
+        ui.vertical(|ui| {
+            for (i, x) in tmp_correction.coeffs.indexed_iter_mut() {
+                ui.horizontal(|ui| {
+                    let name = &T::named_intervals()[i].1;
+                    if rational_drag_value(ui, ui.id().with(name), x) {
+                        correction_changed = true;
+                    }
+                    ui.label(name);
+                });
+            }
         });
 
         if correction_changed {

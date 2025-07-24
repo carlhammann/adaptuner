@@ -4,7 +4,8 @@ use std::{
     sync::{LazyLock, OnceLock},
 };
 
-use ndarray::{arr1, arr2};
+use ndarray::{arr1, Array1, Array2};
+use num_rational::Ratio;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
@@ -51,56 +52,47 @@ static INTERVAL_POSITIONS: LazyLock<HashMap<String, usize>> = LazyLock::new(|| {
     m
 });
 
-static COMMA_SYSTEMS: LazyLock<[CoordinateSystem; 3]> =
+static NAMED_INTERVALS: LazyLock<[(Array1<Ratio<StackCoeff>>, String, char); 4]> =
     LazyLock::new(|| {
         [
-            CoordinateSystem::new(
-                "octave, diesis, syntonic comma".into(),
-                arr1(&["octaves".into(), "dieses".into(), "syntonic commas".into()]),
-                arr1(&['o', 'd', 's']),
-                arr2(&[
-                    [1.into(), 1.into(), (-2).into()],
-                    [0.into(), 0.into(), 4.into()],
-                    [0.into(), (-3).into(), (-1).into()],
-                ]),
-            )
-            .unwrap(),
-            CoordinateSystem::new(
-                "octave, pythagorean comma, syntonic comma".into(),
-                arr1(&[
-                    "octaves".into(),
-                    "pythagorean commas".into(),
-                    "syntonic commas".into(),
-                ]),
-                arr1(&['o', 'p', 's']),
-                arr2(&[
-                    [1.into(), (-7).into(), (-2).into()],
-                    [0.into(), 12.into(), 4.into()],
-                    [0.into(), 0.into(), (-1).into()],
-                ]),
-            )
-            .unwrap(),
-            CoordinateSystem::new(
-                "octave, pythagorean comma, diesis".into(),
-                arr1(&[
-                    "octaves".into(),
-                    "pythagorean commas".into(),
-                    "dieses".into(),
-                ]),
-                arr1(&['o', 'p', 'd']),
-                arr2(&[
-                    [1.into(), (-7).into(), 1.into()],
-                    [0.into(), 12.into(), 0.into()],
-                    [0.into(), 0.into(), (-3).into()],
-                ]),
-            )
-            .unwrap(),
+            (arr1(&[1.into(), 0.into(), 0.into()]), "octave".into(), 'o'),
+            (
+                arr1(&[(-2).into(), 4.into(), (-1).into()]),
+                "syntonic comma".into(),
+                's',
+            ),
+            (
+                arr1(&[(-7).into(), 12.into(), 0.into()]),
+                "pythagorean comma".into(),
+                'p',
+            ),
+            (
+                arr1(&[1.into(), 0.into(), (-3).into()]),
+                "diesis".into(),
+                'd',
+            ),
         ]
     });
 
-pub static DIESIS_SYNTONIC: usize = 0;
-pub static PYTHAGOREAN_SYNTONIC: usize = 1;
-pub static PYTHAGOREAN_DIESIS: usize = 2;
+static COORDINATE_SYSTEMS: LazyLock<HashMap<usize, (Vec<usize>, CoordinateSystem)>> =
+    LazyLock::new(|| {
+        let mut systems = HashMap::new();
+        let n = NAMED_INTERVALS.len();
+        for i in 0..n {
+            for j in (i + 1)..n {
+                for k in (j + 1)..n {
+                    let mut basis_columnwise = Array2::zeros((3, 3));
+                    basis_columnwise.column_mut(0).assign(&NAMED_INTERVALS[i].0);
+                    basis_columnwise.column_mut(1).assign(&NAMED_INTERVALS[j].0);
+                    basis_columnwise.column_mut(2).assign(&NAMED_INTERVALS[k].0);
+                    let _ = CoordinateSystem::new(basis_columnwise).map(|x| {
+                        systems.insert(i + j * n + k * n * n, (vec![i, j, k], x));
+                    });
+                }
+            }
+        }
+        systems
+    });
 
 static TEMPERAMENTS: OnceLock<Vec<Temperament<StackCoeff>>> = OnceLock::new();
 
@@ -158,8 +150,18 @@ impl StackType for TheFiveLimitStackType {
         TEMPERAMENTS.get().expect("temperaments not initialised")
     }
 
-    fn correction_systems() -> &'static [CoordinateSystem] {
-        &*COMMA_SYSTEMS
+    fn named_intervals() -> &'static [(Array1<Ratio<StackCoeff>>, String, char)] {
+        &*NAMED_INTERVALS
+    }
+
+    fn coordinate_system(
+        basis_indices: &[usize],
+    ) -> Option<&'static (Vec<usize>, CoordinateSystem)> {
+        let i = basis_indices[0].min(basis_indices[1]).min(basis_indices[2]);
+        let k = basis_indices[0].max(basis_indices[1]).max(basis_indices[2]);
+        let j = basis_indices[0] + basis_indices[1] + basis_indices[2] - i - k;
+        let n = Self::named_intervals().len();
+        COORDINATE_SYSTEMS.get(&(i + j * n + k * n * n))
     }
 }
 
@@ -249,8 +251,18 @@ pub mod mock {
             &*MOCK_TEMPERAMENTS
         }
 
-        fn correction_systems() -> &'static [CoordinateSystem] {
-            &*COMMA_SYSTEMS
+        fn named_intervals() -> &'static [(Array1<Ratio<StackCoeff>>, String, char)] {
+            &*NAMED_INTERVALS
+        }
+
+        fn coordinate_system(
+            basis_indices: &[usize],
+        ) -> Option<&'static (Vec<usize>, CoordinateSystem)> {
+            let i = basis_indices[0].min(basis_indices[1]).min(basis_indices[2]);
+            let k = basis_indices[0].max(basis_indices[1]).max(basis_indices[2]);
+            let j = basis_indices[0] + basis_indices[1] + basis_indices[2] - i - k;
+            let n = Self::named_intervals().len();
+            COORDINATE_SYSTEMS.get(&(i + j * n + k * n * n))
         }
     }
 

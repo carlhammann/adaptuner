@@ -15,7 +15,10 @@ use crate::{
     reference::Reference,
 };
 
-use super::{common::temperament_applier, r#trait::GuiShow};
+use super::{
+    common::{temperament_applier, CorrectionSystemChooser},
+    r#trait::GuiShow,
+};
 
 // The following measurements are all in units of [LatticeWindow::zoom], which is the width of one
 // equally tempered semitone.
@@ -34,7 +37,7 @@ const FONT_SIZE: f32 = 2.0;
 const FAINT_GRID_LINE_THICKNESS: f32 = MARKER_THICKNESS;
 const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
 
-pub struct LatticeWindowControls {
+pub struct LatticeWindowControls<T: StackType> {
     pub zoom: f32,
     pub interval_heights: Vec<f32>,
     pub background_stack_distances: Vec<StackCoeff>,
@@ -44,8 +47,7 @@ pub struct LatticeWindowControls {
     pub screen_keyboard_pedal_hold: bool,
     pub screen_keyboard_center: u8,
     pub notenamestyle: NoteNameStyle,
-    pub correction_system_index: usize,
-    pub use_cent_values: bool,
+    pub correction_system_chooser: CorrectionSystemChooser<T>,
     pub highlight_playable_keys: bool,
 }
 
@@ -63,7 +65,7 @@ struct OneNodeDrawState<T: StackType> {
 }
 
 pub struct LatticeWindow<T: StackType> {
-    pub controls: LatticeWindowControls,
+    pub controls: LatticeWindowControls<T>,
 
     active_notes: [KeyState; 128],
     pedal_hold: [bool; 16],
@@ -132,8 +134,8 @@ impl<T: FiveLimitStackType> LatticeWindow<T> {
     pub fn reference_corrected_note_name(&self) -> String {
         self.reference.corrected_notename(
             &self.controls.notenamestyle,
-            self.controls.correction_system_index,
-            self.controls.use_cent_values,
+            self.controls.correction_system_chooser.preference_order(),
+            self.controls.correction_system_chooser.use_cent_values,
         )
     }
 }
@@ -161,7 +163,7 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
         ui: &mut egui::Ui,
         stack: &Stack<T>,
         pos: egui::Pos2,
-        controls: &LatticeWindowControls,
+        controls: &LatticeWindowControls<T>,
         style: NoteDrawStyle,
     ) -> egui::Rect {
         let egui::Pos2 { x: hpos, y: vpos } = pos;
@@ -193,7 +195,7 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
         bottom += first_line_height * 0.5;
 
         if !stack.is_target() {
-            if controls.use_cent_values {
+            let write_cents = || {
                 let d = stack.semitones() - stack.target_semitones();
                 ui.painter().text(
                     pos2(hpos, second_line_vpos),
@@ -202,15 +204,23 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
                     egui::FontId::proportional(other_lines_height),
                     text_color,
                 );
+            };
+            if controls.correction_system_chooser.use_cent_values {
+                write_cents();
             } else {
-                let correction = Correction::new(stack, controls.correction_system_index);
-                ui.painter().text(
-                    pos2(hpos, second_line_vpos),
-                    egui::Align2::CENTER_CENTER,
-                    correction.str(),
-                    egui::FontId::proportional(other_lines_height),
-                    text_color,
-                );
+                if let Some(correction) =
+                    Correction::new(stack, controls.correction_system_chooser.preference_order())
+                {
+                    ui.painter().text(
+                        pos2(hpos, second_line_vpos),
+                        egui::Align2::CENTER_CENTER,
+                        correction.str(),
+                        egui::FontId::proportional(other_lines_height),
+                        text_color,
+                    );
+                } else {
+                    write_cents();
+                }
             }
             bottom += spacing + other_lines_height;
             if stack.is_pure() {
@@ -236,7 +246,7 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
         rect: egui::Rect,
         stack: &Stack<T>,
         reference: &Stack<T>,
-        controls: &LatticeWindowControls,
+        controls: &LatticeWindowControls<T>,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
         let popup_id = ui.id().with(stack);
@@ -248,8 +258,13 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
             ui.memory_mut(|mem| mem.toggle_popup(popup_id));
             self.tmp_relative_stack.clone_from(stack);
             self.tmp_relative_stack.scaled_add(-1, reference);
-            self.tmp_correction
-                .set_with(&self.tmp_relative_stack, controls.correction_system_index);
+
+            if !self.tmp_correction.set_with(
+                &self.tmp_relative_stack,
+                controls.correction_system_chooser.preference_order(),
+            ) {
+                self.tmp_correction.reset_to_zero();
+            }
         }
         egui::popup::popup_below_widget(
             ui,
@@ -262,13 +277,12 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
                         "make pure relative to {}",
                         reference.corrected_notename(
                             &controls.notenamestyle,
-                            controls.correction_system_index,
-                            controls.use_cent_values
+                            controls.correction_system_chooser.preference_order(),
+                            controls.correction_system_chooser.use_cent_values,
                         )
                     )),
                     ui,
                     &mut self.tmp_correction,
-                    controls.correction_system_index,
                     &mut self.tmp_relative_stack,
                 ) {
                     let _ = forward.send(FromUi::Consider {
@@ -286,7 +300,7 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
         stack: &Stack<T>,
         pos: egui::Pos2,
         reference: &Stack<T>,
-        controls: &LatticeWindowControls,
+        controls: &LatticeWindowControls<T>,
         style: NoteDrawStyle,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
@@ -332,7 +346,7 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
 }
 
 impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
-    pub fn new(config: LatticeWindowControls) -> Self {
+    pub fn new(config: LatticeWindowControls<T>) -> Self {
         let now = Instant::now();
         Self {
             active_notes: core::array::from_fn(|_| KeyState::new(now)),
@@ -347,7 +361,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             draw_state: OneNodeDrawState {
                 tmp_relative_stack: Stack::new_zero(),
                 tmp_temperaments: vec![false; T::num_temperaments()],
-                tmp_correction: Correction::new_zero(config.correction_system_index),
+                tmp_correction: Correction::new_zero(),
             },
             tmp_stack: Stack::new_zero(),
             other_tmp_stack: Stack::new_zero(),
