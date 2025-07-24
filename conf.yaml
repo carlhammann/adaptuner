@@ -64,6 +64,27 @@ temperaments:
       octave: 2
       fifth: -4
       third: 4
+named-intervals:
+- name: syntonic comma
+  short-name: 's'
+  coeffs:
+    octave: -2
+    fifth: 4
+    third: -1
+- name: diesis
+  short-name: 'd'
+  coeffs:
+    octave: 1
+    third: -3
+- name: pythagorean comma
+  short-name: 'p'
+  coeffs:
+    octave: -7
+    fifth: 12
+- name: cent
+  short-name: 'c'
+  coeffs:
+    octave: 1/1200
 strategies:
 - !static-tuning
   name: static

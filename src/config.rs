@@ -7,7 +7,7 @@ use crate::{
     custom_serde::common::deserialize_nonempty,
     interval::{
         stack::Stack,
-        stacktype::r#trait::{IntervalBasis, StackType},
+        stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
     },
     neighbourhood::{PeriodicComplete, SomeCompleteNeighbourhood},
@@ -20,8 +20,10 @@ use crate::{
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 pub struct Config<T: IntervalBasis> {
     pub temperaments: Vec<TemperamentDefinition<T>>,
+    pub named_intervals: Vec<NamedInterval<T>>,
     pub strategies: Vec<ExtendedStrategyConfig<T>>,
 }
 

@@ -22,7 +22,7 @@ impl<T: StackType> Stack<T> {
     pub fn apply_correction(&mut self, correction: &Correction<T>) {
         self.make_pure();
         for (i, c) in correction.coeffs.iter().enumerate() {
-            self.actual.scaled_add(*c, &T::named_intervals()[i].0)
+            self.actual.scaled_add(*c, &T::named_intervals()[i].coeffs)
         }
     }
 }
@@ -91,7 +91,7 @@ impl<T: StackType> Correction<T> {
 
     pub fn fmt<W: fmt::Write>(&self, f: &mut W) -> fmt::Result {
         for (i, x) in self.coeffs.iter().enumerate() {
-            let suffix = T::named_intervals()[i].2;
+            let suffix = T::named_intervals()[i].short_name;
             if x.is_zero() {
                 continue;
             }

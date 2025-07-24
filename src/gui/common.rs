@@ -366,8 +366,8 @@ impl<T: StackType> CorrectionSystemChooser<T> {
                         show_one: Box::new(|ui, _, i| {
                             ui.label(format!(
                                 "{} ('{}')",
-                                T::named_intervals()[*i].1,
-                                T::named_intervals()[*i].2
+                                T::named_intervals()[*i].name,
+                                T::named_intervals()[*i].short_name
                             ));
                             None::<()> {}
                         }),
@@ -497,7 +497,7 @@ pub fn temperament_applier<T: StackType>(
         ui.vertical(|ui| {
             for (i, x) in tmp_correction.coeffs.indexed_iter_mut() {
                 ui.horizontal(|ui| {
-                    let name = &T::named_intervals()[i].1;
+                    let name = &T::named_intervals()[i].name;
                     if rational_drag_value(ui, ui.id().with(name), x) {
                         correction_changed = true;
                     }

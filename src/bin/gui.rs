@@ -11,7 +11,7 @@ use adaptuner::{
         lattice::LatticeWindowControls,
         toplevel::Toplevel,
     },
-    interval::stacktype::fivelimit::TheFiveLimitStackType,
+    interval::stacktype::{fivelimit::TheFiveLimitStackType, r#trait::StackType},
     notename::NoteNameStyle,
     process::fromstrategy::ProcessFromStrategy,
     run::RunState,
@@ -27,7 +27,7 @@ fn main() {
 fn run() -> Result<(), Box<dyn Error>> {
     let mut config: Config<TheFiveLimitStackType> =
         serde_yml::from_reader(std::fs::File::open("conf.yaml")?)?;
-    TheFiveLimitStackType::initialise(&config.temperaments)?;
+    TheFiveLimitStackType::initialise(&config.temperaments, config.named_intervals)?;
 
     let backend_config = Pitchbend12Config {
         channels: [

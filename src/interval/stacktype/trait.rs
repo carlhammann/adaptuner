@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, marker::PhantomData};
 
 use ndarray::{linalg::general_mat_vec_mul, Array1, Array2, ArrayView1, ArrayViewMut1};
 use num_rational::Ratio;
@@ -87,8 +87,26 @@ impl CoordinateSystem {
     }
 }
 
+pub struct NamedInterval<T: IntervalBasis> {
+    _phantom: PhantomData<T>,
+    pub coeffs: Array1<Ratio<StackCoeff>>,
+    pub name: String,
+    pub short_name: char,
+}
+
+impl<T: IntervalBasis> NamedInterval<T> {
+    pub fn new(coeffs: Array1<Ratio<StackCoeff>>, name: String, short_name: char) -> Self {
+        Self {
+            _phantom: PhantomData,
+            coeffs,
+            name,
+            short_name,
+        }
+    }
+}
+
 /// A description of the [Interval]s and [Temperament]s that may be used in a [Stack][crate::interval::stack::Stack]
-pub trait StackType: IntervalBasis {
+pub trait StackType: IntervalBasis + 'static {
     /// The list of [Temperament]s that may be applied to intervals in a
     /// [Stack][crate::interval::stack::Stack] of this type. The "dimension" of the temperaments
     /// must be the [IntervalBasis::num_intervals].
@@ -100,7 +118,7 @@ pub trait StackType: IntervalBasis {
     }
 
     /// A list of special intervals that have names. Used for commas in note names.
-    fn named_intervals() -> &'static [(Array1<Ratio<StackCoeff>>, String, char)];
+    fn named_intervals() -> &'static [NamedInterval<Self>];
 
     /// Convenience: the length of the list returned by [StackType::named_intervals()]
     fn num_named_intervals() -> usize {
