@@ -66,13 +66,16 @@ static COORDINATE_SYSTEMS: LazyLock<HashMap<usize, (Vec<usize>, CoordinateSystem
                     let mut basis_columnwise = Array2::zeros((3, 3));
                     basis_columnwise
                         .column_mut(0)
-                        .assign(&named_intervals[i].coeffs);
+                        .indexed_iter_mut()
+                        .for_each(|(ix, c)| *c = named_intervals[i].coeffs[ix].into());
                     basis_columnwise
                         .column_mut(1)
-                        .assign(&named_intervals[j].coeffs);
+                        .indexed_iter_mut()
+                        .for_each(|(ix, c)| *c = named_intervals[j].coeffs[ix].into());
                     basis_columnwise
                         .column_mut(2)
-                        .assign(&named_intervals[k].coeffs);
+                        .indexed_iter_mut()
+                        .for_each(|(ix, c)| *c = named_intervals[k].coeffs[ix].into());
                     let _ = CoordinateSystem::new(basis_columnwise).map(|x| {
                         systems.insert(i + j * n + k * n * n, (vec![i, j, k], x));
                     });

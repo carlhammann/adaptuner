@@ -81,10 +81,16 @@ named-intervals:
   coeffs:
     octave: -7
     fifth: 12
-- name: cent
-  short-name: 'c'
+- name: kleisma
+  short-name: 'k'
   coeffs:
-    octave: 1/1200
+    octave: 1
+    fifth: -5
+    third: 6
+- name: octave
+  short-name: 'o'
+  coeffs:
+    octave: 1
 strategies:
 - !static-tuning
   name: static

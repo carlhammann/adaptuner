@@ -22,7 +22,9 @@ impl<T: StackType> Stack<T> {
     pub fn apply_correction(&mut self, correction: &Correction<T>) {
         self.make_pure();
         for (i, c) in correction.coeffs.iter().enumerate() {
-            self.actual.scaled_add(*c, &T::named_intervals()[i].coeffs)
+            self.actual
+                .indexed_iter_mut()
+                .for_each(|(ix, x)| *x += *c * T::named_intervals()[i].coeffs[ix]);
         }
     }
 }

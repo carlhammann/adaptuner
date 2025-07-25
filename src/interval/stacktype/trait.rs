@@ -90,13 +90,13 @@ impl CoordinateSystem {
 #[derive(Clone)]
 pub struct NamedInterval<T: IntervalBasis> {
     _phantom: PhantomData<T>,
-    pub coeffs: Array1<Ratio<StackCoeff>>,
+    pub coeffs: Array1<StackCoeff>,
     pub name: String,
     pub short_name: char,
 }
 
 impl<T: IntervalBasis> NamedInterval<T> {
-    pub fn new(coeffs: Array1<Ratio<StackCoeff>>, name: String, short_name: char) -> Self {
+    pub fn new(coeffs: Array1<StackCoeff>, name: String, short_name: char) -> Self {
         Self {
             _phantom: PhantomData,
             coeffs,
