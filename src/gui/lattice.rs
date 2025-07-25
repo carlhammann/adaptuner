@@ -284,6 +284,7 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
                     ui,
                     &mut self.tmp_correction,
                     &mut self.tmp_relative_stack,
+                    controls.correction_system_chooser.preference_order(),
                 ) {
                     let _ = forward.send(FromUi::Consider {
                         stack: self.tmp_relative_stack.clone(),

@@ -73,6 +73,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningEditor<T> {
             &mut self.temperaments_applied_to_new_reference,
             &mut self.corrections_applied_to_new_reference,
             &mut self.new_reference.stack,
+            self.correction_system_chooser.preference_order()
         );
 
         ui.separator();

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use eframe::egui;
+use eframe::{egui, App};
 use num_rational::Ratio;
 
 use crate::{
@@ -429,6 +429,7 @@ pub fn note_picker<T: StackType>(
     tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
     stack: &mut Stack<T>,
+    preference_order: &[usize],
 ) {
     ui.vertical(|ui| {
         let mut target_changed = false;
@@ -449,7 +450,7 @@ pub fn note_picker<T: StackType>(
 
         ui.label("tempered with:");
 
-        temperament_applier(None {}, ui, tmp_correction, stack);
+        temperament_applier(None {}, ui, tmp_correction, stack, preference_order);
     });
 }
 
@@ -459,6 +460,7 @@ pub fn temperament_applier<T: StackType>(
     ui: &mut egui::Ui,
     tmp_correction: &mut Correction<T>,
     stack: &mut Stack<T>,
+    preference_order: &[usize],
 ) -> bool {
     let mut temperament_select_changed = false;
     let mut correction_changed = false;
@@ -486,7 +488,9 @@ pub fn temperament_applier<T: StackType>(
                 for (i, t) in T::temperaments().iter().enumerate() {
                     if ui.button(&t.name).clicked() {
                         stack.apply_temperament(i);
-                        tmp_correction.reset_to_zero();
+                        if !tmp_correction.set_with(stack, preference_order) {
+                            tmp_correction.reset_to_zero();
+                        }
                         temperament_select_changed = true;
                     }
                 }
