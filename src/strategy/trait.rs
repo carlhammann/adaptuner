@@ -3,7 +3,7 @@ use std::{fmt, sync::mpsc, time::Instant};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::StrategyConfig,
+    config::{ExtractConfig, StrategyConfig},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromProcess, ToStrategy},
@@ -40,7 +40,7 @@ impl fmt::Display for StrategyAction {
     }
 }
 
-pub trait Strategy<T: StackType> {
+pub trait Strategy<T: StackType>: ExtractConfig<StrategyConfig<T>> {
     /// expects the effect of the "note on" event to be alead reflected in `keys`.
     ///
     /// May only send [FromProcess::FromStrategy] messages.
@@ -86,6 +86,4 @@ pub trait Strategy<T: StackType> {
         time: Instant,
         forward: &mpsc::Sender<FromProcess<T>>,
     );
-
-    fn extract_config(&self) -> StrategyConfig<T>;
 }

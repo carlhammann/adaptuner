@@ -1,9 +1,12 @@
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use eframe::egui;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::custom_serde::common::{deserialize_egui_key, serialize_egui_key};
+use crate::{
+    custom_serde::common::{deserialize_egui_key, serialize_egui_key},
+    strategy::r#trait::StrategyAction,
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(deny_unknown_fields)]
@@ -31,3 +34,5 @@ impl fmt::Display for Bindable {
         }
     }
 }
+
+pub type Bindings = BTreeMap<Bindable, StrategyAction>;

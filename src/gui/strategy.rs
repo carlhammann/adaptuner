@@ -3,8 +3,8 @@ use std::{sync::mpsc, time::Instant};
 use eframe::egui::{self, vec2};
 
 use crate::{
-    bindable::Bindable,
-    config::{StrategyKind, StrategyNamesAndBindings},
+    bindable::{Bindable, Bindings},
+    config::{StrategyKind, StrategyNames},
     interval::stacktype::r#trait::{FiveLimitStackType, StackType},
     msg::{FromUi, HandleMsgRef, ToUi},
     strategy::r#trait::StrategyAction,
@@ -24,7 +24,7 @@ use super::{
 
 pub struct StrategyWindows<T: StackType + 'static> {
     strategy_list_editor_window: SmallFloatingWindow,
-    strategies: ListEdit<StrategyNamesAndBindings>,
+    strategies: ListEdit<(StrategyNames, Bindings)>,
 
     tuning_editor_window: SmallFloatingWindow,
     tuning_editor: TuningEditor<T>,
@@ -43,8 +43,12 @@ pub struct StrategyWindows<T: StackType + 'static> {
 }
 
 impl<T: StackType> StrategyWindows<T> {
+    pub fn strategies(&self) -> &[(StrategyNames, Bindings)] {
+        self.strategies.elems()
+    }
+
     pub fn new(
-        strategies: Vec<StrategyNamesAndBindings>,
+        strategies: Vec<(StrategyNames, Bindings)>,
         tuning_editor: TuningEditorConfig,
         reference_editor: ReferenceEditorConfig,
     ) -> Self {
@@ -76,7 +80,7 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::CurrentStrategyIndex(index) => {
-                if let Some(strn) = self.strategies.current_selected_mut() {
+                if let Some((strn, _)) = self.strategies.current_selected_mut() {
                     strn.neighbourhood_names = self.neighbourhood_editor.get_all().into();
                 }
                 if let Some(i) = index {
@@ -84,7 +88,7 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
                 } else {
                     self.strategies.apply(ListAction::Deselect);
                 }
-                if let Some(strn) = self.strategies.current_selected() {
+                if let Some((strn, _)) = self.strategies.current_selected() {
                     self.neighbourhood_editor.set_all(&strn.neighbourhood_names);
                 }
             }
@@ -103,13 +107,14 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
         let AsStrategyPicker(x) = self;
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("strategy picker")
-                .selected_text(x.strategies.current_selected().map_or("", |x| &x.name))
+                .selected_text(x.strategies.current_selected().map_or("", |x| &x.0.name))
                 .show_ui(ui, |ui| {
                     ui.shrink_width_to_current();
-                    if let Some((i, _)) =
-                        x.strategies
-                            .show_as_list_picker(ui, |x| &x.name, |x| Some(&x.description))
-                    {
+                    if let Some((i, _)) = x.strategies.show_as_list_picker(
+                        ui,
+                        |x| &x.0.name,
+                        |x| Some(&x.0.description),
+                    ) {
                         let _ = forward.send(FromUi::StrategyListAction {
                             action: ListAction::Select(i),
                             time: Instant::now(),
@@ -125,7 +130,7 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
             ui.separator();
 
             if let Some(strn) = x.strategies.current_selected() {
-                match strn.strategy_kind {
+                match strn.0.strategy_kind {
                     StrategyKind::StaticTuning => {
                         ui.horizontal(|ui| {
                             x.tuning_editor_window.show_hide_button(ui, "global tuning");
@@ -151,7 +156,7 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
         let AsWindows(x) = self;
         let ctx = ui.ctx();
 
-        if let Some(strn) = x.strategies.current_selected() {
+        if let Some((strn, _)) = x.strategies.current_selected() {
             let current_name = &strn.name;
             x.tuning_editor_window
                 .show(&format!("global tuning ({current_name})"), ctx, |ui| {
@@ -193,13 +198,13 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                         select_allowed: true,
                         no_selection_allowed: false,
                         delete_allowed: true,
-                        show_one: Box::new(|ui, _i,  elem| {
-                            ui.add(egui::TextEdit::singleline(&mut elem.name).min_size(vec2(
+                        show_one: Box::new(|ui, _i, elem| {
+                            ui.add(egui::TextEdit::singleline(&mut elem.0.name).min_size(vec2(
                                 ui.style().spacing.text_edit_width / 2.0,
                                 ui.style().spacing.interact_size.y,
                             )));
                             ui.add(
-                                egui::TextEdit::multiline(&mut elem.description)
+                                egui::TextEdit::multiline(&mut elem.0.description)
                                     .min_size(vec2(
                                         ui.style().spacing.text_edit_width,
                                         ui.style().spacing.interact_size.y,
@@ -238,13 +243,13 @@ impl<'a, T: StackType> AsWindows<'a, T> {
     fn display_binding_window(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let AsWindows(x) = self;
 
-        if let Some(current) = x.strategies.current_selected_mut() {
+        if let Some((strn, bindings)) = x.strategies.current_selected_mut() {
             let ctx = ui.ctx();
 
             x.binding_editor_window
-                .show(&format!("bindings ({})", current.name), ctx, |ui| {
+                .show(&format!("bindings ({})", strn.name), ctx, |ui| {
                     egui::Grid::new("active binding grid").show(ui, |ui| {
-                        for (k, v) in current.bindings.iter_mut() {
+                        for (k, v) in bindings.iter_mut() {
                             ui.label(format!("{k}"));
                             // *x.tmp_strategy_action = v;
                             // if strategy_action_selector(
@@ -274,17 +279,17 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                             &mut x.tmp_key_name,
                             &mut x.tmp_key_name_invalid,
                         );
-                        x.tmp_strategy_action = current.bindings.get(&x.tmp_bindable).map(|x| *x);
+                        x.tmp_strategy_action = bindings.get(&x.tmp_bindable).map(|x| *x);
                         if strategy_action_selector(
                             ui,
-                            current.strategy_kind,
+                            strn.strategy_kind,
                             x.tmp_bindable,
                             &mut x.tmp_strategy_action,
                         ) {
                             if let Some(action) = x.tmp_strategy_action {
-                                current.bindings.insert(x.tmp_bindable, action);
+                                bindings.insert(x.tmp_bindable, action);
                             } else {
-                                current.bindings.remove(&x.tmp_bindable);
+                                bindings.remove(&x.tmp_bindable);
                             }
                             let _ = forward.send(FromUi::BindAction {
                                 action: x.tmp_strategy_action,

@@ -115,7 +115,7 @@ impl std::error::Error for StackTypeInitialisationErr {}
 impl TheFiveLimitStackType {
     pub fn initialise(
         temperaments: &[TemperamentDefinition<TheFiveLimitStackType>],
-        named_intervals: Vec<NamedInterval<TheFiveLimitStackType>>,
+        named_intervals: &[NamedInterval<TheFiveLimitStackType>],
     ) -> Result<(), StackTypeInitialisationErr> {
         match temperaments.iter().map(|def| def.realize()).collect() {
             Err(e) => Err(StackTypeInitialisationErr::FromTemperamentErr(e)),
@@ -125,7 +125,7 @@ impl TheFiveLimitStackType {
             },
         }?;
 
-        match NAMED_INTERVALS.set(named_intervals) {
+        match NAMED_INTERVALS.set(named_intervals.into()) {
             Ok(()) => Ok(()),
             Err(_) => Err(StackTypeInitialisationErr::NamedIntervalsAlreadyInitialised),
         }

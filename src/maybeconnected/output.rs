@@ -3,8 +3,7 @@ use std::{cell::Cell, sync::mpsc, time::Instant};
 use midir::*;
 
 use crate::{
-    maybeconnected::common::MaybeConnected,
-    msg::{FromMidiOut, HandleMsg, ToMidiOut},
+    config::{ExtractConfig, MidiOutputConfig}, maybeconnected::common::MaybeConnected, msg::{FromMidiOut, HandleMsg, ToMidiOut}
 };
 
 enum MidiOutputOrConnectionInternal {
@@ -152,5 +151,11 @@ impl HandleMsg<ToMidiOut, FromMidiOut> for MidiOutputOrConnection {
             }
             ToMidiOut::Stop => {}
         }
+    }
+}
+
+impl ExtractConfig<MidiOutputConfig> for MidiOutputOrConnection {
+    fn extract_config(&self) -> MidiOutputConfig {
+        MidiOutputConfig {}
     }
 }

@@ -1,9 +1,10 @@
 use std::{sync::mpsc, time::Instant};
 
 use eframe::egui;
+use midi_msg::Channel;
 
 use crate::{
-    backend::pitchbend12::Pitchbend12Config,
+    config::BackendConfig,
     interval::{base::Semitones, stacktype::r#trait::StackType},
     msg::{FromUi, HandleMsgRef, ToUi},
 };
@@ -17,19 +18,23 @@ pub struct BackendWindow {
     new_use_channels: [bool; 16],
 }
 
-pub type BackendWindowConfig = Pitchbend12Config;
+pub type BackendWindowConfig = BackendConfig;
 
 impl BackendWindow {
     pub fn new(config: BackendWindowConfig) -> Self {
-        let mut use_channels = [false; 16];
-        for c in config.channels {
-            use_channels[c as usize] = true;
-        }
-        Self {
-            bend_range: config.bend_range,
-            new_bend_range: config.bend_range,
-            new_use_channels: use_channels.clone(),
-            use_channels,
+        match config {
+            BackendConfig::Pitchbend12(config) => {
+                let mut use_channels = [false; 16];
+                for c in config.channels {
+                    use_channels[Into::<Channel>::into(c) as usize] = true;
+                }
+                Self {
+                    bend_range: config.bend_range,
+                    new_bend_range: config.bend_range,
+                    new_use_channels: use_channels.clone(),
+                    use_channels,
+                }
+            }
         }
     }
 }

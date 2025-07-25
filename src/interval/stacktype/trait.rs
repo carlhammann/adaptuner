@@ -87,6 +87,7 @@ impl CoordinateSystem {
     }
 }
 
+#[derive(Clone)]
 pub struct NamedInterval<T: IntervalBasis> {
     _phantom: PhantomData<T>,
     pub coeffs: Array1<Ratio<StackCoeff>>,

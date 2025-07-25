@@ -3,8 +3,8 @@ use std::error::Error;
 use midi_msg::Channel;
 
 use adaptuner::{
-    backend::pitchbend12::{Pitchbend12, Pitchbend12Config},
-    config::Config,
+    backend::pitchbend12::Pitchbend12,
+    config::{Config, GuiConfig},
     gui::{
         common::CorrectionSystemChooser,
         editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
@@ -25,31 +25,17 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let mut config: Config<TheFiveLimitStackType> =
+    let config: Config<TheFiveLimitStackType> =
         serde_yml::from_reader(std::fs::File::open("conf.yaml")?)?;
-    TheFiveLimitStackType::initialise(&config.temperaments, config.named_intervals)?;
+    TheFiveLimitStackType::initialise(&config.temperaments, &config.named_intervals)?;
 
-    let backend_config = Pitchbend12Config {
-        channels: [
-            Channel::Ch1,
-            Channel::Ch2,
-            Channel::Ch3,
-            Channel::Ch4,
-            Channel::Ch5,
-            Channel::Ch6,
-            Channel::Ch7,
-            Channel::Ch8,
-            Channel::Ch9,
-            // Channel::Ch10,
-            Channel::Ch11,
-            Channel::Ch12,
-            Channel::Ch13,
-            // Channel::Ch14,
-            // Channel::Ch15,
-            // Channel::Ch16,
-        ],
-        bend_range: 2.0,
-    };
+    let (
+        process_config,
+        GuiConfig {
+            strategies: strategy_names_and_bindings,
+        },
+        backend_config,
+    ) = config.split();
 
     let backend_window_config = backend_config.clone();
 
@@ -79,34 +65,16 @@ fn run() -> Result<(), Box<dyn Error>> {
         notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
     };
 
-    // let cloned_strategy_config = config.strategies.clone();
-
-    let mut strategy_configs = Vec::with_capacity(config.strategies.len());
-    let mut strategy_names_and_bindings = Vec::with_capacity(config.strategies.len());
-
-    for x in config.strategies.drain(..) {
-        let (a, b) = x.split();
-        strategy_configs.push(a);
-        strategy_names_and_bindings.push(b);
-    }
-
     let latency_window_length = 20;
 
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
 
-    let _runstate = RunState::new(
+    let runstate = RunState::new::<ProcessFromStrategy<TheFiveLimitStackType>, Pitchbend12, _, _>(
         midi_in,
         midi_out,
-        move || {
-            ProcessFromStrategy::new(
-                strategy_configs
-                    .drain(..)
-                    .map(|(c, b)| (c.realize(), b))
-                    .collect(),
-            )
-        },
-        move || Pitchbend12::new(backend_config),
+        process_config,
+        backend_config,
         move |ctx, tx| {
             Toplevel::new(
                 strategy_names_and_bindings,
@@ -119,6 +87,23 @@ fn run() -> Result<(), Box<dyn Error>> {
                 tx,
             )
         },
+    )?;
+
+    let (process_config, backend_config, gui_config, _, _) = runstate.stop()?;
+
+    // println!("{}", serde_yml::to_string(&process_config).unwrap());
+    // println!("\n\n\n\n");
+    // println!("{}", serde_yml::to_string(&backend_config).unwrap());
+    //
+    println!(
+        "{}",
+        serde_yml::to_string(&Config::join(
+            process_config,
+            backend_config,
+            gui_config,
+            config.temperaments,
+            config.named_intervals
+        )).unwrap()
     );
 
     Ok(())

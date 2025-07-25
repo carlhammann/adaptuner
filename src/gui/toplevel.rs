@@ -3,7 +3,8 @@ use std::{hash::Hash, sync::mpsc};
 use eframe::{self, egui};
 
 use crate::{
-    config::StrategyNamesAndBindings,
+    bindable::Bindings,
+    config::{ExtractConfig, GuiConfig, StrategyNames},
     interval::stacktype::r#trait::{FiveLimitStackType, StackType},
     msg::{FromUi, HandleMsg, HandleMsgRef, ToUi},
 };
@@ -21,7 +22,7 @@ use super::{
     strategy::{AsStrategyPicker, AsWindows, StrategyWindows},
 };
 
-pub struct Toplevel<T: StackType + 'static> {
+pub struct Toplevel<T: StackType> {
     lattice: LatticeWindow<T>,
     show_controls: u8,
     old_show_controls: u8,
@@ -44,7 +45,7 @@ pub struct Toplevel<T: StackType + 'static> {
 
 impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
     pub fn new(
-        strategy_names_and_bindings: Vec<StrategyNamesAndBindings>,
+        strategy_names_and_bindings: Vec<(StrategyNames, Bindings)>,
         lattice_config: LatticeWindowControls<T>,
         reference_editor: ReferenceEditorConfig,
         backend_config: BackendWindowConfig,
@@ -186,5 +187,13 @@ impl<T: FiveLimitStackType + Hash + Eq + 'static> eframe::App for Toplevel<T> {
                 self.backend.show(ui, &self.tx);
             });
         });
+    }
+}
+
+impl<T: StackType> ExtractConfig<GuiConfig> for Toplevel<T> {
+    fn extract_config(&self) -> GuiConfig {
+        GuiConfig {
+            strategies: self.strategies.strategies().into(),
+        }
     }
 }

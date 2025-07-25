@@ -1,6 +1,7 @@
 use std::{sync::mpsc, time::Instant};
 
 use crate::{
+    config::{ExtractConfig, StrategyConfig},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromProcess, ToStrategy},
@@ -113,8 +114,15 @@ impl<T: StackType, I: IntervalStrategy<T>, A: AnchorStrategy<T>> Strategy<T> for
     ) {
         todo!()
     }
+}
 
-    fn extract_config(&self) -> crate::config::StrategyConfig<T> {
+impl<T, I, A> ExtractConfig<StrategyConfig<T>> for TwoStep<T, I, A>
+where
+    T: StackType,
+    I: IntervalStrategy<T>,
+    A: AnchorStrategy<T>,
+{
+    fn extract_config(&self) -> StrategyConfig<T> {
         todo!()
     }
 }

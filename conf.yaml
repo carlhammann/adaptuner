@@ -153,3 +153,18 @@ strategies:
     sostenuto-pedal-down: !increment-neighbourhood-index 1
     sostenuto-pedal-up: !increment-neighbourhood-index -1
     soft-pedal-down: !set-reference-to-lowest
+backend: !pitchbend12
+  bend-range: 2.0
+  channels:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 11
+  - 12
+  - 13

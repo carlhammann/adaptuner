@@ -1,6 +1,7 @@
 use std::{fmt, marker::PhantomData};
 
-use eframe::egui;
+use eframe::{egui, Result};
+use midi_msg::Channel;
 use ndarray::{Array1, ArrayView1};
 use num_rational::Ratio;
 use num_traits::Zero;
@@ -198,4 +199,24 @@ pub fn deserialize_nonempty<'de, D: serde::Deserializer<'de>, X: serde::Deserial
     } else {
         Err(serde::de::Error::custom(description))
     }
+}
+
+pub fn deserialize_channel<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Channel, D::Error> {
+    let x = <u8 as serde::Deserialize<'de>>::deserialize(deserializer)?;
+    if x <= 16 && x >= 1 {
+        Ok(Channel::from_u8(x - 1))
+    } else {
+        Err(serde::de::Error::custom(format!(
+            "{x} is not in the (inclusive) range 1...16"
+        )))
+    }
+}
+
+pub fn serialize_channel<S: serde::Serializer>(
+    channel: &Channel,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    ser.serialize_u8(*channel as u8 + 1)
 }

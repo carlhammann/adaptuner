@@ -5,8 +5,11 @@
 use std::{sync::mpsc, time::Instant};
 
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
+use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    config::{BackendConfig, ExtractConfig, FromConfigAndState},
+    custom_serde::common::{deserialize_channel, serialize_channel},
     interval::base::Semitones,
     keystate::KeyState,
     msg::{self, FromBackend, HandleMsg, ToBackend},
@@ -28,17 +31,44 @@ pub struct Pitchbend12 {
     bend_range: Semitones,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[derive(Clone, Copy)]
+pub struct WrappedChannel(
+    #[serde(
+        deserialize_with = "deserialize_channel",
+        serialize_with = "serialize_channel"
+    )]
+    Channel,
+);
+
+impl From<WrappedChannel> for Channel {
+    fn from(x: WrappedChannel) -> Self {
+        let WrappedChannel(x) = x;
+        x
+    }
+}
+
+impl From<Channel> for WrappedChannel {
+    fn from(x: Channel) -> Self {
+        WrappedChannel(x)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 #[derive(Clone)]
 pub struct Pitchbend12Config {
     pub bend_range: Semitones,
-    pub channels: [Channel; 12],
+    pub channels: [WrappedChannel; 12],
 }
 
 impl Pitchbend12 {
     pub fn new(config: Pitchbend12Config) -> Self {
         let now = Instant::now();
         Self {
-            channels: config.channels.clone(),
+            channels: core::array::from_fn(|i| config.channels[i].into()),
             bends: [8192; 12],
             key_state: core::array::from_fn(|_| KeyState::new(now)),
             pedal_hold: [false; 16],
@@ -270,6 +300,23 @@ impl HandleMsg<ToBackend, FromBackend> for Pitchbend12 {
                 }
                 self.reset(time, forward);
             }
+        }
+    }
+}
+
+impl ExtractConfig<BackendConfig> for Pitchbend12 {
+    fn extract_config(&self) -> BackendConfig {
+        BackendConfig::Pitchbend12(Pitchbend12Config {
+            bend_range: self.bend_range,
+            channels: core::array::from_fn(|i| WrappedChannel(self.channels[i])),
+        })
+    }
+}
+
+impl<S> FromConfigAndState<BackendConfig, S> for Pitchbend12 {
+    fn initialise(config: BackendConfig, _state: S) -> Self {
+        match config {
+            BackendConfig::Pitchbend12(config) => Self::new(config)
         }
     }
 }

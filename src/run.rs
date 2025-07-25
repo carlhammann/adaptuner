@@ -1,9 +1,17 @@
-use std::{cell::Cell, sync::mpsc, thread, time::Instant};
+use std::{
+    sync::{mpsc, Arc, Mutex, OnceLock},
+    thread,
+    time::Instant,
+};
 
 use eframe::egui;
 use midir::{MidiInput, MidiOutput};
 
 use crate::{
+    config::{
+        BackendConfig, ExtractConfig, FromConfigAndState, GuiConfig, MidiInputConfig,
+        MidiOutputConfig, ProcessConfig,
+    },
     interval::stacktype::r#trait::StackType,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
@@ -13,16 +21,18 @@ use crate::{
     },
 };
 
-fn start_handler_thread<I, O, H, NH>(
+fn start_handler_thread<I, O, H, C, NH>(
     new_state: NH,
     rx: mpsc::Receiver<I>,
     tx: mpsc::Sender<O>,
-) -> thread::JoinHandle<(mpsc::Receiver<I>, mpsc::Sender<O>)>
+) -> thread::JoinHandle<(C, mpsc::Receiver<I>, mpsc::Sender<O>)>
 where
     H: HandleMsg<I, O>,
+    H: ExtractConfig<C>,
     I: HasStop + Send + 'static,
     O: Send + 'static,
     NH: FnOnce() -> H + Send + 'static,
+    C: Send + 'static,
 {
     thread::spawn(move || {
         let mut state = new_state();
@@ -38,24 +48,24 @@ where
                 Err(_) => break,
             }
         }
-        (rx, tx)
+        (state.extract_config(), rx, tx)
     })
 }
 
-struct GuiWithConnections<T: StackType, G: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App> {
+struct GuiWithConnections<T: StackType, G> {
     gui: G,
     rx: mpsc::Receiver<ToUi<T>>,
     tx: mpsc::Sender<FromUi<T>>,
+    config_return: Arc<Mutex<Option<GuiConfig>>>,
 }
 
-impl<T: StackType + Send + 'static, G: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App>
-    GuiWithConnections<T, G>
-{
+impl<T: StackType + Send, G> GuiWithConnections<T, G> {
     fn new(
         cc: &eframe::CreationContext,
         gui: G,
         rx: mpsc::Receiver<ToUi<T>>,
         tx: mpsc::Sender<FromUi<T>>,
+        config_return: Arc<Mutex<Option<GuiConfig>>>,
     ) -> Self {
         let ctx = cc.egui_ctx.clone();
         let (forward_tx, forward_rx) = mpsc::channel::<ToUi<T>>();
@@ -76,18 +86,24 @@ impl<T: StackType + Send + 'static, G: HandleMsg<ToUi<T>, FromUi<T>> + eframe::A
             gui,
             rx: forward_rx,
             tx,
+            config_return,
         }
     }
 }
 
-impl<T: StackType, G: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App> eframe::App
-    for GuiWithConnections<T, G>
+impl<T, G> eframe::App for GuiWithConnections<T, G>
+where
+    T: StackType,
+    G: HandleMsg<ToUi<T>, FromUi<T>> + ExtractConfig<GuiConfig> + eframe::App,
 {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         for msg in self.rx.try_iter() {
             self.gui.handle_msg(msg, &self.tx);
         }
         self.gui.update(ctx, frame);
+        if ctx.input(|i| i.viewport().close_requested()) {
+            *self.config_return.lock().unwrap() = Some(self.gui.extract_config());
+        }
     }
 }
 
@@ -96,9 +112,10 @@ fn start_gui<T, H, NH>(
     new_gui: NH,
     rx: mpsc::Receiver<ToUi<T>>,
     tx: mpsc::Sender<FromUi<T>>,
+    config_return: Arc<Mutex<Option<GuiConfig>>>,
 ) -> Result<(), eframe::Error>
 where
-    H: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App,
+    H: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App + ExtractConfig<GuiConfig>,
     NH: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> H + Send + 'static,
     T: StackType + Send + 'static,
 {
@@ -108,7 +125,13 @@ where
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             let gui = new_gui(&cc.egui_ctx, tx.clone());
-            Ok(Box::new(GuiWithConnections::new(cc, gui, rx, tx)))
+            Ok(Box::new(GuiWithConnections::new(
+                cc,
+                gui,
+                rx,
+                tx,
+                config_return,
+            )))
         }),
     )
 }
@@ -267,11 +290,26 @@ where
 }
 
 pub struct RunState<T: StackType> {
-    midi_input: thread::JoinHandle<(mpsc::Receiver<ToMidiIn>, mpsc::Sender<FromMidiIn>)>,
-    midi_output: thread::JoinHandle<(mpsc::Receiver<ToMidiOut>, mpsc::Sender<FromMidiOut>)>,
-    process: thread::JoinHandle<(mpsc::Receiver<ToProcess<T>>, mpsc::Sender<FromProcess<T>>)>,
-    backend: Cell<thread::JoinHandle<(mpsc::Receiver<ToBackend>, mpsc::Sender<FromBackend>)>>,
-    // ui_thread: thread::JoinHandle<(mpsc::Receiver<ToUi<T>>, mpsc::Sender<FromUi>)>,
+    midi_input: thread::JoinHandle<(
+        MidiInputConfig,
+        mpsc::Receiver<ToMidiIn>,
+        mpsc::Sender<FromMidiIn>,
+    )>,
+    midi_output: thread::JoinHandle<(
+        MidiOutputConfig,
+        mpsc::Receiver<ToMidiOut>,
+        mpsc::Sender<FromMidiOut>,
+    )>,
+    process: thread::JoinHandle<(
+        ProcessConfig<T>,
+        mpsc::Receiver<ToProcess<T>>,
+        mpsc::Sender<FromProcess<T>>,
+    )>,
+    backend: thread::JoinHandle<(
+        BackendConfig,
+        mpsc::Receiver<ToBackend>,
+        mpsc::Sender<FromBackend>,
+    )>,
     midi_output_forward: thread::JoinHandle<()>,
     midi_input_forward: thread::JoinHandle<()>,
     process_forward: thread::JoinHandle<()>,
@@ -280,23 +318,51 @@ pub struct RunState<T: StackType> {
     to_process_tx: mpsc::Sender<ToProcess<T>>,
     to_backend_tx: mpsc::Sender<ToBackend>,
     to_ui_tx: mpsc::Sender<ToUi<T>>,
+    to_midi_input_tx: mpsc::Sender<ToMidiIn>,
+    to_midi_output_tx: mpsc::Sender<ToMidiOut>,
+    gui_config_return: Arc<Mutex<Option<GuiConfig>>>,
 }
 
+#[derive(Debug)]
+pub enum JoinError {
+    Process,
+    Backend,
+    Gui,
+    MidiInput,
+    MidiOutput,
+}
+
+impl std::fmt::Display for JoinError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            JoinError::Process => write!(f, "couldn't join the process thread"),
+            JoinError::Backend => write!(f, "couldn't join the backend thread"),
+            JoinError::Gui => write!(f, "couldn't join the GUI thread"),
+            JoinError::MidiInput => write!(f, "couldn't join the midi input thread"),
+            JoinError::MidiOutput => write!(f, "couldn't join the midi output thread"),
+        }
+    }
+}
+
+impl std::error::Error for JoinError {}
+
 impl<T: StackType> RunState<T> {
-    pub fn new<P, NP, B, NB, U, NU>(
+    pub fn new<P, B, U, NU>(
         midi_in: MidiInput,
         midi_out: MidiOutput,
-        new_process_state: NP,
-        new_backend_state: NB,
+        process_config: ProcessConfig<T>,
+        backend_config: BackendConfig,
         new_ui_state: NU,
     ) -> Result<Self, eframe::Error>
     where
         T: Send + 'static,
-        P: HandleMsg<ToProcess<T>, FromProcess<T>>,
-        NP: FnOnce() -> P + Send + 'static,
-        B: HandleMsg<ToBackend, FromBackend>,
-        NB: FnOnce() -> B + Send + 'static,
-        U: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App,
+        P: HandleMsg<ToProcess<T>, FromProcess<T>>
+            + ExtractConfig<ProcessConfig<T>>
+            + FromConfigAndState<ProcessConfig<T>, ()>,
+        B: HandleMsg<ToBackend, FromBackend>
+            + ExtractConfig<BackendConfig>
+            + FromConfigAndState<BackendConfig, ()>,
+        U: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App + ExtractConfig<GuiConfig>,
         NU: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> U + Send + 'static,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();
@@ -316,6 +382,8 @@ impl<T: StackType> RunState<T> {
         let (to_ui_tx, to_ui_rx) = mpsc::channel();
         let (from_ui_tx, from_ui_rx) = mpsc::channel();
 
+        let gui_config_return = Arc::new(Mutex::new(None {}));
+
         let res = Self {
             midi_input: start_handler_thread(|| midi_input, to_midi_input_rx, from_midi_input_tx),
             midi_output: start_handler_thread(
@@ -323,12 +391,16 @@ impl<T: StackType> RunState<T> {
                 to_midi_output_rx,
                 from_midi_output_tx,
             ),
-            process: start_handler_thread(new_process_state, to_process_rx, from_process_tx),
-            backend: Cell::new(start_handler_thread(
-                new_backend_state,
+            process: start_handler_thread(
+                || P::initialise(process_config, ()),
+                to_process_rx,
+                from_process_tx,
+            ),
+            backend: start_handler_thread(
+                || B::initialise(backend_config, ()),
                 to_backend_rx,
                 from_backend_tx,
-            )),
+            ),
             midi_output_forward: start_translate_thread(from_midi_output_rx, &to_ui_tx),
             midi_input_forward: start_translate_2_thread(
                 from_midi_input_rx,
@@ -356,6 +428,9 @@ impl<T: StackType> RunState<T> {
             to_process_tx: to_process_tx.clone(),
             to_backend_tx,
             to_ui_tx,
+            to_midi_input_tx: to_midi_input_tx.clone(),
+            to_midi_output_tx: to_midi_output_tx.clone(),
+            gui_config_return: gui_config_return.clone(),
         };
 
         let _ = to_midi_input_tx.send(ToMidiIn::Start);
@@ -365,38 +440,59 @@ impl<T: StackType> RunState<T> {
         });
         // TODO: send more start messages?
 
-        start_gui("adaptuner", new_ui_state, to_ui_rx, from_ui_tx)?;
+        start_gui(
+            "adaptuner",
+            new_ui_state,
+            to_ui_rx,
+            from_ui_tx,
+            gui_config_return,
+        )?;
 
         Ok(res)
     }
 
-    // pub fn replace_backend<B, NB>(&mut self, new_backend_state: NB) -> thread::Result<()>
-    // where
-    //     T: Send + 'static,
-    //     B: HandleMsg<ToBackend<T>, FromBackend>,
-    //     NB: Fn() -> B + Send + 'static,
-    // {
-    //     match self.to_backend_tx.send(ToBackend::mk_stop()) {
-    //         Ok(_) => {}
-    //         Err(e) => return Err(Box::new(e)),
-    //     }
-    //
-    //     let make_placeholder = || {
-    //         thread::spawn(|| {
-    //             let (tx, _) = mpsc::channel();
-    //             let (_, rx) = mpsc::channel();
-    //             (rx, tx)
-    //         })
-    //     };
-    //     let handle = self.backend.replace(make_placeholder());
-    //     let (to_backend_rx, from_backend_tx) = handle.join()?;
-    //
-    //     self.backend.set(start_handler_thread(
-    //         new_backend_state,
-    //         to_backend_rx,
-    //         from_backend_tx,
-    //     ));
-    //
-    //     Ok(())
-    // }
+    pub fn stop(
+        self,
+    ) -> Result<
+        (
+            ProcessConfig<T>,
+            BackendConfig,
+            GuiConfig,
+            MidiInputConfig,
+            MidiOutputConfig,
+        ),
+        JoinError,
+    > {
+        let _ = self.to_process_tx.send(ToProcess::Stop);
+        let Ok((process_config, _, _)) = self.process.join() else {
+            return Err(JoinError::Process);
+        };
+
+        let _ = self.to_backend_tx.send(ToBackend::Stop);
+        let Ok((backend_config, _, _)) = self.backend.join() else {
+            return Err(JoinError::Backend);
+        };
+
+        let _ = self.to_midi_input_tx.send(ToMidiIn::Stop);
+        let Ok((midi_input_config, _, _)) = self.midi_input.join() else {
+            return Err(JoinError::MidiInput);
+        };
+
+        let _ = self.to_midi_output_tx.send(ToMidiOut::Stop);
+        let Ok((midi_output_config, _, _)) = self.midi_output.join() else {
+            return Err(JoinError::MidiOutput);
+        };
+
+        if let Some(gui_config) = self.gui_config_return.lock().unwrap().as_ref() {
+            Ok((
+                process_config,
+                backend_config,
+                gui_config.clone(),
+                midi_input_config,
+                midi_output_config,
+            ))
+        } else {
+            Err(JoinError::Gui)
+        }
+    }
 }

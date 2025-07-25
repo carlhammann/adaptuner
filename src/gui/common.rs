@@ -73,11 +73,11 @@ impl<X> ListEdit<X> {
         self
     }
 
-    pub fn get_all(&self) -> &[X] {
+    pub fn elems(&self) -> &[X] {
         &self.elems
     }
 
-    pub fn set_all(&mut self, elems: &[X])
+    pub fn set_elems(&mut self, elems: &[X])
     where
         X: Clone,
     {

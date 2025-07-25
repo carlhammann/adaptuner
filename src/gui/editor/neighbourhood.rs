@@ -26,11 +26,11 @@ impl<T: StackType> NeighbourhoodEditor<T> {
     }
 
     pub fn get_all(&self) -> &[String] {
-        self.names.get_all()
+        self.names.elems()
     }
 
     pub fn set_all(&mut self, names: &[String]) {
-        self.names.set_all(names);
+        self.names.set_elems(names);
     }
 }
 

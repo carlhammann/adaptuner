@@ -1,10 +1,10 @@
-use std::{collections::BTreeMap, fmt};
-
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    bindable::Bindable,
-    custom_serde::common::deserialize_nonempty,
+    backend::pitchbend12::Pitchbend12Config,
+    bindable::Bindings,
+    custom_serde::{common::deserialize_nonempty, named_interval},
+    gui::editor::binding,
     interval::{
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
@@ -14,9 +14,62 @@ use crate::{
     reference::Reference,
     strategy::{
         r#static::{StaticTuning, StaticTuningConfig},
-        r#trait::{Strategy, StrategyAction},
+        r#trait::Strategy,
     },
 };
+
+pub trait FromConfigAndState<C, S> {
+    fn initialise(config: C, state: S) -> Self;
+}
+
+pub trait ExtractConfig<C> {
+    fn extract_config(&self) -> C;
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub enum StrategyConfig<T: IntervalBasis> {
+    StaticTuning(StaticTuningConfig<T>),
+}
+
+impl<T: StackType> StrategyConfig<T> {
+    pub fn realize(self) -> Box<dyn Strategy<T>> {
+        match self {
+            StrategyConfig::StaticTuning(config) => Box::new(StaticTuning::new(config)),
+        }
+    }
+}
+
+pub struct ProcessConfig<T: IntervalBasis> {
+    pub strategies: Vec<(StrategyConfig<T>, Bindings)>,
+}
+
+#[derive(Clone)]
+pub struct GuiConfig {
+    pub strategies: Vec<(StrategyNames, Bindings)>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub enum BackendConfig {
+    Pitchbend12(Pitchbend12Config),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub struct MidiInputConfig {
+    // pub input: midir::MidiInput,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub struct MidiOutputConfig {
+    // pub output: midir::MidiOutput,
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,6 +78,48 @@ pub struct Config<T: IntervalBasis> {
     pub temperaments: Vec<TemperamentDefinition<T>>,
     pub named_intervals: Vec<NamedInterval<T>>,
     pub strategies: Vec<ExtendedStrategyConfig<T>>,
+    pub backend: BackendConfig,
+}
+
+impl<T: IntervalBasis> Config<T> {
+    pub fn split(&self) -> (ProcessConfig<T>, GuiConfig, BackendConfig) {
+        let mut process = Vec::with_capacity(self.strategies.len());
+        let mut ui = Vec::with_capacity(self.strategies.len());
+        self.strategies.iter().for_each(|esc| {
+            let (sc, bs, ns) = esc.split();
+            process.push((sc, bs.clone()));
+            ui.push((ns, bs))
+        });
+        (
+            ProcessConfig {
+                strategies: process,
+            },
+            GuiConfig { strategies: ui },
+            self.backend.clone(),
+        )
+    }
+
+    pub fn join(
+        mut process: ProcessConfig<T>,
+        backend: BackendConfig,
+        gui: GuiConfig,
+        temperaments: Vec<TemperamentDefinition<T>>,
+        named_intervals: Vec<NamedInterval<T>>,
+    ) -> Self {
+        Self {
+            temperaments,
+            named_intervals,
+            strategies: process
+                .strategies
+                .drain(..)
+                .enumerate()
+                .map(|(i, (strat, bindings))| {
+                    ExtendedStrategyConfig::join(strat, bindings, gui.strategies[i].0.clone())
+                })
+                .collect(),
+            backend,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -53,21 +148,6 @@ impl StrategyKind {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
-pub enum StrategyConfig<T: IntervalBasis> {
-    StaticTuning(StaticTuningConfig<T>),
-}
-
-impl<T: StackType + fmt::Debug + 'static> StrategyConfig<T> {
-    pub fn realize(self) -> Box<dyn Strategy<T>> {
-        match self {
-            StrategyConfig::StaticTuning(config) => Box::new(StaticTuning::new(config)),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "kebab-case")]
 pub enum NamedCompleteNeighbourhood<T: IntervalBasis> {
     PeriodicComplete {
         name: String,
@@ -83,10 +163,10 @@ impl<T: IntervalBasis> NamedCompleteNeighbourhood<T> {
         }
     }
 
-    fn inner(self) -> SomeCompleteNeighbourhood<T> {
+    fn inner(&self) -> SomeCompleteNeighbourhood<T> {
         match self {
             NamedCompleteNeighbourhood::PeriodicComplete { inner, .. } => {
-                SomeCompleteNeighbourhood::PeriodicComplete(inner)
+                SomeCompleteNeighbourhood::PeriodicComplete(inner.clone())
             }
         }
     }
@@ -100,7 +180,7 @@ pub enum ExtendedStrategyConfig<T: IntervalBasis> {
     StaticTuning {
         name: String,
         description: String,
-        bindings: BTreeMap<Bindable, StrategyAction>,
+        bindings: Bindings,
         #[serde(deserialize_with = "deserialize_nonempty_neighbourhoods")]
         neighbourhoods: Vec<NamedCompleteNeighbourhood<T>>,
         tuning_reference: Reference<T>,
@@ -122,82 +202,70 @@ pub fn deserialize_nonempty_neighbourhoods<
 }
 
 #[derive(Clone)]
-pub struct StrategyNamesAndBindings {
+pub struct StrategyNames {
     pub strategy_kind: StrategyKind,
     pub name: String,
     pub description: String,
     pub neighbourhood_names: Vec<String>,
-    pub bindings: BTreeMap<Bindable, StrategyAction>,
 }
 
 impl<T: IntervalBasis> ExtendedStrategyConfig<T> {
-    pub fn strategy_kind(&self) -> StrategyKind {
-        match self {
-            ExtendedStrategyConfig::StaticTuning { .. } => StrategyKind::StaticTuning,
-        }
-    }
-
-    pub fn split(
-        self,
-    ) -> (
-        (StrategyConfig<T>, BTreeMap<Bindable, StrategyAction>),
-        StrategyNamesAndBindings,
-    ) {
+    fn split(&self) -> (StrategyConfig<T>, Bindings, StrategyNames) {
         match self {
             ExtendedStrategyConfig::StaticTuning {
                 name,
                 description,
                 bindings,
-                mut neighbourhoods,
+                neighbourhoods,
                 tuning_reference,
                 reference,
             } => {
                 let neighbourhood_names: Vec<String> =
                     neighbourhoods.iter().map(|x| x.name().into()).collect();
                 let neighbourhoods: Vec<SomeCompleteNeighbourhood<T>> =
-                    neighbourhoods.drain(..).map(|x| x.inner()).collect();
+                    neighbourhoods.iter().map(|x| x.inner()).collect();
                 (
-                    (
-                        StrategyConfig::StaticTuning(StaticTuningConfig {
-                            neighbourhoods,
-                            tuning_reference,
-                            reference,
-                        }),
-                        bindings.clone(),
-                    ),
-                    StrategyNamesAndBindings {
+                    StrategyConfig::StaticTuning(StaticTuningConfig {
+                        neighbourhoods,
+                        tuning_reference: tuning_reference.clone(),
+                        reference: reference.clone(),
+                    }),
+                    bindings.clone(),
+                    StrategyNames {
                         strategy_kind: StrategyKind::StaticTuning,
-                        name,
-                        description,
+                        name: name.clone(),
+                        description: description.clone(),
                         neighbourhood_names,
-                        bindings,
                     },
                 )
             }
         }
     }
 
-    pub fn name(&self) -> &str {
-        match self {
-            ExtendedStrategyConfig::StaticTuning { name, .. } => name,
-        }
-    }
-
-    pub fn description(&self) -> &str {
-        match self {
-            ExtendedStrategyConfig::StaticTuning { description, .. } => description,
-        }
-    }
-
-    pub fn bindings(&self) -> &BTreeMap<Bindable, StrategyAction> {
-        match self {
-            ExtendedStrategyConfig::StaticTuning { bindings, .. } => bindings,
-        }
-    }
-
-    pub fn bindings_mut(&mut self) -> &mut BTreeMap<Bindable, StrategyAction> {
-        match self {
-            ExtendedStrategyConfig::StaticTuning { bindings, .. } => bindings,
+    // todo make this test something?
+    fn join(strat: StrategyConfig<T>, bindings: Bindings, names: StrategyNames) -> Self {
+        match strat {
+            StrategyConfig::StaticTuning(StaticTuningConfig {
+                mut neighbourhoods,
+                tuning_reference,
+                reference,
+            }) => Self::StaticTuning {
+                name: names.name,
+                description: names.description,
+                bindings,
+                neighbourhoods: neighbourhoods
+                    .drain(..)
+                    .enumerate()
+                    .map(|(i, SomeCompleteNeighbourhood::PeriodicComplete(inner))| {
+                        NamedCompleteNeighbourhood::PeriodicComplete {
+                            name: names.neighbourhood_names[i].clone(),
+                            inner,
+                        }
+                    })
+                    .collect(),
+                tuning_reference,
+                reference,
+            },
         }
     }
 }

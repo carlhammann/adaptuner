@@ -3,7 +3,7 @@ use std::{sync::mpsc, time::Instant};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::StrategyConfig,
+    config::{ExtractConfig, StrategyConfig},
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
@@ -309,7 +309,9 @@ impl<T: StackType> Strategy<T> for StaticTuning<T> {
             self.retune_all(keys, tunings, time, forward);
         }
     }
+}
 
+impl<T: StackType> ExtractConfig<StrategyConfig<T>> for StaticTuning<T> {
     fn extract_config(&self) -> StrategyConfig<T> {
         StrategyConfig::StaticTuning(StaticTuningConfig {
             neighbourhoods: self.neighbourhoods.clone(),

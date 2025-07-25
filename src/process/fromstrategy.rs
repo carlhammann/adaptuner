@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt, sync::mpsc, time::Instant};
+use std::{fmt, sync::mpsc, time::Instant};
 
 use midi_msg::{
     Channel,
@@ -8,15 +8,16 @@ use midi_msg::{
 };
 
 use crate::{
-    bindable::Bindable,
+    bindable::{Bindable, Bindings},
+    config::{ExtractConfig, FromConfigAndState, ProcessConfig},
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromProcess, HandleMsg, ToProcess, ToStrategy},
-    strategy::r#trait::{Strategy, StrategyAction},
+    strategy::r#trait::Strategy,
 };
 
-pub struct ProcessFromStrategy<T: StackType + 'static> {
-    strategies: Vec<(Box<dyn Strategy<T>>, BTreeMap<Bindable, StrategyAction>)>,
+pub struct ProcessFromStrategy<T: StackType> {
+    strategies: Vec<(Box<dyn Strategy<T>>, Bindings)>,
     curr_strategy_index: Option<usize>,
     key_states: [KeyState; 128],
     tunings: [Stack<T>; 128],
@@ -26,9 +27,7 @@ pub struct ProcessFromStrategy<T: StackType + 'static> {
 }
 
 impl<T: StackType> ProcessFromStrategy<T> {
-    pub fn new(
-        strategies: Vec<(Box<dyn Strategy<T>>, BTreeMap<Bindable, StrategyAction>)>,
-    ) -> Self {
+    pub fn new(strategies: Vec<(Box<dyn Strategy<T>>, Bindings)>) -> Self {
         let now = Instant::now();
         Self {
             curr_strategy_index: if strategies.len() > 0 {
@@ -308,12 +307,11 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                 }
             }
             ToProcess::StrategyListAction { action, time } => {
-                action
-                    .apply_to(
-                        |(strat, bind)| (strat.extract_config().realize(), bind.clone()),
-                        &mut self.strategies,
-                        &mut self.curr_strategy_index,
-                    );
+                action.apply_to(
+                    |(strat, bind)| (strat.extract_config().realize(), bind.clone()),
+                    &mut self.strategies,
+                    &mut self.curr_strategy_index,
+                );
                 self.start(time, forward);
             }
             ToProcess::BindAction { action, bindable } => {
@@ -327,5 +325,24 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                 }
             }
         }
+    }
+}
+
+impl<T: StackType> ExtractConfig<ProcessConfig<T>> for ProcessFromStrategy<T> {
+    fn extract_config(&self) -> ProcessConfig<T> {
+        ProcessConfig {
+            strategies: self
+                .strategies
+                .iter()
+                .map(|(s, b)| (s.extract_config(), b.clone()))
+                .collect(),
+        }
+    }
+}
+
+impl <T:StackType, S> FromConfigAndState<ProcessConfig<T>, S> for ProcessFromStrategy<T> {
+    fn initialise(config: ProcessConfig<T>, _state: S) -> Self {
+        let ProcessConfig { mut strategies } = config;
+        Self::new(strategies.drain(..).map(|(s,b)| (s.realize(), b)).collect())
     }
 }
