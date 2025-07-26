@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant};
+use std::{cell::RefCell, rc::Rc, sync::mpsc, time::Instant};
 
 use eframe::egui;
 
@@ -22,7 +22,7 @@ pub struct TuningEditor<T: StackType> {
     temperaments_applied_to_new_reference: Vec<bool>,
     corrections_applied_to_new_reference: Correction<T>,
     notenamestyle: NoteNameStyle,
-    correction_system_chooser: CorrectionSystemChooser<T>,
+    correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
 }
 
 pub struct TuningEditorConfig {
@@ -30,7 +30,10 @@ pub struct TuningEditorConfig {
 }
 
 impl<T: StackType> TuningEditor<T> {
-    pub fn new(config: TuningEditorConfig) -> Self {
+    pub fn new(
+        config: TuningEditorConfig,
+        correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
+    ) -> Self {
         Self {
             reference: None {},
             new_reference: Reference {
@@ -40,9 +43,7 @@ impl<T: StackType> TuningEditor<T> {
             temperaments_applied_to_new_reference: vec![false; T::num_temperaments()],
             corrections_applied_to_new_reference: Correction::new_zero(),
             notenamestyle: config.notenamestyle,
-            correction_system_chooser: CorrectionSystemChooser::new(
-                "tuning editor correction system chooser",
-            ),
+            correction_system_chooser,
         }
     }
 }
@@ -55,8 +56,8 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningEditor<T> {
                 ui.label("Current tuning is ");
                 ui.strong(reference.stack.corrected_notename(
                     &self.notenamestyle,
-                    self.correction_system_chooser.preference_order(),
-                    self.correction_system_chooser.use_cent_values,
+                    self.correction_system_chooser.borrow().preference_order(),
+                    self.correction_system_chooser.borrow().use_cent_values,
                 ));
                 ui.label(" at");
                 ui.strong(format!(" {:.02} Hz", reference.get_frequency()));
@@ -73,7 +74,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningEditor<T> {
             &mut self.temperaments_applied_to_new_reference,
             &mut self.corrections_applied_to_new_reference,
             &mut self.new_reference.stack,
-            self.correction_system_chooser.preference_order()
+            self.correction_system_chooser.borrow().preference_order(),
         );
 
         ui.separator();
@@ -83,8 +84,8 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningEditor<T> {
             ui.label("New tuning will be ");
             ui.strong(self.new_reference.stack.corrected_notename(
                 &self.notenamestyle,
-                self.correction_system_chooser.preference_order(),
-                self.correction_system_chooser.use_cent_values,
+                self.correction_system_chooser.borrow().preference_order(),
+                self.correction_system_chooser.borrow().use_cent_values,
             ));
             ui.label(" at ");
 
@@ -115,10 +116,6 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for TuningEditor<T> {
                 });
             }
         });
-
-        ui.separator();
-
-        self.correction_system_chooser.show(ui);
     }
 }
 

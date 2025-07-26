@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant};
+use std::{cell::RefCell, rc::Rc, sync::mpsc, time::Instant};
 
 use eframe::egui::{self, vec2};
 
@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    common::{ListEdit, ListEditOpts, SmallFloatingWindow},
+    common::{CorrectionSystemChooser, ListEdit, ListEditOpts, SmallFloatingWindow},
     editor::{
         binding::{bindable_selector, strategy_action_selector},
         neighbourhood::NeighbourhoodEditor,
@@ -51,6 +51,7 @@ impl<T: StackType> StrategyWindows<T> {
         strategies: Vec<(StrategyNames, Bindings)>,
         tuning_editor: TuningEditorConfig,
         reference_editor: ReferenceEditorConfig,
+        correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
     ) -> Self {
         Self {
             strategies: ListEdit::new(strategies),
@@ -58,11 +59,11 @@ impl<T: StackType> StrategyWindows<T> {
                 "strategy_list_editor_window",
             )),
             tuning_editor_window: SmallFloatingWindow::new(egui::Id::new("tuning_editor_window")),
-            tuning_editor: TuningEditor::new(tuning_editor),
+            tuning_editor: TuningEditor::new(tuning_editor, correction_system_chooser.clone()),
             reference_editor_window: SmallFloatingWindow::new(egui::Id::new(
                 "reference_editor_window",
             )),
-            reference_editor: ReferenceEditor::new(reference_editor),
+            reference_editor: ReferenceEditor::new(reference_editor, correction_system_chooser),
             neighbourhood_editor_window: SmallFloatingWindow::new(egui::Id::new(
                 "neigbourhood_editor_window",
             )),

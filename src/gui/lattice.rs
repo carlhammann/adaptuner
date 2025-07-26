@@ -1,4 +1,4 @@
-use std::{hash::Hash, sync::mpsc, time::Instant};
+use std::{cell::RefCell, hash::Hash, rc::Rc, sync::mpsc, time::Instant};
 
 use eframe::egui::{self, pos2, vec2};
 use midi_msg::Channel;
@@ -37,7 +37,7 @@ const FONT_SIZE: f32 = 2.0;
 const FAINT_GRID_LINE_THICKNESS: f32 = MARKER_THICKNESS;
 const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
 
-pub struct LatticeWindowControls<T: StackType> {
+pub struct LatticeWindowConfig<T: StackType> {
     pub zoom: f32,
     pub interval_heights: Vec<f32>,
     pub background_stack_distances: Vec<StackCoeff>,
@@ -48,6 +48,51 @@ pub struct LatticeWindowControls<T: StackType> {
     pub screen_keyboard_center: u8,
     pub notenamestyle: NoteNameStyle,
     pub correction_system_chooser: CorrectionSystemChooser<T>,
+    pub highlight_playable_keys: bool,
+}
+
+impl<T: StackType> LatticeWindowConfig<T> {
+    pub fn to_controls(self) -> LatticeWindowControls<T> {
+        let LatticeWindowConfig {
+            zoom,
+            interval_heights,
+            background_stack_distances,
+            project_dimension,
+            screen_keyboard_channel,
+            screen_keyboard_velocity,
+            screen_keyboard_pedal_hold,
+            screen_keyboard_center,
+            notenamestyle,
+            correction_system_chooser,
+            highlight_playable_keys,
+        } = self;
+        LatticeWindowControls {
+            zoom,
+            interval_heights,
+            background_stack_distances,
+            project_dimension,
+            screen_keyboard_channel,
+            screen_keyboard_velocity,
+            screen_keyboard_pedal_hold,
+            screen_keyboard_center,
+            notenamestyle,
+            correction_system_chooser: Rc::new(RefCell::new(correction_system_chooser)),
+            highlight_playable_keys,
+        }
+    }
+}
+
+pub struct LatticeWindowControls<T: StackType> {
+    pub zoom: f32,
+    pub interval_heights: Vec<f32>,
+    pub background_stack_distances: Vec<StackCoeff>,
+    pub project_dimension: usize,
+    pub screen_keyboard_channel: Channel,
+    pub screen_keyboard_velocity: u8,
+    pub screen_keyboard_pedal_hold: bool,
+    pub screen_keyboard_center: u8,
+    pub notenamestyle: NoteNameStyle,
+    pub correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
     pub highlight_playable_keys: bool,
 }
 
@@ -134,8 +179,14 @@ impl<T: FiveLimitStackType> LatticeWindow<T> {
     pub fn reference_corrected_note_name(&self) -> String {
         self.reference.corrected_notename(
             &self.controls.notenamestyle,
-            self.controls.correction_system_chooser.preference_order(),
-            self.controls.correction_system_chooser.use_cent_values,
+            self.controls
+                .correction_system_chooser
+                .borrow()
+                .preference_order(),
+            self.controls
+                .correction_system_chooser
+                .borrow()
+                .use_cent_values,
         )
     }
 }
@@ -205,12 +256,16 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
                     text_color,
                 );
             };
-            if controls.correction_system_chooser.use_cent_values {
+            if controls.correction_system_chooser.borrow().use_cent_values {
                 write_cents();
             } else {
-                if let Some(correction) =
-                    Correction::new(stack, controls.correction_system_chooser.preference_order())
-                {
+                if let Some(correction) = Correction::new(
+                    stack,
+                    controls
+                        .correction_system_chooser
+                        .borrow()
+                        .preference_order(),
+                ) {
                     ui.painter().text(
                         pos2(hpos, second_line_vpos),
                         egui::Align2::CENTER_CENTER,
@@ -261,7 +316,10 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
 
             if !self.tmp_correction.set_with(
                 &self.tmp_relative_stack,
-                controls.correction_system_chooser.preference_order(),
+                controls
+                    .correction_system_chooser
+                    .borrow()
+                    .preference_order(),
             ) {
                 self.tmp_correction.reset_to_zero();
             }
@@ -277,14 +335,20 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
                         "make pure relative to {}",
                         reference.corrected_notename(
                             &controls.notenamestyle,
-                            controls.correction_system_chooser.preference_order(),
-                            controls.correction_system_chooser.use_cent_values,
+                            controls
+                                .correction_system_chooser
+                                .borrow()
+                                .preference_order(),
+                            controls.correction_system_chooser.borrow().use_cent_values,
                         )
                     )),
                     ui,
                     &mut self.tmp_correction,
                     &mut self.tmp_relative_stack,
-                    controls.correction_system_chooser.preference_order(),
+                    controls
+                        .correction_system_chooser
+                        .borrow()
+                        .preference_order(),
                 ) {
                     let _ = forward.send(FromUi::Consider {
                         stack: self.tmp_relative_stack.clone(),

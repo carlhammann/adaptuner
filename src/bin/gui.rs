@@ -1,4 +1,7 @@
-use std::error::Error;
+use std::{
+    error::Error,
+    sync::{Arc, RwLock},
+};
 
 use midi_msg::Channel;
 
@@ -8,10 +11,10 @@ use adaptuner::{
     gui::{
         common::CorrectionSystemChooser,
         editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
-        lattice::LatticeWindowControls,
+        lattice::LatticeWindowConfig,
         toplevel::Toplevel,
     },
-    interval::stacktype::{fivelimit::TheFiveLimitStackType, r#trait::StackType},
+    interval::stacktype::fivelimit::TheFiveLimitStackType,
     notename::NoteNameStyle,
     process::fromstrategy::ProcessFromStrategy,
     run::RunState,
@@ -39,7 +42,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let backend_window_config = backend_config.clone();
 
-    let lattice_window_config = LatticeWindowControls {
+    let lattice_window_config = LatticeWindowConfig {
         zoom: 10.0,
         notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
         interval_heights: vec![
@@ -103,7 +106,8 @@ fn run() -> Result<(), Box<dyn Error>> {
             gui_config,
             config.temperaments,
             config.named_intervals
-        )).unwrap()
+        ))
+        .unwrap()
     );
 
     Ok(())

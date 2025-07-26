@@ -350,31 +350,26 @@ impl<T: StackType> CorrectionSystemChooser<T> {
                 &mut self.use_cent_values,
                 "write temperaments as cent values",
             );
-            ui.vertical(|ui| {
-                if self.use_cent_values {
-                    ui.disable();
-                }
-                ui.label("preference for note names:");
-                let _ = self.preference_order.show(
-                    ui,
-                    self.id_salt,
-                    ListEditOpts {
-                        empty_allowed: false,
-                        select_allowed: false,
-                        no_selection_allowed: false,
-                        delete_allowed: false,
-                        show_one: Box::new(|ui, _, i| {
-                            ui.label(format!(
-                                "{} ('{}')",
-                                T::named_intervals()[*i].name,
-                                T::named_intervals()[*i].short_name
-                            ));
-                            None::<()> {}
-                        }),
-                        clone: None {},
-                    },
-                );
-            });
+            ui.label("preference order for commas:");
+            let _ = self.preference_order.show(
+                ui,
+                self.id_salt,
+                ListEditOpts {
+                    empty_allowed: false,
+                    select_allowed: false,
+                    no_selection_allowed: false,
+                    delete_allowed: false,
+                    show_one: Box::new(|ui, _, i| {
+                        ui.label(format!(
+                            "{} ('{}')",
+                            T::named_intervals()[*i].name,
+                            T::named_intervals()[*i].short_name
+                        ));
+                        None::<()> {}
+                    }),
+                    clone: None {},
+                },
+            );
         });
     }
 }

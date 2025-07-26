@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant};
+use std::{cell::RefCell, rc::Rc, sync::mpsc, time::Instant};
 
 use eframe::egui;
 
@@ -21,7 +21,7 @@ pub struct ReferenceEditor<T: StackType> {
     temperaments_applied_to_new_reference: Vec<bool>,
     corrections_applied_to_new_reference: Correction<T>,
     notenamestyle: NoteNameStyle,
-    correction_system_chooser: CorrectionSystemChooser<T>,
+    correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
 }
 
 pub struct ReferenceEditorConfig {
@@ -29,16 +29,17 @@ pub struct ReferenceEditorConfig {
 }
 
 impl<T: StackType> ReferenceEditor<T> {
-    pub fn new(config: ReferenceEditorConfig) -> Self {
+    pub fn new(
+        config: ReferenceEditorConfig,
+        correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
+    ) -> Self {
         Self {
             reference: None {},
             new_reference: Stack::new_zero(),
             temperaments_applied_to_new_reference: vec![false; T::num_temperaments()],
             corrections_applied_to_new_reference: Correction::new_zero(),
             notenamestyle: config.notenamestyle,
-            correction_system_chooser: CorrectionSystemChooser::new(
-                "reference editor correction system chooser",
-            ),
+            correction_system_chooser,
         }
     }
 }
@@ -51,8 +52,8 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceEditor<T> {
                 ui.label("Current reference is ");
                 ui.strong(reference.corrected_notename(
                     &self.notenamestyle,
-                    self.correction_system_chooser.preference_order(),
-                    self.correction_system_chooser.use_cent_values,
+                    self.correction_system_chooser.borrow().preference_order(),
+                    self.correction_system_chooser.borrow().use_cent_values,
                 ));
             });
         } else {
@@ -66,7 +67,7 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceEditor<T> {
             &mut self.temperaments_applied_to_new_reference,
             &mut self.corrections_applied_to_new_reference,
             &mut self.new_reference,
-            self.correction_system_chooser.preference_order()
+            self.correction_system_chooser.borrow().preference_order(),
         );
 
         ui.separator();
@@ -77,8 +78,8 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceEditor<T> {
                 ui.label("New reference will be ");
                 ui.strong(self.new_reference.corrected_notename(
                     &self.notenamestyle,
-                    self.correction_system_chooser.preference_order(),
-                    self.correction_system_chooser.use_cent_values,
+                    self.correction_system_chooser.borrow().preference_order(),
+                    self.correction_system_chooser.borrow().use_cent_values,
                 ));
             });
         });
@@ -101,10 +102,6 @@ impl<T: FiveLimitStackType + PartialEq> GuiShow<T> for ReferenceEditor<T> {
                 });
             }
         });
-
-        ui.separator();
-
-        self.correction_system_chooser.show(ui);
     }
 }
 

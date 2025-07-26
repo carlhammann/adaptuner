@@ -15,7 +15,7 @@ use super::{
     connection::{ConnectionWindow, Input, Output},
     editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
     latency::LatencyWindow,
-    lattice::{LatticeWindow, LatticeWindowControls},
+    lattice::{LatticeWindow, LatticeWindowConfig},
     latticecontrol::{AsBigControls, AsSmallControls},
     notes::NoteWindow,
     r#trait::GuiShow,
@@ -46,7 +46,7 @@ pub struct Toplevel<T: StackType> {
 impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
     pub fn new(
         strategy_names_and_bindings: Vec<(StrategyNames, Bindings)>,
-        lattice_config: LatticeWindowControls<T>,
+        lattice_config: LatticeWindowConfig<T>,
         reference_editor: ReferenceEditorConfig,
         backend_config: BackendWindowConfig,
         latency_length: usize,
@@ -54,16 +54,20 @@ impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
         ctx: &egui::Context,
         tx: mpsc::Sender<FromUi<T>>,
     ) -> Self {
+        let lattice_controls = lattice_config.to_controls();
+
         Self {
-            lattice: LatticeWindow::new(lattice_config),
-            show_controls: 0,
-            old_show_controls: 1,
 
             strategies: StrategyWindows::new(
                 strategy_names_and_bindings,
                 tuning_editor,
                 reference_editor,
+                lattice_controls.correction_system_chooser.clone(),
             ),
+            
+            lattice: LatticeWindow::new(lattice_controls),
+            show_controls: 0,
+            old_show_controls: 1,
 
             input_connection: ConnectionWindow::new(),
             output_connection: ConnectionWindow::new(),
