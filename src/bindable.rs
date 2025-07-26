@@ -11,28 +11,81 @@ use crate::{
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
-pub enum Bindable {
+pub enum MidiBindable {
     SostenutoPedalDown,
     SostenutoPedalUp,
     SoftPedalDown,
     SoftPedalUp,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+#[serde(untagged)]
+pub enum Bindable {
+    Midi(MidiBindable),
     #[serde(
         deserialize_with = "deserialize_egui_key",
         serialize_with = "serialize_egui_key"
     )]
-    KeyDown(egui::Key),
+    KeyPress(egui::Key),
+}
+
+impl fmt::Display for MidiBindable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            MidiBindable::SostenutoPedalDown => write!(f, "sostenuto pedal down"),
+            MidiBindable::SostenutoPedalUp => write!(f, "sostenuto pedal up"),
+            MidiBindable::SoftPedalDown => write!(f, "soft pedal down"),
+            MidiBindable::SoftPedalUp => write!(f, "soft pedal up"),
+        }
+    }
 }
 
 impl fmt::Display for Bindable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Bindable::SostenutoPedalDown => write!(f, "sostenuto pedal down"),
-            Bindable::SostenutoPedalUp => write!(f, "sostenuto pedal up"),
-            Bindable::SoftPedalDown => write!(f, "soft pedal down"),
-            Bindable::SoftPedalUp => write!(f, "soft pedal up"),
-            Bindable::KeyDown(key) => write!(f, "key press on {}", key.symbol_or_name()),
+            Bindable::Midi(b) => b.fmt(f),
+            Bindable::KeyPress(key) => write!(f, "key press on {}", key.symbol_or_name()),
         }
     }
 }
 
-pub type Bindings = BTreeMap<Bindable, StrategyAction>;
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Bindings<K: Ord>(BTreeMap<K, StrategyAction>);
+
+impl Bindings<Bindable> {
+    pub fn only_midi(&self) -> Bindings<MidiBindable> {
+        let Bindings(m) = self;
+        let mut res = BTreeMap::new();
+        m.iter().for_each(|(k, v)| match k {
+            Bindable::Midi(k) => {
+                res.insert(*k, *v);
+            }
+            _ => {}
+        });
+        Bindings(res)
+    }
+}
+
+impl<K: Ord> Bindings<K> {
+    pub fn get(&self, bindable: &K) -> Option<&StrategyAction> {
+        let Bindings(m) = self;
+        m.get(bindable)
+    }
+
+    pub fn insert(&mut self, bindable: K, action: StrategyAction) -> Option<StrategyAction> {
+        let Bindings(m) = self;
+        m.insert(bindable, action)
+    }
+
+    pub fn remove(&mut self, bindable: &K) -> Option<StrategyAction> {
+        let Bindings(m) = self;
+        m.remove(bindable)
+    }
+
+    pub fn iter(&mut self) -> std::collections::btree_map::Iter<'_, K, StrategyAction> {
+        let Bindings(m) = self;
+        m.iter()
+    }
+}

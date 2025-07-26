@@ -3,7 +3,7 @@ use std::{hash::Hash, sync::mpsc};
 use eframe::{self, egui};
 
 use crate::{
-    bindable::Bindings,
+    bindable::{Bindable, Bindings},
     config::{ExtractConfig, GuiConfig, StrategyNames},
     interval::stacktype::r#trait::{FiveLimitStackType, StackType},
     msg::{FromUi, HandleMsg, HandleMsgRef, ToUi},
@@ -45,7 +45,7 @@ pub struct Toplevel<T: StackType> {
 
 impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
     pub fn new(
-        strategy_names_and_bindings: Vec<(StrategyNames, Bindings)>,
+        strategy_names_and_bindings: Vec<(StrategyNames, Bindings<Bindable>)>,
         lattice_config: LatticeWindowConfig<T>,
         reference_editor: ReferenceEditorConfig,
         backend_config: BackendWindowConfig,
@@ -57,14 +57,13 @@ impl<T: FiveLimitStackType + Hash + Eq> Toplevel<T> {
         let lattice_controls = lattice_config.to_controls();
 
         Self {
-
             strategies: StrategyWindows::new(
                 strategy_names_and_bindings,
                 tuning_editor,
                 reference_editor,
                 lattice_controls.correction_system_chooser.clone(),
             ),
-            
+
             lattice: LatticeWindow::new(lattice_controls),
             show_controls: 0,
             old_show_controls: 1,
@@ -161,8 +160,8 @@ impl<T: FiveLimitStackType + Hash + Eq + 'static> eframe::App for Toplevel<T> {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.lattice.show(ui, &self.tx);
             AsWindows(&mut self.strategies).show(ui, &self.tx);
+            self.lattice.show(ui, &self.tx);
         });
 
         let note_window_id = egui::Id::new("note_window_id");

@@ -7,7 +7,7 @@ use midi_msg::Channel;
 use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
-    bindable::Bindable,
+    bindable::MidiBindable,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     reference::Reference,
     strategy::r#trait::StrategyAction,
@@ -81,7 +81,7 @@ pub enum ToProcess<T: StackType> {
     },
     BindAction {
         action: Option<StrategyAction>,
-        bindable: Bindable,
+        bindable: MidiBindable,
     },
     StrategyListAction {
         action: ListAction,
@@ -405,7 +405,7 @@ pub enum FromUi<T: StackType> {
     },
     BindAction {
         action: Option<StrategyAction>,
-        bindable: Bindable,
+        bindable: MidiBindable,
     },
 }
 

@@ -8,7 +8,7 @@ use midi_msg::{
 };
 
 use crate::{
-    bindable::{Bindable, Bindings},
+    bindable::{MidiBindable, Bindings},
     config::{ExtractConfig, FromConfigAndState, ProcessConfig},
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub struct ProcessFromStrategy<T: StackType> {
-    strategies: Vec<(Box<dyn Strategy<T>>, Bindings)>,
+    strategies: Vec<(Box<dyn Strategy<T>>, Bindings<MidiBindable>)>,
     curr_strategy_index: Option<usize>,
     key_states: [KeyState; 128],
     tunings: [Stack<T>; 128],
@@ -27,7 +27,7 @@ pub struct ProcessFromStrategy<T: StackType> {
 }
 
 impl<T: StackType> ProcessFromStrategy<T> {
-    pub fn new(strategies: Vec<(Box<dyn Strategy<T>>, Bindings)>) -> Self {
+    pub fn new(strategies: Vec<(Box<dyn Strategy<T>>, Bindings<MidiBindable>)>) -> Self {
         let now = Instant::now();
         Self {
             curr_strategy_index: if strategies.len() > 0 {
@@ -83,8 +83,8 @@ impl<T: StackType> ProcessFromStrategy<T> {
                     self.sostenuto_hold[channel as usize] = value > 0;
                     let is_down = self.sostenuto_hold.iter().any(|b| *b);
                     let action = match (was_down, is_down) {
-                        (false, true) => bindings.get(&Bindable::SostenutoPedalDown),
-                        (true, false) => bindings.get(&Bindable::SostenutoPedalUp),
+                        (false, true) => bindings.get(&MidiBindable::SostenutoPedalDown),
+                        (true, false) => bindings.get(&MidiBindable::SostenutoPedalUp),
                         _ => None {},
                     };
                     if let Some(&action) = action {
@@ -113,8 +113,8 @@ impl<T: StackType> ProcessFromStrategy<T> {
                     self.soft_hold[channel as usize] = value > 0;
                     let is_down = self.soft_hold.iter().any(|b| *b);
                     let action = match (was_down, is_down) {
-                        (false, true) => bindings.get(&Bindable::SoftPedalDown),
-                        (true, false) => bindings.get(&Bindable::SoftPedalUp),
+                        (false, true) => bindings.get(&MidiBindable::SoftPedalDown),
+                        (true, false) => bindings.get(&MidiBindable::SoftPedalUp),
                         _ => None {},
                     };
                     if let Some(&action) = action {

@@ -7,7 +7,6 @@ use crate::{
     config::{StrategyKind, StrategyNames},
     interval::stacktype::r#trait::{FiveLimitStackType, StackType},
     msg::{FromUi, HandleMsgRef, ToUi},
-    strategy::r#trait::StrategyAction,
     util::list_action::ListAction,
 };
 
@@ -16,7 +15,7 @@ use super::{
         CorrectionSystemChooser, ListEdit, ListEditOpts, OwningListEdit, SmallFloatingWindow,
     },
     editor::{
-        binding::{bindable_selector, strategy_action_selector},
+        binding::BindingEditor,
         neighbourhood::NeighbourhoodEditor,
         reference::{ReferenceEditor, ReferenceEditorConfig},
         tuning::{TuningEditor, TuningEditorConfig},
@@ -26,7 +25,7 @@ use super::{
 
 pub struct StrategyWindows<T: StackType + 'static> {
     strategy_list_editor_window: SmallFloatingWindow,
-    strategies: OwningListEdit<(StrategyNames, Bindings)>,
+    strategies: OwningListEdit<(StrategyNames, Bindings<Bindable>)>,
 
     tuning_editor_window: SmallFloatingWindow,
     tuning_editor: TuningEditor<T>,
@@ -38,19 +37,20 @@ pub struct StrategyWindows<T: StackType + 'static> {
     neighbourhood_editor: NeighbourhoodEditor<T>,
 
     binding_editor_window: SmallFloatingWindow,
-    tmp_strategy_action: Option<StrategyAction>,
-    tmp_bindable: Bindable,
-    tmp_key_name: String,
-    tmp_key_name_invalid: bool,
+    binding_editor: BindingEditor,
+    // tmp_strategy_action: Option<StrategyAction>,
+    // tmp_bindable: Bindable,
+    // tmp_key_name: String,
+    // tmp_key_name_invalid: bool,
 }
 
 impl<T: StackType> StrategyWindows<T> {
-    pub fn strategies(&self) -> &[(StrategyNames, Bindings)] {
+    pub fn strategies(&self) -> &[(StrategyNames, Bindings<Bindable>)] {
         self.strategies.elems()
     }
 
     pub fn new(
-        strategies: Vec<(StrategyNames, Bindings)>,
+        strategies: Vec<(StrategyNames, Bindings<Bindable>)>,
         tuning_editor: TuningEditorConfig,
         reference_editor: ReferenceEditorConfig,
         correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
@@ -71,10 +71,11 @@ impl<T: StackType> StrategyWindows<T> {
             )),
             neighbourhood_editor: NeighbourhoodEditor::new(),
             binding_editor_window: SmallFloatingWindow::new(egui::Id::new("binding_editor_window")),
-            tmp_strategy_action: None {},
-            tmp_bindable: Bindable::SostenutoPedalDown,
-            tmp_key_name: "Space".into(),
-            tmp_key_name_invalid: false,
+            binding_editor: BindingEditor::new(),
+            // tmp_strategy_action: None {},
+            // tmp_bindable: Bindable::SostenutoPedalDown,
+            // tmp_key_name: "Space".into(),
+            // tmp_key_name_invalid: false,
         }
     }
 }
@@ -83,17 +84,11 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::CurrentStrategyIndex(index) => {
-                // if let Some((strn, bnd)) = self.strategies.current_selected_mut() {
-                //     strn.neighbourhood_names = self.neighbourhood_editor.get_all().into();
-                // }
                 if let Some(i) = index {
                     self.strategies.apply(ListAction::Select(*i));
                 } else {
                     self.strategies.apply(ListAction::Deselect);
                 }
-                // if let Some((strn, _)) = self.strategies.current_selected() {
-                //     self.neighbourhood_editor.set_all(&strn.neighbourhood_names);
-                // }
             }
             _ => {}
         }
@@ -154,13 +149,40 @@ pub struct AsWindows<'a, T: StackType + 'static>(pub &'a mut StrategyWindows<T>)
 impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         self.display_strategy_list_editor_window(ui, forward);
-        self.display_binding_window(ui, forward);
 
         let AsWindows(x) = self;
         let ctx = ui.ctx();
 
-        if let Some((strn, _)) = x.strategies.current_selected_mut() {
-            let current_name = &strn.name;
+        if let Some(curr) = x.strategies.current_selected_mut() {
+            if ui.ui_contains_pointer() {
+                ui.input(|i| {
+                    for e in &i.events {
+                        match e {
+                            egui::Event::Key {
+                                key,
+                                pressed,
+                                repeat,
+                                ..
+                            } => {
+                                if !*pressed || *repeat {
+                                    return;
+                                }
+                                let bindings = &curr.1;
+                                if let Some(&action) = bindings.get(&Bindable::KeyPress(*key)) {
+                                    let _ = forward.send(FromUi::Action {
+                                        action,
+                                        time: Instant::now(),
+                                    });
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                });
+            }
+
+            let current_name = &curr.0.name;
+
             x.tuning_editor_window
                 .show(&format!("global tuning ({current_name})"), ctx, |ui| {
                     x.tuning_editor.show(ui, forward);
@@ -176,9 +198,15 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
                 ctx,
                 |ui| {
                     x.neighbourhood_editor
-                        .show(ui, &mut strn.neighbourhood_names, forward);
+                        .show(ui, &mut curr.0.neighbourhood_names, forward);
                 },
             );
+
+            x.binding_editor_window
+                .show(&format!("bindings ({current_name})"), ctx, |ui| {
+                    x.binding_editor
+                        .show(ui, curr.0.strategy_kind, &mut curr.1, forward);
+                });
         }
     }
 }
@@ -242,66 +270,5 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                     super::common::ListEditResult::None => {}
                 }
             });
-    }
-
-    fn display_binding_window(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        let AsWindows(x) = self;
-
-        if let Some((strn, bindings)) = x.strategies.current_selected_mut() {
-            let ctx = ui.ctx();
-
-            x.binding_editor_window
-                .show(&format!("bindings ({})", strn.name), ctx, |ui| {
-                    egui::Grid::new("active binding grid").show(ui, |ui| {
-                        for (k, v) in bindings.iter_mut() {
-                            ui.label(format!("{k}"));
-                            // *x.tmp_strategy_action = v;
-                            // if strategy_action_selector(
-                            //     ui,
-                            //     current.strategy_kind(),
-                            //     *k,
-                            //    v,
-                            //     // &mut x.tmp_strategy_action,
-                            // ) {
-                            //     if let Some(action) = x.tmp_strategy_action {
-                            //         current.bindings.insert(*k, action);
-                            //     } else {
-                            //         current.bindings.remove(k);
-                            //     }
-                            // }
-                            ui.label(format!("{v}"));
-                            ui.end_row();
-                        }
-                    });
-
-                    ui.separator();
-                    ui.label("add or change a binding:");
-                    ui.horizontal(|ui| {
-                        bindable_selector(
-                            ui,
-                            &mut x.tmp_bindable,
-                            &mut x.tmp_key_name,
-                            &mut x.tmp_key_name_invalid,
-                        );
-                        x.tmp_strategy_action = bindings.get(&x.tmp_bindable).map(|x| *x);
-                        if strategy_action_selector(
-                            ui,
-                            strn.strategy_kind,
-                            x.tmp_bindable,
-                            &mut x.tmp_strategy_action,
-                        ) {
-                            if let Some(action) = x.tmp_strategy_action {
-                                bindings.insert(x.tmp_bindable, action);
-                            } else {
-                                bindings.remove(&x.tmp_bindable);
-                            }
-                            let _ = forward.send(FromUi::BindAction {
-                                action: x.tmp_strategy_action,
-                                bindable: x.tmp_bindable,
-                            });
-                        }
-                    });
-                });
-        }
     }
 }

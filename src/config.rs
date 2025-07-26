@@ -2,7 +2,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
-    bindable::Bindings,
+    bindable::{Bindable, Bindings, MidiBindable},
     custom_serde::common::deserialize_nonempty,
     interval::{
         stack::Stack,
@@ -41,12 +41,12 @@ impl<T: StackType> StrategyConfig<T> {
 }
 
 pub struct ProcessConfig<T: IntervalBasis> {
-    pub strategies: Vec<(StrategyConfig<T>, Bindings)>,
+    pub strategies: Vec<(StrategyConfig<T>, Bindings<MidiBindable>)>,
 }
 
 #[derive(Clone)]
 pub struct GuiConfig {
-    pub strategies: Vec<(StrategyNames, Bindings)>,
+    pub strategies: Vec<(StrategyNames, Bindings<Bindable>)>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -86,7 +86,7 @@ impl<T: IntervalBasis> Config<T> {
         let mut ui = Vec::with_capacity(self.strategies.len());
         self.strategies.iter().for_each(|esc| {
             let (sc, bs, ns) = esc.split();
-            process.push((sc, bs.clone()));
+            process.push((sc, bs.only_midi()));
             ui.push((ns, bs))
         });
         (
@@ -119,7 +119,7 @@ impl<T: IntervalBasis> Config<T> {
                     .strategies
                     .drain(..)
                     .zip(gui.strategies.drain(..))
-                    .map(|((strat, bindings), (names, _))| {
+                    .map(|((strat, _midi_bindings), (names, bindings))| {
                         ExtendedStrategyConfig::join(strat, bindings, names)
                     })
                     .collect()
@@ -187,7 +187,7 @@ pub enum ExtendedStrategyConfig<T: IntervalBasis> {
     StaticTuning {
         name: String,
         description: String,
-        bindings: Bindings,
+        bindings: Bindings<Bindable>,
         #[serde(deserialize_with = "deserialize_nonempty_neighbourhoods")]
         neighbourhoods: Vec<NamedCompleteNeighbourhood<T>>,
         tuning_reference: Reference<T>,
@@ -217,7 +217,7 @@ pub struct StrategyNames {
 }
 
 impl<T: IntervalBasis> ExtendedStrategyConfig<T> {
-    fn split(&self) -> (StrategyConfig<T>, Bindings, StrategyNames) {
+    fn split(&self) -> (StrategyConfig<T>, Bindings<Bindable>, StrategyNames) {
         match self {
             ExtendedStrategyConfig::StaticTuning {
                 name,
@@ -250,7 +250,7 @@ impl<T: IntervalBasis> ExtendedStrategyConfig<T> {
     }
 
     // todo make this test something?
-    fn join(strat: StrategyConfig<T>, bindings: Bindings, mut names: StrategyNames) -> Self {
+    fn join(strat: StrategyConfig<T>, bindings: Bindings<Bindable>, mut names: StrategyNames) -> Self {
         match strat {
             StrategyConfig::StaticTuning(StaticTuningConfig {
                 mut neighbourhoods,

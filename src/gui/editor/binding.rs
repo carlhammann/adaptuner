@@ -1,6 +1,110 @@
+use std::sync::mpsc;
+
 use eframe::egui;
 
-use crate::{bindable::Bindable, config::StrategyKind, strategy::r#trait::StrategyAction};
+use crate::{
+    bindable::{Bindable, Bindings, MidiBindable},
+    config::StrategyKind,
+    interval::stacktype::r#trait::StackType,
+    msg::FromUi,
+    strategy::r#trait::StrategyAction,
+};
+
+pub struct BindingEditor {
+    tmp_bindable: Bindable,
+    tmp_key_name: String,
+    tmp_key_name_invalid: bool,
+    tmp_strategy_action: Option<StrategyAction>,
+    changed_binding: Option<(Bindable, Option<StrategyAction>)>,
+}
+
+impl BindingEditor {
+    pub fn new() -> Self {
+        Self {
+            tmp_bindable: Bindable::Midi(MidiBindable::SostenutoPedalDown),
+            tmp_key_name: String::with_capacity(16),
+            tmp_key_name_invalid: true,
+            tmp_strategy_action: None {},
+            changed_binding: None {},
+        }
+    }
+
+    pub fn show<T: StackType>(
+        &mut self,
+        ui: &mut egui::Ui,
+        strategy_kind: StrategyKind,
+        bindings: &mut Bindings<Bindable>,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
+        ui.vertical(|ui| {
+            ui.shrink_width_to_current();
+            egui::Grid::new("binding_editor_grid").show(ui, |ui| {
+                for (k, v) in bindings.iter() {
+                    ui.label(format!("{k}"));
+
+                    self.tmp_strategy_action = Some(*v);
+                    if strategy_action_selector(
+                        ui,
+                        strategy_kind,
+                        *k,
+                        &mut self.tmp_strategy_action,
+                    ) {
+                        if self.changed_binding.is_none() {
+                            self.changed_binding = Some((*k, self.tmp_strategy_action));
+                        }
+                    }
+
+                    if ui.button("delete").clicked() {
+                        if self.changed_binding.is_none() {
+                            self.changed_binding = Some((*k, None {}));
+                        }
+                    }
+
+                    ui.end_row();
+                }
+            });
+
+            ui.separator();
+
+            self.tmp_strategy_action = None {};
+
+            ui.add(egui::Label::new("add a binding:").wrap_mode(egui::TextWrapMode::Extend));
+            ui.horizontal(|ui| {
+                bindable_selector(
+                    ui,
+                    &mut self.tmp_bindable,
+                    &mut self.tmp_key_name,
+                    &mut self.tmp_key_name_invalid,
+                );
+                self.tmp_strategy_action = bindings.get(&self.tmp_bindable).map(|x| *x);
+                if strategy_action_selector(
+                    ui,
+                    strategy_kind,
+                    self.tmp_bindable,
+                    &mut self.tmp_strategy_action,
+                ) {
+                    if self.changed_binding.is_none() {
+                        self.changed_binding = Some((self.tmp_bindable, self.tmp_strategy_action));
+                    }
+                }
+
+                if let Some((bindable, action)) = self.changed_binding {
+                    if let Some(action) = action {
+                        bindings.insert(bindable, action);
+                    } else {
+                        bindings.remove(&bindable);
+                    }
+
+                    if let Bindable::Midi(bindable) = bindable {
+                        let _ = forward.send(FromUi::BindAction { action, bindable });
+                    }
+
+                    self.changed_binding = None {}
+                }
+            });
+        });
+    }
+}
 
 pub fn bindable_selector(
     ui: &mut egui::Ui,
@@ -15,10 +119,22 @@ pub fn bindable_selector(
             let close_popup = |ui: &mut egui::Ui| ui.memory_mut(|m| m.close_popup());
 
             for (bindable, description) in [
-                (Bindable::SostenutoPedalDown, "If this is set, the sostenuto pedal will lose its normal function."),
-                (Bindable::SostenutoPedalUp, "If this is set, the sostenuto pedal will lose its normal function."),
-                (Bindable::SoftPedalDown, "If this is set, the soft pedal will lose its normal function."),
-                (Bindable::SoftPedalUp, "If this is set, the soft pedal will lose its normal function."),
+                (
+                    Bindable::Midi(MidiBindable::SostenutoPedalDown),
+                    "If this is set, the sostenuto pedal will lose its normal function.",
+                ),
+                (
+                    Bindable::Midi(MidiBindable::SostenutoPedalUp),
+                    "If this is set, the sostenuto pedal will lose its normal function.",
+                ),
+                (
+                    Bindable::Midi(MidiBindable::SoftPedalDown),
+                    "If this is set, the soft pedal will lose its normal function.",
+                ),
+                (
+                    Bindable::Midi(MidiBindable::SoftPedalUp),
+                    "If this is set, the soft pedal will lose its normal function.",
+                ),
             ] {
                 let r = ui
                     .selectable_value(tmp_bindable, bindable, format!("{bindable}"))
@@ -31,18 +147,18 @@ pub fn bindable_selector(
 
             ui.horizontal(|ui| {
                 ui.style_mut().spacing.text_edit_width = 3.0 * ui.style().spacing.interact_size.y;
-                if let Bindable::KeyDown(key) = tmp_bindable {
+                if let Bindable::KeyPress(key) = tmp_bindable {
                     let mut b = true;
                     ui.selectable_value(&mut b, true, "key press on");
                     let r = ui
                         .text_edit_singleline(tmp_key_name)
                         .on_hover_text_at_pointer(
-                            r#"Key name or single character: 
-• A, B, ...
-• 1, 2, ...
-• F1, F2, ...
-• Esc, Backspace, ...
-• Some keys have several names like 'Minus' and '-'"#,
+                            r#"Key name or single character:
+    • A, B, ...
+    • 1, 2, ...
+    • F1, F2, ...
+    • Esc, Backspace, ...
+    • Some keys have several names like 'Minus' and '-'"#,
                         );
                     if r.gained_focus() {
                         tmp_key_name.clear();
@@ -68,7 +184,7 @@ pub fn bindable_selector(
                 } else {
                     ui.selectable_value(
                         tmp_bindable,
-                        Bindable::KeyDown(egui::Key::Space),
+                        Bindable::KeyPress(egui::Key::Space),
                         "key press on",
                     );
                     *tmp_key_name = "Space".into();
@@ -89,17 +205,17 @@ pub fn strategy_action_selector(
 
     egui::ComboBox::from_id_salt(bindable)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .selected_text(tmp_strategy_action.map_or("no action".into(), |action| format!("{action}")))
+        .selected_text(tmp_strategy_action.map_or("".into(), |action| format!("{action}")))
         .show_ui(ui, |ui| {
             let close_popup = |ui: &mut egui::Ui| {
                 ui.memory_mut(|m| m.close_popup());
             };
 
-            let r = ui.selectable_value(tmp_strategy_action, None {}, "no action");
-            if r.clicked() {
-                changed = r.changed();
-                close_popup(ui);
-            }
+            // let r = ui.selectable_value(tmp_strategy_action, None {}, "no action");
+            // if r.clicked() {
+            //     changed = r.changed();
+            //     close_popup(ui);
+            // }
 
             if strategy_kind.increment_neighbourhood_index_allowed() {
                 ui.horizontal(|ui| {
