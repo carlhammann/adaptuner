@@ -712,7 +712,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
             .iter()
             .fold(0.0, |acc: f32, (_i, stack)| {
                 let d = stack.target.iter().enumerate().fold(0.0, |acc, (i, c)| {
-                    acc + *c as f32 * self.controls.zoom * self.controls.interval_heights[i].abs()
+                    acc + *c as f32 * self.controls.zoom * self.controls.interval_heights[i]
                 });
                 acc.max(d)
             });
