@@ -83,7 +83,7 @@ impl<'de, T: IntervalBasis> serde::Deserialize<'de> for NamedInterval<T> {
                                 return Err(serde::de::Error::duplicate_field("coeffs"));
                             }
                             let NamedCoefficients { coeffs: inner, .. } =
-                                map.next_value::<NamedCoefficients<T, StackCoeff>>()?;
+                                map.next_value::<NamedCoefficients<T, Ratio<StackCoeff>>>()?;
                             coeffs = Some(inner);
                         }
                     }
