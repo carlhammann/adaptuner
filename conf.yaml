@@ -43,8 +43,8 @@ temperaments:
   - tempered:
       third: 6
     pure:
-      octave: -4 
-      fifth: 8 
+      octave: -4
+      fifth: 8
       third: 4
 - name: '1/3-comma meantone'
   equations:
@@ -93,8 +93,12 @@ strategies:
     • define the (static) tuning of all 12 notes as a "neighbourhood" of the reference note,
     • switch between different neighbourhoods on the fly, and
     • reset the reference note on the fly.
-  neighbourhoods: 
-  - !periodic-complete 
+  bindings:
+    sostenuto-pedal-down: !increment-neighbourhood-index 1
+    sostenuto-pedal-up: !increment-neighbourhood-index -1
+    soft-pedal-down: set-reference-to-lowest
+  neighbourhoods:
+  - !periodic-complete
     name: chromatic
     entries:
     - offset: 0
@@ -142,6 +146,58 @@ strategies:
       stack:
         fifth: 1
         third: 1
+  - !periodic-complete
+    name: enharmonic
+    entries:
+    - offset: 0
+      stack: {}
+    - offset: 1
+      stack:
+        octave: 1
+        fifth: -1
+        third: -1
+    - offset: 2
+      stack:
+        octave: -1
+        fifth: 2
+    - offset: 3
+      stack:
+        octave: -1
+        fifth: 1
+        third: 2
+    - offset: 4
+      stack:
+        third: 1
+    - offset: 5
+      stack:
+        octave: 1
+        fifth: -1
+    - offset: 6
+      stack:
+        octave: -1
+        fifth: 2
+        third: 1
+    - offset: 7
+      stack:
+        fifth: 1
+    - offset: 8
+      stack:
+        octave: 1
+        third: -1
+    - offset: 9
+      stack:
+        octave: 1
+        fifth: -1
+        third: 1
+    - offset: 10
+      stack:
+        octave: -1
+        fifth: 2
+        third: 2
+    - offset: 11
+      stack:
+        fifth: 1
+        third: 1
   tuning-reference:
     stack:
       octave: 1
@@ -149,10 +205,6 @@ strategies:
       third: 1
     semitones: 69.0
   reference: {}
-  bindings:
-    sostenuto-pedal-down: !increment-neighbourhood-index 1
-    sostenuto-pedal-up: !increment-neighbourhood-index -1
-    soft-pedal-down: !set-reference-to-lowest
 backend: !pitchbend12
   bend-range: 2.0
   channels:

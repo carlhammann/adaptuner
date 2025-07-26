@@ -12,7 +12,9 @@ use crate::{
 };
 
 use super::{
-    common::{CorrectionSystemChooser, ListEdit, ListEditOpts, SmallFloatingWindow},
+    common::{
+        CorrectionSystemChooser, ListEdit, ListEditOpts, OwningListEdit, SmallFloatingWindow,
+    },
     editor::{
         binding::{bindable_selector, strategy_action_selector},
         neighbourhood::NeighbourhoodEditor,
@@ -24,7 +26,7 @@ use super::{
 
 pub struct StrategyWindows<T: StackType + 'static> {
     strategy_list_editor_window: SmallFloatingWindow,
-    strategies: ListEdit<(StrategyNames, Bindings)>,
+    strategies: OwningListEdit<(StrategyNames, Bindings)>,
 
     tuning_editor_window: SmallFloatingWindow,
     tuning_editor: TuningEditor<T>,
@@ -54,7 +56,7 @@ impl<T: StackType> StrategyWindows<T> {
         correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
     ) -> Self {
         Self {
-            strategies: ListEdit::new(strategies),
+            strategies: OwningListEdit::new(strategies),
             strategy_list_editor_window: SmallFloatingWindow::new(egui::Id::new(
                 "strategy_list_editor_window",
             )),
@@ -67,7 +69,7 @@ impl<T: StackType> StrategyWindows<T> {
             neighbourhood_editor_window: SmallFloatingWindow::new(egui::Id::new(
                 "neigbourhood_editor_window",
             )),
-            neighbourhood_editor: NeighbourhoodEditor::new(vec![]),
+            neighbourhood_editor: NeighbourhoodEditor::new(),
             binding_editor_window: SmallFloatingWindow::new(egui::Id::new("binding_editor_window")),
             tmp_strategy_action: None {},
             tmp_bindable: Bindable::SostenutoPedalDown,
@@ -81,17 +83,17 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::CurrentStrategyIndex(index) => {
-                if let Some((strn, _)) = self.strategies.current_selected_mut() {
-                    strn.neighbourhood_names = self.neighbourhood_editor.get_all().into();
-                }
+                // if let Some((strn, bnd)) = self.strategies.current_selected_mut() {
+                //     strn.neighbourhood_names = self.neighbourhood_editor.get_all().into();
+                // }
                 if let Some(i) = index {
                     self.strategies.apply(ListAction::Select(*i));
                 } else {
                     self.strategies.apply(ListAction::Deselect);
                 }
-                if let Some((strn, _)) = self.strategies.current_selected() {
-                    self.neighbourhood_editor.set_all(&strn.neighbourhood_names);
-                }
+                // if let Some((strn, _)) = self.strategies.current_selected() {
+                //     self.neighbourhood_editor.set_all(&strn.neighbourhood_names);
+                // }
             }
             _ => {}
         }
@@ -157,7 +159,7 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
         let AsWindows(x) = self;
         let ctx = ui.ctx();
 
-        if let Some((strn, _)) = x.strategies.current_selected() {
+        if let Some((strn, _)) = x.strategies.current_selected_mut() {
             let current_name = &strn.name;
             x.tuning_editor_window
                 .show(&format!("global tuning ({current_name})"), ctx, |ui| {
@@ -173,7 +175,8 @@ impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
                 &format!("neighbourhoods ({current_name})"),
                 ctx,
                 |ui| {
-                    x.neighbourhood_editor.show(ui, forward);
+                    x.neighbourhood_editor
+                        .show(ui, &mut strn.neighbourhood_names, forward);
                 },
             );
         }

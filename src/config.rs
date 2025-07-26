@@ -3,8 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
     bindable::Bindings,
-    custom_serde::{common::deserialize_nonempty, named_interval},
-    gui::editor::binding,
+    custom_serde::common::deserialize_nonempty,
     interval::{
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
@@ -102,21 +101,29 @@ impl<T: IntervalBasis> Config<T> {
     pub fn join(
         mut process: ProcessConfig<T>,
         backend: BackendConfig,
-        gui: GuiConfig,
+        mut gui: GuiConfig,
         temperaments: Vec<TemperamentDefinition<T>>,
         named_intervals: Vec<NamedInterval<T>>,
     ) -> Self {
         Self {
             temperaments,
             named_intervals,
-            strategies: process
-                .strategies
-                .drain(..)
-                .enumerate()
-                .map(|(i, (strat, bindings))| {
-                    ExtendedStrategyConfig::join(strat, bindings, gui.strategies[i].0.clone())
-                })
-                .collect(),
+            strategies: if process.strategies.len() != gui.strategies.len() {
+                panic!(
+                    "different number of strategies in the process ({}) and the gui ({})",
+                    process.strategies.len(),
+                    gui.strategies.len(),
+                )
+            } else {
+                process
+                    .strategies
+                    .drain(..)
+                    .zip(gui.strategies.drain(..))
+                    .map(|((strat, bindings), (names, _))| {
+                        ExtendedStrategyConfig::join(strat, bindings, names)
+                    })
+                    .collect()
+            },
             backend,
         }
     }
@@ -243,7 +250,7 @@ impl<T: IntervalBasis> ExtendedStrategyConfig<T> {
     }
 
     // todo make this test something?
-    fn join(strat: StrategyConfig<T>, bindings: Bindings, names: StrategyNames) -> Self {
+    fn join(strat: StrategyConfig<T>, bindings: Bindings, mut names: StrategyNames) -> Self {
         match strat {
             StrategyConfig::StaticTuning(StaticTuningConfig {
                 mut neighbourhoods,
@@ -253,16 +260,23 @@ impl<T: IntervalBasis> ExtendedStrategyConfig<T> {
                 name: names.name,
                 description: names.description,
                 bindings,
-                neighbourhoods: neighbourhoods
-                    .drain(..)
-                    .enumerate()
-                    .map(|(i, SomeCompleteNeighbourhood::PeriodicComplete(inner))| {
-                        NamedCompleteNeighbourhood::PeriodicComplete {
-                            name: names.neighbourhood_names[i].clone(),
-                            inner,
-                        }
-                    })
-                    .collect(),
+                neighbourhoods: if neighbourhoods.len() != names.neighbourhood_names.len() {
+                    panic!(
+                        "different number of neighbourhoods ({}) and neighbourhood names ({})",
+                        neighbourhoods.len(),
+                        names.neighbourhood_names.len(),
+                    )
+                } else {
+                    neighbourhoods
+                        .drain(..)
+                        .zip(names.neighbourhood_names.drain(..))
+                        .map(
+                            |(SomeCompleteNeighbourhood::PeriodicComplete(inner), name)| {
+                                NamedCompleteNeighbourhood::PeriodicComplete { name, inner }
+                            },
+                        )
+                        .collect()
+                },
                 tuning_reference,
                 reference,
             },

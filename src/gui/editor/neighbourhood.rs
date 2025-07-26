@@ -3,40 +3,34 @@ use std::{marker::PhantomData, sync::mpsc, time::Instant};
 use eframe::egui::{self, vec2};
 
 use crate::{
-    gui::{
-        common::{ListEdit, ListEditOpts},
-        r#trait::GuiShow,
-    },
+    gui::common::{ListEdit, ListEditOpts, RefListEdit},
     interval::stacktype::r#trait::StackType,
     msg::{FromUi, HandleMsgRef, ToUi},
-    util::list_action::ListAction,
 };
 
 pub struct NeighbourhoodEditor<T: StackType> {
     _phantom: PhantomData<T>,
-    names: ListEdit<String>,
+    current_neighbourhood_index: Option<usize>,
 }
 
 impl<T: StackType> NeighbourhoodEditor<T> {
-    pub fn new(names: Vec<String>) -> Self {
+    pub fn new() -> Self {
         Self {
             _phantom: PhantomData,
-            names: ListEdit::new(names),
+            current_neighbourhood_index: None {},
         }
-    }
-
-    pub fn get_all(&self) -> &[String] {
-        self.names.elems()
-    }
-
-    pub fn set_all(&mut self, names: &[String]) {
-        self.names.set_elems(names);
     }
 }
 
-impl<T: StackType> GuiShow<T> for NeighbourhoodEditor<T> {
-    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        let list_edit_res = self.names.show(
+impl<T: StackType> NeighbourhoodEditor<T> {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        names: &mut Vec<String>,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
+        let mut listedit = RefListEdit::new(names, &mut self.current_neighbourhood_index);
+        let list_edit_res = listedit.show(
             ui,
             "neighbourhood editor",
             ListEditOpts {
@@ -114,14 +108,8 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NeighbourhoodEditor<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::CurrentNeighbourhoodIndex { index } => {
-                self.names.apply(ListAction::Select(*index));
-                // self.curr = Some(IndexAndName {
-                //     name: name.clone(),
-                //     index: *index,
-                //     n_neighbourhoods: *n_neighbourhoods,
-                // });
+                self.current_neighbourhood_index = Some(*index);
             }
-
             _ => {}
         }
     }

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use eframe::{egui, App};
+use eframe::egui;
 use num_rational::Ratio;
 
 use crate::{
@@ -40,9 +40,14 @@ fn show_list_picker<'a, X>(
     new_selection
 }
 
-pub struct ListEdit<X> {
+pub struct OwningListEdit<X> {
     elems: Vec<X>,
     selected: Option<usize>,
+}
+
+pub struct RefListEdit<'a, X> {
+    elems: &'a mut Vec<X>,
+    selected: &'a mut Option<usize>,
 }
 
 pub struct ListEditOpts<X, M> {
@@ -60,59 +65,32 @@ pub enum ListEditResult<M> {
     None,
 }
 
-impl<X> ListEdit<X> {
-    pub fn new(elems: Vec<X>) -> Self {
-        Self {
-            elems,
-            selected: None {},
-        }
-    }
-
-    pub fn select(mut self, i: usize) -> Self {
-        self.selected = Some(i);
-        self
-    }
-
-    pub fn elems(&self) -> &[X] {
-        &self.elems
-    }
-
-    pub fn set_elems(&mut self, elems: &[X])
+pub trait ListEdit<X> {
+    fn elems(&self) -> &[X];
+    fn apply(&mut self, action: ListAction)
     where
-        X: Clone,
-    {
-        self.elems = elems.into();
-    }
-
-    pub fn apply(&mut self, action: ListAction)
-    where
-        X: Clone,
-    {
-        action.apply_to(|x| x.clone(), &mut self.elems, &mut self.selected);
-    }
-
-    pub fn current_selected(&self) -> Option<&X> {
-        self.selected.map(|i| &self.elems[i])
-    }
-
-    pub fn current_selected_mut(&mut self) -> Option<&mut X> {
-        self.selected.map(|i| &mut self.elems[i])
-    }
-
-    /// will return the new selection index, if it changed
-    pub fn show_as_list_picker(
+        X: Clone;
+    fn current_selected(&self) -> Option<&X>;
+    fn current_selected_mut(&mut self) -> Option<&mut X>;
+    fn show_as_list_picker(
         &mut self,
         ui: &mut egui::Ui,
         elem_name: impl Fn(&X) -> &str,
         elem_description: impl Fn(&X) -> Option<&str>,
-    ) -> Option<(usize, &X)> {
-        show_list_picker(
-            &self.elems,
-            &mut self.selected,
-            ui,
-            elem_name,
-            elem_description,
-        )
+    ) -> Option<(usize, &X)>;
+    fn show<M>(
+        &mut self,
+        ui: &mut egui::Ui,
+        id_salt: &'static str,
+        opts: ListEditOpts<X, M>,
+    ) -> ListEditResult<M>
+    where
+        X: Clone;
+}
+
+impl<'a, X> RefListEdit<'a, X> {
+    pub fn new(elems: &'a mut Vec<X>, selected: &'a mut Option<usize>) -> Self {
+        Self { elems, selected }
     }
 
     fn show_dont_handle<M>(
@@ -128,7 +106,7 @@ impl<X> ListEdit<X> {
             }
             _ => {}
         };
-        let selected = self.selected;
+        let selected = *self.selected;
         egui::Grid::new(id_salt)
             .min_col_width(ui.style().spacing.interact_size.y)
             .with_row_color(move |i, style| {
@@ -142,7 +120,7 @@ impl<X> ListEdit<X> {
                 let n = self.elems.len();
                 for (i, elem) in self.elems.iter_mut().enumerate() {
                     if opts.select_allowed {
-                        let is_current = self.selected == Some(i);
+                        let is_current = selected == Some(i);
                         if ui.radio(is_current, "").clicked() {
                             if !is_current {
                                 update_res(ListEditResult::Action(ListAction::Select(i)));
@@ -205,15 +183,51 @@ impl<X> ListEdit<X> {
 
         if let Some(f) = opts.clone {
             ui.separator();
-            if let Some(i) = f(ui, &self.elems, self.selected) {
+            if let Some(i) = f(ui, &self.elems, *self.selected) {
                 update_res(ListEditResult::Action(ListAction::Clone(i)));
             }
         }
 
         res
     }
+}
 
-    pub fn show<M>(
+impl<'a, X> ListEdit<X> for RefListEdit<'a, X> {
+    fn elems(&self) -> &[X] {
+        &self.elems
+    }
+
+    fn apply(&mut self, action: ListAction)
+    where
+        X: Clone,
+    {
+        action.apply_to(|x| x.clone(), &mut self.elems, &mut self.selected);
+    }
+
+    fn current_selected(&self) -> Option<&X> {
+        self.selected.map(|i| &self.elems[i])
+    }
+
+    fn current_selected_mut(&mut self) -> Option<&mut X> {
+        self.selected.map(|i| &mut self.elems[i])
+    }
+
+    fn show_as_list_picker(
+        &mut self,
+        ui: &mut egui::Ui,
+        elem_name: impl Fn(&X) -> &str,
+        elem_description: impl Fn(&X) -> Option<&str>,
+    ) -> Option<(usize, &X)> {
+        show_list_picker(
+            &self.elems,
+            &mut self.selected,
+            ui,
+            elem_name,
+            elem_description,
+        )
+    }
+
+    fn show<M>(
         &mut self,
         ui: &mut egui::Ui,
         id_salt: &'static str,
@@ -227,6 +241,77 @@ impl<X> ListEdit<X> {
             action.apply_to(|x| x.clone(), &mut self.elems, &mut self.selected);
         }
         res
+    }
+}
+
+impl<X> OwningListEdit<X> {
+    pub fn new(elems: Vec<X>) -> Self {
+        Self {
+            elems,
+            selected: None {},
+        }
+    }
+
+    pub fn set_elems(&mut self, elems: &[X])
+    where
+        X: Clone,
+    {
+        self.elems = elems.into();
+    }
+
+    fn as_ref_list_edit<'a>(&'a mut self) -> RefListEdit<'a, X> {
+        RefListEdit {
+            elems: &mut self.elems,
+            selected: &mut self.selected,
+        }
+    }
+}
+
+impl<X> ListEdit<X> for OwningListEdit<X> {
+    fn elems(&self) -> &[X] {
+        &self.elems
+    }
+
+    fn apply(&mut self, action: ListAction)
+    where
+        X: Clone,
+    {
+        action.apply_to(|x| x.clone(), &mut self.elems, &mut self.selected);
+    }
+
+    fn current_selected(&self) -> Option<&X> {
+        self.selected.map(|i| &self.elems[i])
+    }
+
+    fn current_selected_mut(&mut self) -> Option<&mut X> {
+        self.selected.map(|i| &mut self.elems[i])
+    }
+
+    fn show_as_list_picker(
+        &mut self,
+        ui: &mut egui::Ui,
+        elem_name: impl Fn(&X) -> &str,
+        elem_description: impl Fn(&X) -> Option<&str>,
+    ) -> Option<(usize, &X)> {
+        show_list_picker(
+            &self.elems,
+            &mut self.selected,
+            ui,
+            elem_name,
+            elem_description,
+        )
+    }
+
+    fn show<M>(
+        &mut self,
+        ui: &mut egui::Ui,
+        id_salt: &'static str,
+        opts: ListEditOpts<X, M>,
+    ) -> ListEditResult<M>
+    where
+        X: Clone,
+    {
+        self.as_ref_list_edit().show(ui, id_salt, opts)
     }
 }
 
@@ -322,7 +407,7 @@ pub fn show_hide_button(
 pub struct CorrectionSystemChooser<T: StackType> {
     _phantom: PhantomData<T>,
     pub use_cent_values: bool,
-    preference_order: ListEdit<usize>,
+    preference_order: OwningListEdit<usize>,
     id_salt: &'static str,
 }
 
@@ -334,7 +419,7 @@ impl<T: StackType> CorrectionSystemChooser<T> {
             preference_order: {
                 let mut v = Vec::with_capacity(T::num_named_intervals());
                 (0..T::num_named_intervals()).for_each(|i| v.push(i));
-                ListEdit::new(v)
+                OwningListEdit::new(v)
             },
             id_salt,
         }
