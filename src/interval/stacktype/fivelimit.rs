@@ -1,7 +1,8 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fmt::Display,
-    sync::{LazyLock, OnceLock},
+    ops::Deref,
+    sync::{LazyLock, RwLock},
 };
 
 use ndarray::Array2;
@@ -51,58 +52,21 @@ static INTERVAL_POSITIONS: LazyLock<HashMap<String, usize>> = LazyLock::new(|| {
     m
 });
 
-static NAMED_INTERVALS: OnceLock<Vec<NamedInterval<TheFiveLimitStackType>>> = OnceLock::new();
+static NAMED_INTERVALS: RwLock<Vec<NamedInterval<TheFiveLimitStackType>>> = RwLock::new(vec![]);
 
-static COORDINATE_SYSTEMS: LazyLock<HashMap<usize, (Vec<usize>, CoordinateSystem)>> =
-    LazyLock::new(|| {
-        let mut systems = HashMap::new();
-        let named_intervals = NAMED_INTERVALS
-            .get()
-            .expect("tried to use coordinate systems before initialisation of stacktype");
-        let n = named_intervals.len();
-        for i in 0..n {
-            for j in (i + 1)..n {
-                for k in (j + 1)..n {
-                    let mut basis_columnwise = Array2::zeros((3, 3));
-                    basis_columnwise
-                        .column_mut(0)
-                        .assign(&named_intervals[i].coeffs);
-                    basis_columnwise
-                        .column_mut(1)
-                        .assign(&named_intervals[j].coeffs);
-                    basis_columnwise
-                        .column_mut(2)
-                        .assign(&named_intervals[k].coeffs);
-                    let _ = CoordinateSystem::new(basis_columnwise).map(|x| {
-                        systems.insert(i + j * n + k * n * n, (vec![i, j, k], x));
-                    });
-                }
-            }
-        }
-        systems
-    });
+static COORDINATE_SYSTEMS: RwLock<BTreeMap<usize, (Vec<usize>, CoordinateSystem)>> =
+    RwLock::new(BTreeMap::new());
 
-static TEMPERAMENTS: OnceLock<Vec<Temperament<StackCoeff>>> = OnceLock::new();
+static TEMPERAMENTS: RwLock<Vec<Temperament<StackCoeff>>> = RwLock::new(vec![]);
 
 #[derive(Debug)]
 pub enum StackTypeInitialisationErr {
-    TemperamentsAlreadyInitialised,
-    NamedIntervalsAlreadyInitialised,
     FromTemperamentErr(TemperamentErr),
 }
 
 impl Display for StackTypeInitialisationErr {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            StackTypeInitialisationErr::TemperamentsAlreadyInitialised => {
-                write!(f, "The stack type's temperamenrs were already initialised")
-            }
-            StackTypeInitialisationErr::NamedIntervalsAlreadyInitialised => {
-                write!(
-                    f,
-                    "The stack type's named intervals were already initialised"
-                )
-            }
             StackTypeInitialisationErr::FromTemperamentErr(temperament_err) => {
                 temperament_err.fmt(f)
             }
@@ -117,18 +81,48 @@ impl TheFiveLimitStackType {
         temperaments: &[TemperamentDefinition<TheFiveLimitStackType>],
         named_intervals: &[NamedInterval<TheFiveLimitStackType>],
     ) -> Result<(), StackTypeInitialisationErr> {
-        match temperaments.iter().map(|def| def.realize()).collect() {
-            Err(e) => Err(StackTypeInitialisationErr::FromTemperamentErr(e)),
-            Ok(temperaments) => match TEMPERAMENTS.set(temperaments) {
-                Ok(()) => Ok(()),
-                Err(_) => Err(StackTypeInitialisationErr::TemperamentsAlreadyInitialised),
-            },
-        }?;
-
-        match NAMED_INTERVALS.set(named_intervals.into()) {
-            Ok(()) => Ok(()),
-            Err(_) => Err(StackTypeInitialisationErr::NamedIntervalsAlreadyInitialised),
+        {
+            let mut t = TEMPERAMENTS.write().unwrap();
+            t.clear();
+            for def in temperaments.iter() {
+                t.push(
+                    def.realize()
+                        .map_err(StackTypeInitialisationErr::FromTemperamentErr)?,
+                );
+            }
         }
+
+        {
+            let mut ni = NAMED_INTERVALS.write().unwrap();
+            ni.clear();
+            ni.extend_from_slice(named_intervals);
+        }
+
+        {
+            let systems = &mut *COORDINATE_SYSTEMS.write().unwrap();
+            let n = named_intervals.len();
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    for k in (j + 1)..n {
+                        let mut basis_columnwise = Array2::zeros((3, 3));
+                        basis_columnwise
+                            .column_mut(0)
+                            .assign(&named_intervals[i].coeffs);
+                        basis_columnwise
+                            .column_mut(1)
+                            .assign(&named_intervals[j].coeffs);
+                        basis_columnwise
+                            .column_mut(2)
+                            .assign(&named_intervals[k].coeffs);
+                        let _ = CoordinateSystem::new(basis_columnwise).map(|x| {
+                            systems.insert(i + j * n + k * n * n, (vec![i, j, k], x));
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -147,24 +141,25 @@ impl IntervalBasis for TheFiveLimitStackType {
 }
 
 impl StackType for TheFiveLimitStackType {
-    fn temperaments() -> &'static [Temperament<StackCoeff>] {
-        TEMPERAMENTS.get().expect("temperaments not initialised")
+    fn temperaments() -> impl Deref<Target = Vec<Temperament<StackCoeff>>> {
+        TEMPERAMENTS.read().unwrap()
     }
 
-    fn named_intervals() -> &'static [NamedInterval<TheFiveLimitStackType>] {
-        NAMED_INTERVALS
-            .get()
-            .expect("named intervals not initialised")
+    fn named_intervals() -> impl Deref<Target = Vec<NamedInterval<Self>>> {
+        NAMED_INTERVALS.read().unwrap()
     }
 
-    fn coordinate_system(
+    fn with_coordinate_system<R>(
         basis_indices: &[usize],
-    ) -> Option<&'static (Vec<usize>, CoordinateSystem)> {
+        mut f: impl FnMut(Option<&(Vec<usize>, CoordinateSystem)>) -> R,
+    ) -> R {
         let i = basis_indices[0].min(basis_indices[1]).min(basis_indices[2]);
         let k = basis_indices[0].max(basis_indices[1]).max(basis_indices[2]);
         let j = basis_indices[0] + basis_indices[1] + basis_indices[2] - i - k;
         let n = Self::named_intervals().len();
-        COORDINATE_SYSTEMS.get(&(i + j * n + k * n * n))
+
+        let cs = &*COORDINATE_SYSTEMS.read().unwrap();
+        f(cs.get(&(i + j * n + k * n * n)))
     }
 }
 
@@ -218,8 +213,8 @@ pub mod mock {
     #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy, Deserialize, Serialize)]
     pub struct MockFiveLimitStackType {}
 
-    static MOCK_TEMPERAMENTS: LazyLock<[Temperament<StackCoeff>; 2]> = LazyLock::new(|| {
-        [
+    static MOCK_TEMPERAMENTS: LazyLock<Vec<Temperament<StackCoeff>>> = LazyLock::new(|| {
+        vec![
             Temperament::new(
                 String::from("equal temperament"),
                 arr2(&[[0, 12, 0], [0, 0, 3], [1, 0, 0]]).view(),
@@ -235,9 +230,9 @@ pub mod mock {
         ]
     });
 
-    static MOCK_NAMED_INTERVALS: LazyLock<[NamedInterval<MockFiveLimitStackType>; 4]> =
+    static MOCK_NAMED_INTERVALS: LazyLock<Vec<NamedInterval<MockFiveLimitStackType>>> =
         LazyLock::new(|| {
-            [
+            vec![
                 NamedInterval::new(arr1(&[1.into(), 0.into(), 0.into()]), "octave".into(), 'o'),
                 NamedInterval::new(
                     arr1(&[(-2).into(), 4.into(), (-1).into()]),
@@ -298,22 +293,23 @@ pub mod mock {
     }
 
     impl StackType for MockFiveLimitStackType {
-        fn temperaments() -> &'static [Temperament<StackCoeff>] {
+        fn temperaments() -> impl Deref<Target = Vec<Temperament<StackCoeff>>> {
             &*MOCK_TEMPERAMENTS
         }
 
-        fn named_intervals() -> &'static [NamedInterval<MockFiveLimitStackType>] {
+        fn named_intervals() -> impl Deref<Target = Vec<NamedInterval<Self>>> {
             &*MOCK_NAMED_INTERVALS
         }
 
-        fn coordinate_system(
+        fn with_coordinate_system<R>(
             basis_indices: &[usize],
-        ) -> Option<&'static (Vec<usize>, CoordinateSystem)> {
+            mut f: impl FnMut(Option<&(Vec<usize>, CoordinateSystem)>) -> R,
+        ) -> R {
             let i = basis_indices[0].min(basis_indices[1]).min(basis_indices[2]);
             let k = basis_indices[0].max(basis_indices[1]).max(basis_indices[2]);
             let j = basis_indices[0] + basis_indices[1] + basis_indices[2] - i - k;
             let n = Self::named_intervals().len();
-            MOCK_COORDINATE_SYSTEMS.get(&(i + j * n + k * n * n))
+            f(MOCK_COORDINATE_SYSTEMS.get(&(i + j * n + k * n * n)))
         }
     }
 

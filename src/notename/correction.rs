@@ -62,21 +62,24 @@ impl<T: StackType> Correction<T> {
 
         let mut subsequences = Subsequences::new(preference_order, T::num_intervals());
         while let Some(basis_indices) = subsequences.next() {
-            if let Some((ordered_basis_indices, coordinate_system)) =
-                T::coordinate_system(basis_indices)
-            {
-                coordinate_system.apply_inplace(offset.view(), tmp.view_mut());
-                let score = count_nonzero(&tmp);
-                if score < lowest_score {
-                    self.coeffs.iter_mut().for_each(|c| *c = 0.into());
-                    tmp.iter()
-                        .enumerate()
-                        .for_each(|(i, c)| self.coeffs[ordered_basis_indices[i]] = *c);
+            if T::with_coordinate_system(basis_indices, |x| {
+                if let Some((ordered_basis_indices, coordinate_system)) = x {
+                    coordinate_system.apply_inplace(offset.view(), tmp.view_mut());
+                    let score = count_nonzero(&tmp);
+                    if score < lowest_score {
+                        self.coeffs.iter_mut().for_each(|c| *c = 0.into());
+                        tmp.iter()
+                            .enumerate()
+                            .for_each(|(i, c)| self.coeffs[ordered_basis_indices[i]] = *c);
+                    }
+                    lowest_score = lowest_score.min(score);
+                    if lowest_score <= 1 {
+                        return true;
+                    }
                 }
-                lowest_score = lowest_score.min(score);
-                if lowest_score <= 1 {
-                    break;
-                }
+                false
+            }) {
+                break;
             }
         }
 

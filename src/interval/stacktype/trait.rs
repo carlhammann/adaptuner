@@ -1,4 +1,4 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::{collections::HashMap, marker::PhantomData, ops::Deref};
 
 use ndarray::{linalg::general_mat_vec_mul, Array1, Array2, ArrayView1, ArrayViewMut1};
 use num_rational::Ratio;
@@ -111,7 +111,7 @@ pub trait StackType: IntervalBasis + 'static {
     /// The list of [Temperament]s that may be applied to intervals in a
     /// [Stack][crate::interval::stack::Stack] of this type. The "dimension" of the temperaments
     /// must be the [IntervalBasis::num_intervals].
-    fn temperaments() -> &'static [Temperament<StackCoeff>];
+    fn temperaments() -> impl Deref<Target = Vec<Temperament<StackCoeff>>>;
 
     /// Convenience: the length of the list returned by [temperaments][StackType::temperaments].
     fn num_temperaments() -> usize {
@@ -119,7 +119,7 @@ pub trait StackType: IntervalBasis + 'static {
     }
 
     /// A list of special intervals that have names. Used for commas in note names.
-    fn named_intervals() -> &'static [NamedInterval<Self>];
+    fn named_intervals() -> impl Deref<Target = Vec<NamedInterval<Self>>>;
 
     /// Convenience: the length of the list returned by [StackType::named_intervals()]
     fn num_named_intervals() -> usize {
@@ -132,9 +132,10 @@ pub trait StackType: IntervalBasis + 'static {
     /// with the order in which the intervals are the [CoordinateSystem::basis] of that system.
     /// (i.e. the returned `Vec<usize>` will contain exactly the same entries as `basis_indices`,
     /// mut maybe in a different order.)
-    fn coordinate_system(
+    fn with_coordinate_system<R>(
         basis_indices: &[usize],
-    ) -> Option<&'static (Vec<usize>, CoordinateSystem)>;
+        f: impl FnMut(Option<&(Vec<usize>, CoordinateSystem)>) -> R,
+    ) -> R; // -> Option<impl Deref<Target = (Vec<usize>, CoordinateSystem)>>;
 }
 
 pub trait FiveLimitIntervalBasis: IntervalBasis {
