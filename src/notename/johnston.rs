@@ -3,77 +3,92 @@ pub mod fivelimit {
 
     use crate::interval::{
         stack::Stack,
-        stacktype::r#trait::{FiveLimitIntervalBasis, IntervalBasis, StackCoeff},
+        stacktype::{
+            fivelimit::TheFiveLimitStackType,
+            r#trait::{IntervalBasis, StackCoeff},
+        },
     };
 
-    #[derive(Clone, Copy)]
-    pub enum BaseName {
-        C,
-        D,
-        E,
-        F,
-        G,
-        A,
-        B,
-    }
-    use BaseName::*;
-
-    impl std::fmt::Display for BaseName {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-            match self {
-                C => f.write_str(&"C"),
-                D => f.write_str(&"D"),
-                E => f.write_str(&"E"),
-                F => f.write_str(&"F"),
-                G => f.write_str(&"G"),
-                A => f.write_str(&"A"),
-                B => f.write_str(&"B"),
-            }
-        }
-    }
+    use crate::notename::BaseName::{self, *};
 
     #[derive(Clone)]
     pub struct Accidental {
-        pub sharpflat: StackCoeff,
-        pub plusminus: StackCoeff,
+        sharpflat: StackCoeff,
+        plusminus: StackCoeff,
     }
 
     #[derive(Clone)]
     pub struct NoteName {
-        pub basename: BaseName,
-        pub octave: StackCoeff,
-        pub accidental: Accidental,
+        basename: BaseName,
+        octave: StackCoeff,
+        accidental: Accidental,
     }
 
     const JOHNSTON_BASE_ROW: [BaseName; 7] = [F, A, C, E, G, B, D];
 
+    impl crate::notename::Accidental for Accidental {
+        fn is_natural(&self) -> bool {
+            self.sharpflat == 0 && self.plusminus == 0
+        }
+
+        fn sharpflat(&self) -> StackCoeff {
+            self.sharpflat
+        }
+
+        fn plusminus(&self) -> StackCoeff {
+            self.plusminus
+        }
+    }
+
+    impl crate::notename::NoteName for NoteName {
+        type Accidental = Accidental;
+
+        fn write<W: fmt::Write>(
+            &self,
+            f: &mut W,
+            style: &crate::notename::NoteNameStyle,
+        ) -> fmt::Result {
+            match style {
+                crate::notename::NoteNameStyle::Full => self.write_full(f),
+                crate::notename::NoteNameStyle::Class => self.write_class(f),
+            }
+        }
+
+        fn base_name(&self) -> BaseName {
+            self.basename
+        }
+
+        fn octave(&self) -> StackCoeff {
+            self.octave
+        }
+
+        fn accidental(&self) -> &Self::Accidental {
+            &self.accidental
+        }
+
+        fn middle_c() -> Self {
+            NoteName {
+                basename: C,
+                octave: 4,
+                accidental: Accidental {
+                    sharpflat: 0,
+                    plusminus: 0,
+                },
+            }
+        }
+    }
+
+    impl crate::notename::NoteNameFor<TheFiveLimitStackType> for NoteName {
+        fn new_from_stack(stack: &Stack<TheFiveLimitStackType>) -> Self {
+            Self::new_from_indices(false, 0, 1, 2, stack)
+        }
+
+        fn new_from_stack_actual(stack: &Stack<TheFiveLimitStackType>) -> Self {
+            Self::new_from_indices(true, 0, 1, 2, stack)
+        }
+    }
+
     impl NoteName {
-        pub fn new<T: FiveLimitIntervalBasis>(s: &Stack<T>) -> Self {
-            Self::new_from_indices(
-                false,
-                T::octave_index(),
-                T::fifth_index(),
-                T::third_index(),
-                s,
-            )
-        }
-
-        /// like new, but uses the [Stack::actual] instead of the [Stack::target]. Fractions are
-        /// rounded in an unspecified way.
-        ///
-        /// This function makes sense when you know that the [Stack::actual] describes a pure
-        /// interval, which is differenf from the the [Stack::target]: I.e. [Stack::is_pure()], but
-        /// not [Stack::is_target()].
-        pub fn new_from_actual<T: FiveLimitIntervalBasis>(s: &Stack<T>) -> Self {
-            Self::new_from_indices(
-                true,
-                T::octave_index(),
-                T::fifth_index(),
-                T::third_index(),
-                s,
-            )
-        }
-
         fn new_from_indices<T: IntervalBasis>(
             use_actual: bool,
             octave_index: usize,
@@ -96,11 +111,7 @@ pub mod fivelimit {
             Self::new_from_values(octaves, fifths, thirds)
         }
 
-        pub fn new_from_values(
-            octaves: StackCoeff,
-            fifths: StackCoeff,
-            thirds: StackCoeff,
-        ) -> Self {
+        fn new_from_values(octaves: StackCoeff, fifths: StackCoeff, thirds: StackCoeff) -> Self {
             let ix = 2 + 2 * fifths + thirds;
             NoteName {
                 basename: JOHNSTON_BASE_ROW[ix.rem_euclid(7) as usize],
@@ -113,7 +124,7 @@ pub mod fivelimit {
         }
 
         /// Write the pitch class (i.e. the note name without the octave number)
-        pub fn write_class<W: fmt::Write>(&self, f: &mut W) -> fmt::Result {
+        fn write_class<W: fmt::Write>(&self, f: &mut W) -> fmt::Result {
             write!(f, "{}", self.basename)?;
 
             let sf = self.accidental.sharpflat;
@@ -144,25 +155,9 @@ pub mod fivelimit {
         }
 
         /// Write the full note name.
-        pub fn write_full<W: fmt::Write>(&self, f: &mut W) -> fmt::Result {
+        fn write_full<W: fmt::Write>(&self, f: &mut W) -> fmt::Result {
             self.write_class(f)?;
             write!(f, " {}", self.octave)
-        }
-
-        /// The pitch class as [String].
-        pub fn str_class(&self) -> String {
-            let mut res = String::new();
-            // the [Write] implementation of [String] never throws any error, so this is fine:
-            self.write_class(&mut res).unwrap();
-            res
-        }
-
-        /// The full note name as a [String].
-        pub fn str_full(&self) -> String {
-            let mut res = String::new();
-            // the [Write] implementation of [String] never throws any error, so this is fine:
-            self.write_full(&mut res).unwrap();
-            res
         }
     }
 
@@ -175,8 +170,22 @@ pub mod fivelimit {
     #[cfg(test)]
     mod test {
         use super::*;
+        use crate::interval::stacktype::fivelimit::mock::MockFiveLimitStackType;
+        use crate::notename::NoteNameStyle;
 
-        type MockStackType = crate::interval::stacktype::fivelimit::mock::MockFiveLimitStackType;
+        impl crate::notename::NoteNameFor<MockFiveLimitStackType> for NoteName {
+            fn new_from_stack(stack: &Stack<MockFiveLimitStackType>) -> Self {
+                Self::new_from_indices(false, 0, 1, 2, stack)
+            }
+
+            fn new_from_stack_actual(stack: &Stack<MockFiveLimitStackType>) -> Self {
+                Self::new_from_indices(true, 0, 1, 2, stack)
+            }
+        }
+
+        impl crate::notename::HasNoteNames for MockFiveLimitStackType {
+            type NoteName = NoteName;
+        }
 
         #[test]
         fn test_str_name() {
@@ -208,7 +217,8 @@ pub mod fivelimit {
 
             for (coeffs, name) in examples.iter() {
                 assert_eq!(
-                    NoteName::new(&Stack::<MockStackType>::from_target(coeffs.to_vec())).str_full(),
+                    Stack::<MockFiveLimitStackType>::from_target(coeffs.to_vec())
+                        .notename(&NoteNameStyle::Full),
                     String::from(*name)
                 );
             }

@@ -5,8 +5,9 @@ use eframe::egui::{self, vec2};
 use crate::{
     bindable::{Bindable, Bindings},
     config::{StrategyKind, StrategyNames},
-    interval::stacktype::r#trait::{FiveLimitStackType, StackType},
+    interval::stacktype::r#trait::StackType,
     msg::{FromUi, HandleMsgRef, ToUi},
+    notename::HasNoteNames,
     util::list_action::ListAction,
 };
 
@@ -144,9 +145,9 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
     }
 }
 
-pub struct AsWindows<'a, T: StackType + 'static>(pub &'a mut StrategyWindows<T>);
+pub struct AsWindows<'a, T: StackType>(pub &'a mut StrategyWindows<T>);
 
-impl<'a, T: FiveLimitStackType + PartialEq> GuiShow<T> for AsWindows<'a, T> {
+impl<'a, T: StackType + HasNoteNames + PartialEq> GuiShow<T> for AsWindows<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         self.display_strategy_list_editor_window(ui, forward);
 
@@ -221,7 +222,6 @@ impl<'a, T: StackType> AsWindows<'a, T> {
         let ctx = ui.ctx();
         x.strategy_list_editor_window
             .show("edit strategies", ctx, |ui| {
-                ui.shrink_width_to_current();
                 let list_edit_res = x.strategies.show(
                     ui,
                     "strategy editor",

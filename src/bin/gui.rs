@@ -1,7 +1,4 @@
-use std::{
-    error::Error,
-    sync::{Arc, RwLock},
-};
+use std::error::Error;
 
 use midi_msg::Channel;
 
@@ -44,7 +41,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let lattice_window_config = LatticeWindowConfig {
         zoom: 10.0,
-        notenamestyle: NoteNameStyle::JohnstonFiveLimitClass,
+        notenamestyle: NoteNameStyle::Class,
         interval_heights: vec![
             0.0,
             12.0 * (5.0 / 4.0 as f32).log2(),
@@ -62,10 +59,10 @@ fn run() -> Result<(), Box<dyn Error>> {
         ),
     };
     let reference_window_config = ReferenceEditorConfig {
-        notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
+        notenamestyle: NoteNameStyle::Full,
     };
     let tuning_reference_window_config = TuningEditorConfig {
-        notenamestyle: NoteNameStyle::JohnstonFiveLimitFull,
+        notenamestyle: NoteNameStyle::Full,
     };
 
     let latency_window_length = 20;

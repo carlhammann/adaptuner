@@ -3,10 +3,7 @@ use std::{sync::mpsc, time::Instant};
 use eframe::egui::{self};
 use midi_msg::Channel;
 
-use crate::{
-    interval::stacktype::r#trait::{FiveLimitStackType, StackType},
-    msg::FromUi,
-};
+use crate::{interval::stacktype::r#trait::StackType, msg::FromUi, notename::HasNoteNames};
 
 use super::{lattice::LatticeWindow, r#trait::GuiShow};
 
@@ -65,7 +62,7 @@ impl<'a, T: StackType> GuiShow<T> for AsSmallControls<'a, T> {
 
 pub struct AsBigControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
 
-impl<'a, T: FiveLimitStackType> GuiShow<T> for AsBigControls<'a, T> {
+impl<'a, T: StackType + HasNoteNames> GuiShow<T> for AsBigControls<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
         let AsBigControls(lw) = self;
         let reference_name = lw.reference_corrected_note_name();

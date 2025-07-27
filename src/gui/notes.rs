@@ -10,13 +10,11 @@ use crate::{
     gui::r#trait::GuiShow,
     interval::{
         stack::Stack,
-        stacktype::r#trait::{
-            FiveLimitIntervalBasis, FiveLimitStackType, IntervalBasis, StackCoeff,
-        },
+        stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
     msg::{FromUi, HandleMsgRef, ToUi},
-    notename::johnston::fivelimit::{Accidental, BaseName, NoteName},
+    notename::{Accidental, HasNoteNames, NoteName},
 };
 
 const BASSCLEF: egui::ImageSource = egui::include_image!("../../assets/svg/bassclef.svg");
@@ -145,11 +143,11 @@ impl SVGNoteShapes {
     }
 }
 
-fn vertical_index(n: &NoteName) -> StackCoeff {
-    (n.octave - 4) * 7 + (n.basename as StackCoeff)
+fn vertical_index<T: IntervalBasis + HasNoteNames>(n: &T::NoteName) -> StackCoeff {
+    (n.octave() - 4) * 7 + (n.base_name() as StackCoeff)
 }
 
-impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
+impl<T: IntervalBasis + HasNoteNames> NoteRenderer<T> {
     fn new(ctx: &egui::Context, line_spacing: f32) -> Self {
         Self {
             _phantom: PhantomData,
@@ -395,8 +393,8 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
     fn accidental_right_border(
         &self,
         index_offset: StackCoeff,
-        new: &Accidental,
-        neighbour: &Accidental,
+        new: &<T::NoteName as NoteName>::Accidental,
+        neighbour: &<T::NoteName as NoteName>::Accidental,
         neighbour_right_border: f32,
         neighbour_left_border: f32,
     ) -> f32 {
@@ -405,7 +403,9 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
             return neighbour_right_border;
         }
 
-        let has_sharps = |a: &Accidental| (a.sharpflat > 0) & (a.sharpflat % 2 == 1);
+        let has_sharps = |a: &<T::NoteName as NoteName>::Accidental| {
+            (a.sharpflat() > 0) & (a.sharpflat() % 2 == 1)
+        };
 
         // For a sixth, if the higher note doesn't have sharps (which descend), no noffset is needed
         if ((index_offset == 5) & !has_sharps(neighbour))
@@ -422,24 +422,24 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
     /// helper function to apply [Self::accidental_right_border] for [Self::draw_chord].
     fn accidental_vertical_position(
         &self,
-        new: &NoteName,
-        one_ago: &NoteName,
+        new: &T::NoteName,
+        one_ago: &T::NoteName,
         border_one_ago: f32,
-        two_ago: &NoteName,
+        two_ago: &T::NoteName,
         border_two_ago: f32,
         border_three_ago: f32,
     ) -> f32 {
         let x = self.accidental_right_border(
-            vertical_index(one_ago) - vertical_index(new),
-            &new.accidental,
-            &one_ago.accidental,
+            vertical_index::<T>(one_ago) - vertical_index::<T>(new),
+            &new.accidental(),
+            &one_ago.accidental(),
             border_two_ago,
             border_one_ago,
         );
         let y = self.accidental_right_border(
-            vertical_index(two_ago) - vertical_index(new),
-            &new.accidental,
-            &two_ago.accidental,
+            vertical_index::<T>(two_ago) - vertical_index::<T>(new),
+            &new.accidental(),
+            &two_ago.accidental(),
             border_three_ago,
             border_two_ago,
         );
@@ -450,7 +450,7 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
     /// returns the left border of the accidental that was drawn.
     fn draw_accidental(
         &self,
-        accidental: &Accidental,
+        accidental: &<T::NoteName as NoteName>::Accidental,
         vertical_index: StackCoeff,
         right_border: f32,
         rect: egui::Rect,
@@ -460,8 +460,8 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
 
         let mut hpos = right_border;
 
-        if accidental.plusminus > 0 {
-            for _ in 0..accidental.plusminus {
+        if accidental.plusminus() > 0 {
+            for _ in 0..accidental.plusminus() {
                 self.draw_noteshape_right_border(
                     &NoteShape::Plus,
                     vertical_index,
@@ -475,8 +475,8 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
             }
         };
 
-        if accidental.plusminus < 0 {
-            for _ in 0..(-accidental.plusminus) {
+        if accidental.plusminus() < 0 {
+            for _ in 0..(-accidental.plusminus()) {
                 self.draw_noteshape_right_border(
                     &NoteShape::Minus,
                     vertical_index,
@@ -490,8 +490,8 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
             }
         };
 
-        if accidental.sharpflat > 0 {
-            for _ in 0..(accidental.sharpflat / 2) {
+        if accidental.sharpflat() > 0 {
+            for _ in 0..(accidental.sharpflat() / 2) {
                 self.draw_noteshape_right_border(
                     &NoteShape::DoubleSharp,
                     vertical_index,
@@ -503,7 +503,7 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
                 hpos -= self.line_spacing
                     * (ACCIDENTAL_ACCIDENTAL_SPACE + self.noteshape_width(&NoteShape::DoubleSharp));
             }
-            if accidental.sharpflat % 2 == 1 {
+            if accidental.sharpflat() % 2 == 1 {
                 self.draw_noteshape_right_border(
                     &NoteShape::Sharp,
                     vertical_index,
@@ -517,8 +517,8 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
             }
         };
 
-        if accidental.sharpflat < 0 {
-            for _ in 0..((-accidental.sharpflat) / 2) {
+        if accidental.sharpflat() < 0 {
+            for _ in 0..((-accidental.sharpflat()) / 2) {
                 self.draw_noteshape_right_border(
                     &NoteShape::DoubleFlat,
                     vertical_index,
@@ -530,7 +530,7 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
                 hpos -= self.line_spacing
                     * (ACCIDENTAL_ACCIDENTAL_SPACE + self.noteshape_width(&NoteShape::DoubleFlat));
             }
-            if (-accidental.sharpflat) % 2 == 1 {
+            if (-accidental.sharpflat()) % 2 == 1 {
                 self.draw_noteshape_right_border(
                     &NoteShape::Flat,
                     vertical_index,
@@ -552,27 +552,24 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
     /// Will change the order, but not the content of the `notenames` argument
     fn draw_chord(
         &self,
-        notenames: &mut [NoteName],
+        notenames: &mut [T::NoteName],
         horizontal_axis: f32,
         rect: egui::Rect,
         ui: &mut egui::Ui,
     ) -> f32 {
-        let has_accidental =
-            |n: &NoteName| (n.accidental.plusminus != 0) | (n.accidental.sharpflat != 0);
-
         // sort hightest to lowest
-        notenames.sort_by(|a, b| vertical_index(a).cmp(&vertical_index(b)));
+        notenames.sort_by(|a, b| vertical_index::<T>(a).cmp(&vertical_index::<T>(b)));
 
         // notes without accidentals come first
         notenames.sort_by(|a, b| {
-            if has_accidental(a) & !has_accidental(b) {
+            if a.has_accidental() && !b.has_accidental() {
                 cmp::Ordering::Greater
             } else {
                 cmp::Ordering::Less
             }
         });
 
-        let first_accidental = match notenames.iter().position(|a| has_accidental(a)) {
+        let first_accidental = match notenames.iter().position(|a| a.has_accidental()) {
             None {} => notenames.len(),
             Some(i) => i,
         };
@@ -594,19 +591,12 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
 
         for i in 0..first_accidental {
             let n = &notenames[i];
-            let ix = vertical_index(n);
+            let ix = vertical_index::<T>(n);
             self.draw_notehead_and_ledger_lines(ix, horizontal_axis, rect, ui);
         }
 
         // there's nothing special about this note, but the fact that it has no accidental.
-        let middlec = NoteName {
-            basename: BaseName::C,
-            octave: 4,
-            accidental: Accidental {
-                sharpflat: 0,
-                plusminus: 0,
-            },
-        };
+        let middlec = T::NoteName::middle_c();
 
         let mut one_ago = &middlec;
         let mut two_ago = &middlec;
@@ -619,7 +609,7 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
 
         for i in first_accidental..notenames.len() {
             let n = &notenames[i];
-            let ix = vertical_index(n);
+            let ix = vertical_index::<T>(n);
             self.draw_notehead_and_ledger_lines(ix, horizontal_axis, rect, ui);
             let right_border = self.accidental_vertical_position(
                 n,
@@ -629,7 +619,7 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
                 border_two_ago,
                 border_three_ago,
             );
-            let left_border = self.draw_accidental(&n.accidental, ix, right_border, rect, ui);
+            let left_border = self.draw_accidental(&n.accidental(), ix, right_border, rect, ui);
             border_three_ago = border_two_ago;
             two_ago = one_ago;
             border_two_ago = border_one_ago;
@@ -655,7 +645,7 @@ impl<T: FiveLimitIntervalBasis> NoteRenderer<T> {
 
         for i in 0..128 {
             if active_notes[i].is_sounding() {
-                notes.push(NoteName::new(&tunings[i]));
+                notes.push(T::notename(&tunings[i]));
             }
         }
 
@@ -670,7 +660,7 @@ pub struct NoteWindow<T: IntervalBasis> {
     note_renderer: NoteRenderer<T>,
 }
 
-impl<T: FiveLimitIntervalBasis> NoteWindow<T> {
+impl<T: IntervalBasis + HasNoteNames> NoteWindow<T> {
     pub fn new(ctx: &egui::Context) -> Self {
         let now = Instant::now();
         ctx.set_theme(egui::ThemePreference::System);
@@ -683,7 +673,7 @@ impl<T: FiveLimitIntervalBasis> NoteWindow<T> {
     }
 }
 
-impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
+impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::NoteOn {
@@ -738,7 +728,7 @@ impl<T: FiveLimitStackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
     }
 }
 
-impl<T: FiveLimitStackType> GuiShow<T> for NoteWindow<T> {
+impl<T: StackType + HasNoteNames> GuiShow<T> for NoteWindow<T> {
     fn show(&mut self, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
         egui::TopBottomPanel::bottom("note window bottom panel").show_inside(ui, |ui| {
             if ui

@@ -6,12 +6,12 @@ use midi_msg::Channel;
 use crate::{
     interval::{
         stack::{ScaledAdd, Stack},
-        stacktype::r#trait::{FiveLimitStackType, StackCoeff, StackType},
+        stacktype::r#trait::{StackCoeff, StackType},
     },
     keystate::KeyState,
     msg::{FromUi, HandleMsgRef, ToUi},
     neighbourhood::{Neighbourhood, PartialNeighbourhood},
-    notename::{correction::Correction, NoteNameStyle},
+    notename::{correction::Correction, HasNoteNames, NoteNameStyle},
     reference::Reference,
 };
 
@@ -175,7 +175,7 @@ enum NoteDrawStyle {
     Antenna,
 }
 
-impl<T: FiveLimitStackType> LatticeWindow<T> {
+impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     pub fn reference_corrected_note_name(&self) -> String {
         self.reference.corrected_notename(
             &self.controls.notenamestyle,
@@ -207,7 +207,7 @@ fn activation_color(ui: &egui::Ui) -> egui::Color32 {
     ui.style().visuals.selection.bg_fill
 }
 
-impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
+impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
     /// returns a rect that may not be as wide as the complete note name, but that is as high as it.
     fn draw_corrected_note_name(
         &self,
@@ -368,7 +368,9 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
         controls: &LatticeWindowControls<T>,
         style: NoteDrawStyle,
         forward: &mpsc::Sender<FromUi<T>>,
-    ) {
+    ) where
+        T: Hash,
+    {
         let draw_activation_circle = |active: bool| {
             if active {
                 ui.painter()
@@ -410,7 +412,7 @@ impl<T: FiveLimitStackType + Hash> OneNodeDrawState<T> {
     }
 }
 
-impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
+impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     pub fn new(config: LatticeWindowControls<T>) -> Self {
         let now = Instant::now();
         Self {
@@ -886,7 +888,9 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
         &mut self,
         ui: &mut egui::Ui,
         forward: &mpsc::Sender<FromUi<T>>,
-    ) {
+    ) where
+        T: Hash,
+    {
         let write_considered_stack_to_draw = |considered: &Stack<T>, output: &mut Stack<T>| {
             output.clone_from(considered);
             output.increment_at_index_pure(
@@ -980,7 +984,10 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
         }
     }
 
-    fn draw_lattice(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn draw_lattice(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>)
+    where
+        T: Hash,
+    {
         self.compute_reference_positions();
         self.draw_down_lines(ui);
         self.draw_grid_lines(ui);
@@ -996,7 +1003,7 @@ impl<T: FiveLimitStackType + Hash + Eq> LatticeWindow<T> {
     }
 }
 
-impl<T: FiveLimitStackType + Hash + Eq> GuiShow<T> for LatticeWindow<T> {
+impl<T: StackType + HasNoteNames + Hash> GuiShow<T> for LatticeWindow<T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let r = ui.interact(
             ui.max_rect(),
