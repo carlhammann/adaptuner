@@ -20,9 +20,7 @@ use std::{sync::mpsc, time::Instant};
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    interval::base::Semitones,
-    keystate::KeyState,
-    msg::{FromBackend, HandleMsg, ToBackend},
+    config::{BackendConfig, ExtractConfig, FromConfigAndState}, interval::base::Semitones, keystate::KeyState, msg::{FromBackend, HandleMsg, ToBackend}
 };
 
 struct AssignedNoteAndChannel {
@@ -432,6 +430,25 @@ impl HandleMsg<ToBackend, FromBackend> for Pitchbend {
             ToBackend::BendRange { range, time } => todo!(),
 
             ToBackend::ChannelsToUse { channels, time } => todo!(),
+
+            ToBackend::GetCurrentConfig => {
+                let _ = forward.send(FromBackend::CurrentConfig(self.extract_config()));
+            }
+            ToBackend::RestartWithConfig { time, config } => {
+                *self = <Self as FromConfigAndState<_, _>>::initialise(config, ());
+            }
         }
+    }
+}
+
+impl ExtractConfig<BackendConfig> for Pitchbend {
+    fn extract_config(&self) -> BackendConfig {
+        todo!()
+    }
+}
+
+impl<S> FromConfigAndState<BackendConfig, S> for Pitchbend {
+    fn initialise(config: BackendConfig, state: S) -> Self {
+        todo!()
     }
 }

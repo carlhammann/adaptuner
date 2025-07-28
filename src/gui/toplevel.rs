@@ -1,6 +1,7 @@
 use std::{hash::Hash, sync::mpsc};
 
 use eframe::{self, egui};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     bindable::{Bindable, Bindings},
@@ -13,6 +14,7 @@ use crate::{
 use super::{
     backend::{BackendWindow, BackendWindowConfig},
     common::{show_hide_button, SmallFloatingWindow},
+    config::save::ConfigSaver,
     connection::{ConnectionWindow, Input, Output},
     editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
     latency::LatencyWindow,
@@ -42,9 +44,11 @@ pub struct Toplevel<T: StackType> {
     notes: NoteWindow<T>,
     show_notes: bool,
     notes_to_foreground: bool,
+
+    config_saver: ConfigSaver<T>,
 }
 
-impl<T: StackType + HasNoteNames + Hash + Eq> Toplevel<T> {
+impl<T: StackType + HasNoteNames + Hash + Eq + Serialize> Toplevel<T> {
     pub fn new(
         strategy_names_and_bindings: Vec<(StrategyNames, Bindings<Bindable>)>,
         lattice_config: LatticeWindowConfig<T>,
@@ -78,11 +82,12 @@ impl<T: StackType + HasNoteNames + Hash + Eq> Toplevel<T> {
             show_notes: false,
             notes_to_foreground: false,
             tx,
+            config_saver: ConfigSaver::new(),
         }
     }
 }
 
-impl<T: StackType> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
+impl<T: StackType + Serialize> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
     fn handle_msg(&mut self, msg: ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
         self.lattice.handle_msg_ref(&msg, forward);
         self.notes.handle_msg_ref(&msg, forward);
@@ -90,10 +95,13 @@ impl<T: StackType> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
         self.input_connection.handle_msg_ref(&msg, forward);
         self.output_connection.handle_msg_ref(&msg, forward);
         self.latency.handle_msg_ref(&msg, forward);
+        self.config_saver.handle_msg(msg, forward); // keep this last, eating up all the messages
     }
 }
 
-impl<T: StackType + HasNoteNames + PartialEq + Hash> eframe::App for Toplevel<T> {
+impl<T: StackType + HasNoteNames + PartialEq + Hash + Serialize + for<'a> Deserialize<'a>>
+    eframe::App for Toplevel<T>
+{
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -127,6 +135,10 @@ impl<T: StackType + HasNoteNames + PartialEq + Hash> eframe::App for Toplevel<T>
                     &mut self.show_notes,
                     &mut self.notes_to_foreground,
                 );
+
+                if ui.button("save config").clicked() {
+                    self.config_saver.open(self.extract_config(), &self.tx);
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     egui::widgets::global_theme_preference_buttons(ui);
@@ -162,6 +174,7 @@ impl<T: StackType + HasNoteNames + PartialEq + Hash> eframe::App for Toplevel<T>
 
         egui::CentralPanel::default().show(ctx, |ui| {
             AsWindows(&mut self.strategies).show(ui, &self.tx);
+            self.config_saver.show(ui, &self.tx);
             self.lattice.show(ui, &self.tx);
         });
 

@@ -59,6 +59,9 @@ static COORDINATE_SYSTEMS: RwLock<BTreeMap<usize, (Vec<usize>, CoordinateSystem)
 
 static TEMPERAMENTS: RwLock<Vec<Temperament<StackCoeff>>> = RwLock::new(vec![]);
 
+static TEMPERAMENT_DEFINITIONS: RwLock<Vec<TemperamentDefinition<TheFiveLimitStackType>>> =
+    RwLock::new(vec![]);
+
 #[derive(Debug)]
 pub enum StackTypeInitialisationErr {
     FromTemperamentErr(TemperamentErr),
@@ -78,18 +81,24 @@ impl std::error::Error for StackTypeInitialisationErr {}
 
 impl TheFiveLimitStackType {
     pub fn initialise(
-        temperaments: &[TemperamentDefinition<TheFiveLimitStackType>],
+        temperament_definitions: &[TemperamentDefinition<TheFiveLimitStackType>],
         named_intervals: &[NamedInterval<TheFiveLimitStackType>],
     ) -> Result<(), StackTypeInitialisationErr> {
         {
             let mut t = TEMPERAMENTS.write().unwrap();
             t.clear();
-            for def in temperaments.iter() {
+            for def in temperament_definitions.iter() {
                 t.push(
                     def.realize()
                         .map_err(StackTypeInitialisationErr::FromTemperamentErr)?,
                 );
             }
+        }
+
+        {
+            let mut td = TEMPERAMENT_DEFINITIONS.write().unwrap();
+            td.clear();
+            td.extend_from_slice(temperament_definitions);
         }
 
         {
@@ -143,6 +152,10 @@ impl IntervalBasis for TheFiveLimitStackType {
 impl StackType for TheFiveLimitStackType {
     fn temperaments() -> impl Deref<Target = Vec<Temperament<StackCoeff>>> {
         TEMPERAMENTS.read().unwrap()
+    }
+
+    fn temperament_definitions() -> impl Deref<Target = Vec<TemperamentDefinition<Self>>> {
+        TEMPERAMENT_DEFINITIONS.read().unwrap()
     }
 
     fn named_intervals() -> impl Deref<Target = Vec<NamedInterval<Self>>> {
@@ -230,6 +243,10 @@ pub mod mock {
         ]
     });
 
+    static MOCK_TEMPERAMENT_DEFINITIONS: LazyLock<
+        Vec<TemperamentDefinition<MockFiveLimitStackType>>,
+    > = LazyLock::new(|| panic!("no temperament definitions for the mock stack type"));
+
     static MOCK_NAMED_INTERVALS: LazyLock<Vec<NamedInterval<MockFiveLimitStackType>>> =
         LazyLock::new(|| {
             vec![
@@ -310,6 +327,10 @@ pub mod mock {
             let j = basis_indices[0] + basis_indices[1] + basis_indices[2] - i - k;
             let n = Self::named_intervals().len();
             f(MOCK_COORDINATE_SYSTEMS.get(&(i + j * n + k * n * n)))
+        }
+
+        fn temperament_definitions() -> impl Deref<Target = Vec<TemperamentDefinition<Self>>> {
+            &*MOCK_TEMPERAMENT_DEFINITIONS
         }
     }
 

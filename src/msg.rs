@@ -8,6 +8,7 @@ use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
     bindable::MidiBindable,
+    config::{BackendConfig, ProcessConfig},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     reference::Reference,
     strategy::r#trait::StrategyAction,
@@ -22,15 +23,9 @@ pub trait HandleMsgRef<I, O> {
     fn handle_msg_ref(&mut self, msg: &I, forward: &mpsc::Sender<O>);
 }
 
-pub trait HasStart {
-    fn is_start(&self) -> bool;
-    fn mk_start() -> Self;
-}
-
 /// Convention: the handler wil handle a 'stop' message, and immediately after that the thread will exit.
 pub trait HasStop {
     fn is_stop(&self) -> bool;
-    fn mk_stop() -> Self;
 }
 
 pub trait MessageTranslate<B> {
@@ -51,6 +46,11 @@ pub trait MessageTranslate4<B, C, D, E> {
 
 pub enum ToProcess<T: StackType> {
     Stop,
+    GetCurrentConfig,
+    RestartWithConfig {
+        time: Instant,
+        config: ProcessConfig<T>,
+    },
     Start {
         time: Instant,
     },
@@ -130,6 +130,7 @@ pub enum FromProcess<T: StackType> {
         time: Instant,
     },
     CurrentStrategyIndex(Option<usize>),
+    CurrentConfig(ProcessConfig<T>),
 }
 
 pub enum ToStrategy<T: StackType> {
@@ -191,6 +192,11 @@ pub enum FromStrategy<T: StackType> {
 }
 
 pub enum ToBackend {
+    GetCurrentConfig,
+    RestartWithConfig {
+        time: Instant,
+        config: BackendConfig,
+    },
     Start {
         time: Instant,
     },
@@ -253,10 +259,10 @@ pub enum FromBackend {
         actual: Semitones,
         explanation: &'static str,
     },
+    CurrentConfig(BackendConfig),
 }
 
 pub enum ToUi<T: StackType> {
-    Stop,
     Notify {
         line: String,
     },
@@ -330,6 +336,8 @@ pub enum ToUi<T: StackType> {
         explanation: &'static str,
     },
     CurrentStrategyIndex(Option<usize>),
+    CurrentProcessConfig(ProcessConfig<T>),
+    CurrentBackendConfig(BackendConfig),
 }
 
 pub enum FromUi<T: StackType> {
@@ -407,6 +415,8 @@ pub enum FromUi<T: StackType> {
         action: Option<StrategyAction>,
         bindable: MidiBindable,
     },
+    GetCurrentProcessConfig,
+    GetCurrentBackendConfig,
 }
 
 pub enum ToMidiIn {
@@ -578,6 +588,9 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
             FromProcess::CurrentStrategyIndex(i) => {
                 (None {}, None {}, Some(ToUi::CurrentStrategyIndex(i)))
             }
+            FromProcess::CurrentConfig(config) => {
+                (None {}, None {}, Some(ToUi::CurrentProcessConfig(config)))
+            }
         }
     }
 }
@@ -633,9 +646,17 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::ApplyTemperamentToNeighbourhood { temperament, neighbourhood, time } => (
+            FromUi::ApplyTemperamentToNeighbourhood {
+                temperament,
+                neighbourhood,
+                time,
+            } => (
                 Some(ToProcess::ToStrategy(
-                    ToStrategy::ApplyTemperamentToNeighbourhood { temperament, neighbourhood, time },
+                    ToStrategy::ApplyTemperamentToNeighbourhood {
+                        temperament,
+                        neighbourhood,
+                        time,
+                    },
                 )),
                 None {},
                 None {},
@@ -745,10 +766,14 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::MakeNeighbourhoodPure { time , neighbourhood} => (
-                Some(ToProcess::ToStrategy(
-                    ToStrategy::MakeNeighbourhoodPure { time, neighbourhood },
-                )),
+            FromUi::MakeNeighbourhoodPure {
+                time,
+                neighbourhood,
+            } => (
+                Some(ToProcess::ToStrategy(ToStrategy::MakeNeighbourhoodPure {
+                    time,
+                    neighbourhood,
+                })),
                 None {},
                 None {},
                 None {},
@@ -774,6 +799,12 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
+            FromUi::GetCurrentProcessConfig => {
+                (Some(ToProcess::GetCurrentConfig), None {}, None {}, None {})
+            }
+            FromUi::GetCurrentBackendConfig => {
+                (None {}, Some(ToBackend::GetCurrentConfig), None {}, None {})
+            }
         }
     }
 }
@@ -837,6 +868,9 @@ impl<T: StackType> MessageTranslate2<ToMidiOut, ToUi<T>> for FromBackend {
                     explanation,
                 }),
             ),
+            FromBackend::CurrentConfig(config) => {
+                (None {}, Some(ToUi::CurrentBackendConfig(config)))
+            }
         }
     }
 }
@@ -848,9 +882,6 @@ impl<T: StackType> HasStop for ToProcess<T> {
             _ => false,
         }
     }
-    fn mk_stop() -> Self {
-        Self::Stop
-    }
 }
 
 impl HasStop for ToBackend {
@@ -859,21 +890,6 @@ impl HasStop for ToBackend {
             Self::Stop => true,
             _ => false,
         }
-    }
-    fn mk_stop() -> Self {
-        Self::Stop
-    }
-}
-
-impl<T: StackType> HasStop for ToUi<T> {
-    fn is_stop(&self) -> bool {
-        match self {
-            Self::Stop => true,
-            _ => false,
-        }
-    }
-    fn mk_stop() -> Self {
-        Self::Stop
     }
 }
 
@@ -884,9 +900,6 @@ impl HasStop for ToMidiIn {
             _ => false,
         }
     }
-    fn mk_stop() -> Self {
-        Self::Stop
-    }
 }
 
 impl HasStop for ToMidiOut {
@@ -895,8 +908,5 @@ impl HasStop for ToMidiOut {
             Self::Stop => true,
             _ => false,
         }
-    }
-    fn mk_stop() -> Self {
-        Self::Stop
     }
 }

@@ -4,7 +4,7 @@ use ndarray::{linalg::general_mat_vec_mul, Array1, Array2, ArrayView1, ArrayView
 use num_rational::Ratio;
 
 use crate::{
-    interval::{base::Interval, temperament::Temperament},
+    interval::{base::Interval, temperament::{Temperament, TemperamentDefinition}},
     util::lu::{lu_rational, LUErr},
 };
 
@@ -112,6 +112,9 @@ pub trait StackType: IntervalBasis + 'static {
     /// [Stack][crate::interval::stack::Stack] of this type. The "dimension" of the temperaments
     /// must be the [IntervalBasis::num_intervals].
     fn temperaments() -> impl Deref<Target = Vec<Temperament<StackCoeff>>>;
+
+    /// The original definitions of the [StackType::temperaments]
+    fn temperament_definitions() -> impl Deref<Target = Vec<TemperamentDefinition<Self>>>;
 
     /// Convenience: the length of the list returned by [temperaments][StackType::temperaments].
     fn num_temperaments() -> usize {

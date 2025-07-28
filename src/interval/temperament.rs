@@ -176,7 +176,7 @@ impl Display for TemperamentErr {
 impl std::error::Error for TemperamentErr {}
 
 /// The arguments to [Temperament::new], wrapped. See the documentation there.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct TemperamentDefinition<T: IntervalBasis> {
     _phantom: PhantomData<T>,
     pub name: String,

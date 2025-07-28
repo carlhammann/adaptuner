@@ -1,6 +1,8 @@
 pub mod backend;
 pub mod common;
+pub mod config;
 pub mod connection;
+pub mod diffshow;
 pub mod editor;
 pub mod latency;
 pub mod lattice;

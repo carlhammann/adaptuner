@@ -300,6 +300,15 @@ impl HandleMsg<ToBackend, FromBackend> for Pitchbend12 {
                 }
                 self.reset(time, forward);
             }
+            ToBackend::GetCurrentConfig => {
+                let _ = forward.send(FromBackend::CurrentConfig(self.extract_config()));
+            }
+            ToBackend::RestartWithConfig { time, config } => {
+                *self = <Self as FromConfigAndState<_, _>>::initialise(config, ());
+            }
+            ToBackend::Start { time } => todo!(),
+            ToBackend::Reset { time } => todo!(),
+            ToBackend::Stop => todo!(),
         }
     }
 }
@@ -316,7 +325,7 @@ impl ExtractConfig<BackendConfig> for Pitchbend12 {
 impl<S> FromConfigAndState<BackendConfig, S> for Pitchbend12 {
     fn initialise(config: BackendConfig, _state: S) -> Self {
         match config {
-            BackendConfig::Pitchbend12(config) => Self::new(config)
+            BackendConfig::Pitchbend12(config) => Self::new(config),
         }
     }
 }

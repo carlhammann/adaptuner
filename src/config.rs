@@ -40,6 +40,7 @@ impl<T: StackType> StrategyConfig<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct ProcessConfig<T: IntervalBasis> {
     pub strategies: Vec<(StrategyConfig<T>, Bindings<MidiBindable>)>,
 }

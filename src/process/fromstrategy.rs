@@ -8,7 +8,7 @@ use midi_msg::{
 };
 
 use crate::{
-    bindable::{MidiBindable, Bindings},
+    bindable::{Bindings, MidiBindable},
     config::{ExtractConfig, FromConfigAndState, ProcessConfig},
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
@@ -324,6 +324,13 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                     }
                 }
             }
+            ToProcess::GetCurrentConfig => {
+                let _ = forward.send(FromProcess::CurrentConfig(self.extract_config()));
+            }
+            ToProcess::RestartWithConfig { time, config } => {
+                *self = <Self as FromConfigAndState<_, _>>::initialise(config, ());
+                self.start(time, forward);
+            }
         }
     }
 }
@@ -340,9 +347,14 @@ impl<T: StackType> ExtractConfig<ProcessConfig<T>> for ProcessFromStrategy<T> {
     }
 }
 
-impl <T:StackType, S> FromConfigAndState<ProcessConfig<T>, S> for ProcessFromStrategy<T> {
+impl<T: StackType, S> FromConfigAndState<ProcessConfig<T>, S> for ProcessFromStrategy<T> {
     fn initialise(config: ProcessConfig<T>, _state: S) -> Self {
         let ProcessConfig { mut strategies } = config;
-        Self::new(strategies.drain(..).map(|(s,b)| (s.realize(), b)).collect())
+        Self::new(
+            strategies
+                .drain(..)
+                .map(|(s, b)| (s.realize(), b))
+                .collect(),
+        )
     }
 }
