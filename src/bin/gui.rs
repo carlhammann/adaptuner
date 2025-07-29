@@ -16,9 +16,10 @@ fn main() {
     }
 }
 
+const TEMPLATE_CONFIG: &'static str = include_str!("../../configs/template.yaml");
+
 fn run() -> Result<(), Box<dyn Error>> {
-    let config: Config<TheFiveLimitStackType> =
-        serde_yml::from_reader(std::fs::File::open("minimal.yaml")?)?;
+    let config: Config<TheFiveLimitStackType> = serde_yml::from_str(TEMPLATE_CONFIG)?;
     TheFiveLimitStackType::initialise(&config.temperaments, &config.named_intervals)?;
 
     let (process_config, gui_config, backend_config) = config.split();
@@ -26,31 +27,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
 
-    let runstate = RunState::new::<ProcessFromStrategy<TheFiveLimitStackType>, Pitchbend12, _, _>(
+    let _runstate = RunState::new::<ProcessFromStrategy<TheFiveLimitStackType>, Pitchbend12, _, _>(
         midi_in,
         midi_out,
         process_config,
         backend_config,
         move |ctx, tx| Toplevel::new(gui_config, ctx, tx),
     )?;
-
-    let (process_config, backend_config, gui_config, _, _) = runstate.stop()?;
-
-    // println!("{}", serde_yml::to_string(&process_config).unwrap());
-    // println!("\n\n\n\n");
-    // println!("{}", serde_yml::to_string(&backend_config).unwrap());
-    //
-    println!(
-        "{}",
-        serde_yml::to_string(&Config::join(
-            process_config,
-            backend_config,
-            gui_config,
-            config.temperaments,
-            config.named_intervals
-        ))
-        .unwrap()
-    );
 
     Ok(())
 }
