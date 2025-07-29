@@ -114,7 +114,6 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
             egui::ComboBox::from_id_salt("strategy picker")
                 .selected_text(x.strategies.current_selected().map_or("", |x| &x.0.name))
                 .show_ui(ui, |ui| {
-                    ui.shrink_width_to_current();
                     if let Some((i, _)) = x.strategies.show_as_list_picker(
                         ui,
                         |x| &x.0.name,
@@ -130,6 +129,8 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
 
                     x.strategy_list_editor_window
                         .show_hide_button(ui, "edit strategies");
+
+                    ui.shrink_width_to_current();
                 });
 
             ui.separator();

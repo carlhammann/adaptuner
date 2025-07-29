@@ -17,7 +17,7 @@ use super::{
     connection::{ConnectionWindow, Input, Output},
     latency::LatencyWindow,
     lattice::LatticeWindow,
-    latticecontrol::{AsBigControls, AsSmallControls},
+    latticecontrol::AsKeyboardControls,
     notes::NoteWindow,
     r#trait::GuiShow,
     strategy::{AsStrategyPicker, AsWindows, StrategyWindows},
@@ -25,8 +25,7 @@ use super::{
 
 pub struct Toplevel<T: StackType> {
     lattice: LatticeWindow<T>,
-    show_controls: u8,
-    old_show_controls: u8,
+    show_keyboard_controls: bool,
 
     strategies: StrategyWindows<T>,
 
@@ -66,8 +65,7 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
                 correction_system_chooser,
                 Instant::now(),
             ),
-            show_controls: 0,
-            old_show_controls: 1,
+            show_keyboard_controls: false,
 
             input_connection: ConnectionWindow::new(),
             output_connection: ConnectionWindow::new(),
@@ -135,26 +133,11 @@ where
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if self.show_controls == 0 {
-                    if ui.button("show controls").clicked() {
-                        self.show_controls = 1;
-                        self.old_show_controls = 0;
-                    }
-                } else if (self.show_controls == 1) & (self.old_show_controls == 0) {
-                    if ui.button("more controls").clicked() {
-                        self.show_controls = 2;
-                        self.old_show_controls = 1;
-                    }
-                } else if (self.show_controls == 1) & (self.old_show_controls == 2) {
-                    if ui.button("hide controls").clicked() {
-                        self.show_controls = 0;
-                        self.old_show_controls = 1;
-                    }
-                } else {
-                    if ui.button("fewer controls").clicked() {
-                        self.show_controls = 1;
-                        self.old_show_controls = 2;
-                    }
+                if self.show_keyboard_controls && ui.button("hide controls").clicked() {
+                    self.show_keyboard_controls = false;
+                }
+                if !self.show_keyboard_controls && ui.button("show controls").clicked() {
+                    self.show_keyboard_controls = true;
                 }
 
                 self.connection_window
@@ -182,19 +165,11 @@ where
             });
         });
 
-        egui::TopBottomPanel::bottom("big control bottom panel").show_animated(
-            ctx,
-            self.show_controls > 1,
-            |ui| {
-                AsBigControls(&mut self.lattice).show(ui, &self.tx);
-            },
-        );
-
         egui::TopBottomPanel::bottom("small control bottom panel").show_animated(
             ctx,
-            self.show_controls > 0,
+            self.show_keyboard_controls,
             |ui| {
-                AsSmallControls(&mut self.lattice).show(ui, &self.tx);
+                AsKeyboardControls(&mut self.lattice).show(ui, &self.tx);
             },
         );
 
@@ -270,7 +245,12 @@ impl<T: StackType> ExtractConfig<GuiConfig> for Toplevel<T> {
             latency_mean_over: self.latency.extract_config(),
             tuning_editor,
             reference_editor,
-            use_cent_values: self.lattice.controls.correction_system_chooser.borrow().extract_config(),
+            use_cent_values: self
+                .lattice
+                .controls
+                .correction_system_chooser
+                .borrow()
+                .extract_config(),
         }
     }
 }

@@ -20,6 +20,7 @@ use crate::{
 
 use super::{
     common::{temperament_applier, CorrectionSystemChooser},
+    latticecontrol::AsBigControls,
     r#trait::GuiShow,
 };
 
@@ -129,6 +130,8 @@ pub struct LatticeWindow<T: StackType> {
     tuning_reference: Reference<T>,
 
     reset_position: bool,
+    control_tooltip_pos: egui::Pos2,
+
     positions: Positions,
 
     draw_state: OneNodeDrawState<T>,
@@ -443,6 +446,7 @@ impl<T: StackType> LatticeWindow<T> {
             tmp_stack: Stack::new_zero(),
             other_tmp_stack: Stack::new_zero(),
             reset_position: true,
+            control_tooltip_pos: pos2(0.0, 0.0),
             positions: Positions {
                 left: 0.0,
                 bottom: 0.0,
@@ -464,29 +468,6 @@ impl<T: StackType> LatticeWindow<T> {
 }
 
 impl<T: StackType + HasNoteNames> LatticeWindow<T> {
-    fn key_border_color(&self, ui: &egui::Ui, key_number: u8) -> egui::Color32 {
-        if !self.controls.highlight_playable_keys {
-            if key_number >= 109 || key_number <= 20
-            // the range of the piano
-            {
-                ui.style().visuals.weak_text_color()
-            } else {
-                ui.style().visuals.strong_text_color()
-            }
-        } else {
-            let d = key_number as i16 - self.controls.screen_keyboard_center as i16;
-            if d <= 19 && d >= -18
-            // the range playable in [Self.key_interaction]
-            {
-                ui.style().visuals.strong_text_color()
-            } else if key_number >= 109 || key_number <= 20 {
-                ui.style().visuals.weak_text_color()
-            } else {
-                ui.style().visuals.text_color()
-            }
-        }
-    }
-
     fn keyboard_hover_interaction(&self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         if ui.ui_contains_pointer() {
             ui.input(|i| {
@@ -597,6 +578,29 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 velocity: self.controls.screen_keyboard_velocity,
                 time: Instant::now(),
             });
+        }
+    }
+
+    fn key_border_color(&self, ui: &egui::Ui, key_number: u8) -> egui::Color32 {
+        if !self.controls.highlight_playable_keys {
+            if key_number >= 109 || key_number <= 20
+            // the range of the piano
+            {
+                ui.style().visuals.weak_text_color()
+            } else {
+                ui.style().visuals.strong_text_color()
+            }
+        } else {
+            let d = key_number as i16 - self.controls.screen_keyboard_center as i16;
+            if d <= 19 && d >= -18
+            // the range playable in [Self.key_interaction]
+            {
+                ui.style().visuals.strong_text_color()
+            } else if key_number >= 109 || key_number <= 20 {
+                ui.style().visuals.weak_text_color()
+            } else {
+                ui.style().visuals.text_color()
+            }
         }
     }
 
@@ -1028,9 +1032,10 @@ impl<T: StackType + HasNoteNames + Hash> GuiShow<T> for LatticeWindow<T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let r = ui.interact(
             ui.max_rect(),
-            egui::Id::new("grid dragging"),
+            egui::Id::new("global_grid_interaction"),
             egui::Sense::click_and_drag(),
         );
+
         if r.dragged() {
             let egui::Vec2 { x, y } = r.drag_delta();
             self.positions.left += x;
@@ -1049,7 +1054,32 @@ impl<T: StackType + HasNoteNames + Hash> GuiShow<T> for LatticeWindow<T> {
             self.positions.left = left - (self.c4_offset() - center);
             self.positions.bottom = bottom;
         }
+
         self.keyboard_hover_interaction(ui, forward);
+
+        let popup_id = egui::Id::new("lattice_control_popup");
+        if r.clicked() {
+            if !ui.memory(|mem| mem.any_popup_open()) {
+                self.control_tooltip_pos =
+                    r.interact_pointer_pos().unwrap_or(ui.max_rect().center());
+                ui.memory_mut(|mem| mem.open_popup(popup_id));
+            } else {
+                ui.memory_mut(|mem| mem.close_popup());
+            }
+        }
+        egui::popup::popup_below_widget(
+            ui,
+            popup_id,
+            &r.with_new_rect(egui::Rect::from_center_size(
+                self.control_tooltip_pos,
+                egui::Vec2::ZERO,
+            )),
+            egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+            |ui| {
+                AsBigControls(self).show(ui);
+            },
+        );
+
         egui::Frame::new().show(ui, |ui| {
             self.draw_keyboard(ui, forward);
             self.draw_lattice(ui, forward);

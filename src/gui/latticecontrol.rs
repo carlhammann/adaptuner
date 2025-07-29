@@ -7,11 +7,11 @@ use crate::{interval::stacktype::r#trait::StackType, msg::FromUi, notename::HasN
 
 use super::{lattice::LatticeWindow, r#trait::GuiShow};
 
-pub struct AsSmallControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
+pub struct AsKeyboardControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
 
-impl<'a, T: StackType> GuiShow<T> for AsSmallControls<'a, T> {
+impl<'a, T: StackType> GuiShow<T> for AsKeyboardControls<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        let AsSmallControls(LatticeWindow { controls, .. }) = self;
+        let AsKeyboardControls(LatticeWindow { controls, .. }) = self;
         ui.horizontal(|ui| {
             ui.add(
                 egui::widgets::Slider::new(&mut controls.zoom, 5.0..=100.0)
@@ -62,16 +62,17 @@ impl<'a, T: StackType> GuiShow<T> for AsSmallControls<'a, T> {
 
 pub struct AsBigControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
 
-impl<'a, T: StackType + HasNoteNames> GuiShow<T> for AsBigControls<'a, T> {
-    fn show(&mut self, ui: &mut egui::Ui, _forward: &mpsc::Sender<FromUi<T>>) {
+impl<'a, T: StackType + HasNoteNames> AsBigControls<'a, T> {
+    pub fn show(&mut self, ui: &mut egui::Ui) {
         let AsBigControls(lw) = self;
         let reference_name = lw.reference_corrected_note_name();
         let controls = &mut lw.controls;
 
         ui.horizontal(|ui| {
-            controls.correction_system_chooser.borrow_mut().show(ui);
-
-            ui.separator();
+            if T::num_named_intervals() > 0 {
+                controls.correction_system_chooser.borrow_mut().show(ui);
+                ui.separator();
+            }
 
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
