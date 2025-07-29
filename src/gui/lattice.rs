@@ -2,8 +2,11 @@ use std::{cell::RefCell, hash::Hash, rc::Rc, sync::mpsc, time::Instant};
 
 use eframe::egui::{self, pos2, vec2};
 use midi_msg::Channel;
+use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    config::ExtractConfig,
+    custom_serde::common::{deserialize_channel, serialize_channel},
     interval::{
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{StackCoeff, StackType},
@@ -37,22 +40,29 @@ const FONT_SIZE: f32 = 2.0;
 const FAINT_GRID_LINE_THICKNESS: f32 = MARKER_THICKNESS;
 const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
 
-pub struct LatticeWindowConfig<T: StackType> {
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub struct LatticeWindowConfig {
     pub zoom: f32,
     pub interval_heights: Vec<f32>,
     pub background_stack_distances: Vec<StackCoeff>,
     pub project_dimension: usize,
+    #[serde(
+        serialize_with = "serialize_channel",
+        deserialize_with = "deserialize_channel"
+    )]
     pub screen_keyboard_channel: Channel,
     pub screen_keyboard_velocity: u8,
-    pub screen_keyboard_pedal_hold: bool,
-    pub screen_keyboard_center: u8,
     pub notenamestyle: NoteNameStyle,
-    pub correction_system_chooser: CorrectionSystemChooser<T>,
     pub highlight_playable_keys: bool,
 }
 
-impl<T: StackType> LatticeWindowConfig<T> {
-    pub fn to_controls(self) -> LatticeWindowControls<T> {
+impl LatticeWindowConfig {
+    pub fn to_controls<T: StackType>(
+        self,
+        correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
+    ) -> LatticeWindowControls<T> {
         let LatticeWindowConfig {
             zoom,
             interval_heights,
@@ -60,10 +70,7 @@ impl<T: StackType> LatticeWindowConfig<T> {
             project_dimension,
             screen_keyboard_channel,
             screen_keyboard_velocity,
-            screen_keyboard_pedal_hold,
-            screen_keyboard_center,
             notenamestyle,
-            correction_system_chooser,
             highlight_playable_keys,
         } = self;
         LatticeWindowControls {
@@ -73,10 +80,10 @@ impl<T: StackType> LatticeWindowConfig<T> {
             project_dimension,
             screen_keyboard_channel,
             screen_keyboard_velocity,
-            screen_keyboard_pedal_hold,
-            screen_keyboard_center,
+            screen_keyboard_pedal_hold: false,
+            screen_keyboard_center: 60,
             notenamestyle,
-            correction_system_chooser: Rc::new(RefCell::new(correction_system_chooser)),
+            correction_system_chooser,
             highlight_playable_keys,
         }
     }
@@ -412,9 +419,12 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
     }
 }
 
-impl<T: StackType + HasNoteNames> LatticeWindow<T> {
-    pub fn new(config: LatticeWindowControls<T>) -> Self {
-        let now = Instant::now();
+impl<T: StackType> LatticeWindow<T> {
+    pub fn new(
+        config: LatticeWindowConfig,
+        correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
+        now: Instant,
+    ) -> Self {
         Self {
             active_notes: core::array::from_fn(|_| KeyState::new(now)),
             pedal_hold: [false; 16],
@@ -439,10 +449,21 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 c4_hpos: 0.0,
                 reference_pos: pos2(0.0, 0.0),
             },
-            controls: config,
+            controls: config.to_controls(correction_system_chooser),
         }
     }
 
+    pub fn restart_from_config(
+        &mut self,
+        config: LatticeWindowConfig,
+        correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
+        time: Instant,
+    ) {
+        *self = LatticeWindow::new(config, correction_system_chooser, time);
+    }
+}
+
+impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     fn key_border_color(&self, ui: &egui::Ui, key_number: u8) -> egui::Color32 {
         if !self.controls.highlight_playable_keys {
             if key_number >= 109 || key_number <= 20
@@ -1097,6 +1118,32 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindow<T> {
             ToUi::DetunedNote { .. } => todo!(),
 
             _ => {}
+        }
+    }
+}
+
+impl<T: StackType> ExtractConfig<LatticeWindowConfig> for LatticeWindow<T> {
+    fn extract_config(&self) -> LatticeWindowConfig {
+        let LatticeWindowControls {
+            zoom,
+            interval_heights,
+            background_stack_distances,
+            project_dimension,
+            screen_keyboard_channel,
+            screen_keyboard_velocity,
+            notenamestyle,
+            highlight_playable_keys,
+            ..
+        } = &self.controls;
+        LatticeWindowConfig {
+            zoom: *zoom,
+            interval_heights: interval_heights.clone(),
+            background_stack_distances: background_stack_distances.clone(),
+            project_dimension: *project_dimension,
+            screen_keyboard_channel: *screen_keyboard_channel,
+            screen_keyboard_velocity: *screen_keyboard_velocity,
+            notenamestyle: *notenamestyle,
+            highlight_playable_keys: *highlight_playable_keys,
         }
     }
 }

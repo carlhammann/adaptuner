@@ -4,7 +4,8 @@ use eframe::egui;
 use midi_msg::Channel;
 
 use crate::{
-    config::BackendConfig,
+    backend::pitchbend12::Pitchbend12Config,
+    config::{BackendConfig, ExtractConfig},
     interval::{base::Semitones, stacktype::r#trait::StackType},
     msg::{FromUi, HandleMsgRef, ToUi},
 };
@@ -34,6 +35,19 @@ impl BackendWindow {
                     new_use_channels: use_channels.clone(),
                     use_channels,
                 }
+            }
+        }
+    }
+
+    pub fn restart_from_config(&mut self, config: BackendWindowConfig, _time: Instant) {
+        match config {
+            BackendConfig::Pitchbend12(config) => {
+                self.bend_range = config.bend_range;
+                self.use_channels.iter_mut().for_each(|b| *b = false);
+                for c in config.channels {
+                    self.use_channels[Into::<Channel>::into(c) as usize] = true;
+                }
+                self.new_use_channels.clone_from(&self.use_channels);
             }
         }
     }
@@ -97,5 +111,24 @@ impl<T: StackType> GuiShow<T> for BackendWindow {
                 }
             }
         });
+    }
+}
+
+impl ExtractConfig<BackendWindowConfig> for BackendWindow {
+    fn extract_config(&self) -> BackendWindowConfig {
+        BackendWindowConfig::Pitchbend12(Pitchbend12Config {
+            bend_range: self.bend_range,
+            channels: {
+                let mut channels = [Channel::Ch1.into(); 12];
+                let mut i = 0;
+                for &b in self.use_channels.iter() {
+                    if b {
+                        channels[i] = Channel::from_u8(i as u8).into();
+                        i += 1;
+                    }
+                }
+                channels
+            },
+        })
     }
 }

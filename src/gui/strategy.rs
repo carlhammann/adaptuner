@@ -4,7 +4,7 @@ use eframe::egui::{self, vec2};
 
 use crate::{
     bindable::{Bindable, Bindings},
-    config::{StrategyKind, StrategyNames},
+    config::{ExtractConfig, StrategyKind, StrategyNames},
     interval::stacktype::r#trait::StackType,
     msg::{FromUi, HandleMsgRef, ToUi},
     notename::HasNoteNames,
@@ -39,10 +39,6 @@ pub struct StrategyWindows<T: StackType + 'static> {
 
     binding_editor_window: SmallFloatingWindow,
     binding_editor: BindingEditor,
-    // tmp_strategy_action: Option<StrategyAction>,
-    // tmp_bindable: Bindable,
-    // tmp_key_name: String,
-    // tmp_key_name_invalid: bool,
 }
 
 impl<T: StackType> StrategyWindows<T> {
@@ -73,11 +69,21 @@ impl<T: StackType> StrategyWindows<T> {
             neighbourhood_editor: NeighbourhoodEditor::new(),
             binding_editor_window: SmallFloatingWindow::new(egui::Id::new("binding_editor_window")),
             binding_editor: BindingEditor::new(),
-            // tmp_strategy_action: None {},
-            // tmp_bindable: Bindable::SostenutoPedalDown,
-            // tmp_key_name: "Space".into(),
-            // tmp_key_name_invalid: false,
         }
+    }
+
+    pub fn restart_from_config(
+        &mut self,
+        strategies: Vec<(StrategyNames, Bindings<Bindable>)>,
+        tuning_editor: TuningEditorConfig,
+        reference_editor: ReferenceEditorConfig,
+        correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
+        _time: Instant,
+    ) {
+        self.strategies.put_elems(strategies);
+        self.tuning_editor = TuningEditor::new(tuning_editor, correction_system_chooser.clone());
+        self.reference_editor =
+            ReferenceEditor::new(reference_editor, correction_system_chooser.clone());
     }
 }
 
@@ -270,5 +276,27 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                     super::common::ListEditResult::None => {}
                 }
             });
+    }
+}
+
+impl<T: StackType>
+    ExtractConfig<(
+        Vec<(StrategyNames, Bindings<Bindable>)>,
+        TuningEditorConfig,
+        ReferenceEditorConfig,
+    )> for StrategyWindows<T>
+{
+    fn extract_config(
+        &self,
+    ) -> (
+        Vec<(StrategyNames, Bindings<Bindable>)>,
+        TuningEditorConfig,
+        ReferenceEditorConfig,
+    ) {
+        (
+            self.strategies.elems().into(),
+            self.tuning_editor.extract_config(),
+            self.reference_editor.extract_config(),
+        )
     }
 }

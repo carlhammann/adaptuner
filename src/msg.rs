@@ -417,6 +417,14 @@ pub enum FromUi<T: StackType> {
     },
     GetCurrentProcessConfig,
     GetCurrentBackendConfig,
+    RestartProcessWithConfig {
+        config: ProcessConfig<T>,
+        time: Instant,
+    },
+    RestartBackendWithConfig {
+        config: BackendConfig,
+        time: Instant,
+    },
 }
 
 pub enum ToMidiIn {
@@ -805,6 +813,18 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::GetCurrentBackendConfig => {
                 (None {}, Some(ToBackend::GetCurrentConfig), None {}, None {})
             }
+            FromUi::RestartProcessWithConfig { config, time } => (
+                Some(ToProcess::RestartWithConfig { time, config }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::RestartBackendWithConfig { config, time } => (
+                None {},
+                Some(ToBackend::RestartWithConfig { time, config }),
+                None {},
+                None {},
+            ),
         }
     }
 }

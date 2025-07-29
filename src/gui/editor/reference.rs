@@ -1,15 +1,13 @@
 use std::{cell::RefCell, rc::Rc, sync::mpsc, time::Instant};
 
 use eframe::egui;
+use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    gui::{
+    config::ExtractConfig, gui::{
         common::{note_picker, CorrectionSystemChooser},
         r#trait::GuiShow,
-    },
-    interval::{stack::Stack, stacktype::r#trait::StackType},
-    msg::{FromUi, HandleMsgRef, ToUi},
-    notename::{correction::Correction, NoteNameStyle, HasNoteNames},
+    }, interval::{stack::Stack, stacktype::r#trait::StackType}, msg::{FromUi, HandleMsgRef, ToUi}, notename::{correction::Correction, HasNoteNames, NoteNameStyle}
 };
 
 pub struct ReferenceEditor<T: StackType> {
@@ -21,6 +19,9 @@ pub struct ReferenceEditor<T: StackType> {
     correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 pub struct ReferenceEditorConfig {
     pub notenamestyle: NoteNameStyle,
 }
@@ -109,6 +110,14 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for ReferenceEditor<T> {
                 self.reference = Some(stack.clone());
             }
             _ => {}
+        }
+    }
+}
+
+impl<T: StackType> ExtractConfig<ReferenceEditorConfig> for ReferenceEditor<T> {
+    fn extract_config(&self) -> ReferenceEditorConfig {
+        ReferenceEditorConfig {
+            notenamestyle: self.notenamestyle,
         }
     }
 }

@@ -1,8 +1,10 @@
 use std::{cell::RefCell, rc::Rc, sync::mpsc, time::Instant};
 
 use eframe::egui;
+use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    config::ExtractConfig,
     gui::{
         common::{note_picker, CorrectionSystemChooser},
         r#trait::GuiShow,
@@ -22,6 +24,9 @@ pub struct TuningEditor<T: StackType> {
     correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 pub struct TuningEditorConfig {
     pub notenamestyle: NoteNameStyle,
 }
@@ -121,6 +126,14 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for TuningEditor<T> {
         match msg {
             ToUi::SetTuningReference { reference } => self.reference = Some(reference.clone()),
             _ => {}
+        }
+    }
+}
+
+impl<T: StackType> ExtractConfig<TuningEditorConfig> for TuningEditor<T> {
+    fn extract_config(&self) -> TuningEditorConfig {
+        TuningEditorConfig {
+            notenamestyle: self.notenamestyle,
         }
     }
 }

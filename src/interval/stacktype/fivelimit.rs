@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt::Display,
     ops::Deref,
     sync::{LazyLock, RwLock},
 };
@@ -14,11 +13,12 @@ use crate::interval::{
         FiveLimitIntervalBasis, IntervalBasis, OctavePeriodicIntervalBasis, PeriodicIntervalBasis,
         StackCoeff, StackType,
     },
-    temperament::{Temperament, TemperamentDefinition, TemperamentErr},
+    temperament::{Temperament, TemperamentDefinition},
 };
 
 use super::r#trait::{
-    CoordinateSystem, FiveLimitStackType, NamedInterval, OctavePeriodicStackType, PeriodicStackType,
+    CoordinateSystem, FiveLimitStackType, NamedInterval, OctavePeriodicStackType,
+    PeriodicStackType, Reloadable, StackTypeInitialisationErr,
 };
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug, Serialize, Deserialize)]
@@ -62,25 +62,8 @@ static TEMPERAMENTS: RwLock<Vec<Temperament<StackCoeff>>> = RwLock::new(vec![]);
 static TEMPERAMENT_DEFINITIONS: RwLock<Vec<TemperamentDefinition<TheFiveLimitStackType>>> =
     RwLock::new(vec![]);
 
-#[derive(Debug)]
-pub enum StackTypeInitialisationErr {
-    FromTemperamentErr(TemperamentErr),
-}
-
-impl Display for StackTypeInitialisationErr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            StackTypeInitialisationErr::FromTemperamentErr(temperament_err) => {
-                temperament_err.fmt(f)
-            }
-        }
-    }
-}
-
-impl std::error::Error for StackTypeInitialisationErr {}
-
-impl TheFiveLimitStackType {
-    pub fn initialise(
+impl Reloadable for TheFiveLimitStackType {
+    fn initialise(
         temperament_definitions: &[TemperamentDefinition<TheFiveLimitStackType>],
         named_intervals: &[NamedInterval<TheFiveLimitStackType>],
     ) -> Result<(), StackTypeInitialisationErr> {

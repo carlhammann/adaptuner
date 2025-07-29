@@ -13,7 +13,7 @@ temperaments:
       third: 3
     pure:
       octave: 1
-- name: '1/4-comma meantone'
+- name: 1/4-comma meantone
   equations:
   - tempered:
       octave: 1
@@ -81,6 +81,12 @@ named-intervals:
   coeffs:
     octave: -7
     fifth: 12
+- name: kleisma
+  short-name: 'k'
+  coeffs:
+    octave: 1
+    fifth: -5
+    third: 6
 - name: cent
   short-name: 'c'
   coeffs:
@@ -221,3 +227,26 @@ backend: !pitchbend12
   - 11
   - 12
   - 13
+# Expect pain if you edit the gui settings by hand!
+gui:
+  lattice-window:
+    zoom: 10.0
+    interval-heights:
+      - 0.0 # octaves horizontally
+      - 3.8631371386483 # fifths rise by 12 * log_2(5/4), i.e. the size of a third
+      - -7.0195500086538 # thirds fall by 12 * log_2(3/2), i.e. ths size of a fifth
+    background-stack-distances:
+      - 0
+      - 3
+      - 2
+    project-dimension: 0
+    screen-keyboard-channel: 1
+    screen-keyboard-velocity: 64
+    highlight-playable-keys: false
+    notenamestyle: class
+  use-cent-values: false
+  tuning-editor:
+    notenamestyle: full
+  reference-editor:
+    notenamestyle: full
+  latency-mean-over: 20

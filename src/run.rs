@@ -451,28 +451,6 @@ impl<T: StackType> RunState<T> {
         Ok(res)
     }
 
-    // pub fn restart_process_with_config(&self, time: Instant, config: ProcessConfig<T>) {
-    //     let _ = self
-    //         .to_process_tx
-    //         .send(ToProcess::RestartWithConfig { time, config });
-    // }
-    //
-    // pub fn restart_backend_with_config(&self, time: Instant, config: BackendConfig) {
-    //     let _ = self
-    //         .to_backend_tx
-    //         .send(ToBackend::RestartWithConfig { time, config });
-    // }
-    //
-    // pub fn current_process_config(&self) -> Result<ProcessConfig<T>, mpsc::RecvError> {
-    //     let _ = self.to_process_tx.send(ToProcess::GetCurrentConfig);
-    //     self.process_config_rx.recv()
-    // }
-    //
-    // pub fn current_backend_config(&self) -> Result<BackendConfig, mpsc::RecvError> {
-    //     let _ = self.to_backend_tx.send(ToBackend::GetCurrentConfig);
-    //     self.backend_config_rx.recv()
-    // }
-
     pub fn stop(
         self,
     ) -> Result<

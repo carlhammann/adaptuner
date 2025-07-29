@@ -4,6 +4,11 @@ use crate::{
     backend::pitchbend12::Pitchbend12Config,
     bindable::{Bindable, Bindings, MidiBindable},
     custom_serde::common::deserialize_nonempty,
+    gui::{
+        backend::BackendWindowConfig,
+        editor::{reference::ReferenceEditorConfig, tuning::TuningEditorConfig},
+        lattice::LatticeWindowConfig,
+    },
     interval::{
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
@@ -48,6 +53,26 @@ pub struct ProcessConfig<T: IntervalBasis> {
 #[derive(Clone)]
 pub struct GuiConfig {
     pub strategies: Vec<(StrategyNames, Bindings<Bindable>)>,
+    pub lattice_window: LatticeWindowConfig,
+    pub backend_window: BackendWindowConfig,
+    pub tuning_editor: TuningEditorConfig,
+    pub reference_editor: ReferenceEditorConfig,
+    pub latency_mean_over: usize,
+    pub use_cent_values: bool,
+    // pub note_window: NoteWindowConfig<T>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub struct GuiConfigWithoutStrategies {
+    pub lattice_window: LatticeWindowConfig,
+    pub tuning_editor: TuningEditorConfig,
+    pub reference_editor: ReferenceEditorConfig,
+    pub latency_mean_over: usize,
+    pub use_cent_values: bool,
+    // pub backend_window: BackendWindowConfig, // not necessary since BackendWindowConfig = BackendConfig
+    // pub note_window: NoteWindowConfig<T>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -79,6 +104,7 @@ pub struct Config<T: IntervalBasis> {
     pub named_intervals: Vec<NamedInterval<T>>,
     pub strategies: Vec<ExtendedStrategyConfig<T>>,
     pub backend: BackendConfig,
+    pub gui: GuiConfigWithoutStrategies,
 }
 
 impl<T: IntervalBasis> Config<T> {
@@ -94,7 +120,16 @@ impl<T: IntervalBasis> Config<T> {
             ProcessConfig {
                 strategies: process,
             },
-            GuiConfig { strategies: ui },
+            GuiConfig {
+                strategies: ui,
+                lattice_window: self.gui.lattice_window.clone(),
+                backend_window: self.backend.clone(),
+                tuning_editor: self.gui.tuning_editor.clone(),
+                reference_editor: self.gui.reference_editor.clone(),
+                latency_mean_over: self.gui.latency_mean_over,
+                use_cent_values: self.gui.use_cent_values,
+                // note_window: self.gui.note_window.clone(),
+            },
             self.backend.clone(),
         )
     }
@@ -126,6 +161,13 @@ impl<T: IntervalBasis> Config<T> {
                     .collect()
             },
             backend,
+            gui: GuiConfigWithoutStrategies {
+                lattice_window: gui.lattice_window,
+                tuning_editor: gui.tuning_editor,
+                reference_editor: gui.reference_editor,
+                latency_mean_over: gui.latency_mean_over,
+                use_cent_values: gui.use_cent_values,
+            },
         }
     }
 }
@@ -250,8 +292,11 @@ impl<T: IntervalBasis> ExtendedStrategyConfig<T> {
         }
     }
 
-    // todo make this test something?
-    fn join(strat: StrategyConfig<T>, bindings: Bindings<Bindable>, mut names: StrategyNames) -> Self {
+    fn join(
+        strat: StrategyConfig<T>,
+        bindings: Bindings<Bindable>,
+        mut names: StrategyNames,
+    ) -> Self {
         match strat {
             StrategyConfig::StaticTuning(StaticTuningConfig {
                 mut neighbourhoods,

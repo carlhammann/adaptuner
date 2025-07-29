@@ -1,9 +1,7 @@
 use std::{sync::mpsc, time::Duration};
 
 use crate::{
-    gui::r#trait::GuiShow,
-    interval::stacktype::r#trait::StackType,
-    msg::{self, FromUi, HandleMsgRef, ToUi},
+    config::ExtractConfig, gui::r#trait::GuiShow, interval::stacktype::r#trait::StackType, msg::{self, FromUi, HandleMsgRef, ToUi}
 };
 use eframe::{self, egui};
 
@@ -48,5 +46,11 @@ impl<T: StackType> GuiShow<T> for LatencyWindow {
             self.values.len(),
             self.mean
         ));
+    }
+}
+
+impl ExtractConfig<usize> for LatencyWindow {
+    fn extract_config(&self) -> usize {
+        self.values.len()
     }
 }

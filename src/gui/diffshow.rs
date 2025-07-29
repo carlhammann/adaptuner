@@ -31,10 +31,10 @@ impl DiffShow {
         }
     }
 
-    pub fn update(&mut self, old: &str, new: &str, ui: &egui::Ui) {
-        let diff = TextDiff::from_lines(old, new);
+    pub fn update(&mut self, left: &str, right: &str, ui: &egui::Ui) {
+        let diff = TextDiff::from_lines(left, right);
 
-        let format_equal = egui::text::TextFormat {
+        let format_both = egui::text::TextFormat {
             font_id: DIFF_FONT_ID,
             extra_letter_spacing: 0.0,
             line_height: None {},
@@ -46,18 +46,18 @@ impl DiffShow {
             valign: egui::Align::Min,
         };
 
-        let format_insert = egui::TextFormat {
+        let format_right = egui::TextFormat {
             color: egui::Color32::GREEN,
-            ..format_equal.clone()
+            ..format_both.clone()
         };
 
-        let format_delete = egui::TextFormat {
+        let format_left = egui::TextFormat {
             color: egui::Color32::RED,
-            strikethrough: egui::Stroke {
-                color: egui::Color32::RED,
-                width: 1.0,
-            },
-            ..format_insert.clone()
+            // strikethrough: egui::Stroke {
+            //     color: egui::Color32::RED,
+            //     width: 1.0,
+            // },
+            ..format_right.clone()
         };
 
         let mut block_started = false;
@@ -68,9 +68,9 @@ impl DiffShow {
         for (i, change) in diff.iter_all_changes().enumerate() {
             self.num_lines += 1;
             let (is_change, format) = match change.tag() {
-                ChangeTag::Equal => (false, format_equal.clone()),
-                ChangeTag::Insert => (true, format_insert.clone()),
-                ChangeTag::Delete => (true, format_delete.clone()),
+                ChangeTag::Equal => (false, format_both.clone()),
+                ChangeTag::Insert => (true, format_right.clone()),
+                ChangeTag::Delete => (true, format_left.clone()),
             };
             if is_change {
                 if !block_started {
@@ -110,10 +110,27 @@ impl DiffShow {
         }
     }
 
-    pub fn show(&mut self, same_message: &str, ui: &mut egui::Ui) {
+    pub fn show(
+        &mut self,
+        left_name: &str,
+        right_name: &str,
+        same_message: &str,
+        ui: &mut egui::Ui,
+    ) {
         if self.first_lines_of_changed_blocks.is_empty() {
             ui.label(same_message);
         } else {
+            ui.label(
+                egui::RichText::from(left_name)
+                    .monospace()
+                    .color(egui::Color32::RED),
+            );
+            ui.label(
+                egui::RichText::from(right_name)
+                    .monospace()
+                    .color(egui::Color32::GREEN),
+            );
+            ui.label(egui::RichText::from("in both").monospace());
             if ui.button("scroll to next change").clicked() {
                 self.change_block_index =
                     (self.change_block_index + 1) % self.first_lines_of_changed_blocks.len();

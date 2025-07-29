@@ -4,7 +4,10 @@ use ndarray::{linalg::general_mat_vec_mul, Array1, Array2, ArrayView1, ArrayView
 use num_rational::Ratio;
 
 use crate::{
-    interval::{base::Interval, temperament::{Temperament, TemperamentDefinition}},
+    interval::{
+        base::Interval,
+        temperament::{Temperament, TemperamentDefinition, TemperamentErr},
+    },
     util::lu::{lu_rational, LUErr},
 };
 
@@ -139,6 +142,30 @@ pub trait StackType: IntervalBasis + 'static {
         basis_indices: &[usize],
         f: impl FnMut(Option<&(Vec<usize>, CoordinateSystem)>) -> R,
     ) -> R; // -> Option<impl Deref<Target = (Vec<usize>, CoordinateSystem)>>;
+}
+
+#[derive(Debug)]
+pub enum StackTypeInitialisationErr {
+    FromTemperamentErr(TemperamentErr),
+}
+
+impl std::fmt::Display for StackTypeInitialisationErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            StackTypeInitialisationErr::FromTemperamentErr(temperament_err) => {
+                temperament_err.fmt(f)
+            }
+        }
+    }
+}
+
+impl std::error::Error for StackTypeInitialisationErr {}
+
+pub trait Reloadable: StackType {
+    fn initialise(
+        temperament_definitions: &[TemperamentDefinition<Self>],
+        named_intervals: &[NamedInterval<Self>],
+    ) -> Result<(), StackTypeInitialisationErr>;
 }
 
 pub trait FiveLimitIntervalBasis: IntervalBasis {

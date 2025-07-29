@@ -1,5 +1,6 @@
 use std::fmt;
 
+use serde_derive::{Deserialize, Serialize};
 use crate::interval::{
     stack::Stack,
     stacktype::{
@@ -11,6 +12,8 @@ use crate::interval::{
 pub mod correction;
 pub mod johnston;
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 #[derive(Clone, Copy)]
 pub enum NoteNameStyle {
     Full,

@@ -4,9 +4,10 @@ use eframe::egui;
 use num_rational::Ratio;
 
 use crate::{
+    config::ExtractConfig,
     interval::{
         stack::Stack,
-        stacktype::r#trait::{StackCoeff, StackType},
+        stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     notename::correction::Correction,
     util::list_action::ListAction,
@@ -257,6 +258,12 @@ impl<X> OwningListEdit<X> {
         X: Clone,
     {
         self.elems = elems.into();
+        self.selected = None {};
+    }
+
+    pub fn put_elems(&mut self, elems: Vec<X>) {
+        self.elems = elems;
+        self.selected = None {}
     }
 
     fn as_ref_list_edit<'a>(&'a mut self) -> RefListEdit<'a, X> {
@@ -404,18 +411,24 @@ pub fn show_hide_button(
     clicked
 }
 
-pub struct CorrectionSystemChooser<T: StackType> {
+pub struct CorrectionSystemChooser<T: IntervalBasis> {
     _phantom: PhantomData<T>,
     pub use_cent_values: bool,
     preference_order: OwningListEdit<usize>,
     id_salt: &'static str,
 }
 
+impl<T: IntervalBasis> ExtractConfig<bool> for CorrectionSystemChooser<T> {
+    fn extract_config(&self) -> bool {
+        self.use_cent_values
+    }
+}
+
 impl<T: StackType> CorrectionSystemChooser<T> {
-    pub fn new(id_salt: &'static str) -> Self {
+    pub fn new(id_salt: &'static str, use_cent_values: bool) -> Self {
         Self {
             _phantom: PhantomData,
-            use_cent_values: false,
+            use_cent_values,
             preference_order: {
                 let mut v = Vec::with_capacity(T::num_named_intervals());
                 (0..T::num_named_intervals()).for_each(|i| v.push(i));
