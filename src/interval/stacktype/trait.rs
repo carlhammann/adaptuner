@@ -14,7 +14,7 @@ use crate::{
 /// The type of integer coefficients used in [Stack][crate::interval::stack::Stack]s.
 pub type StackCoeff = i64;
 
-pub trait IntervalBasis: Copy {
+pub trait IntervalBasis: Copy + std::fmt::Debug {
     fn intervals() -> &'static [Interval];
 
     /// Often, there's a "periodicity" in the intervals (like the octave). This function should

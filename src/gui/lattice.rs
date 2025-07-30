@@ -13,7 +13,7 @@ use crate::{
     },
     keystate::KeyState,
     msg::{FromUi, HandleMsgRef, ToUi},
-    neighbourhood::{Neighbourhood, PartialNeighbourhood},
+    neighbourhood::{Neighbourhood, Partial},
     notename::{correction::Correction, HasNoteNames, NoteNameStyle},
     reference::Reference,
 };
@@ -125,7 +125,7 @@ pub struct LatticeWindow<T: StackType> {
     tunings: [Stack<T>; 128],
 
     reference: Stack<T>,
-    considered_notes: PartialNeighbourhood<T>,
+    considered_notes: Partial<T>,
 
     tuning_reference: Reference<T>,
 
@@ -437,7 +437,7 @@ impl<T: StackType> LatticeWindow<T> {
                 semitones: 60.0,
             },
             reference: Stack::new_zero(),
-            considered_notes: PartialNeighbourhood::new(),
+            considered_notes: Partial::new(),
             draw_state: OneNodeDrawState {
                 tmp_relative_stack: Stack::new_zero(),
                 tmp_temperaments: vec![false; T::num_temperaments()],

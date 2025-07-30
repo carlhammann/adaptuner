@@ -88,127 +88,127 @@ named-intervals:
     fifth: '-5'
     third: '6'
 strategies:
-- !static-tuning
-  name: static
+- name: static
   description: |-
     This strategy allows you to
     • define the (static) tuning of all 12 notes as a "neighbourhood" of the reference note,
     • switch between different neighbourhoods on the fly, and
     • reset the reference note on the fly.
-  bindings:
-    sostenuto-pedal-down: !increment-neighbourhood-index 1
-    sostenuto-pedal-up: !increment-neighbourhood-index -1
-    soft-pedal-down: set-reference-to-lowest
-    Enter: !increment-neighbourhood-index 1
-    Space: set-reference-to-lowest
-  neighbourhoods:
-  - !periodic-complete
-    name: flats
-    entries:
-    - offset: 0
-      stack: {}
-    - offset: 1
+  config: !static-tuning
+    bindings:
+      sostenuto-pedal-down: !increment-neighbourhood-index 1
+      sostenuto-pedal-up: !increment-neighbourhood-index -1
+      soft-pedal-down: set-reference-to-lowest
+      Enter: !increment-neighbourhood-index 1
+      Space: set-reference-to-lowest
+    neighbourhoods:
+    - !periodic-complete
+      name: flats
+      entries:
+      - offset: 0
+        stack: {}
+      - offset: 1
+        stack:
+          octave: 1
+          fifth: -1
+          third: -1
+      - offset: 2
+        stack:
+          octave: -1
+          fifth: 2
+      - offset: 3
+        stack:
+          fifth: 1
+          third: -1
+      - offset: 4
+        stack:
+          third: 1
+      - offset: 5
+        stack:
+          octave: 1
+          fifth: -1
+      - offset: 6
+        stack:
+          octave: 2
+          fifth: -2
+          third: -1
+      - offset: 7
+        stack:
+          fifth: 1
+      - offset: 8
+        stack:
+          octave: 1
+          third: -1
+      - offset: 9
+        stack:
+          octave: 1
+          fifth: -1
+          third: 1
+      - offset: 10
+        stack:
+          octave: 2
+          fifth: -2
+      - offset: 11
+        stack:
+          fifth: 1
+          third: 1
+    - !periodic-complete
+      name: sharps
+      entries:
+      - offset: 0
+        stack: {}
+      - offset: 1
+        stack:
+          fifth: -1
+          third: 2
+      - offset: 2
+        stack:
+          octave: -1
+          fifth: 2
+      - offset: 3
+        stack:
+          octave: -1
+          fifth: 1
+          third: 2
+      - offset: 4
+        stack:
+          third: 1
+      - offset: 5
+        stack:
+          octave: 1
+          fifth: -1
+      - offset: 6
+        stack:
+          octave: -1
+          fifth: 2
+          third: 1
+      - offset: 7
+        stack:
+          fifth: 1
+      - offset: 8
+        stack:
+          third: 2
+      - offset: 9
+        stack:
+          octave: 1
+          fifth: -1
+          third: 1
+      - offset: 10
+        stack:
+          octave: -1
+          fifth: 2
+          third: 2
+      - offset: 11
+        stack:
+          fifth: 1
+          third: 1
+    tuning-reference:
       stack:
         octave: 1
         fifth: -1
-        third: -1
-    - offset: 2
-      stack:
-        octave: -1
-        fifth: 2
-    - offset: 3
-      stack:
-        fifth: 1
-        third: -1
-    - offset: 4
-      stack:
         third: 1
-    - offset: 5
-      stack:
-        octave: 1
-        fifth: -1
-    - offset: 6
-      stack:
-        octave: 2
-        fifth: -2
-        third: -1
-    - offset: 7
-      stack:
-        fifth: 1
-    - offset: 8
-      stack:
-        octave: 1
-        third: -1
-    - offset: 9
-      stack:
-        octave: 1
-        fifth: -1
-        third: 1
-    - offset: 10
-      stack:
-        octave: 2
-        fifth: -2
-    - offset: 11
-      stack:
-        fifth: 1
-        third: 1
-  - !periodic-complete
-    name: sharps
-    entries:
-    - offset: 0
-      stack: {}
-    - offset: 1
-      stack:
-        fifth: -1
-        third: 2
-    - offset: 2
-      stack:
-        octave: -1
-        fifth: 2
-    - offset: 3
-      stack:
-        octave: -1
-        fifth: 1
-        third: 2
-    - offset: 4
-      stack:
-        third: 1
-    - offset: 5
-      stack:
-        octave: 1
-        fifth: -1
-    - offset: 6
-      stack:
-        octave: -1
-        fifth: 2
-        third: 1
-    - offset: 7
-      stack:
-        fifth: 1
-    - offset: 8
-      stack:
-        third: 2
-    - offset: 9
-      stack:
-        octave: 1
-        fifth: -1
-        third: 1
-    - offset: 10
-      stack:
-        octave: -1
-        fifth: 2
-        third: 2
-    - offset: 11
-      stack:
-        fifth: 1
-        third: 1
-  tuning-reference:
-    stack:
-      octave: 1
-      fifth: -1
-      third: 1
-    semitones: 69.0
-  reference: {}
+      semitones: 69.0
+    reference: {}
 backend: !pitchbend12
   bend-range: 2.0
   channels:

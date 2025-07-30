@@ -1,4 +1,4 @@
-use std::{fmt, sync::mpsc, time::Instant};
+use std::{collections::VecDeque, fmt, sync::mpsc, time::Instant};
 
 use midi_msg::{
     Channel,
@@ -12,7 +12,7 @@ use crate::{
     config::{ExtractConfig, FromConfigAndState, ProcessConfig},
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
-    msg::{FromProcess, HandleMsg, ToProcess, ToStrategy},
+    msg::{FromProcess, FromStrategy, HandleMsg, ToProcess, ToStrategy},
     strategy::r#trait::Strategy,
 };
 
@@ -24,6 +24,7 @@ pub struct ProcessFromStrategy<T: StackType> {
     pedal_hold: [bool; 16],
     sostenuto_hold: [bool; 16],
     soft_hold: [bool; 16],
+    queue: VecDeque<FromStrategy<T>>,
 }
 
 impl<T: StackType> ProcessFromStrategy<T> {
@@ -41,6 +42,7 @@ impl<T: StackType> ProcessFromStrategy<T> {
             pedal_hold: [false; 16],
             sostenuto_hold: [false; 16],
             soft_hold: [false; 16],
+            queue: VecDeque::new(),
         }
     }
 }
@@ -92,8 +94,11 @@ impl<T: StackType> ProcessFromStrategy<T> {
                             &self.key_states,
                             &mut self.tunings,
                             ToStrategy::Action { action, time },
-                            forward,
+                            &mut self.queue,
                         );
+                        self.queue.drain(..).for_each(|msg| {
+                            let _ = forward.send(FromProcess::FromStrategy(msg));
+                        });
                     } else {
                         forward_untouched();
                     }
@@ -122,8 +127,11 @@ impl<T: StackType> ProcessFromStrategy<T> {
                             &self.key_states,
                             &mut self.tunings,
                             ToStrategy::Action { action, time },
-                            forward,
+                            &mut self.queue,
                         );
+                        self.queue.drain(..).for_each(|msg| {
+                            let _ = forward.send(FromProcess::FromStrategy(msg));
+                        });
                     } else {
                         forward_untouched();
                     }
@@ -169,7 +177,7 @@ impl<T: StackType> ProcessFromStrategy<T> {
                     &mut self.tunings,
                     note,
                     time,
-                    forward,
+                    &mut self.queue,
                 ) {
                     Some((tuning, tuning_stack)) => {
                         let _ = forward.send(FromProcess::TunedNoteOn {
@@ -180,8 +188,14 @@ impl<T: StackType> ProcessFromStrategy<T> {
                             tuning_stack: tuning_stack.clone(),
                             time,
                         });
+                        self.queue.drain(..).for_each(|msg| {
+                            let _ = forward.send(FromProcess::FromStrategy(msg));
+                        });
                     }
-                    None {} => send_simple_note_on(),
+                    None {} => {
+                        send_simple_note_on();
+                        self.queue.clear();
+                    }
                 }
             } else {
                 send_simple_note_on();
@@ -206,10 +220,13 @@ impl<T: StackType> ProcessFromStrategy<T> {
                 self.strategies[csi].0.note_off(
                     &self.key_states,
                     &mut self.tunings,
-                    &[note],
+                    note,
                     time,
-                    forward,
+                    &mut self.queue,
                 );
+                self.queue.drain(..).for_each(|msg| {
+                    let _ = forward.send(FromProcess::FromStrategy(msg));
+                });
             }
             let _ = forward.send(FromProcess::NoteOff {
                 channel,
@@ -232,20 +249,21 @@ impl<T: StackType> ProcessFromStrategy<T> {
                 self.pedal_hold[channel as usize] = true;
             } else {
                 self.pedal_hold[channel as usize] = false;
-                let mut off_notes: Vec<u8> = vec![];
-                for (note, state) in self.key_states.iter_mut().enumerate() {
-                    let changed = state.pedal_off(channel, time);
+                for i in 0..128 {
+                    let changed = self.key_states[i].pedal_off(channel, time);
                     if changed {
-                        off_notes.push(note as u8);
+                        let _ = self.strategies[csi].0.note_off(
+                            &self.key_states,
+                            &mut self.tunings,
+                            i as u8,
+                            time,
+                            &mut self.queue,
+                        );
+                        self.queue.drain(..).for_each(|msg| {
+                            let _ = forward.send(FromProcess::FromStrategy(msg));
+                        });
                     }
                 }
-                let _success = self.strategies[csi].0.note_off(
-                    &self.key_states,
-                    &mut self.tunings,
-                    &off_notes,
-                    time,
-                    forward,
-                );
             }
             let _ = forward.send(FromProcess::PedalHold {
                 channel,
@@ -257,9 +275,15 @@ impl<T: StackType> ProcessFromStrategy<T> {
 
     fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromProcess<T>>) {
         if let Some(csi) = self.curr_strategy_index {
-            self.strategies[csi]
-                .0
-                .start(&self.key_states, &mut self.tunings, time, forward);
+            self.strategies[csi].0.start(
+                &self.key_states,
+                &mut self.tunings,
+                time,
+                &mut self.queue,
+            );
+            self.queue.drain(..).for_each(|msg| {
+                let _ = forward.send(FromProcess::FromStrategy(msg));
+            });
         }
         let _ = forward.send(FromProcess::CurrentStrategyIndex(self.curr_strategy_index));
     }
@@ -302,8 +326,11 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                         &self.key_states,
                         &mut self.tunings,
                         msg,
-                        forward,
+                        &mut self.queue,
                     );
+                    self.queue.drain(..).for_each(|msg| {
+                        let _ = forward.send(FromProcess::FromStrategy(msg));
+                    });
                 }
             }
             ToProcess::StrategyListAction { action, time } => {

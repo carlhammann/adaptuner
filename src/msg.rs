@@ -184,11 +184,10 @@ pub enum FromStrategy<T: StackType> {
     CurrentNeighbourhoodIndex {
         index: usize,
     },
-    NotifyFit {
-        pattern_name: String,
-        reference_stack: Stack<T>,
+    CurrentHarmony {
+        description: Option<String>,
+        reference: Option<Stack<T>>,
     },
-    NotifyNoFit,
 }
 
 pub enum ToBackend {
@@ -312,11 +311,6 @@ pub enum ToUi<T: StackType> {
     OutputDisconnected {
         available_ports: Vec<(MidiOutputPort, String)>,
     },
-    NotifyFit {
-        pattern_name: String,
-        reference_stack: Stack<T>,
-    },
-    NotifyNoFit,
     SetReference {
         stack: Stack<T>,
     },
@@ -338,6 +332,10 @@ pub enum ToUi<T: StackType> {
     CurrentStrategyIndex(Option<usize>),
     CurrentProcessConfig(ProcessConfig<T>),
     CurrentBackendConfig(BackendConfig),
+    CurrentHarmony {
+        description: Option<String>,
+        reference: Option<Stack<T>>,
+    },
 }
 
 pub enum FromUi<T: StackType> {
@@ -620,20 +618,19 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
             FromStrategy::CurrentNeighbourhoodIndex { index } => {
                 (None {}, Some(ToUi::CurrentNeighbourhoodIndex { index }))
             }
-            FromStrategy::NotifyFit {
-                pattern_name,
-                reference_stack,
-            } => (
-                None {},
-                Some(ToUi::NotifyFit {
-                    pattern_name,
-                    reference_stack,
-                }),
-            ),
-            FromStrategy::NotifyNoFit => (None {}, Some(ToUi::NotifyNoFit)),
             FromStrategy::SetTuningReference { reference } => {
                 (None {}, Some(ToUi::SetTuningReference { reference }))
             }
+            FromStrategy::CurrentHarmony {
+                description,
+                reference,
+            } => (
+                None {},
+                Some(ToUi::CurrentHarmony {
+                    description,
+                    reference,
+                }),
+            ),
         }
     }
 }

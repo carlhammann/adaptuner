@@ -1,33 +1,24 @@
-use std::marker::PhantomData;
-
-use crate::{interval::stacktype::r#trait::StackType, neighbourhood::Neighbourhood};
-
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Pattern<T: StackType, N: Neighbourhood<T>> {
-    _phantom: PhantomData<T>,
-    pub name: String,
-    pub keyshape: KeyShape,
-    pub neighbourhood: N,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 pub enum KeyShape {
+    #[serde(rename_all = "kebab-case")]
     ClassesFixed {
         period_keys: u8,
         classes: Vec<u8>,
         zero: u8,
     },
-    ClassesRelative {
-        period_keys: u8,
-        classes: Vec<u8>,
-    },
+    #[serde(rename_all = "kebab-case")]
+    ClassesRelative { period_keys: u8, classes: Vec<u8> },
+    #[serde(rename_all = "kebab-case")]
     VoicingFixed {
         period_keys: u8,
         blocks: Vec<Vec<u8>>,
         zero: u8,
     },
+    #[serde(rename_all = "kebab-case")]
     VoicingRelative {
         period_keys: u8,
         blocks: Vec<Vec<u8>>,
@@ -41,20 +32,20 @@ pub struct Fit {
 }
 
 impl Fit {
-    pub fn is_at_least_partial(&self) -> bool {
-        self.next > 0
+    pub fn new_worst() -> Self {
+        Self {
+            reference: 0,
+            next: 0,
+        }
     }
     pub fn is_complete(&self) -> bool {
         self.next == 128
     }
+    pub fn matches_nothing(&self) -> bool {
+        self.next == 0
+    }
     pub fn is_better_than(&self, other: &Self) -> bool {
         self.next > other.next
-    }
-}
-
-impl<T: StackType, N: Neighbourhood<T>> Pattern<T, N> {
-    pub fn fit<NS: HasActivationStatus>(&self, notes: &[NS; 128]) -> Fit {
-        self.keyshape.fit(notes, 0)
     }
 }
 
@@ -63,7 +54,7 @@ pub trait HasActivationStatus {
 }
 
 impl KeyShape {
-    fn fit<N: HasActivationStatus>(&self, notes: &[N; 128], start: usize) -> Fit {
+    pub fn fit<N: HasActivationStatus>(&self, notes: &[N; 128], start: usize) -> Fit {
         match self {
             Self::ClassesFixed {
                 period_keys,

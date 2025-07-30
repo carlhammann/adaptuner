@@ -69,6 +69,10 @@ impl Bindings<Bindable> {
 }
 
 impl<K: Ord> Bindings<K> {
+    pub fn empty() -> Self {
+        Bindings(BTreeMap::new())
+    }
+
     pub fn get(&self, bindable: &K) -> Option<&StrategyAction> {
         let Bindings(m) = self;
         m.get(bindable)

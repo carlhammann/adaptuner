@@ -4,7 +4,7 @@ use eframe::egui::{self, vec2};
 
 use crate::{
     bindable::{Bindable, Bindings},
-    config::{ExtractConfig, StrategyKind, StrategyNames},
+    config::{ExtractConfig, MelodyStrategyKind, StrategyKind, StrategyNames},
     interval::stacktype::r#trait::StackType,
     msg::{FromUi, HandleMsgRef, ToUi},
     notename::HasNoteNames,
@@ -112,12 +112,12 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
         let AsStrategyPicker(x) = self;
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("strategy picker")
-                .selected_text(x.strategies.current_selected().map_or("", |x| &x.0.name))
+                .selected_text(x.strategies.current_selected().map_or("", |x| x.0.name()))
                 .show_ui(ui, |ui| {
                     if let Some((i, _)) = x.strategies.show_as_list_picker(
                         ui,
-                        |x| &x.0.name,
-                        |x| Some(&x.0.description),
+                        |x| x.0.name(),
+                        |x| Some(x.0.description()),
                     ) {
                         let _ = forward.send(FromUi::StrategyListAction {
                             action: ListAction::Select(i),
@@ -136,17 +136,18 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
             ui.separator();
 
             if let Some(strn) = x.strategies.current_selected() {
-                match strn.0.strategy_kind {
-                    StrategyKind::StaticTuning => {
-                        ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
+                    match strn.0.strategy_kind() {
+                        StrategyKind::StaticTuning
+                        | StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning) => {
                             x.tuning_editor_window.show_hide_button(ui, "global tuning");
                             x.reference_editor_window.show_hide_button(ui, "reference");
                             x.neighbourhood_editor_window
                                 .show_hide_button(ui, "neighbourhoods");
-                            x.binding_editor_window.show_hide_button(ui, "bindings");
-                        });
+                        }
                     }
-                }
+                    x.binding_editor_window.show_hide_button(ui, "bindings");
+                });
             }
         });
     }
@@ -189,31 +190,29 @@ impl<'a, T: StackType + HasNoteNames + PartialEq> GuiShow<T> for AsWindows<'a, T
                 });
             }
 
-            let current_name = &curr.0.name;
-
             x.tuning_editor_window
-                .show(&format!("global tuning ({current_name})"), ctx, |ui| {
+                .show(&format!("global tuning ({})", curr.0.name()), ctx, |ui| {
                     x.tuning_editor.show(ui, forward);
                 });
 
             x.reference_editor_window
-                .show(&format!("reference ({current_name})"), ctx, |ui| {
+                .show(&format!("reference ({})", curr.0.name()), ctx, |ui| {
                     x.reference_editor.show(ui, forward);
                 });
 
             x.neighbourhood_editor_window.show(
-                &format!("neighbourhoods ({current_name})"),
+                &format!("neighbourhoods ({})", curr.0.name()),
                 ctx,
                 |ui| {
                     x.neighbourhood_editor
-                        .show(ui, &mut curr.0.neighbourhood_names, forward);
+                        .show(ui, curr.0.neighbourhood_names_mut(), forward);
                 },
             );
 
             x.binding_editor_window
-                .show(&format!("bindings ({current_name})"), ctx, |ui| {
+                .show(&format!("bindings ({})", curr.0.name()), ctx, |ui| {
                     x.binding_editor
-                        .show(ui, curr.0.strategy_kind, &mut curr.1, forward);
+                        .show(ui, curr.0.strategy_kind(), &mut curr.1, forward);
                 });
         }
     }
@@ -238,12 +237,12 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                         no_selection_allowed: false,
                         delete_allowed: true,
                         show_one: Box::new(|ui, _i, elem| {
-                            ui.add(egui::TextEdit::singleline(&mut elem.0.name).min_size(vec2(
+                            ui.add(egui::TextEdit::singleline(elem.0.name_mut()).min_size(vec2(
                                 ui.style().spacing.text_edit_width / 2.0,
                                 ui.style().spacing.interact_size.y,
                             )));
                             ui.add(
-                                egui::TextEdit::multiline(&mut elem.0.description)
+                                egui::TextEdit::multiline(elem.0.description_mut())
                                     .min_size(vec2(
                                         ui.style().spacing.text_edit_width,
                                         ui.style().spacing.interact_size.y,

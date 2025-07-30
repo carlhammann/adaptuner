@@ -1,4 +1,4 @@
-use std::{sync::mpsc, time::Instant};
+use std::{collections::VecDeque, time::Instant};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackType},
     },
     keystate::KeyState,
-    msg::{FromProcess, FromStrategy, ToStrategy},
+    msg::{FromStrategy, ToStrategy},
     neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
     reference::Reference,
     strategy::r#trait::Strategy,
@@ -21,7 +21,7 @@ use super::r#trait::StrategyAction;
 pub struct StaticTuning<T: IntervalBasis> {
     neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
     curr_neighbourhood_index: Option<usize>,
-    tuning_reference: Reference<T>,
+    pub tuning_reference: Reference<T>,
     reference: Stack<T>,
     tuning_up_to_date: [bool; 128],
 }
@@ -48,13 +48,18 @@ impl<T: IntervalBasis> StaticTuning<T> {
 }
 
 impl<T: StackType> StaticTuning<T> {
-    fn update_and_send_tuning(
-        &mut self,
-        tunings: &mut [Stack<T>; 128],
-        note: u8,
-        time: Instant,
-        forward: &mpsc::Sender<FromProcess<T>>,
-    ) {
+    /// Returns `true` iff the tuning was successfully updated (this will always be the case if
+    /// there's a selected neighbourhood).
+    pub fn force_update_tuning(&mut self, tunings: &mut [Stack<T>; 128], note: u8) -> bool {
+        self.tuning_up_to_date[note as usize] = false;
+        self.update_tuning(tunings, note).is_some()
+    }
+
+    /// Returns `Some` iff the tuning was successfully updated (this will always be the case if
+    /// long as there's a selected neighbourhood),
+    ///
+    /// `Some(true)` means the tuning wasn't previously up to date.
+    fn update_tuning(&mut self, tunings: &mut [Stack<T>; 128], note: u8) -> Option<bool> {
         if let Some(cni) = self.curr_neighbourhood_index {
             if !self.tuning_up_to_date[note as usize] {
                 self.neighbourhoods[cni].write_relative_stack(
@@ -66,94 +71,235 @@ impl<T: StackType> StaticTuning<T> {
                     .unwrap()
                     .scaled_add(1, &self.reference);
                 self.tuning_up_to_date[note as usize] = true;
+                Some(true)
+            } else {
+                Some(false)
+            }
+        } else {
+            None {}
+        }
+    }
 
-                let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Retune {
+    pub fn mark_tuning_as_manually_set(&mut self, note: u8) {
+        self.tuning_up_to_date[note as usize] = false;
+    }
+
+    fn update_tuning_and_send(
+        &mut self,
+        tunings: &mut [Stack<T>; 128],
+        note: u8,
+        time: Instant,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> bool {
+        if let Some(changed) = self.update_tuning(tunings, note) {
+            if changed {
+                forward.push_back(FromStrategy::Retune {
                     note,
                     tuning: tunings[note as usize]
                         .absolute_semitones(self.tuning_reference.c4_semitones()),
                     tuning_stack: tunings[note as usize].clone(),
                     time,
-                }));
+                });
             }
-        }
-    }
-
-    fn retune_all(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        time: Instant,
-        forward: &mpsc::Sender<FromProcess<T>>,
-    ) {
-        for b in self.tuning_up_to_date.iter_mut() {
-            *b = false;
-        }
-        for note in 0..128 {
-            if keys[note as usize].is_sounding() {
-                self.update_and_send_tuning(tunings, note, time, forward);
-            }
-        }
-    }
-
-    fn action(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        action: StrategyAction,
-        time: Instant,
-        forward: &mpsc::Sender<FromProcess<T>>,
-    ) -> bool {
-        match action {
-            StrategyAction::IncrementNeighbourhoodIndex(inc) => {
-                self.increment_neighbourhood(inc, keys, tunings, time, forward)
-            }
-            StrategyAction::SetReferenceToLowest => {
-                self.set_reference(keys, tunings, time, forward)
-            }
-            StrategyAction::SetReferenceToHighest => todo!(),
-        }
-    }
-
-    fn increment_neighbourhood(
-        &mut self,
-        increment: isize,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        time: Instant,
-        forward: &mpsc::Sender<FromProcess<T>>,
-    ) -> bool {
-        if let Some(cni) = self.curr_neighbourhood_index {
-            self.curr_neighbourhood_index = Some(
-                (cni as isize + increment).rem_euclid(self.neighbourhoods.len() as isize) as usize,
-            );
-            self.start(keys, tunings, time, forward);
             true
         } else {
             false
         }
     }
 
-    /// sets the reference to the lowest sounding note, or does nothing if no notes are currently
-    /// sounding
-    fn set_reference(
+    /// returns the index of the highest note that was either successfully tuned or silent: 128
+    /// means full successs, -1 means no note was tuned.
+    pub fn update_all_tunings_and_send(
         &mut self,
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
         time: Instant,
-        forward: &mpsc::Sender<FromProcess<T>>,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> isize {
+        for b in self.tuning_up_to_date.iter_mut() {
+            *b = false;
+        }
+        for note in 0..128 {
+            if keys[note as usize].is_sounding() {
+                if !self.update_tuning_and_send(tunings, note, time, forward) {
+                    return note as isize - 1;
+                }
+            }
+        }
+        128
+    }
+
+    pub fn start_but_dont_retune(&mut self, forward: &mut VecDeque<FromStrategy<T>>) {
+        if let Some(cni) = self.curr_neighbourhood_index {
+            forward.push_back(FromStrategy::SetTuningReference {
+                reference: self.tuning_reference.clone(),
+            });
+
+            forward.push_back(FromStrategy::SetReference {
+                stack: self.reference.clone(),
+            });
+
+            forward.push_back(FromStrategy::CurrentNeighbourhoodIndex { index: cni });
+            self.neighbourhoods[cni].for_each_stack(|_, stack| {
+                forward.push_back(FromStrategy::Consider {
+                    stack: stack.clone(),
+                });
+            });
+        }
+    }
+
+    fn action(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        action: StrategyAction,
+        time: Instant,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> Option<Instant> {
+        if match action {
+            StrategyAction::IncrementNeighbourhoodIndex(inc) => {
+                self.increment_neighbourhood(inc, forward)
+            }
+            StrategyAction::SetReferenceToLowest => {
+                self.set_reference(false, keys, tunings, forward)
+            }
+            StrategyAction::SetReferenceToHighest => {
+                self.set_reference(true, keys, tunings, forward)
+            }
+        } {
+            Some(time)
+        } else {
+            None {}
+        }
+    }
+
+    fn increment_neighbourhood(
+        &mut self,
+        increment: isize,
+        forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool {
-        for (i, state) in keys.iter().enumerate() {
-            if state.is_sounding() {
+        if let Some(cni) = self.curr_neighbourhood_index {
+            self.curr_neighbourhood_index = Some(
+                (cni as isize + increment).rem_euclid(self.neighbourhoods.len() as isize) as usize,
+            );
+            self.start_but_dont_retune(forward);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn set_reference(
+        &mut self,
+        to_highest: bool,
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> bool {
+        let range: Box<dyn Iterator<Item = usize>> = if to_highest {
+            Box::new((0..128).rev())
+        } else {
+            Box::new(0..128)
+        };
+        for i in range {
+            if keys[i].is_sounding() {
                 let new_reference = tunings[i].clone();
                 self.reference.clone_from(&new_reference);
-                self.retune_all(keys, tunings, time, forward);
-                let _ = forward.send(FromProcess::FromStrategy(FromStrategy::SetReference {
+                forward.push_back(FromStrategy::SetReference {
                     stack: new_reference,
-                }));
+                });
                 return true;
             }
         }
         false
+    }
+
+    /// returns `Some(x)` iff the message was successfully handled and a retune at time `x` is necessary
+    pub fn handle_msg_but_dont_retune(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        msg: ToStrategy<T>,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> Option<Instant> {
+        match msg {
+            ToStrategy::Consider {
+                stack: considered_stack,
+                time,
+            } => {
+                if let Some(cni) = self.curr_neighbourhood_index {
+                    let inserted_stack = self.neighbourhoods[cni].insert(&considered_stack).clone();
+                    forward.push_back(FromStrategy::Consider {
+                        stack: inserted_stack,
+                    });
+
+                    Some(time)
+                } else {
+                    None {}
+                }
+            }
+            ToStrategy::ApplyTemperamentToNeighbourhood {
+                temperament,
+                neighbourhood,
+                time,
+            } => {
+                if Some(neighbourhood) == self.curr_neighbourhood_index {
+                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
+                        stack.apply_temperament(temperament);
+                        forward.push_back(FromStrategy::Consider {
+                            stack: stack.clone(),
+                        });
+                    });
+                    Some(time)
+                } else {
+                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
+                        stack.apply_temperament(temperament);
+                    });
+                    None {}
+                }
+            }
+            ToStrategy::MakeNeighbourhoodPure {
+                time,
+                neighbourhood,
+            } => {
+                if Some(neighbourhood) == self.curr_neighbourhood_index {
+                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
+                        stack.make_pure();
+                        forward.push_back(FromStrategy::Consider {
+                            stack: stack.clone(),
+                        });
+                    });
+                    Some(time)
+                } else {
+                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
+                        stack.make_pure();
+                    });
+                    None {}
+                }
+            }
+            ToStrategy::SetTuningReference { reference, time } => {
+                self.tuning_reference.clone_from(&reference);
+                forward.push_back(FromStrategy::SetTuningReference { reference });
+                Some(time)
+            }
+            ToStrategy::SetReference { reference, time } => {
+                self.reference.clone_from(&reference);
+                forward.push_back(FromStrategy::SetReference { stack: reference });
+                Some(time)
+            }
+            ToStrategy::Action { action, time } => {
+                self.action(keys, tunings, action, time, forward)
+            }
+            ToStrategy::NeighbourhoodListAction { action, time } => {
+                action.apply_to(
+                    |x| x.clone(),
+                    &mut self.neighbourhoods,
+                    &mut self.curr_neighbourhood_index,
+                );
+                self.start_but_dont_retune(forward);
+                Some(time)
+            }
+        }
     }
 }
 
@@ -164,9 +310,9 @@ impl<T: StackType> Strategy<T> for StaticTuning<T> {
         tunings: &'a mut [Stack<T>; 128],
         note: u8,
         time: Instant,
-        forward: &mpsc::Sender<FromProcess<T>>,
+        forward: &mut VecDeque<FromStrategy<T>>,
     ) -> Option<(Semitones, &'a Stack<T>)> {
-        self.update_and_send_tuning(tunings, note, time, forward);
+        self.update_tuning_and_send(tunings, note, time, forward);
         let stack = &tunings[note as usize];
         Some((
             stack.absolute_semitones(self.tuning_reference.c4_semitones()),
@@ -178,9 +324,9 @@ impl<T: StackType> Strategy<T> for StaticTuning<T> {
         &mut self,
         _keys: &[KeyState; 128],
         _tunings: &mut [Stack<T>; 128],
-        _notes: &[u8],
+        _note: u8,
         _time: Instant,
-        _forward: &mpsc::Sender<FromProcess<T>>,
+        _forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool {
         true
     }
@@ -190,93 +336,12 @@ impl<T: StackType> Strategy<T> for StaticTuning<T> {
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
         msg: ToStrategy<T>,
-        forward: &mpsc::Sender<FromProcess<T>>,
+        forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool {
-        match msg {
-            ToStrategy::Consider {
-                stack: considered_stack,
-                time,
-            } => {
-                if let Some(cni) = self.curr_neighbourhood_index {
-                    let inserted_stack = self.neighbourhoods[cni].insert(&considered_stack).clone();
-                    self.retune_all(keys, tunings, time, forward); // todo can this be cheaper; retuning only what's needed?
-                    let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Consider {
-                        stack: inserted_stack,
-                    }));
-
-                    true
-                } else {
-                    false
-                }
-            }
-            ToStrategy::ApplyTemperamentToNeighbourhood {
-                temperament,
-                neighbourhood,
-                time,
-            } => {
-                if Some(neighbourhood) == self.curr_neighbourhood_index {
-                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
-                        stack.apply_temperament(temperament);
-                        let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Consider {
-                            stack: stack.clone(),
-                        }));
-                    });
-                    self.retune_all(keys, tunings, time, forward);
-                } else {
-                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
-                        stack.apply_temperament(temperament);
-                    });
-                }
-                true
-            }
-            ToStrategy::MakeNeighbourhoodPure {
-                time,
-                neighbourhood,
-            } => {
-                if Some(neighbourhood) == self.curr_neighbourhood_index {
-                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
-                        stack.make_pure();
-                        let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Consider {
-                            stack: stack.clone(),
-                        }));
-                    });
-                    self.retune_all(keys, tunings, time, forward);
-                } else {
-                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
-                        stack.make_pure();
-                    });
-                }
-                true
-            }
-            ToStrategy::SetTuningReference { reference, time } => {
-                self.tuning_reference.clone_from(&reference);
-                self.retune_all(keys, tunings, time, forward);
-                let _ = forward.send(FromProcess::FromStrategy(
-                    FromStrategy::SetTuningReference { reference },
-                ));
-                true
-            }
-            ToStrategy::SetReference { reference, time } => {
-                self.reference.clone_from(&reference);
-                self.retune_all(keys, tunings, time, forward);
-                let _ = forward.send(FromProcess::FromStrategy(FromStrategy::SetReference {
-                    stack: reference,
-                }));
-                true
-            }
-            ToStrategy::Action { action, time } => {
-                self.action(keys, tunings, action, time, forward)
-            }
-            ToStrategy::NeighbourhoodListAction { action, time } => {
-                action.apply_to(
-                    |x| x.clone(),
-                    &mut self.neighbourhoods,
-                    &mut self.curr_neighbourhood_index,
-                );
-                self.start(keys, tunings, time, forward);
-                true
-            }
+        if let Some(time) = self.handle_msg_but_dont_retune(keys, tunings, msg, forward) {
+            self.update_all_tunings_and_send(keys, tunings, time, forward);
         }
+        true
     }
 
     fn start(
@@ -284,30 +349,10 @@ impl<T: StackType> Strategy<T> for StaticTuning<T> {
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
         time: Instant,
-        forward: &mpsc::Sender<FromProcess<T>>,
+        forward: &mut VecDeque<FromStrategy<T>>,
     ) {
-        if let Some(cni) = self.curr_neighbourhood_index {
-            let _ = forward.send(FromProcess::FromStrategy(
-                FromStrategy::SetTuningReference {
-                    reference: self.tuning_reference.clone(),
-                },
-            ));
-
-            let _ = forward.send(FromProcess::FromStrategy(FromStrategy::SetReference {
-                stack: self.reference.clone(),
-            }));
-
-            let _ = forward.send(FromProcess::FromStrategy(
-                FromStrategy::CurrentNeighbourhoodIndex { index: cni },
-            ));
-            self.neighbourhoods[cni].for_each_stack(|_, stack| {
-                let _ = forward.send(FromProcess::FromStrategy(FromStrategy::Consider {
-                    stack: stack.clone(),
-                }));
-            });
-
-            self.retune_all(keys, tunings, time, forward);
-        }
+        self.start_but_dont_retune(forward);
+        self.update_all_tunings_and_send(keys, tunings, time, forward);
     }
 }
 

@@ -1,0 +1,333 @@
+temperaments:
+- name: equal temperament
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 12
+    pure:
+      octave: 7
+  - tempered:
+      third: 3
+    pure:
+      octave: 1
+- name: '1/4-comma meantone'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 4
+    pure:
+      octave: 2
+      third: 1
+  - tempered:
+      third: 1
+    pure:
+      third: 1
+- name: '1/6-comma meantone'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 6
+    pure:
+      octave: 2
+      fifth: 2
+      third: 1
+  - tempered:
+      third: 6
+    pure:
+      octave: -4
+      fifth: 8
+      third: 4
+- name: '1/3-comma meantone'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 3
+    pure:
+      octave: 2
+      fifth: -1
+      third: 1
+  - tempered:
+      third: 3
+    pure:
+      octave: 2
+      fifth: -4
+      third: 4
+named-intervals:
+- name: syntonic comma
+  short-name: 's'
+  coeffs:
+    octave: '-2'
+    fifth: '4'
+    third: '-1'
+- name: diesis
+  short-name: 'd'
+  coeffs:
+    octave: '1'
+    third: '-3'
+- name: pythagorean comma
+  short-name: 'p'
+  coeffs:
+    octave: '-7'
+    fifth: '12'
+- name: kleisma
+  short-name: 'k'
+  coeffs:
+    octave: '1'
+    fifth: '-5'
+    third: '6'
+strategies:
+- name: chordlist
+  description: blablabla
+  config: !two-step
+    harmony: !chord-list
+      patterns:
+      - name: minor chord
+        key-shape: !classes-relative
+          period-keys: 12
+          classes:
+          - 0
+          - 3
+          - 7
+        neighbourhood-kind: periodic-partial
+        neighbourhood: &row1
+          0: {}
+          1:
+            octave: 1
+            fifth: -1
+            third: -1
+          2:
+            octave: -1
+            fifth: 2
+          3:
+            fifth: 1
+            third: -1
+          4:
+            third: 1
+          5:
+            octave: 1
+            fifth: -1
+          6:
+            octave: -1
+            fifth: 2
+            third: 1
+          7:
+            fifth: 1
+          8:
+            octave: 1
+            third: -1
+          9:
+            octave: 1
+            fifth: -1
+            third: 1
+          10:
+            octave: 2
+            fifth: -2
+          11:
+            fifth: 1
+            third: 1
+      - name: major chord
+        key-shape: !classes-relative
+          period-keys: 12
+          classes:
+          - 0
+          - 4
+          - 7
+        neighbourhood-kind: periodic-partial
+        neighbourhood: *row1
+    melody: !static-tuning
+      neighbourhoods:
+      - !periodic-complete
+        name: pure
+        entries:
+        - offset: 0
+          stack: {}
+        - offset: 1
+          stack:
+            octave: 1
+            fifth: -1
+            third: -1
+        - offset: 2
+          stack:
+            octave: -1
+            fifth: 2
+        - offset: 3
+          stack:
+            octave: 2
+            fifth: -3
+        - offset: 4
+          stack:
+            third: 1
+        - offset: 5
+          stack:
+            octave: 1
+            fifth: -1
+        - offset: 6
+          stack:
+            octave: 2
+            fifth: -2
+            third: -1
+        - offset: 7
+          stack:
+            fifth: 1
+        - offset: 8
+          stack:
+            octave: 1
+            third: -1
+        - offset: 9
+          stack:
+            octave: -1
+            fifth: 3
+        - offset: 10
+          stack:
+            octave: 2
+            fifth: -2
+        - offset: 11
+          stack:
+            fifth: 1
+            third: 1
+      - !periodic-complete
+        name: meantone
+        entries:
+        - offset: 0
+          stack: {}
+        - offset: 1
+          stack:
+            target:
+              octave: 1
+              fifth: -1
+              third: -1
+            actual:
+              octave: '1/2'
+              third: '-5/4'
+        - offset: 2
+          stack:
+            target:
+              octave: -1
+              fifth: 2
+            actual:
+              third: '1/2'
+        - offset: 3
+          stack:
+            target:
+              octave: 2
+              fifth: -3
+            actual:
+              octave: '1/2'
+              third: '-3/4'
+        - offset: 4
+          stack:
+            third: 1
+        - offset: 5
+          stack:
+            target:
+              octave: 1
+              fifth: -1
+            actual:
+              octave: '1/2'
+              third: '-1/4'
+        - offset: 6
+          stack:
+            target:
+              octave: 2
+              fifth: -2
+              third: -1
+            actual:
+              octave: '1'
+              third: '-3/2'
+        - offset: 7
+          stack:
+            target:
+              fifth: 1
+            actual:
+              octave: '1/2'
+              third: '1/4'
+        - offset: 8
+          stack:
+            octave: 1
+            third: -1
+        - offset: 9
+          stack:
+            target:
+              octave: -1
+              fifth: 3
+            actual:
+              octave: '1/2'
+              third: '3/4'
+        - offset: 10
+          stack:
+            target:
+              octave: 2
+              fifth: -2
+            actual:
+              octave: '1'
+              third: '-1/2'
+        - offset: 11
+          stack:
+            target:
+              fifth: 1
+              third: 1
+            actual:
+              octave: '1/2'
+              third: '5/4'
+      tuning-reference:
+        stack:
+          octave: 1
+          fifth: -1
+          third: 1
+        semitones: 69.0
+      reference:
+        octave: -1
+      bindings:
+        sostenuto-pedal-down: !increment-neighbourhood-index 1
+        soft-pedal-down: set-reference-to-lowest
+        Enter: !increment-neighbourhood-index 1
+        Space: set-reference-to-lowest
+backend: !pitchbend12
+  bend-range: 2.0
+  channels:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 11
+  - 12
+  - 13
+gui:
+  lattice-window:
+    zoom: 12.0
+    interval-heights:
+    - 0.0
+    - 3.8631372
+    - -7.01955
+    background-stack-distances:
+    - 0
+    - 3
+    - 2
+    project-dimension: 0
+    screen-keyboard-channel: 1
+    screen-keyboard-velocity: 64
+    notenamestyle: class
+    highlight-playable-keys: true
+  tuning-editor:
+    notenamestyle: full
+  reference-editor:
+    notenamestyle: full
+  latency-mean-over: 20
+  use-cent-values: false

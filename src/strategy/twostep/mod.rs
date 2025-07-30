@@ -1,0 +1,167 @@
+use std::{collections::VecDeque, rc::Rc, time::Instant};
+
+use harmony::chordlist::ChordList;
+
+use crate::{
+    config::{ExtractConfig, HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
+    interval::{
+        base::Semitones,
+        stack::Stack,
+        stacktype::r#trait::{IntervalBasis, StackType},
+    },
+    keystate::KeyState,
+    msg::{FromStrategy, ToStrategy},
+    neighbourhood::SomeNeighbourhood,
+};
+
+use super::{r#static::StaticTuning, r#trait::Strategy};
+
+pub mod harmony;
+pub mod melody;
+
+#[derive(Clone)]
+pub struct Harmony<T: IntervalBasis> {
+    pub neighbourhood: Rc<SomeNeighbourhood<T>>,
+    /// MIDI key number of the reference note
+    pub reference: u8,
+}
+
+pub trait HarmonyStrategy<T: IntervalBasis>: ExtractConfig<HarmonyStrategyConfig<T>> {
+    fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<String>, Option<Harmony<T>>);
+}
+
+pub trait MelodyStrategy<T: StackType>: ExtractConfig<MelodyStrategyConfig<T>> {
+    /// returns a boolean signalling success and an optional stack that is the tuning of the
+    /// `harmony.reference`
+    fn solve(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        harmony: Option<Harmony<T>>,
+        time: Instant,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> (bool, Option<Stack<T>>);
+
+    fn handle_msg(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        harmony: Option<Harmony<T>>,
+        msg: ToStrategy<T>,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> (bool, Option<Stack<T>>);
+
+    fn start(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        harmony: Option<Harmony<T>>,
+        time: Instant,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> Option<Stack<T>>;
+
+    fn absolute_semitones(&self, stack: &Stack<T>) -> Semitones;
+}
+
+pub struct TwoStep<T: StackType> {
+    harmony: Box<dyn HarmonyStrategy<T>>,
+    melody: Box<dyn MelodyStrategy<T>>,
+}
+
+impl<T: StackType> TwoStep<T> {
+    pub fn new(
+        harmony_config: HarmonyStrategyConfig<T>,
+        melody_config: MelodyStrategyConfig<T>,
+    ) -> Self {
+        Self {
+            harmony: match harmony_config {
+                HarmonyStrategyConfig::ChordList(c) => Box::new(ChordList::new(c)),
+            },
+            melody: match melody_config {
+                MelodyStrategyConfig::StaticTuning(c) => Box::new(StaticTuning::new(c)),
+            },
+        }
+    }
+
+    fn solve(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        time: Instant,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> bool {
+        let (description, harmony) = self.harmony.solve(keys);
+        let (success, reference) = self.melody.solve(keys, tunings, harmony, time, forward);
+        forward.push_back(FromStrategy::CurrentHarmony {
+            description,
+            reference,
+        });
+        success
+    }
+}
+
+impl<T: StackType> Strategy<T> for TwoStep<T> {
+    fn note_on<'a>(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &'a mut [Stack<T>; 128],
+        note: u8,
+        time: Instant,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> Option<(Semitones, &'a Stack<T>)> {
+        if self.solve(keys, tunings, time, forward) {
+            let stack = &tunings[note as usize];
+            Some((self.melody.absolute_semitones(stack), stack))
+        } else {
+            None {}
+        }
+    }
+
+    fn note_off(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        _note: u8,
+        time: Instant,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> bool {
+        self.solve(keys, tunings, time, forward)
+    }
+
+    fn handle_msg(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        msg: ToStrategy<T>,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) -> bool {
+        let (description, harmony) = self.harmony.solve(keys);
+        let (success, reference) = self.melody.handle_msg(keys, tunings, harmony, msg, forward);
+        forward.push_back(FromStrategy::CurrentHarmony {
+            description,
+            reference,
+        });
+        success
+    }
+
+    fn start(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &mut [Stack<T>; 128],
+        time: Instant,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) {
+        let (description, harmony) = self.harmony.solve(keys);
+        let reference = self.melody.start(keys, tunings, harmony, time, forward);
+        forward.push_back(FromStrategy::CurrentHarmony {
+            description,
+            reference,
+        });
+    }
+}
+
+impl<T: StackType> ExtractConfig<StrategyConfig<T>> for TwoStep<T> {
+    fn extract_config(&self) -> StrategyConfig<T> {
+        StrategyConfig::TwoStep(self.harmony.extract_config(), self.melody.extract_config())
+    }
+}

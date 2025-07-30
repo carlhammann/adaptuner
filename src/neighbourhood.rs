@@ -10,6 +10,13 @@ use crate::interval::{
     stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, StackCoeff},
 };
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum SomeNeighbourhood<T: IntervalBasis> {
+    PeriodicComplete(PeriodicComplete<T>),
+    PeriodicPartial(PeriodicPartial<T>),
+    Partial(Partial<T>),
+}
+
 #[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
@@ -58,20 +65,105 @@ impl<T: OctavePeriodicIntervalBasis> PeriodicComplete<T> {
     }
 }
 
-// /// Like [PeriodicComplete], but some positions in the period may be undefined, i.e. have no tuning
-// /// associated.
-// pub struct PeriodicPartial<T: IntervalBasis> {
-//     stacks: Vec<(Stack<T>, bool)>,
-//     period: Stack<T>,
-//     name: String,
-//     period_index: Option<usize>,
-// }
+/// Like [PeriodicComplete], but some positions in the period may be undefined, i.e. have no tuning
+/// associated.
+#[derive(Debug, PartialEq, Clone)]
+pub struct PeriodicPartial<T: IntervalBasis> {
+    stacks: Vec<(Stack<T>, bool)>,
+    period: Stack<T>,
+    period_index: Option<usize>,
+}
 
-pub struct PartialNeighbourhood<T: IntervalBasis> {
+impl<T: IntervalBasis> PeriodicPartial<T> {
+    pub fn new() -> Self {
+        if let Some(i) = T::try_period_index() {
+            let n = T::try_period().unwrap().key_distance;
+            Self {
+                stacks: vec![(Stack::new_zero(), false); n as usize],
+                period: Stack::from_pure_interval(i, 1),
+                period_index: Some(i),
+            }
+        } else {
+            todo!()
+        }
+    }
+}
+
+impl<T: IntervalBasis> PeriodicNeighbourhood<T> for PeriodicPartial<T> {}
+
+impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
+    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+        let n = self.period_keys() as StackCoeff;
+        let quot = stack.key_distance().div_euclid(n);
+        let rem = stack.key_distance().rem_euclid(n) as usize;
+        self.stacks[rem].0.clone_from(stack);
+        self.stacks[rem].0.scaled_add(-quot, &self.period);
+        self.stacks[rem].1 = true;
+        &self.stacks[rem].0
+    }
+
+    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, mut f: F) {
+        for (i, (stack, valid)) in self.stacks.iter().enumerate() {
+            if *valid {
+                f(i as i8, stack)
+            }
+        }
+    }
+
+    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+        &self,
+        mut f: F,
+    ) -> Result<(), E> {
+        for (i, (stack, valid)) in self.stacks.iter().enumerate() {
+            if *valid {
+                f(i as i8, stack)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
+        for (i, (stack, valid)) in self.stacks.iter_mut().enumerate() {
+            if *valid {
+                f(i as i8, stack)
+            }
+        }
+    }
+
+    fn has_tuning_for(&self, offset: i8) -> bool {
+        let n = self.period_keys() as i8;
+        let rem = offset.rem_euclid(n) as usize;
+        self.stacks[rem].1
+    }
+
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
+        let n = self.period_keys() as i8;
+        let quot = offset.div_euclid(n) as StackCoeff;
+        let rem = offset.rem_euclid(n) as usize;
+        if self.stacks[rem].1 {
+            target.clone_from(&self.stacks[rem].0);
+            target.scaled_add(quot, &self.period);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn try_period(&self) -> Option<&Stack<T>> {
+        Some(&self.period)
+    }
+
+    fn try_period_index(&self) -> Option<usize> {
+        self.period_index
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Partial<T: IntervalBasis> {
     stacks: HashMap<i8, Stack<T>>,
 }
 
-impl<T: IntervalBasis> PartialNeighbourhood<T> {
+impl<T: IntervalBasis> Partial<T> {
     pub fn new() -> Self {
         Self {
             stacks: HashMap::new(),
@@ -149,6 +241,75 @@ pub trait Neighbourhood<T: IntervalBasis> {
     }
 }
 
+impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
+    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.insert(stack),
+            SomeNeighbourhood::PeriodicPartial(x) => x.insert(stack),
+            SomeNeighbourhood::Partial(x) => x.insert(stack),
+        }
+    }
+
+    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, f: F) {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.for_each_stack(f),
+            SomeNeighbourhood::PeriodicPartial(x) => x.for_each_stack(f),
+            SomeNeighbourhood::Partial(x) => x.for_each_stack(f),
+        }
+    }
+
+    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+        &self,
+        f: F,
+    ) -> Result<(), E> {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.for_each_stack_failing(f),
+            SomeNeighbourhood::PeriodicPartial(x) => x.for_each_stack_failing(f),
+            SomeNeighbourhood::Partial(x) => x.for_each_stack_failing(f),
+        }
+    }
+
+    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, f: F) {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.for_each_stack_mut(f),
+            SomeNeighbourhood::PeriodicPartial(x) => x.for_each_stack_mut(f),
+            SomeNeighbourhood::Partial(x) => x.for_each_stack_mut(f),
+        }
+    }
+
+    fn has_tuning_for(&self, offset: i8) -> bool {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.has_tuning_for(offset),
+            SomeNeighbourhood::PeriodicPartial(x) => x.has_tuning_for(offset),
+            SomeNeighbourhood::Partial(x) => x.has_tuning_for(offset),
+        }
+    }
+
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.try_write_relative_stack(target, offset),
+            SomeNeighbourhood::PeriodicPartial(x) => x.try_write_relative_stack(target, offset),
+            SomeNeighbourhood::Partial(x) => x.try_write_relative_stack(target, offset),
+        }
+    }
+
+    fn try_period(&self) -> Option<&Stack<T>> {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.try_period(),
+            SomeNeighbourhood::PeriodicPartial(x) => x.try_period(),
+            SomeNeighbourhood::Partial(x) => x.try_period(),
+        }
+    }
+
+    fn try_period_index(&self) -> Option<usize> {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.try_period_index(),
+            SomeNeighbourhood::PeriodicPartial(x) => x.try_period_index(),
+            SomeNeighbourhood::Partial(x) => x.try_period_index(),
+        }
+    }
+}
+
 impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
     fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
         match self {
@@ -206,7 +367,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
 
 impl<T: IntervalBasis> CompleteNeigbourhood<T> for SomeCompleteNeighbourhood<T> {}
 
-impl<T: IntervalBasis> Neighbourhood<T> for PartialNeighbourhood<T> {
+impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
     /// If the [Stack::key_distance] of `stack` is not in the inclusive range from -128 to 127,
     /// this may misbehave! Only insert stacks whose key_distance could be an i8.
     fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
