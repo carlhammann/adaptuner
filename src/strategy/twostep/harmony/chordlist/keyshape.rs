@@ -5,24 +5,13 @@ use serde_derive::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub enum KeyShape {
     #[serde(rename_all = "kebab-case")]
-    ClassesFixed {
-        period_keys: u8,
-        classes: Vec<u8>,
-        zero: u8,
-    },
+    ClassesFixed { classes: Vec<u8>, zero: u8 },
     #[serde(rename_all = "kebab-case")]
-    ClassesRelative { period_keys: u8, classes: Vec<u8> },
+    ClassesRelative { classes: Vec<u8> },
     #[serde(rename_all = "kebab-case")]
-    VoicingFixed {
-        period_keys: u8,
-        blocks: Vec<Vec<u8>>,
-        zero: u8,
-    },
+    VoicingFixed { blocks: Vec<Vec<u8>>, zero: u8 },
     #[serde(rename_all = "kebab-case")]
-    VoicingRelative {
-        period_keys: u8,
-        blocks: Vec<Vec<u8>>,
-    },
+    VoicingRelative { blocks: Vec<Vec<u8>> },
 }
 
 #[derive(Debug, PartialEq)]
@@ -56,35 +45,21 @@ pub trait HasActivationStatus {
 impl KeyShape {
     pub fn fit<N: HasActivationStatus>(&self, notes: &[N; 128], start: usize) -> Fit {
         match self {
-            Self::ClassesFixed {
-                period_keys,
-                classes,
-                zero,
-            } => fit_classes_fixed(*period_keys, classes, *zero, notes, start),
-            Self::ClassesRelative {
-                period_keys,
-                classes,
-            } => fit_classes_relative(*period_keys, classes, notes, start),
-            Self::VoicingFixed {
-                period_keys,
-                blocks,
-                zero,
-            } => fit_voicing_fixed(*period_keys, blocks, *zero, notes, start),
-            Self::VoicingRelative {
-                period_keys,
-                blocks,
-            } => fit_voicing_relative(*period_keys, blocks, notes, start),
+            Self::ClassesFixed { classes, zero } => fit_classes_fixed(classes, *zero, notes, start),
+            Self::ClassesRelative { classes } => fit_classes_relative(classes, notes, start),
+            Self::VoicingFixed { blocks, zero } => fit_voicing_fixed(blocks, *zero, notes, start),
+            Self::VoicingRelative { blocks } => fit_voicing_relative(blocks, notes, start),
         }
     }
 }
 
 fn fit_classes_fixed<N: HasActivationStatus>(
-    period_keys: u8,
     classes: &[u8],
     zero: u8,
     notes: &[N; 128],
     start: usize,
 ) -> Fit {
+    let period_keys = 12;
     let mut used = vec![false; classes.len()];
     let mut i = start;
     while i < 128 {
@@ -117,13 +92,13 @@ fn fit_classes_fixed<N: HasActivationStatus>(
 }
 
 fn fit_classes_relative<N: HasActivationStatus>(
-    period_keys: u8,
     classes: &[u8],
     notes: &[N; 128],
     start: usize,
 ) -> Fit {
+    let period_keys = 12;
     for zero in 0..period_keys {
-        let res = fit_classes_fixed(period_keys, classes, zero, notes, start);
+        let res = fit_classes_fixed(classes, zero, notes, start);
         match res {
             Fit { next, .. } => {
                 if next > start {
@@ -139,7 +114,6 @@ fn fit_classes_relative<N: HasActivationStatus>(
 }
 
 fn fit_voicing_fixed<N: HasActivationStatus>(
-    period_keys: u8,
     blocks: &[Vec<u8>],
     zero: u8,
     notes: &[N; 128],
@@ -148,7 +122,7 @@ fn fit_voicing_fixed<N: HasActivationStatus>(
     let mut next = start;
     let mut i = 0;
     while i < blocks.len() {
-        match fit_classes_fixed(period_keys, &blocks[i], zero, notes, next) {
+        match fit_classes_fixed(&blocks[i], zero, notes, next) {
             Fit { next: new_next, .. } => {
                 if new_next > next {
                     next = new_next;
@@ -173,13 +147,12 @@ fn fit_voicing_fixed<N: HasActivationStatus>(
 }
 
 fn fit_voicing_relative<N: HasActivationStatus>(
-    period_keys: u8,
     blocks: &[Vec<u8>],
     notes: &[N; 128],
     start: usize,
 ) -> Fit {
     for zero in 0..12 {
-        let res = fit_voicing_fixed(period_keys, blocks, u8::from(zero), notes, start);
+        let res = fit_voicing_fixed(blocks, u8::from(zero), notes, start);
         match res {
             Fit { next, .. } => {
                 if next > start {
@@ -216,11 +189,7 @@ mod test {
     fn one_classes_fixed(active: &[u8], classes: Vec<u8>, zero: u8, reference: u8, next: usize) {
         one_case(
             active,
-            KeyShape::ClassesFixed {
-                period_keys: 12,
-                classes,
-                zero,
-            },
+            KeyShape::ClassesFixed { classes, zero },
             Fit { reference, next },
         );
     }
@@ -270,10 +239,7 @@ mod test {
     fn one_classes_relative(active: &[u8], classes: Vec<u8>, reference: u8, next: usize) {
         one_case(
             active,
-            KeyShape::ClassesRelative {
-                period_keys: 12,
-                classes,
-            },
+            KeyShape::ClassesRelative { classes },
             Fit { reference, next },
         );
     }
@@ -308,11 +274,7 @@ mod test {
     ) {
         one_case(
             active,
-            KeyShape::VoicingFixed {
-                period_keys: 12,
-                blocks,
-                zero,
-            },
+            KeyShape::VoicingFixed { blocks, zero },
             Fit { reference, next },
         );
     }
@@ -348,10 +310,7 @@ mod test {
     fn one_voicing_relative(active: &[u8], blocks: Vec<Vec<u8>>, reference: u8, next: usize) {
         one_case(
             active,
-            KeyShape::VoicingRelative {
-                period_keys: 12,
-                blocks,
-            },
+            KeyShape::VoicingRelative { blocks },
             Fit { reference, next },
         );
     }

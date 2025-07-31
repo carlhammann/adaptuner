@@ -93,9 +93,16 @@ strategies:
   config: !two-step
     harmony: !chord-list
       patterns:
+      - name: special third on f
+        key-shape: !classes-fixed
+          classes: [0,4]
+          zero: 5
+        neighbourhood: !periodic-partial
+          0: {}
+          4: 
+            third: 1
       - name: minor chord
         key-shape: !classes-relative
-          period-keys: 12
           classes:
           - 0
           - 3
@@ -109,7 +116,6 @@ strategies:
             fifth: 1
       - name: major chord
         key-shape: !classes-relative
-          period-keys: 12
           classes:
           - 0
           - 4
