@@ -1,16 +1,18 @@
 //! A neighbourhood is a description of the tunings of some notes, relative to
 //! a reference note.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
     stack::{ScaledAdd, Stack},
-    stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, StackCoeff},
+    stacktype::r#trait::{IntervalBasis, PeriodicIntervalBasis, StackCoeff},
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 pub enum SomeNeighbourhood<T: IntervalBasis> {
     PeriodicComplete(PeriodicComplete<T>),
     PeriodicPartial(PeriodicPartial<T>),
@@ -35,30 +37,18 @@ impl<T: IntervalBasis> From<PeriodicComplete<T>> for SomeCompleteNeighbourhood<T
 /// [IntervalBasis::try_period_index], but may also be a composite interval described by a [Stack]
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeriodicComplete<T: IntervalBasis> {
-    stacks: Vec<Stack<T>>,
-    period: Stack<T>,
-    period_index: Option<usize>,
+    pub stacks: Vec<Stack<T>>,
+    pub period: Stack<T>,
+    pub period_index: Option<usize>,
 }
 
-impl<T: IntervalBasis> PeriodicComplete<T> {
+impl<T: PeriodicIntervalBasis> PeriodicComplete<T> {
     /// invariants:
-    /// - the [Stack::key_distance] of the stack on index `ì` of `stacks` is `i`. In particular,
-    ///   the first one (at index zero) must map to a unison on the keyboard.
-    /// - the length of `stacks` is the [Stack::key_distance] of the `period`.
-    pub fn new(stacks: Vec<Stack<T>>, period: Stack<T>) -> Self {
+    /// - the [Stack::key_distance] of the stack on index `ì` of `stacks` is `i`.
+    /// - the length of `stacks` is the [IntervalBasis::period_index] of `T`, if it exists
+    pub fn new_periodic(stacks: Vec<Stack<T>>) -> Self {
         Self {
             stacks,
-            period,
-            period_index: None {},
-        }
-    }
-}
-
-impl<T: OctavePeriodicIntervalBasis> PeriodicComplete<T> {
-    /// invariants like [PeriodicComplete::new], only for the [PeriodicStackType::period] of `T`
-    pub fn from_octave_tunings(stacks: [Stack<T>; 12]) -> Self {
-        Self {
-            stacks: stacks.into(),
             period: Stack::from_pure_interval(T::period_index(), 1),
             period_index: Some(T::period_index()),
         }
@@ -69,9 +59,9 @@ impl<T: OctavePeriodicIntervalBasis> PeriodicComplete<T> {
 /// associated.
 #[derive(Debug, PartialEq, Clone)]
 pub struct PeriodicPartial<T: IntervalBasis> {
-    stacks: Vec<(Stack<T>, bool)>,
-    period: Stack<T>,
-    period_index: Option<usize>,
+    pub stacks: Vec<(Stack<T>, bool)>,
+    pub period: Stack<T>,
+    pub period_index: Option<usize>,
 }
 
 impl<T: IntervalBasis> PeriodicPartial<T> {
@@ -160,17 +150,17 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Partial<T: IntervalBasis> {
-    stacks: HashMap<i8, Stack<T>>,
+    pub stacks: BTreeMap<i8, Stack<T>>,
 }
 
 impl<T: IntervalBasis> Partial<T> {
     pub fn new() -> Self {
         Self {
-            stacks: HashMap::new(),
+            stacks: BTreeMap::new(),
         }
     }
 
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, i8, Stack<T>> {
+    pub fn iter(&self) -> std::collections::btree_map::Iter<'_, i8, Stack<T>> {
         self.stacks.iter()
     }
 }

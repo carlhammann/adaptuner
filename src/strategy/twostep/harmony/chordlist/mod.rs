@@ -1,15 +1,12 @@
-use std::{collections::BTreeMap, marker::PhantomData, rc::Rc};
+use std::rc::Rc;
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     config::{ExtractConfig, HarmonyStrategyConfig},
-    interval::{
-        stack::Stack,
-        stacktype::r#trait::{IntervalBasis, StackType},
-    },
+    interval::stacktype::r#trait::{IntervalBasis, StackType},
     keystate::KeyState,
-    neighbourhood::{Neighbourhood, PeriodicPartial, SomeNeighbourhood},
+    neighbourhood::SomeNeighbourhood,
     strategy::twostep::{Harmony, HarmonyStrategy},
 };
 
@@ -28,15 +25,7 @@ impl<T: StackType> Pattern<T> {
         Self {
             name: conf.name,
             key_shape: conf.key_shape,
-            neighbourhood: match conf.neighbourhood_kind {
-                NeighbourhoodKind::PeriodicPartial => {
-                    let mut n = PeriodicPartial::new();
-                    conf.neighbourhood.values().for_each(|stack| {
-                        n.insert(stack);
-                    });
-                    Rc::new(SomeNeighbourhood::PeriodicPartial(n))
-                }
-            },
+            neighbourhood: Rc::new(conf.neighbourhood),
         }
     }
 
@@ -54,22 +43,10 @@ impl HasActivationStatus for KeyState {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
-pub enum NeighbourhoodKind {
-    // PeriodicComplete,
-    PeriodicPartial,
-    // Partial,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "kebab-case")]
 pub struct PatternConfig<T: IntervalBasis> {
-    #[serde(skip)]
-    _phantom: PhantomData<T>,
     name: String,
     key_shape: KeyShape,
-    neighbourhood_kind: NeighbourhoodKind,
-    neighbourhood: BTreeMap<i8, Stack<T>>,
+    neighbourhood: SomeNeighbourhood<T>,
 }
 
 impl<T: StackType> ExtractConfig<PatternConfig<T>> for Pattern<T> {
@@ -80,20 +57,9 @@ impl<T: StackType> ExtractConfig<PatternConfig<T>> for Pattern<T> {
             neighbourhood,
         } = self;
         PatternConfig {
-            _phantom: PhantomData,
             name: name.clone(),
             key_shape: key_shape.clone(),
-            neighbourhood_kind: match **neighbourhood {
-                SomeNeighbourhood::PeriodicPartial(_) => NeighbourhoodKind::PeriodicPartial,
-                _ => todo!(),
-            },
-            neighbourhood: {
-                let mut map = BTreeMap::new();
-                neighbourhood.for_each_stack(|i, stack| {
-                    map.insert(i, stack.clone());
-                });
-                map
-            },
+            neighbourhood: (**neighbourhood).clone(),
         }
     }
 }
@@ -102,7 +68,7 @@ impl<T: StackType> ExtractConfig<PatternConfig<T>> for Pattern<T> {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct ChordListConfig<T: IntervalBasis> {
-    patterns: Vec<PatternConfig<T>>,
+    pub patterns: Vec<PatternConfig<T>>,
 }
 
 pub struct ChordList<T: StackType> {

@@ -14,7 +14,7 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
     },
-    neighbourhood::{PeriodicComplete, SomeCompleteNeighbourhood},
+    neighbourhood::SomeCompleteNeighbourhood,
     reference::Reference,
     strategy::{
         r#static::{StaticTuning, StaticTuningConfig},
@@ -238,26 +238,21 @@ impl StrategyKind {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
-pub enum NamedCompleteNeighbourhood<T: IntervalBasis> {
-    PeriodicComplete {
-        name: String,
-        #[serde(flatten)]
-        inner: PeriodicComplete<T>,
-    },
+pub struct NamedCompleteNeighbourhood<T: IntervalBasis> {
+    name: String,
+    entries: SomeCompleteNeighbourhood<T>,
 }
 
 impl<T: IntervalBasis> NamedCompleteNeighbourhood<T> {
     fn name(&self) -> &str {
         match self {
-            NamedCompleteNeighbourhood::PeriodicComplete { name, .. } => name,
+            NamedCompleteNeighbourhood { name, .. } => name,
         }
     }
 
     fn inner(&self) -> SomeCompleteNeighbourhood<T> {
         match self {
-            NamedCompleteNeighbourhood::PeriodicComplete { inner, .. } => {
-                SomeCompleteNeighbourhood::PeriodicComplete(inner.clone())
-            }
+            NamedCompleteNeighbourhood { entries: inner, .. } => inner.clone(),
         }
     }
 }
@@ -443,11 +438,7 @@ impl<T: IntervalBasis> ExtendedStaticTuningConfig<T> {
                 neighbourhoods
                     .drain(..)
                     .zip(neighbourhood_names.drain(..))
-                    .map(
-                        |(SomeCompleteNeighbourhood::PeriodicComplete(inner), name)| {
-                            NamedCompleteNeighbourhood::PeriodicComplete { name, inner }
-                        },
-                    )
+                    .map(|(inner, name)| NamedCompleteNeighbourhood { name, entries: inner })
                     .collect()
             },
             tuning_reference,
@@ -534,11 +525,7 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
                     neighbourhoods
                         .drain(..)
                         .zip(neighbourhood_names.drain(..))
-                        .map(
-                            |(SomeCompleteNeighbourhood::PeriodicComplete(inner), name)| {
-                                NamedCompleteNeighbourhood::PeriodicComplete { name, inner }
-                            },
-                        )
+                        .map(|(inner, name)| NamedCompleteNeighbourhood { name, entries: inner })
                         .collect()
                 },
                 tuning_reference,

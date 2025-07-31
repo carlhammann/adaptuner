@@ -100,8 +100,30 @@ strategies:
           - 0
           - 3
           - 7
-        neighbourhood-kind: periodic-partial
-        neighbourhood: &row1
+        neighbourhood: !periodic-partial
+          0: {}
+          3:
+            fifth: 1
+            third: -1
+          7:
+            fifth: 1
+      - name: major chord
+        key-shape: !classes-relative
+          period-keys: 12
+          classes:
+          - 0
+          - 4
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          4:
+            third: 1
+          7:
+            fifth: 1
+    melody: !static-tuning
+      neighbourhoods:
+      - name: pure
+        entries: !periodic-complete
           0: {}
           1:
             octave: 1
@@ -111,99 +133,35 @@ strategies:
             octave: -1
             fifth: 2
           3:
-            fifth: 1
-            third: -1
+            octave: 2
+            fifth: -3
           4:
             third: 1
           5:
             octave: 1
             fifth: -1
           6:
-            octave: -1
-            fifth: 2
-            third: 1
+            octave: 2
+            fifth: -2
+            third: -1
           7:
             fifth: 1
           8:
             octave: 1
             third: -1
           9:
-            octave: 1
-            fifth: -1
-            third: 1
+            octave: -1
+            fifth: 3
           10:
             octave: 2
             fifth: -2
           11:
             fifth: 1
             third: 1
-      - name: major chord
-        key-shape: !classes-relative
-          period-keys: 12
-          classes:
-          - 0
-          - 4
-          - 7
-        neighbourhood-kind: periodic-partial
-        neighbourhood: *row1
-    melody: !static-tuning
-      neighbourhoods:
-      - !periodic-complete
-        name: pure
-        entries:
-        - offset: 0
-          stack: {}
-        - offset: 1
-          stack:
-            octave: 1
-            fifth: -1
-            third: -1
-        - offset: 2
-          stack:
-            octave: -1
-            fifth: 2
-        - offset: 3
-          stack:
-            octave: 2
-            fifth: -3
-        - offset: 4
-          stack:
-            third: 1
-        - offset: 5
-          stack:
-            octave: 1
-            fifth: -1
-        - offset: 6
-          stack:
-            octave: 2
-            fifth: -2
-            third: -1
-        - offset: 7
-          stack:
-            fifth: 1
-        - offset: 8
-          stack:
-            octave: 1
-            third: -1
-        - offset: 9
-          stack:
-            octave: -1
-            fifth: 3
-        - offset: 10
-          stack:
-            octave: 2
-            fifth: -2
-        - offset: 11
-          stack:
-            fifth: 1
-            third: 1
-      - !periodic-complete
-        name: meantone
-        entries:
-        - offset: 0
-          stack: {}
-        - offset: 1
-          stack:
+      - name: meantone
+        entries: !periodic-complete
+          0: {}
+          1:
             target:
               octave: 1
               fifth: -1
@@ -211,34 +169,29 @@ strategies:
             actual:
               octave: '1/2'
               third: '-5/4'
-        - offset: 2
-          stack:
+          2:
             target:
               octave: -1
               fifth: 2
             actual:
               third: '1/2'
-        - offset: 3
-          stack:
+          3:
             target:
               octave: 2
               fifth: -3
             actual:
               octave: '1/2'
               third: '-3/4'
-        - offset: 4
-          stack:
+          4:
             third: 1
-        - offset: 5
-          stack:
+          5:
             target:
               octave: 1
               fifth: -1
             actual:
               octave: '1/2'
               third: '-1/4'
-        - offset: 6
-          stack:
+          6:
             target:
               octave: 2
               fifth: -2
@@ -246,35 +199,30 @@ strategies:
             actual:
               octave: '1'
               third: '-3/2'
-        - offset: 7
-          stack:
+          7:
             target:
               fifth: 1
             actual:
               octave: '1/2'
               third: '1/4'
-        - offset: 8
-          stack:
+          8:
             octave: 1
             third: -1
-        - offset: 9
-          stack:
+          9:
             target:
               octave: -1
               fifth: 3
             actual:
               octave: '1/2'
               third: '3/4'
-        - offset: 10
-          stack:
+          10:
             target:
               octave: 2
               fifth: -2
             actual:
               octave: '1'
               third: '-1/2'
-        - offset: 11
-          stack:
+          11:
             target:
               fifth: 1
               third: 1
