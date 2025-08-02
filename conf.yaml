@@ -92,40 +92,55 @@ strategies:
   description: blablabla
   config: !two-step
     harmony: !chord-list
-      patterns:
-      - name: special third on f
-        key-shape: !classes-fixed
-          classes: [0,4]
-          zero: 5
-        neighbourhood: !periodic-partial
-          0: {}
-          4: 
-            third: 1
-      - name: minor chord
-        key-shape: !classes-relative
-          classes:
-          - 0
-          - 3
-          - 7
-        neighbourhood: !periodic-partial
-          0: {}
-          3:
-            fifth: 1
-            third: -1
-          7:
-            fifth: 1
-      - name: major chord
-        key-shape: !classes-relative
-          classes:
-          - 0
-          - 4
-          - 7
-        neighbourhood: !periodic-partial
-          0: {}
-          4:
-            third: 1
-          7:
-            fifth: 1
+    - name: wacky d major
+      key-shape: !classes-fixed
+        classes:
+        - 0
+        - 4
+        - 7
+        zero: 2
+      neighbourhood: !periodic-partial
+        0: {}
+        4:
+          octave: -1
+          third: 4
+        7:
+          octave: 4
+          fifth: -7
+          third: 2
+      allow-extra-high-notes: true
+      original-reference:
+        octave: -1
+        fifth: 2
+    - name: major
+      key-shape: !classes-relative
+        classes:
+        - 0
+        - 4
+        - 7
+      neighbourhood: !periodic-partial
+        0: {}
+        4:
+          third: 1
+        7:
+          fifth: 1
+      allow-extra-high-notes: true
+      original-reference: {}
+    - name: minor
+      key-shape: !classes-relative
+        classes:
+        - 0
+        - 3
+        - 7
+      neighbourhood: !periodic-partial
+        0: {}
+        3:
+          fifth: 1
+          third: -1
+        7:
+          fifth: 1
+      allow-extra-high-notes: true
+      original-reference: {}
     melody: !static-tuning
       neighbourhoods:
       - name: pure
@@ -139,17 +154,17 @@ strategies:
             octave: -1
             fifth: 2
           3:
-            octave: 2
-            fifth: -3
+            fifth: 1
+            third: -1
           4:
             third: 1
           5:
             octave: 1
             fifth: -1
           6:
-            octave: 2
-            fifth: -2
-            third: -1
+            octave: -1
+            fifth: 2
+            third: 1
           7:
             fifth: 1
           8:

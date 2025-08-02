@@ -14,12 +14,15 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
     },
-    neighbourhood::SomeCompleteNeighbourhood,
+    neighbourhood::{SomeCompleteNeighbourhood, SomeNeighbourhood},
     reference::Reference,
     strategy::{
         r#static::{StaticTuning, StaticTuningConfig},
         r#trait::Strategy,
-        twostep::{harmony::chordlist::ChordListConfig, TwoStep},
+        twostep::{
+            harmony::chordlist::{keyshape::KeyShape, ChordListConfig, PatternConfig},
+            TwoStep,
+        },
     },
 };
 
@@ -68,8 +71,8 @@ pub struct ProcessConfig<T: IntervalBasis> {
 }
 
 #[derive(Clone)]
-pub struct GuiConfig {
-    pub strategies: Vec<(StrategyNames, Bindings<Bindable>)>,
+pub struct GuiConfig<T: IntervalBasis> {
+    pub strategies: Vec<(StrategyNames<T>, Bindings<Bindable>)>,
     pub lattice_window: LatticeWindowConfig,
     pub backend_window: BackendWindowConfig,
     pub tuning_editor: TuningEditorConfig,
@@ -134,7 +137,7 @@ pub struct NamedAndDescribed<X> {
 }
 
 impl<T: IntervalBasis> Config<T> {
-    pub fn split(&self) -> (ProcessConfig<T>, GuiConfig, BackendConfig) {
+    pub fn split(&self) -> (ProcessConfig<T>, GuiConfig<T>, BackendConfig) {
         let mut process = Vec::with_capacity(self.strategies.len());
         let mut ui = Vec::with_capacity(self.strategies.len());
         self.strategies.iter().for_each(|esc| {
@@ -163,7 +166,7 @@ impl<T: IntervalBasis> Config<T> {
     pub fn join(
         mut process: ProcessConfig<T>,
         backend: BackendConfig,
-        mut gui: GuiConfig,
+        mut gui: GuiConfig<T>,
         temperaments: Vec<TemperamentDefinition<T>>,
         named_intervals: Vec<NamedInterval<T>>,
     ) -> Self {
@@ -272,7 +275,7 @@ pub struct ExtendedStaticTuningConfig<T: IntervalBasis> {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum ExtendedHarmonyStrategyConfig<T: IntervalBasis> {
-    ChordList(ChordListConfig<T>),
+    ChordList(Vec<NamedPatternConfig<T>>),
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -306,9 +309,22 @@ pub fn deserialize_nonempty_neighbourhoods<
     )
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub struct NamedPatternConfig<T: IntervalBasis> {
+    pub name: String,
+    pub key_shape: KeyShape,
+    pub neighbourhood: SomeNeighbourhood<T>,
+    pub allow_extra_high_notes: bool,
+    pub original_reference: Stack<T>,
+}
+
 #[derive(Clone)]
-pub enum HarmonyStrategyNames {
-    ChordList,
+pub enum HarmonyStrategyNames<T: IntervalBasis> {
+    ChordList {
+        patterns: Vec<NamedPatternConfig<T>>,
+    },
 }
 
 #[derive(Clone)]
@@ -317,7 +333,7 @@ pub enum MelodyStrategyNames {
 }
 
 #[derive(Clone)]
-pub enum StrategyNames {
+pub enum StrategyNames<T: IntervalBasis> {
     StaticTuning {
         name: String,
         description: String,
@@ -326,17 +342,17 @@ pub enum StrategyNames {
     TwoStep {
         name: String,
         description: String,
-        harmony: HarmonyStrategyNames,
+        harmony: HarmonyStrategyNames<T>,
         melody: MelodyStrategyNames,
     },
 }
 
-impl StrategyNames {
+impl<T: IntervalBasis> StrategyNames<T> {
     pub fn strategy_kind(&self) -> StrategyKind {
         match self {
             StrategyNames::StaticTuning { .. } => StrategyKind::StaticTuning,
             StrategyNames::TwoStep {
-                harmony: HarmonyStrategyNames::ChordList,
+                harmony: HarmonyStrategyNames::ChordList { .. },
                 melody: MelodyStrategyNames::StaticTuning { .. },
                 ..
             } => StrategyKind::TwoStep(
@@ -438,7 +454,10 @@ impl<T: IntervalBasis> ExtendedStaticTuningConfig<T> {
                 neighbourhoods
                     .drain(..)
                     .zip(neighbourhood_names.drain(..))
-                    .map(|(inner, name)| NamedCompleteNeighbourhood { name, entries: inner })
+                    .map(|(inner, name)| NamedCompleteNeighbourhood {
+                        name,
+                        entries: inner,
+                    })
                     .collect()
             },
             tuning_reference,
@@ -448,18 +467,39 @@ impl<T: IntervalBasis> ExtendedStaticTuningConfig<T> {
 }
 
 impl<T: IntervalBasis> ExtendedHarmonyStrategyConfig<T> {
-    fn split(&self) -> (HarmonyStrategyConfig<T>, HarmonyStrategyNames) {
+    fn split(&self) -> (HarmonyStrategyConfig<T>, HarmonyStrategyNames<T>) {
         match self {
             ExtendedHarmonyStrategyConfig::ChordList(c) => (
-                HarmonyStrategyConfig::ChordList(c.clone()),
-                HarmonyStrategyNames::ChordList,
+                HarmonyStrategyConfig::ChordList(ChordListConfig {
+                    patterns: c
+                        .iter()
+                        .map(|p| PatternConfig {
+                            key_shape: p.key_shape.clone(),
+                            neighbourhood: p.neighbourhood.clone(),
+                            allow_extra_high_notes: p.allow_extra_high_notes,
+                        })
+                        .collect(),
+                }),
+                HarmonyStrategyNames::ChordList {
+                    patterns: c.clone(),
+                },
             ),
         }
     }
 
-    fn join(strat: HarmonyStrategyConfig<T>, _names: HarmonyStrategyNames) -> Self {
-        match strat {
-            HarmonyStrategyConfig::ChordList(c) => ExtendedHarmonyStrategyConfig::ChordList(c),
+    fn join(strat: HarmonyStrategyConfig<T>, names: HarmonyStrategyNames<T>) -> Self {
+        match (strat, names) {
+            (
+                HarmonyStrategyConfig::ChordList(c),
+                HarmonyStrategyNames::ChordList {
+                    patterns: named_patterns,
+                },
+            ) => {
+                if c.patterns.len() != named_patterns.len() {
+                    panic!("different numbers of patterns in the chord list and names for these patterns");
+                }
+                ExtendedHarmonyStrategyConfig::ChordList(named_patterns)
+            }
         }
     }
 }
@@ -525,7 +565,10 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
                     neighbourhoods
                         .drain(..)
                         .zip(neighbourhood_names.drain(..))
-                        .map(|(inner, name)| NamedCompleteNeighbourhood { name, entries: inner })
+                        .map(|(inner, name)| NamedCompleteNeighbourhood {
+                            name,
+                            entries: inner,
+                        })
                         .collect()
                 },
                 tuning_reference,
@@ -536,7 +579,7 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
 }
 
 impl<T: IntervalBasis> NamedAndDescribed<ExtendedStrategyConfig<T>> {
-    fn split(&self) -> (StrategyConfig<T>, Bindings<Bindable>, StrategyNames) {
+    fn split(&self) -> (StrategyConfig<T>, Bindings<Bindable>, StrategyNames<T>) {
         match self {
             NamedAndDescribed {
                 name,
@@ -575,7 +618,11 @@ impl<T: IntervalBasis> NamedAndDescribed<ExtendedStrategyConfig<T>> {
         }
     }
 
-    fn join(strat: StrategyConfig<T>, bindings: Bindings<Bindable>, names: StrategyNames) -> Self {
+    fn join(
+        strat: StrategyConfig<T>,
+        bindings: Bindings<Bindable>,
+        names: StrategyNames<T>,
+    ) -> Self {
         match (strat, names) {
             (
                 StrategyConfig::StaticTuning(c),

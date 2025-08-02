@@ -56,7 +56,7 @@ struct GuiWithConnections<T: StackType, G> {
     gui: G,
     rx: mpsc::Receiver<ToUi<T>>,
     tx: mpsc::Sender<FromUi<T>>,
-    config_return: Arc<Mutex<Option<GuiConfig>>>,
+    config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
 }
 
 impl<T: StackType + Send, G> GuiWithConnections<T, G> {
@@ -65,7 +65,7 @@ impl<T: StackType + Send, G> GuiWithConnections<T, G> {
         gui: G,
         rx: mpsc::Receiver<ToUi<T>>,
         tx: mpsc::Sender<FromUi<T>>,
-        config_return: Arc<Mutex<Option<GuiConfig>>>,
+        config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
     ) -> Self {
         let ctx = cc.egui_ctx.clone();
         let (forward_tx, forward_rx) = mpsc::channel::<ToUi<T>>();
@@ -94,7 +94,7 @@ impl<T: StackType + Send, G> GuiWithConnections<T, G> {
 impl<T, G> eframe::App for GuiWithConnections<T, G>
 where
     T: StackType,
-    G: HandleMsg<ToUi<T>, FromUi<T>> + ExtractConfig<GuiConfig> + eframe::App,
+    G: HandleMsg<ToUi<T>, FromUi<T>> + ExtractConfig<GuiConfig<T>> + eframe::App,
 {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         for msg in self.rx.try_iter() {
@@ -112,10 +112,10 @@ fn start_gui<T, H, NH>(
     new_gui: NH,
     rx: mpsc::Receiver<ToUi<T>>,
     tx: mpsc::Sender<FromUi<T>>,
-    config_return: Arc<Mutex<Option<GuiConfig>>>,
+    config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
 ) -> Result<(), eframe::Error>
 where
-    H: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App + ExtractConfig<GuiConfig>,
+    H: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
     NH: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> H + Send + 'static,
     T: StackType + Send + 'static,
 {
@@ -320,7 +320,7 @@ pub struct RunState<T: StackType> {
     to_ui_tx: mpsc::Sender<ToUi<T>>,
     to_midi_input_tx: mpsc::Sender<ToMidiIn>,
     to_midi_output_tx: mpsc::Sender<ToMidiOut>,
-    gui_config_return: Arc<Mutex<Option<GuiConfig>>>,
+    gui_config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
 }
 
 #[derive(Debug)]
@@ -362,7 +362,7 @@ impl<T: StackType> RunState<T> {
         B: HandleMsg<ToBackend, FromBackend>
             + ExtractConfig<BackendConfig>
             + FromConfigAndState<BackendConfig, ()>,
-        U: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App + ExtractConfig<GuiConfig>,
+        U: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
         NU: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> U + Send + 'static,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();
@@ -457,7 +457,7 @@ impl<T: StackType> RunState<T> {
         (
             ProcessConfig<T>,
             BackendConfig,
-            GuiConfig,
+            GuiConfig<T>,
             MidiInputConfig,
             MidiOutputConfig,
         ),

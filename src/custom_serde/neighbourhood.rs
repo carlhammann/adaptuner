@@ -5,6 +5,7 @@ use serde::Deserializer;
 use serde_derive::Deserialize;
 use serde_with::{serde_as, DeserializeAs, MapPreventDuplicates};
 
+use crate::interval::stacktype::r#trait::StackCoeff;
 use crate::neighbourhood::{Partial, PeriodicPartial};
 use crate::{
     interval::{stack::Stack, stacktype::r#trait::IntervalBasis},
@@ -42,24 +43,24 @@ impl<T: IntervalBasis + serde::Serialize> serde::Serialize for Partial<T> {
 
 /// needed for the DeserializeAs magic. Otherwise, serde_as will try to deserialize map keys as
 /// Strings...
-struct AnI8<'de>(&'de str);
+struct AStackCoeff<'de>(&'de str);
 
-impl<'de> serde::Deserialize<'de> for AnI8<'de> {
+impl<'de> serde::Deserialize<'de> for AStackCoeff<'de> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let i = <_ as serde::Deserialize<'de>>::deserialize(deserializer)?;
-        Ok(AnI8(i))
+        Ok(AStackCoeff(i))
     }
 }
 
-impl<'de> DeserializeAs<'de, i8> for AnI8<'de> {
-    fn deserialize_as<D>(deserializer: D) -> Result<i8, D::Error>
+impl<'de> DeserializeAs<'de, StackCoeff> for AStackCoeff<'de> {
+    fn deserialize_as<D>(deserializer: D) -> Result<StackCoeff, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let AnI8(str) = <AnI8 as serde::Deserialize<'de>>::deserialize(deserializer)?;
+        let AStackCoeff(str) = <AStackCoeff as serde::Deserialize<'de>>::deserialize(deserializer)?;
         match str.parse() {
             Ok(i) => Ok(i),
             Err(e) => Err(serde::de::Error::custom(e)),
@@ -71,8 +72,8 @@ impl<'de> DeserializeAs<'de, i8> for AnI8<'de> {
 #[derive(Deserialize)]
 struct NoDuplicates<T: IntervalBasis> {
     #[serde(flatten)]
-    #[serde_as(as = "MapPreventDuplicates<AnI8, _>")]
-    stacks: BTreeMap<i8, Stack<T>>,
+    #[serde_as(as = "MapPreventDuplicates<AStackCoeff, _>")]
+    stacks: BTreeMap<StackCoeff, Stack<T>>,
 }
 
 impl<'de, T: IntervalBasis + serde::Deserialize<'de>> serde::Deserialize<'de>
@@ -97,17 +98,17 @@ impl<'de, T: IntervalBasis + serde::Deserialize<'de>> serde::Deserialize<'de>
                 }
             }
             if let Some((&hi, _)) = map.last_key_value() {
-                if hi != n as i8 - 1 {
+                if hi != n as StackCoeff - 1 {
                     return Err(serde::de::Error::custom(format!(
                         "the highest entry must be {}, but it is {hi}",
-                        n as i8 - 1,
+                        n as StackCoeff - 1,
                     )));
                 }
             }
 
             if let Some((offset, stack)) = map
                 .iter()
-                .find(|(i, stack)| stack.key_distance() as i8 != **i)
+                .find(|(i, stack)| stack.key_distance() != **i)
             {
                 return Err(serde::de::Error::custom(format!(
                     "the stack for entry {offset} describes an interval spanning {} keys",
@@ -157,17 +158,17 @@ impl<'de, T: IntervalBasis + serde::Deserialize<'de>> serde::Deserialize<'de>
                 }
             }
             if let Some((&hi, _)) = stacks.last_key_value() {
-                if hi >= n as i8 {
+                if hi >= n as StackCoeff {
                     return Err(serde::de::Error::custom(format!(
                         "the highest entry must be at most {}, but it is {hi}",
-                        n as i8 - 1,
+                        n as StackCoeff - 1,
                     )));
                 }
             }
 
             if let Some((offset, stack)) = stacks
                 .iter()
-                .find(|(i, stack)| stack.key_distance() as i8 != **i)
+                .find(|(i, stack)| stack.key_distance() != **i)
             {
                 return Err(serde::de::Error::custom(format!(
                     "the stack for entry {offset} describes an interval spanning {} keys",
@@ -201,7 +202,7 @@ impl<'de, T: IntervalBasis + serde::Deserialize<'de>> serde::Deserialize<'de> fo
 
         if let Some((offset, stack)) = stacks
             .iter()
-            .find(|(i, stack)| stack.key_distance() as i8 != **i)
+            .find(|(i, stack)| stack.key_distance() != **i)
         {
             return Err(serde::de::Error::custom(format!(
                 "the stack for entry {offset} describes an interval spanning {} keys",

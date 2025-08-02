@@ -1,17 +1,18 @@
 use std::{collections::VecDeque, rc::Rc, time::Instant};
 
-use harmony::chordlist::ChordList;
+use harmony::chordlist::{ChordList, PatternConfig};
 
 use crate::{
     config::{ExtractConfig, HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
     interval::{
         base::Semitones,
         stack::Stack,
-        stacktype::r#trait::{IntervalBasis, StackType},
+        stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
     msg::{FromStrategy, ToStrategy},
     neighbourhood::SomeNeighbourhood,
+    util::list_action::ListAction,
 };
 
 use super::{r#static::StaticTuning, r#trait::Strategy};
@@ -22,12 +23,15 @@ pub mod melody;
 #[derive(Clone)]
 pub struct Harmony<T: IntervalBasis> {
     pub neighbourhood: Rc<SomeNeighbourhood<T>>,
-    /// MIDI key number of the reference note
-    pub reference: u8,
+    /// MIDI key number of the reference note, but may be outside the MIDI range
+    pub reference: StackCoeff,
 }
 
 pub trait HarmonyStrategy<T: IntervalBasis>: ExtractConfig<HarmonyStrategyConfig<T>> {
-    fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<String>, Option<Harmony<T>>);
+    fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>);
+    fn handle_chord_list_action(&mut self, action: ListAction) -> bool;
+    fn push_new_chord(&mut self, chord: PatternConfig<T>) -> bool;
+    fn allow_extra_high_notes(&mut self, pattern_index: usize, allow: bool);
 }
 
 pub trait MelodyStrategy<T: StackType>: ExtractConfig<MelodyStrategyConfig<T>> {
@@ -90,10 +94,10 @@ impl<T: StackType> TwoStep<T> {
         time: Instant,
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool {
-        let (description, harmony) = self.harmony.solve(keys);
+        let (pattern_index, harmony) = self.harmony.solve(keys);
         let (success, reference) = self.melody.solve(keys, tunings, harmony, time, forward);
         forward.push_back(FromStrategy::CurrentHarmony {
-            description,
+            pattern_index,
             reference,
         });
         success
@@ -135,13 +139,40 @@ impl<T: StackType> Strategy<T> for TwoStep<T> {
         msg: ToStrategy<T>,
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool {
-        let (description, harmony) = self.harmony.solve(keys);
-        let (success, reference) = self.melody.handle_msg(keys, tunings, harmony, msg, forward);
-        forward.push_back(FromStrategy::CurrentHarmony {
-            description,
-            reference,
-        });
-        success
+        match msg {
+            ToStrategy::ChordListAction { action, time } => {
+                if self.harmony.handle_chord_list_action(action) {
+                    self.solve(keys, tunings, time, forward)
+                } else {
+                    false
+                }
+            }
+            ToStrategy::PushNewChord { pattern, time } => {
+                if self.harmony.push_new_chord(pattern) {
+                    self.solve(keys, tunings, time, forward)
+                } else {
+                    false
+                }
+            }
+            ToStrategy::AllowExtraHighNotes {
+                pattern_index,
+                allow,
+                time,
+            } => {
+                self.harmony.allow_extra_high_notes(pattern_index, allow);
+                self.solve(keys, tunings, time, forward)
+            }
+            _ => {
+                let (pattern_index, harmony) = self.harmony.solve(keys);
+                let (success, reference) =
+                    self.melody.handle_msg(keys, tunings, harmony, msg, forward);
+                forward.push_back(FromStrategy::CurrentHarmony {
+                    pattern_index,
+                    reference,
+                });
+                success
+            }
+        }
     }
 
     fn start(
@@ -151,10 +182,10 @@ impl<T: StackType> Strategy<T> for TwoStep<T> {
         time: Instant,
         forward: &mut VecDeque<FromStrategy<T>>,
     ) {
-        let (description, harmony) = self.harmony.solve(keys);
+        let (pattern_index, harmony) = self.harmony.solve(keys);
         let reference = self.melody.start(keys, tunings, harmony, time, forward);
         forward.push_back(FromStrategy::CurrentHarmony {
-            description,
+            pattern_index,
             reference,
         });
     }

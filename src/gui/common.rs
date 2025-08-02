@@ -51,13 +51,13 @@ pub struct RefListEdit<'a, X> {
     selected: &'a mut Option<usize>,
 }
 
-pub struct ListEditOpts<X, M> {
+pub struct ListEditOpts<X, M, H> {
     pub empty_allowed: bool,
     pub select_allowed: bool,
     pub no_selection_allowed: bool,
     pub delete_allowed: bool,
-    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X) -> Option<M>>,
-    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>) -> Option<usize>>>,
+    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X, &H) -> Option<M>>,
+    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>, &H) -> Option<usize>>>,
 }
 
 pub enum ListEditResult<M> {
@@ -79,11 +79,12 @@ pub trait ListEdit<X> {
         elem_name: impl Fn(&X) -> &str,
         elem_description: impl Fn(&X) -> Option<&str>,
     ) -> Option<(usize, &X)>;
-    fn show<M>(
+    fn show<M, H>(
         &mut self,
         ui: &mut egui::Ui,
         id_salt: &'static str,
-        opts: ListEditOpts<X, M>,
+        opts: ListEditOpts<X, M, H>,
+        view_data: &H,
     ) -> ListEditResult<M>
     where
         X: Clone;
@@ -94,11 +95,12 @@ impl<'a, X> RefListEdit<'a, X> {
         Self { elems, selected }
     }
 
-    fn show_dont_handle<M>(
+    fn show_dont_handle<M, H>(
         &mut self,
         ui: &mut egui::Ui,
         id_salt: &'static str,
-        opts: ListEditOpts<X, M>,
+        opts: ListEditOpts<X, M, H>,
+        view_data: &H,
     ) -> ListEditResult<M> {
         let mut res = ListEditResult::None;
         let mut update_res = |new_res: ListEditResult<M>| match res {
@@ -133,7 +135,7 @@ impl<'a, X> RefListEdit<'a, X> {
                         }
                     }
 
-                    if let Some(m) = (opts.show_one)(ui, i, elem) {
+                    if let Some(m) = (opts.show_one)(ui, i, elem, view_data) {
                         update_res(ListEditResult::Message(m));
                     }
 
@@ -184,7 +186,7 @@ impl<'a, X> RefListEdit<'a, X> {
 
         if let Some(f) = opts.clone {
             ui.separator();
-            if let Some(i) = f(ui, &self.elems, *self.selected) {
+            if let Some(i) = f(ui, &self.elems, *self.selected, view_data) {
                 update_res(ListEditResult::Action(ListAction::Clone(i)));
             }
         }
@@ -228,16 +230,17 @@ impl<'a, X> ListEdit<X> for RefListEdit<'a, X> {
         )
     }
 
-    fn show<M>(
+    fn show<M, H>(
         &mut self,
         ui: &mut egui::Ui,
         id_salt: &'static str,
-        opts: ListEditOpts<X, M>,
+        opts: ListEditOpts<X, M, H>,
+        view_data: &H,
     ) -> ListEditResult<M>
     where
         X: Clone,
     {
-        let res = self.show_dont_handle(ui, id_salt, opts);
+        let res = self.show_dont_handle(ui, id_salt, opts, view_data);
         if let ListEditResult::Action(action) = &res {
             action.apply_to(|x| x.clone(), &mut self.elems, &mut self.selected);
         }
@@ -309,16 +312,17 @@ impl<X> ListEdit<X> for OwningListEdit<X> {
         )
     }
 
-    fn show<M>(
+    fn show<M, H>(
         &mut self,
         ui: &mut egui::Ui,
         id_salt: &'static str,
-        opts: ListEditOpts<X, M>,
+        opts: ListEditOpts<X, M, H>,
+        view_data: &H,
     ) -> ListEditResult<M>
     where
         X: Clone,
     {
-        self.as_ref_list_edit().show(ui, id_salt, opts)
+        self.as_ref_list_edit().show(ui, id_salt, opts, view_data)
     }
 }
 
@@ -452,12 +456,12 @@ impl<T: StackType> CorrectionSystemChooser<T> {
             let _ = self.preference_order.show(
                 ui,
                 self.id_salt,
-                ListEditOpts {
+                ListEditOpts::<_, _, ()> {
                     empty_allowed: false,
                     select_allowed: false,
                     no_selection_allowed: false,
                     delete_allowed: false,
-                    show_one: Box::new(|ui, _, i| {
+                    show_one: Box::new(|ui, _, i, _| {
                         ui.label(format!(
                             "{} ('{}')",
                             T::named_intervals()[*i].name,
@@ -467,6 +471,7 @@ impl<T: StackType> CorrectionSystemChooser<T> {
                     }),
                     clone: None {},
                 },
+                &(),
             );
         });
     }

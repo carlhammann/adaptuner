@@ -4,33 +4,33 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     config::{ExtractConfig, HarmonyStrategyConfig},
-    interval::stacktype::r#trait::{IntervalBasis, StackType},
+    interval::{
+        stack::{ScaledAdd, Stack},
+        stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
+    },
     keystate::KeyState,
-    neighbourhood::SomeNeighbourhood,
+    neighbourhood::{Neighbourhood, Partial, PeriodicPartial, SomeNeighbourhood},
     strategy::twostep::{Harmony, HarmonyStrategy},
+    util::list_action::ListAction,
 };
 
-mod keyshape;
+pub mod keyshape;
 use keyshape::{Fit, HasActivationStatus, KeyShape};
 
 #[derive(Debug, Clone, PartialEq)]
 struct Pattern<T: StackType> {
-    name: String,
     key_shape: KeyShape,
     neighbourhood: Rc<SomeNeighbourhood<T>>,
+    allow_extra_high_notes: bool,
 }
 
 impl<T: StackType> Pattern<T> {
     fn new(conf: PatternConfig<T>) -> Self {
         Self {
-            name: conf.name,
             key_shape: conf.key_shape,
             neighbourhood: Rc::new(conf.neighbourhood),
+            allow_extra_high_notes: conf.allow_extra_high_notes,
         }
-    }
-
-    fn fit(&self, notes: &[KeyState; 128]) -> Fit {
-        self.key_shape.fit(notes, 0)
     }
 }
 
@@ -44,22 +44,92 @@ impl HasActivationStatus for KeyState {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct PatternConfig<T: IntervalBasis> {
-    name: String,
-    key_shape: KeyShape,
-    neighbourhood: SomeNeighbourhood<T>,
+    pub key_shape: KeyShape,
+    pub neighbourhood: SomeNeighbourhood<T>,
+    pub allow_extra_high_notes: bool,
+}
+
+/// build a partial neighbourhood around the current lowest soundign note from the other sounding
+/// notes.
+///
+/// If [IntervalBasis::try_period_index] returns `Some` for `T`, build a [PeriodicPartial],
+/// otherwise a [Partial].
+fn sounding_neighbourhood<T: IntervalBasis>(
+    keys: &[KeyState; 128],
+    tunings: &[Stack<T>; 128],
+    lowest_sounding: usize,
+) -> SomeNeighbourhood<T> {
+    if let Some(period_index) = T::try_period_index() {
+        SomeNeighbourhood::PeriodicPartial({
+            let mut neigh = PeriodicPartial::new_from_period_index(period_index);
+            let mut tmp = Stack::new_zero();
+            for (i, stack) in tunings.iter().enumerate() {
+                if keys[i].is_sounding() {
+                    tmp.clone_from(stack);
+                    tmp.scaled_add(-1, &tunings[lowest_sounding]);
+                    let _ = neigh.insert(&tmp);
+                }
+            }
+            neigh
+        })
+    } else {
+        SomeNeighbourhood::Partial({
+            let mut neigh = Partial::new();
+            let mut tmp = Stack::new_zero();
+            for (i, stack) in tunings.iter().enumerate() {
+                if keys[i].is_sounding() {
+                    tmp.clone_from(stack);
+                    tmp.scaled_add(-1, &tunings[lowest_sounding]);
+                    let _ = neigh.insert(&tmp);
+                }
+            }
+            neigh
+        })
+    }
+}
+
+impl<T: StackType> PatternConfig<T> {
+    // In principle, `lowest_sounding` is computable from the `keys` argument. The additional
+    // argument thus moves the burden of this check to the caller, which might already know
+    // whether there are any notes sounding.
+    pub fn classes_relative_from_current(
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        lowest_sounding: usize,
+        allow_extra_high_notes: bool,
+    ) -> Self {
+        Self {
+            key_shape: KeyShape::classes_relative_from_current(keys, lowest_sounding),
+            neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
+            allow_extra_high_notes,
+        }
+    }
+
+    pub fn classes_fixed_from_current(
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        lowest_sounding: usize,
+        allow_extra_high_notes: bool,
+    ) -> Self {
+        Self {
+            key_shape: KeyShape::classes_fixed_from_current(keys, lowest_sounding),
+            neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
+            allow_extra_high_notes,
+        }
+    }
 }
 
 impl<T: StackType> ExtractConfig<PatternConfig<T>> for Pattern<T> {
     fn extract_config(&self) -> PatternConfig<T> {
         let Pattern {
-            name,
             key_shape,
             neighbourhood,
+            allow_extra_high_notes: allow_extra_high_notes,
         } = self;
         PatternConfig {
-            name: name.clone(),
             key_shape: key_shape.clone(),
             neighbourhood: (**neighbourhood).clone(),
+            allow_extra_high_notes: *allow_extra_high_notes,
         }
     }
 }
@@ -84,33 +154,56 @@ impl<T: StackType> ChordList<T> {
 }
 
 impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
-    fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<String>, Option<Harmony<T>>) {
+    fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>) {
+        if self.patterns.is_empty() {
+                return (None {}, None {});
+        }
+
         let mut fit = Fit::new_worst();
         let mut index = 0;
         for (i, p) in self.patterns.iter().enumerate() {
             if fit.is_complete() {
                 break;
             }
-            let new_fit = p.fit(keys);
+            let new_fit = p.key_shape.fit(keys);
             if new_fit.is_better_than(&fit) {
                 fit = new_fit;
                 index = i;
             }
         }
 
-        // only abort if we weren't able to match anything, otherwise wer're happy with matching
-        // only the lowest few sounding notes
-        if fit.matches_nothing() {
+        let selected = &self.patterns[index];
+
+        if selected.allow_extra_high_notes {
+            if fit.matches_nothing() {
+                return (None {}, None {});
+            }
+        } else if !fit.is_complete() {
             return (None {}, None {});
         }
 
         (
-            Some(self.patterns[index].name.clone()),
+            Some(index),
             Some(Harmony {
-                neighbourhood: self.patterns[index].neighbourhood.clone(),
-                reference: fit.reference,
+                neighbourhood: selected.neighbourhood.clone(),
+                reference: fit.zero as StackCoeff,
             }),
         )
+    }
+
+    fn handle_chord_list_action(&mut self, action: ListAction) -> bool {
+        let mut dummy = Some(0);
+        action.apply_to(|p| p.clone(), &mut self.patterns, &mut dummy);
+        true
+    }
+
+    fn push_new_chord(&mut self, chord: PatternConfig<T>) -> bool {
+        self.patterns.push(Pattern::new(chord));
+        true
+    }
+
+    fn allow_extra_high_notes(&mut self, pattern_index: usize, allow: bool) {
+        self.patterns[pattern_index].allow_extra_high_notes = allow;
     }
 }
 

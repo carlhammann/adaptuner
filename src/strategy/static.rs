@@ -7,7 +7,7 @@ use crate::{
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
-        stacktype::r#trait::{IntervalBasis, StackType},
+        stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
     msg::{FromStrategy, ToStrategy},
@@ -48,6 +48,19 @@ impl<T: IntervalBasis> StaticTuning<T> {
 }
 
 impl<T: StackType> StaticTuning<T> {
+    /// Compute the tuning for a note (that may lie outside of the MIDI range). Returns `None` only
+    /// in the case when there's no neighbourhood currently selected).
+    pub fn compute_tuning_for(&self, note: StackCoeff) -> Option<Stack<T>> {
+        if let Some(cni) = self.curr_neighbourhood_index {
+            let mut res =
+                self.neighbourhoods[cni].get_relative_stack(note - self.reference.key_number());
+            res.scaled_add(1, &self.reference);
+            Some(res)
+        } else {
+            None {}
+        }
+    }
+
     /// Returns `true` iff the tuning was successfully updated (this will always be the case if
     /// there's a selected neighbourhood).
     pub fn force_update_tuning(&mut self, tunings: &mut [Stack<T>; 128], note: u8) -> bool {
@@ -64,7 +77,7 @@ impl<T: StackType> StaticTuning<T> {
             if !self.tuning_up_to_date[note as usize] {
                 self.neighbourhoods[cni].write_relative_stack(
                     tunings.get_mut(note as usize).unwrap(),
-                    note as i8 - self.reference.key_number() as i8,
+                    note as StackCoeff - self.reference.key_number(),
                 );
                 tunings
                     .get_mut(note as usize)
@@ -299,6 +312,9 @@ impl<T: StackType> StaticTuning<T> {
                 self.start_but_dont_retune(forward);
                 Some(time)
             }
+            ToStrategy::ChordListAction { .. }
+            | ToStrategy::PushNewChord { .. }
+            | ToStrategy::AllowExtraHighNotes { .. } => unreachable!(),
         }
     }
 }

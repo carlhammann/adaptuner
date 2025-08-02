@@ -5,7 +5,7 @@ use crate::{
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
-        stacktype::r#trait::StackType,
+        stacktype::r#trait::{StackCoeff, StackType},
     },
     keystate::KeyState,
     msg::{FromStrategy, ToStrategy},
@@ -29,14 +29,13 @@ impl<T: StackType> StaticTuning<T> {
             reference,
         }) = harmony
         {
-            if !self.force_update_tuning(tunings, reference) {
+            let Some(reference_tuning) = self.compute_tuning_for(reference) else {
                 return (false, None {});
             };
-            let reference_tuning = tunings[reference as usize].clone();
             for i in 0..128 {
                 if keys[i].is_sounding() {
                     let tuning = &mut tunings[i];
-                    if neighbourhood.try_write_relative_stack(tuning, i as i8 - reference as i8) {
+                    if neighbourhood.try_write_relative_stack(tuning, i as StackCoeff - reference) {
                         tuning.scaled_add(1, &reference_tuning);
                         self.mark_tuning_as_manually_set(i as u8);
                         forward.push_back(FromStrategy::Retune {

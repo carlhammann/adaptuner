@@ -65,16 +65,14 @@ pub struct PeriodicPartial<T: IntervalBasis> {
 }
 
 impl<T: IntervalBasis> PeriodicPartial<T> {
-    pub fn new() -> Self {
-        if let Some(i) = T::try_period_index() {
-            let n = T::try_period().unwrap().key_distance;
-            Self {
-                stacks: vec![(Stack::new_zero(), false); n as usize],
-                period: Stack::from_pure_interval(i, 1),
-                period_index: Some(i),
-            }
-        } else {
-            todo!()
+    pub fn new_from_period_index(period_index: usize) -> Self {
+        Self {
+            stacks: vec![
+                (Stack::new_zero(), false);
+                T::intervals()[period_index].key_distance as usize
+            ],
+            period: Stack::from_pure_interval(period_index, 1),
+            period_index: Some(period_index),
         }
     }
 }
@@ -83,7 +81,7 @@ impl<T: IntervalBasis> PeriodicNeighbourhood<T> for PeriodicPartial<T> {}
 
 impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
     fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
-        let n = self.period_keys() as StackCoeff;
+        let n = self.period_keys(); 
         let quot = stack.key_distance().div_euclid(n);
         let rem = stack.key_distance().rem_euclid(n) as usize;
         self.stacks[rem].0.clone_from(stack);
@@ -92,43 +90,43 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
         &self.stacks[rem].0
     }
 
-    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, mut f: F) {
+    fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, mut f: F) {
         for (i, (stack, valid)) in self.stacks.iter().enumerate() {
             if *valid {
-                f(i as i8, stack)
+                f(i as StackCoeff, stack)
             }
         }
     }
 
-    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+    fn for_each_stack_failing<E, F: FnMut(StackCoeff, &Stack<T>) -> Result<(), E>>(
         &self,
         mut f: F,
     ) -> Result<(), E> {
         for (i, (stack, valid)) in self.stacks.iter().enumerate() {
             if *valid {
-                f(i as i8, stack)?;
+                f(i as StackCoeff, stack)?;
             }
         }
         Ok(())
     }
 
-    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
+    fn for_each_stack_mut<F: FnMut(StackCoeff, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
         for (i, (stack, valid)) in self.stacks.iter_mut().enumerate() {
             if *valid {
-                f(i as i8, stack)
+                f(i as StackCoeff, stack)
             }
         }
     }
 
-    fn has_tuning_for(&self, offset: i8) -> bool {
-        let n = self.period_keys() as i8;
+    fn has_tuning_for(&self, offset: StackCoeff) -> bool {
+        let n = self.period_keys();
         let rem = offset.rem_euclid(n) as usize;
         self.stacks[rem].1
     }
 
-    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
-        let n = self.period_keys() as i8;
-        let quot = offset.div_euclid(n) as StackCoeff;
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+        let n = self.period_keys();
+        let quot = offset.div_euclid(n);
         let rem = offset.rem_euclid(n) as usize;
         if self.stacks[rem].1 {
             target.clone_from(&self.stacks[rem].0);
@@ -150,7 +148,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Partial<T: IntervalBasis> {
-    pub stacks: BTreeMap<i8, Stack<T>>,
+    pub stacks: BTreeMap<StackCoeff, Stack<T>>,
 }
 
 impl<T: IntervalBasis> Partial<T> {
@@ -160,7 +158,7 @@ impl<T: IntervalBasis> Partial<T> {
         }
     }
 
-    pub fn iter(&self) -> std::collections::btree_map::Iter<'_, i8, Stack<T>> {
+    pub fn iter(&self) -> std::collections::btree_map::Iter<'_, StackCoeff, Stack<T>> {
         self.stacks.iter()
     }
 }
@@ -175,29 +173,29 @@ pub trait Neighbourhood<T: IntervalBasis> {
     /// Go through all stacks _that are actually stored_ (for example, in a
     /// [PeriodicNeighbourhood], only at most the entries for one period are stored) in the
     /// neighbourhood, with their offset to the reference.
-    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, f: F);
+    fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, f: F);
 
-    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+    fn for_each_stack_failing<E, F: FnMut(StackCoeff, &Stack<T>) -> Result<(), E>>(
         &self,
         f: F,
     ) -> Result<(), E>;
 
     /// like [Neighbourhood::for_each_stack], but allows mutation.
-    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, f: F);
+    fn for_each_stack_mut<F: FnMut(StackCoeff, &mut Stack<T>) -> ()>(&mut self, f: F);
 
     /// Does this neighbourhood provide a tuning for a note with the given offset from the
     /// reference?
     ///
     /// Must return `true` for every `offset` in the case of [CompleteNeigbourhood]s.
-    fn has_tuning_for(&self, offset: i8) -> bool;
+    fn has_tuning_for(&self, offset: StackCoeff) -> bool;
 
     /// Like [Neighbourhood::try_get_relative_stack], but with an output argument `target`, which
     /// must remain unchanged if it returns `false`.
-    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool;
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool;
 
     /// Return the Stack describing the interval with the given offset. Must return `Some` iff
     /// [Neighbourhood::has_tuning_for] returns true for the same offset.
-    fn try_get_relative_stack(&self, offset: i8) -> Option<Stack<T>> {
+    fn try_get_relative_stack(&self, offset: StackCoeff) -> Option<Stack<T>> {
         if self.has_tuning_for(offset) {
             let mut res = Stack::new_zero();
             let _ = self.try_write_relative_stack(&mut res, offset);
@@ -240,7 +238,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
-    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, f: F) {
+    fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, f: F) {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.for_each_stack(f),
             SomeNeighbourhood::PeriodicPartial(x) => x.for_each_stack(f),
@@ -248,7 +246,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
-    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+    fn for_each_stack_failing<E, F: FnMut(StackCoeff, &Stack<T>) -> Result<(), E>>(
         &self,
         f: F,
     ) -> Result<(), E> {
@@ -259,7 +257,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
-    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, f: F) {
+    fn for_each_stack_mut<F: FnMut(StackCoeff, &mut Stack<T>) -> ()>(&mut self, f: F) {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.for_each_stack_mut(f),
             SomeNeighbourhood::PeriodicPartial(x) => x.for_each_stack_mut(f),
@@ -267,7 +265,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
-    fn has_tuning_for(&self, offset: i8) -> bool {
+    fn has_tuning_for(&self, offset: StackCoeff) -> bool {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.has_tuning_for(offset),
             SomeNeighbourhood::PeriodicPartial(x) => x.has_tuning_for(offset),
@@ -275,7 +273,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
-    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.try_write_relative_stack(target, offset),
             SomeNeighbourhood::PeriodicPartial(x) => x.try_write_relative_stack(target, offset),
@@ -307,13 +305,13 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
         }
     }
 
-    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, f: F) {
+    fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, f: F) {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.for_each_stack(f),
         }
     }
 
-    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+    fn for_each_stack_failing<E, F: FnMut(StackCoeff, &Stack<T>) -> Result<(), E>>(
         &self,
         f: F,
     ) -> Result<(), E> {
@@ -322,19 +320,19 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
         }
     }
 
-    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, f: F) {
+    fn for_each_stack_mut<F: FnMut(StackCoeff, &mut Stack<T>) -> ()>(&mut self, f: F) {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.for_each_stack_mut(f),
         }
     }
 
-    fn has_tuning_for(&self, offset: i8) -> bool {
+    fn has_tuning_for(&self, offset: StackCoeff) -> bool {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.has_tuning_for(offset),
         }
     }
 
-    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => {
                 n.try_write_relative_stack(target, offset)
@@ -358,10 +356,8 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
 impl<T: IntervalBasis> CompleteNeigbourhood<T> for SomeCompleteNeighbourhood<T> {}
 
 impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
-    /// If the [Stack::key_distance] of `stack` is not in the inclusive range from -128 to 127,
-    /// this may misbehave! Only insert stacks whose key_distance could be an i8.
     fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
-        let offset = stack.key_distance() as i8;
+        let offset = stack.key_distance();
         if let Some(old_entry) = self.stacks.get_mut(&offset) {
             old_entry.clone_from(stack);
         } else {
@@ -370,13 +366,13 @@ impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
         self.stacks.get(&offset).unwrap()
     }
 
-    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, mut f: F) {
+    fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, mut f: F) {
         for (i, stack) in self.stacks.iter() {
             f(*i, stack);
         }
     }
 
-    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+    fn for_each_stack_failing<E, F: FnMut(StackCoeff, &Stack<T>) -> Result<(), E>>(
         &self,
         mut f: F,
     ) -> Result<(), E> {
@@ -386,17 +382,17 @@ impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
         Ok(())
     }
 
-    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
+    fn for_each_stack_mut<F: FnMut(StackCoeff, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
         for (i, stack) in self.stacks.iter_mut() {
             f(*i, stack);
         }
     }
 
-    fn has_tuning_for(&self, offset: i8) -> bool {
+    fn has_tuning_for(&self, offset: StackCoeff) -> bool {
         self.stacks.contains_key(&offset)
     }
 
-    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         if let Some(stack) = self.stacks.get(&offset) {
             target.clone_from(stack);
             true
@@ -416,7 +412,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
 
 impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
     fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
-        let n = self.period_keys() as StackCoeff;
+        let n = self.period_keys();
         let quot = stack.key_distance().div_euclid(n);
         let rem = stack.key_distance().rem_euclid(n) as usize;
         self.stacks[rem].clone_from(stack);
@@ -424,35 +420,35 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
         &self.stacks[rem]
     }
 
-    fn for_each_stack<F: FnMut(i8, &Stack<T>) -> ()>(&self, mut f: F) {
+    fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, mut f: F) {
         for (i, stack) in self.stacks.iter().enumerate() {
-            f(i as i8, stack)
+            f(i as StackCoeff, stack)
         }
     }
 
-    fn for_each_stack_failing<E, F: FnMut(i8, &Stack<T>) -> Result<(), E>>(
+    fn for_each_stack_failing<E, F: FnMut(StackCoeff, &Stack<T>) -> Result<(), E>>(
         &self,
         mut f: F,
     ) -> Result<(), E> {
         for (i, stack) in self.stacks.iter().enumerate() {
-            f(i as i8, stack)?;
+            f(i as StackCoeff, stack)?;
         }
         Ok(())
     }
 
-    fn for_each_stack_mut<F: FnMut(i8, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
+    fn for_each_stack_mut<F: FnMut(StackCoeff, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
         for (i, stack) in self.stacks.iter_mut().enumerate() {
-            f(i as i8, stack)
+            f(i as StackCoeff, stack)
         }
     }
 
-    fn has_tuning_for(&self, _: i8) -> bool {
+    fn has_tuning_for(&self, _: StackCoeff) -> bool {
         true
     }
 
-    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: i8) -> bool {
-        let n = self.period_keys() as i8;
-        let quot = offset.div_euclid(n) as StackCoeff;
+    fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+        let n = self.period_keys();
+        let quot = offset.div_euclid(n);
         let rem = offset.rem_euclid(n) as usize;
         target.clone_from(&self.stacks[rem]);
         target.scaled_add(quot, &self.period);
@@ -470,11 +466,11 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
 
 /// Marker trait of neighbourhoods that can return a note for every offset.
 pub trait CompleteNeigbourhood<T: IntervalBasis>: Neighbourhood<T> {
-    fn write_relative_stack(&self, target: &mut Stack<T>, offset: i8) {
+    fn write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) {
         self.try_write_relative_stack(target, offset);
     }
 
-    fn get_relative_stack(&self, offset: i8) -> Stack<T> {
+    fn get_relative_stack(&self, offset: StackCoeff) -> Stack<T> {
         self.try_get_relative_stack(offset).expect(
             "This should never happen: CompleteNeigbourhood doesn't have a tuning for an offset!",
         )
@@ -492,8 +488,8 @@ pub trait PeriodicNeighbourhood<T: IntervalBasis>: Neighbourhood<T> {
     }
 
     /// Convenience: the [key_distance][Stack::key_distance] of the period.
-    fn period_keys(&self) -> u8 {
-        self.period().key_distance() as u8
+    fn period_keys(&self) -> StackCoeff {
+        self.period().key_distance()
     }
 }
 

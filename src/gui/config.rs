@@ -16,7 +16,7 @@ enum ConfigByParts<T: IntervalBasis> {
     Parts {
         process: Option<ProcessConfig<T>>,
         backend: Option<BackendConfig>,
-        gui: Option<GuiConfig>,
+        gui: Option<GuiConfig<T>>,
     },
     Whole(String),
 }
@@ -82,7 +82,7 @@ impl<T: StackType + Serialize> ConfigByParts<T> {
         }
     }
 
-    fn add_gui_if_nonexistent(self, gui: GuiConfig) -> Self {
+    fn add_gui_if_nonexistent(self, gui: GuiConfig<T>) -> Self {
         match self {
             ConfigByParts::Parts {
                 process,
@@ -146,7 +146,7 @@ impl<T: StackType + Serialize> ConfigFileDialog<T> {
         self
     }
 
-    pub fn open(&mut self, gui_config: GuiConfig, forward: &mpsc::Sender<FromUi<T>>) {
+    pub fn open(&mut self, gui_config: GuiConfig<T>, forward: &mpsc::Sender<FromUi<T>>) {
         self.current_config.set(ConfigByParts::empty());
         self.current_config
             .update(|x| x.add_gui_if_nonexistent(gui_config));

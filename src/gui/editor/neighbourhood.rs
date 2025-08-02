@@ -38,7 +38,7 @@ impl<T: StackType> NeighbourhoodEditor<T> {
                 select_allowed: true,
                 no_selection_allowed: false,
                 delete_allowed: true,
-                show_one: Box::new(|ui, i, elem| {
+                show_one: Box::new(|ui, i, elem, _| {
                     ui.add(egui::TextEdit::singleline(elem).min_size(vec2(
                         ui.style().spacing.text_edit_width / 2.0,
                         ui.style().spacing.interact_size.y,
@@ -71,7 +71,7 @@ impl<T: StackType> NeighbourhoodEditor<T> {
                     }
                     msg
                 }),
-                clone: Some(Box::new(|ui, _elems, selected| {
+                clone: Some(Box::new(|ui, _elems, selected, _| {
                     if let Some(i) = selected {
                         if ui.button("create copy of selected").clicked() {
                             // let _ = forward.send(FromUi::Action {
@@ -87,6 +87,7 @@ impl<T: StackType> NeighbourhoodEditor<T> {
                     }
                 })),
             },
+            &(),
         );
 
         match list_edit_res {

@@ -5,9 +5,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     config::{ExtractConfig, GuiConfig},
-    interval::stacktype::r#trait::{Reloadable, StackType},
+    interval::{
+        stack::Stack,
+        stacktype::r#trait::{IntervalBasis, Reloadable, StackType},
+    },
+    keystate::KeyState,
     msg::{FromUi, HandleMsg, HandleMsgRef, ToUi},
     notename::HasNoteNames,
+    reference::Reference,
 };
 
 use super::{
@@ -23,7 +28,32 @@ use super::{
     strategy::{AsStrategyPicker, AsWindows, StrategyWindows},
 };
 
+pub struct KeysAndTunings<T: IntervalBasis> {
+    pub active_notes: [KeyState; 128],
+    pub pedal_hold: [bool; 16],
+    pub tunings: [Stack<T>; 128],
+    pub reference: Stack<T>,
+    pub tuning_reference: Reference<T>,
+}
+
+impl<T: IntervalBasis> KeysAndTunings<T> {
+    fn new(time: Instant) -> Self {
+        Self {
+            active_notes: core::array::from_fn(|_| KeyState::new(time)),
+            pedal_hold: [false; 16],
+            tunings: core::array::from_fn(|_| Stack::new_zero()),
+            reference: Stack::new_zero(),
+            tuning_reference: Reference {
+                stack: Stack::new_zero(),
+                semitones: 60.0,
+            },
+        }
+    }
+}
+
 pub struct Toplevel<T: StackType> {
+    state: KeysAndTunings<T>,
+
     lattice: LatticeWindow<T>,
     show_keyboard_controls: bool,
 
@@ -46,13 +76,14 @@ pub struct Toplevel<T: StackType> {
 }
 
 impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
-    pub fn new(config: GuiConfig, ctx: &egui::Context, tx: mpsc::Sender<FromUi<T>>) -> Self {
+    pub fn new(config: GuiConfig<T>, ctx: &egui::Context, tx: mpsc::Sender<FromUi<T>>) -> Self {
         let correction_system_chooser = Rc::new(RefCell::new(CorrectionSystemChooser::new(
             "correction_system_chooser",
             config.use_cent_values,
         )));
 
         Self {
+            state: KeysAndTunings::new(Instant::now()),
             strategies: StrategyWindows::new(
                 config.strategies,
                 config.tuning_editor,
@@ -60,11 +91,7 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
                 correction_system_chooser.clone(),
             ),
 
-            lattice: LatticeWindow::new(
-                config.lattice_window,
-                correction_system_chooser,
-                Instant::now(),
-            ),
+            lattice: LatticeWindow::new(config.lattice_window, correction_system_chooser),
             show_keyboard_controls: false,
 
             input_connection: ConnectionWindow::new(),
@@ -80,17 +107,16 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
         }
     }
 
-    fn restart_from_config(&mut self, config: GuiConfig, time: Instant) {
+    fn restart_from_config(&mut self, config: GuiConfig<T>, time: Instant) {
         let correction_system_chooser = Rc::new(RefCell::new(CorrectionSystemChooser::new(
             "correction_system_chooser",
             config.use_cent_values,
         )));
 
-        self.lattice.restart_from_config(
-            config.lattice_window,
-            correction_system_chooser.clone(),
-            time,
-        );
+        self.state = KeysAndTunings::new(time);
+
+        self.lattice
+            .restart_from_config(config.lattice_window, correction_system_chooser.clone());
 
         self.strategies.restart_from_config(
             config.strategies,
@@ -110,6 +136,56 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
 
 impl<T: StackType + Serialize> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
     fn handle_msg(&mut self, msg: ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
+        match &msg {
+            ToUi::NoteOn {
+                time,
+                channel,
+                note,
+            } => {
+                self.state.active_notes[*note as usize].note_on(*channel, *time);
+            }
+
+            ToUi::NoteOff {
+                time,
+                channel,
+                note,
+            } => {
+                self.state.active_notes[*note as usize].note_off(
+                    *channel,
+                    self.state.pedal_hold[*channel as usize],
+                    *time,
+                );
+            }
+
+            ToUi::PedalHold {
+                channel,
+                value,
+                time,
+            } => {
+                self.state.pedal_hold[*channel as usize] = *value != 0;
+                if *value == 0 {
+                    for n in self.state.active_notes.iter_mut() {
+                        n.pedal_off(*channel, *time);
+                    }
+                }
+            }
+
+            ToUi::Retune { note, tuning_stack } => {
+                self.state.tunings[*note as usize].clone_from(tuning_stack);
+            }
+
+            ToUi::TunedNoteOn {
+                time,
+                channel,
+                note,
+                tuning_stack,
+            } => {
+                self.state.active_notes[*note as usize].note_on(*channel, *time);
+                self.state.tunings[*note as usize].clone_from(tuning_stack);
+            }
+            _ => {}
+        }
+
         self.lattice.handle_msg_ref(&msg, forward);
         self.notes.handle_msg_ref(&msg, forward);
         self.strategies.handle_msg_ref(&msg, forward);
@@ -184,7 +260,7 @@ where
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            AsWindows(&mut self.strategies).show(ui, &self.tx);
+            AsWindows(&mut self.strategies).show(ui, &self.state, &self.tx);
             if let Some(config) = self.config_file_dialog.show(ui) {
                 let _ = T::initialise(&config.temperaments, &config.named_intervals);
 
@@ -203,7 +279,7 @@ where
 
                 return; // don't continue updating for this frame
             }
-            self.lattice.show(ui, &self.tx);
+            self.lattice.show(ui, &self.state, &self.tx);
         });
 
         let note_window_id = egui::Id::new("note_window_id");
@@ -235,8 +311,8 @@ where
     }
 }
 
-impl<T: StackType> ExtractConfig<GuiConfig> for Toplevel<T> {
-    fn extract_config(&self) -> GuiConfig {
+impl<T: StackType> ExtractConfig<GuiConfig<T>> for Toplevel<T> {
+    fn extract_config(&self) -> GuiConfig<T> {
         let (strategies, tuning_editor, reference_editor) = self.strategies.extract_config();
         GuiConfig {
             strategies,

@@ -1,6 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, std::hash::Hash)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum KeyShape {
@@ -16,16 +16,13 @@ pub enum KeyShape {
 
 #[derive(Debug, PartialEq)]
 pub struct Fit {
-    pub reference: u8,
+    pub zero: u8,
     next: usize,
 }
 
 impl Fit {
     pub fn new_worst() -> Self {
-        Self {
-            reference: 0,
-            next: 0,
-        }
+        Self { zero: 0, next: 0 }
     }
     pub fn is_complete(&self) -> bool {
         self.next == 128
@@ -42,8 +39,61 @@ pub trait HasActivationStatus {
     fn active(&self) -> bool;
 }
 
+fn classes_relative_to_lowest_sounding<N: HasActivationStatus>(
+    keys: &[N; 128],
+    lowest_sounding: usize,
+) -> Vec<u8> {
+    let mut active = [false; 12];
+    for (i, k) in keys.iter().enumerate() {
+        if k.active() {
+            active[i % 12] = true;
+        }
+    }
+    let mut classes = vec![];
+    for (i, b) in active.iter().enumerate() {
+        if *b {
+            classes.push((i as isize - lowest_sounding as isize).rem_euclid(12) as u8);
+        }
+    }
+    classes
+}
+
 impl KeyShape {
-    pub fn fit<N: HasActivationStatus>(&self, notes: &[N; 128], start: usize) -> Fit {
+    /// Returns a [KeyShape::ClassesRelative] that fits the currently active notes.
+    ///
+    /// The `lowest_sounding` argument must be the index of the lowest sounding note in `keys`.
+    ///
+    /// It is ensured that `lowest_sounding % 12` is mapped to `0` in the returned
+    /// [KeyShape::ClassesRelative::classes].
+    pub fn classes_relative_from_current<N: HasActivationStatus>(
+        keys: &[N; 128],
+        lowest_sounding: usize,
+    ) -> Self {
+        Self::ClassesRelative {
+            classes: classes_relative_to_lowest_sounding(keys, lowest_sounding),
+        }
+    }
+
+    /// Returns a [KeyShape::ClassesFixed] that fits the currently active notes.
+    ///
+    /// The `lowest_sounding` argument must be the index of the lowest sounding note in `keys`.
+    ///
+    /// The returned [KeyShape::ClassesFixed::zero] will be `lowest_sounding % 12`
+    pub fn classes_fixed_from_current<N: HasActivationStatus>(
+        keys: &[N; 128],
+        lowest_sounding: usize,
+    ) -> Self {
+        Self::ClassesFixed {
+            classes: classes_relative_to_lowest_sounding(keys, lowest_sounding),
+            zero: (lowest_sounding % 12) as u8,
+        }
+    }
+
+    pub fn fit<N: HasActivationStatus>(&self, notes: &[N; 128]) -> Fit {
+        self.fit_from(notes, 0)
+    }
+
+    fn fit_from<N: HasActivationStatus>(&self, notes: &[N; 128], start: usize) -> Fit {
         match self {
             Self::ClassesFixed { classes, zero } => fit_classes_fixed(classes, *zero, notes, start),
             Self::ClassesRelative { classes } => fit_classes_relative(classes, notes, start),
@@ -59,7 +109,6 @@ fn fit_classes_fixed<N: HasActivationStatus>(
     notes: &[N; 128],
     start: usize,
 ) -> Fit {
-    let period_keys = 12;
     let mut used = vec![false; classes.len()];
     let mut i = start;
     while i < 128 {
@@ -69,7 +118,7 @@ fn fit_classes_fixed<N: HasActivationStatus>(
         }
         match classes
             .iter()
-            .position(|&x| (x + zero) % period_keys as u8 == i as u8 % period_keys)
+            .position(|&x| (x + zero) % 12 == i as u8 % 12)
         {
             Some(j) => {
                 i += 1;
@@ -79,15 +128,9 @@ fn fit_classes_fixed<N: HasActivationStatus>(
         }
     }
     if used.iter().any(|&u| !u) {
-        Fit {
-            reference: zero,
-            next: start,
-        }
+        Fit { zero, next: start }
     } else {
-        Fit {
-            reference: zero,
-            next: i,
-        }
+        Fit { zero, next: i }
     }
 }
 
@@ -107,10 +150,7 @@ fn fit_classes_relative<N: HasActivationStatus>(
             }
         }
     }
-    Fit {
-        reference: 0,
-        next: 0,
-    }
+    Fit { zero: 0, next: 0 }
 }
 
 fn fit_voicing_fixed<N: HasActivationStatus>(
@@ -134,15 +174,9 @@ fn fit_voicing_fixed<N: HasActivationStatus>(
         }
     }
     if i == blocks.len() {
-        Fit {
-            reference: zero,
-            next,
-        }
+        Fit { zero, next }
     } else {
-        Fit {
-            reference: zero,
-            next: start,
-        }
+        Fit { zero, next: start }
     }
 }
 
@@ -161,10 +195,7 @@ fn fit_voicing_relative<N: HasActivationStatus>(
             }
         }
     }
-    Fit {
-        reference: 0,
-        next: 0,
-    }
+    Fit { zero: 0, next: 0 }
 }
 
 #[cfg(test)]
@@ -182,7 +213,7 @@ mod test {
         for i in active {
             active_notes[*i as usize] = true;
         }
-        let actual = pat.fit(&active_notes, 0);
+        let actual = pat.fit(&active_notes);
         assert!(actual == expect, "for\npattern: {pat:?}\nactive: {active:?}\n\nexpected: {expect:?}\n     got: {actual:?}");
     }
 
@@ -190,7 +221,10 @@ mod test {
         one_case(
             active,
             KeyShape::ClassesFixed { classes, zero },
-            Fit { reference, next },
+            Fit {
+                zero: reference,
+                next,
+            },
         );
     }
 
@@ -240,7 +274,10 @@ mod test {
         one_case(
             active,
             KeyShape::ClassesRelative { classes },
-            Fit { reference, next },
+            Fit {
+                zero: reference,
+                next,
+            },
         );
     }
 
@@ -258,6 +295,13 @@ mod test {
             (vec![8, 3, 4], vec![0, 5], 0, 0),
             // big major chord with octave doublings
             (vec![1, 13, 18, 22, 34], vec![0, 4, 7], 6, 128),
+            // a few illustrative examples
+            (vec![60, 64, 67], vec![2, 7, 11], 5, 128),
+            (vec![60, 64, 67], vec![0, 5, 9], 7, 128),
+            (vec![60, 64, 67], vec![10, 3, 7], 9, 128),
+            (vec![62, 66, 69], vec![2, 7, 11], 7, 128),
+            (vec![62, 66, 69], vec![0, 5, 9], 9, 128),
+            (vec![62, 66, 69], vec![10, 3, 7], 11, 128),
         ];
 
         for (active, classes, reference, next) in examples {
@@ -275,7 +319,10 @@ mod test {
         one_case(
             active,
             KeyShape::VoicingFixed { blocks, zero },
-            Fit { reference, next },
+            Fit {
+                zero: reference,
+                next,
+            },
         );
     }
 
@@ -311,7 +358,10 @@ mod test {
         one_case(
             active,
             KeyShape::VoicingRelative { blocks },
-            Fit { reference, next },
+            Fit {
+                zero: reference,
+                next,
+            },
         );
     }
 

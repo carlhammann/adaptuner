@@ -11,7 +11,7 @@ use crate::{
     config::{BackendConfig, ProcessConfig},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     reference::Reference,
-    strategy::r#trait::StrategyAction,
+    strategy::{r#trait::StrategyAction, twostep::harmony::chordlist::PatternConfig},
     util::list_action::ListAction,
 };
 
@@ -163,6 +163,19 @@ pub enum ToStrategy<T: StackType> {
         action: StrategyAction,
         time: Instant,
     },
+    ChordListAction {
+        action: ListAction,
+        time: Instant,
+    },
+    PushNewChord {
+        pattern: PatternConfig<T>,
+        time: Instant,
+    },
+    AllowExtraHighNotes {
+        pattern_index: usize,
+        allow: bool,
+        time: Instant,
+    }
 }
 
 pub enum FromStrategy<T: StackType> {
@@ -185,7 +198,7 @@ pub enum FromStrategy<T: StackType> {
         index: usize,
     },
     CurrentHarmony {
-        description: Option<String>,
+        pattern_index: Option<usize>,
         reference: Option<Stack<T>>,
     },
 }
@@ -333,7 +346,7 @@ pub enum ToUi<T: StackType> {
     CurrentProcessConfig(ProcessConfig<T>),
     CurrentBackendConfig(BackendConfig),
     CurrentHarmony {
-        description: Option<String>,
+        pattern_index: Option<usize>,
         reference: Option<Stack<T>>,
     },
 }
@@ -421,6 +434,19 @@ pub enum FromUi<T: StackType> {
     },
     RestartBackendWithConfig {
         config: BackendConfig,
+        time: Instant,
+    },
+    ChordListAction {
+        action: ListAction,
+        time: Instant,
+    },
+    PushNewChord {
+        pattern: PatternConfig<T>,
+        time: Instant,
+    },
+    AllowExtraHighNotes {
+        pattern_index: usize,
+        allow: bool,
         time: Instant,
     },
 }
@@ -622,12 +648,12 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
                 (None {}, Some(ToUi::SetTuningReference { reference }))
             }
             FromStrategy::CurrentHarmony {
-                description,
+                pattern_index,
                 reference,
             } => (
                 None {},
                 Some(ToUi::CurrentHarmony {
-                    description,
+                    pattern_index,
                     reference,
                 }),
             ),
@@ -819,6 +845,38 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::RestartBackendWithConfig { config, time } => (
                 None {},
                 Some(ToBackend::RestartWithConfig { time, config }),
+                None {},
+                None {},
+            ),
+            FromUi::ChordListAction { action, time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::ChordListAction {
+                    action,
+                    time,
+                })),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::PushNewChord { pattern, time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::PushNewChord {
+                    pattern,
+                    time,
+                })),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::AllowExtraHighNotes {
+                pattern_index,
+                allow,
+                time,
+            } => (
+                Some(ToProcess::ToStrategy(ToStrategy::AllowExtraHighNotes {
+                    pattern_index,
+                    allow,
+                    time,
+                })),
+                None {},
                 None {},
                 None {},
             ),

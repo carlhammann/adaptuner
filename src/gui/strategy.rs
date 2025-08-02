@@ -4,7 +4,10 @@ use eframe::egui::{self, vec2};
 
 use crate::{
     bindable::{Bindable, Bindings},
-    config::{ExtractConfig, MelodyStrategyKind, StrategyKind, StrategyNames},
+    config::{
+        ExtractConfig, HarmonyStrategyKind, HarmonyStrategyNames, MelodyStrategyKind, StrategyKind,
+        StrategyNames,
+    },
     interval::stacktype::r#trait::StackType,
     msg::{FromUi, HandleMsgRef, ToUi},
     notename::HasNoteNames,
@@ -17,16 +20,18 @@ use super::{
     },
     editor::{
         binding::BindingEditor,
+        chordlist::ChordListEditor,
         neighbourhood::NeighbourhoodEditor,
         reference::{ReferenceEditor, ReferenceEditorConfig},
         tuning::{TuningEditor, TuningEditorConfig},
     },
     r#trait::GuiShow,
+    toplevel::KeysAndTunings,
 };
 
 pub struct StrategyWindows<T: StackType + 'static> {
     strategy_list_editor_window: SmallFloatingWindow,
-    strategies: OwningListEdit<(StrategyNames, Bindings<Bindable>)>,
+    strategies: OwningListEdit<(StrategyNames<T>, Bindings<Bindable>)>,
 
     tuning_editor_window: SmallFloatingWindow,
     tuning_editor: TuningEditor<T>,
@@ -39,15 +44,18 @@ pub struct StrategyWindows<T: StackType + 'static> {
 
     binding_editor_window: SmallFloatingWindow,
     binding_editor: BindingEditor,
+
+    chord_list_editor_window: SmallFloatingWindow,
+    chord_list_editor: ChordListEditor<T>,
 }
 
-impl<T: StackType> StrategyWindows<T> {
-    pub fn strategies(&self) -> &[(StrategyNames, Bindings<Bindable>)] {
+impl<T: StackType + HasNoteNames> StrategyWindows<T> {
+    pub fn strategies(&self) -> &[(StrategyNames<T>, Bindings<Bindable>)] {
         self.strategies.elems()
     }
 
     pub fn new(
-        strategies: Vec<(StrategyNames, Bindings<Bindable>)>,
+        strategies: Vec<(StrategyNames<T>, Bindings<Bindable>)>,
         tuning_editor: TuningEditorConfig,
         reference_editor: ReferenceEditorConfig,
         correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
@@ -62,19 +70,26 @@ impl<T: StackType> StrategyWindows<T> {
             reference_editor_window: SmallFloatingWindow::new(egui::Id::new(
                 "reference_editor_window",
             )),
-            reference_editor: ReferenceEditor::new(reference_editor, correction_system_chooser),
+            reference_editor: ReferenceEditor::new(
+                reference_editor,
+                correction_system_chooser.clone(),
+            ),
             neighbourhood_editor_window: SmallFloatingWindow::new(egui::Id::new(
                 "neigbourhood_editor_window",
             )),
             neighbourhood_editor: NeighbourhoodEditor::new(),
             binding_editor_window: SmallFloatingWindow::new(egui::Id::new("binding_editor_window")),
             binding_editor: BindingEditor::new(),
+            chord_list_editor_window: SmallFloatingWindow::new(egui::Id::new(
+                "chord_list_editor_window",
+            )),
+            chord_list_editor: ChordListEditor::new(correction_system_chooser),
         }
     }
 
     pub fn restart_from_config(
         &mut self,
-        strategies: Vec<(StrategyNames, Bindings<Bindable>)>,
+        strategies: Vec<(StrategyNames<T>, Bindings<Bindable>)>,
         tuning_editor: TuningEditorConfig,
         reference_editor: ReferenceEditorConfig,
         correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
@@ -102,6 +117,7 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
         self.reference_editor.handle_msg_ref(msg, forward);
         self.tuning_editor.handle_msg_ref(msg, forward);
         self.neighbourhood_editor.handle_msg_ref(msg, forward);
+        self.chord_list_editor.handle_msg_ref(msg, forward);
     }
 }
 
@@ -146,6 +162,13 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
                                 .show_hide_button(ui, "neighbourhoods");
                         }
                     }
+                    match strn.0.strategy_kind() {
+                        StrategyKind::TwoStep(HarmonyStrategyKind::ChordList, _) => {
+                            x.chord_list_editor_window
+                                .show_hide_button(ui, "chord list");
+                        }
+                        _ => {}
+                    }
                     x.binding_editor_window.show_hide_button(ui, "bindings");
                 });
             }
@@ -155,8 +178,13 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
 
 pub struct AsWindows<'a, T: StackType>(pub &'a mut StrategyWindows<T>);
 
-impl<'a, T: StackType + HasNoteNames + PartialEq> GuiShow<T> for AsWindows<'a, T> {
-    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+impl<'a, T: StackType + HasNoteNames + PartialEq> AsWindows<'a, T> {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        state: &KeysAndTunings<T>,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
         self.display_strategy_list_editor_window(ui, forward);
 
         let AsWindows(x) = self;
@@ -209,6 +237,26 @@ impl<'a, T: StackType + HasNoteNames + PartialEq> GuiShow<T> for AsWindows<'a, T
                 },
             );
 
+            match &mut curr.0 {
+                StrategyNames::TwoStep {
+                    name,
+                    harmony: HarmonyStrategyNames::ChordList { patterns },
+                    ..
+                } => {
+                    x.chord_list_editor_window
+                        .show(&format!("chord list ({name})"), ctx, |ui| {
+                            x.chord_list_editor.show(
+                                ui,
+                                &state.active_notes,
+                                &state.tunings,
+                                patterns,
+                                forward,
+                            );
+                        });
+                }
+                _ => {}
+            }
+
             x.binding_editor_window
                 .show(&format!("bindings ({})", curr.0.name()), ctx, |ui| {
                     x.binding_editor
@@ -236,7 +284,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                         select_allowed: true,
                         no_selection_allowed: false,
                         delete_allowed: true,
-                        show_one: Box::new(|ui, _i, elem| {
+                        show_one: Box::new(|ui, _i, elem, _| {
                             ui.add(egui::TextEdit::singleline(elem.0.name_mut()).min_size(vec2(
                                 ui.style().spacing.text_edit_width / 2.0,
                                 ui.style().spacing.interact_size.y,
@@ -251,7 +299,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                             );
                             None::<()> {}
                         }),
-                        clone: Some(Box::new(|ui, _elems, selected| {
+                        clone: Some(Box::new(|ui, _elems, selected, _| {
                             if let Some(i) = selected {
                                 if ui.button("create copy of selected").clicked() {
                                     Some(i)
@@ -263,6 +311,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                             }
                         })),
                     },
+                    &()
                 );
 
                 match list_edit_res {
@@ -281,7 +330,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
 
 impl<T: StackType>
     ExtractConfig<(
-        Vec<(StrategyNames, Bindings<Bindable>)>,
+        Vec<(StrategyNames<T>, Bindings<Bindable>)>,
         TuningEditorConfig,
         ReferenceEditorConfig,
     )> for StrategyWindows<T>
@@ -289,7 +338,7 @@ impl<T: StackType>
     fn extract_config(
         &self,
     ) -> (
-        Vec<(StrategyNames, Bindings<Bindable>)>,
+        Vec<(StrategyNames<T>, Bindings<Bindable>)>,
         TuningEditorConfig,
         ReferenceEditorConfig,
     ) {

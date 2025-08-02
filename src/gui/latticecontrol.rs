@@ -63,9 +63,8 @@ impl<'a, T: StackType> GuiShow<T> for AsKeyboardControls<'a, T> {
 pub struct AsBigControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
 
 impl<'a, T: StackType + HasNoteNames> AsBigControls<'a, T> {
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, reference_name: &str, ui: &mut egui::Ui) {
         let AsBigControls(lw) = self;
-        let reference_name = lw.reference_corrected_note_name();
         let controls = &mut lw.controls;
 
         ui.horizontal(|ui| {
