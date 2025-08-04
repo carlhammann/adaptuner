@@ -5,6 +5,13 @@ use serde_derive::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub enum KeyShape {
     #[serde(rename_all = "kebab-case")]
+    ExactFixed { keys: Vec<u8> },
+    #[serde(rename_all = "kebab-case")]
+    ExactRelative {
+        /// invariant: the first entry must be 0
+        offsets: Vec<u8>,
+    },
+    #[serde(rename_all = "kebab-case")]
     ClassesFixed { classes: Vec<u8>, zero: u8 },
     #[serde(rename_all = "kebab-case")]
     ClassesRelative { classes: Vec<u8> },
@@ -90,7 +97,11 @@ impl KeyShape {
     }
 
     pub fn fit<N: HasActivationStatus>(&self, notes: &[N; 128]) -> Fit {
-        self.fit_from(notes, 0)
+        match self {
+            Self::ExactFixed { keys } => fit_exact_fixed(keys, notes),
+            Self::ExactRelative { offsets } => fit_exact_relative(offsets, notes),
+            _ => self.fit_from(notes, 0),
+        }
     }
 
     fn fit_from<N: HasActivationStatus>(&self, notes: &[N; 128], start: usize) -> Fit {
@@ -99,7 +110,88 @@ impl KeyShape {
             Self::ClassesRelative { classes } => fit_classes_relative(classes, notes, start),
             Self::VoicingFixed { blocks, zero } => fit_voicing_fixed(blocks, *zero, notes, start),
             Self::VoicingRelative { blocks } => fit_voicing_relative(blocks, notes, start),
+            Self::ExactFixed { .. } | Self::ExactRelative { .. } => unreachable!(),
         }
+    }
+}
+
+/// Assumes that the `keys` argument is nonemtpy (it comes from [KeyShape::ExactFixed])
+fn fit_exact_fixed<N: HasActivationStatus>(keys: &[u8], notes: &[N; 128]) -> Fit {
+    let mut active_code: u128 = 0;
+    for (i, n) in notes.iter().enumerate() {
+        if n.active() {
+            active_code |= 1 << i;
+        }
+    }
+
+    if active_code == 0 {
+        return Fit { zero: 0, next: 0 };
+    }
+    let lowest_sounding = (active_code & active_code.wrapping_neg()).ilog2();
+
+    let mut pattern_code = 0;
+    for k in keys {
+        pattern_code |= 1 << k;
+    }
+
+    let diff = active_code ^ pattern_code;
+    if diff == 0 {
+        return Fit {
+            zero: lowest_sounding as u8,
+            next: 128,
+        };
+    }
+
+    let lowest_different = diff & diff.wrapping_neg();
+    if lowest_different > pattern_code {
+        // by assumption pattern_code>0, and hence the ilog2 won't panic
+        let highest_set_in_pattern = pattern_code.ilog2();
+        Fit {
+            zero: lowest_sounding as u8,
+            next: 1 + highest_set_in_pattern as usize,
+        }
+    } else {
+        Fit { zero: 0, next: 0 }
+    }
+}
+
+/// Assumes that the `offsets` argument is nonemtpy (it comes from [KeyShape::ExactRelative])
+fn fit_exact_relative<N: HasActivationStatus>(offsets: &[u8], notes: &[N; 128]) -> Fit {
+    let mut active_code: u128 = 0;
+    for (i, n) in notes.iter().enumerate() {
+        if n.active() {
+            active_code |= 1 << i;
+        }
+    }
+
+    if active_code == 0 {
+        return Fit { zero: 0, next: 0 };
+    }
+    let lowest_sounding = (active_code & active_code.wrapping_neg()).ilog2();
+    active_code >>= lowest_sounding;
+
+    let mut pattern_code = 0;
+    for k in offsets {
+        pattern_code |= 1 << (k - offsets[0]);
+    }
+
+    let diff = active_code ^ pattern_code;
+    if diff == 0 {
+        return Fit {
+            zero: lowest_sounding as u8,
+            next: 128,
+        };
+    }
+
+    let lowest_different = diff & diff.wrapping_neg();
+    if lowest_different > pattern_code {
+        let highest_set_in_pattern = pattern_code.ilog2();
+        Fit {
+            zero: lowest_sounding as u8,
+            next: 1 + lowest_sounding as usize + highest_set_in_pattern as usize,
+        }
+    } else {
+        Fit { zero: 0, next: 0 }
     }
 }
 
@@ -186,7 +278,7 @@ fn fit_voicing_relative<N: HasActivationStatus>(
     start: usize,
 ) -> Fit {
     for zero in 0..12 {
-        let res = fit_voicing_fixed(blocks, u8::from(zero), notes, start);
+        let res = fit_voicing_fixed(blocks, zero, notes, start);
         match res {
             Fit { next, .. } => {
                 if next > start {
@@ -266,7 +358,7 @@ mod test {
         ];
 
         for (active, classes, zero, reference, next) in examples {
-            one_classes_fixed(&active, classes, u8::from(zero), u8::from(reference), next);
+            one_classes_fixed(&active, classes, zero, reference, next);
         }
     }
 
@@ -305,7 +397,7 @@ mod test {
         ];
 
         for (active, classes, reference, next) in examples {
-            one_classes_relative(&active, classes, u8::from(reference), next);
+            one_classes_relative(&active, classes, reference, next);
         }
     }
 
@@ -350,7 +442,7 @@ mod test {
         ];
 
         for (active, blocks, zero, reference, next) in examples {
-            one_voicing_fixed(&active, blocks, u8::from(zero), u8::from(reference), next);
+            one_voicing_fixed(&active, blocks, zero, reference, next);
         }
     }
 
@@ -381,7 +473,56 @@ mod test {
         ];
 
         for (active, blocks, reference, next) in examples {
-            one_voicing_relative(&active, blocks, u8::from(reference), next);
+            one_voicing_relative(&active, blocks, reference, next);
+        }
+    }
+
+    fn one_exact_fixed(active: &[u8], keys: Vec<u8>, zero: u8, next: usize) {
+        one_case(active, KeyShape::ExactFixed { keys }, Fit { zero, next });
+    }
+
+    #[test]
+    fn test_exact_fixed() {
+        let examples = [
+            (vec![0], vec![0], 0, 128),
+            (vec![1], vec![0], 0, 0),
+            (vec![0], vec![1], 0, 0),
+            (vec![0, 1], vec![0], 0, 1),
+            (vec![0, 2, 3], vec![0, 2], 0, 3),
+            (vec![10, 32, 45], vec![10, 32, 45], 10, 128),
+            (vec![10, 32, 45], vec![11, 32, 45], 0, 0),
+            (vec![10, 32], vec![10, 32, 45], 0, 0),
+            (vec![10, 32, 45], vec![10, 32], 10, 33),
+        ];
+
+        for (active, keys, zero, next) in examples {
+            one_exact_fixed(&active, keys, zero, next);
+        }
+    }
+
+    fn one_exact_relative(active: &[u8], offsets: Vec<u8>, zero: u8, next: usize) {
+        one_case(
+            active,
+            KeyShape::ExactRelative { offsets },
+            Fit { zero, next },
+        );
+    }
+
+    #[test]
+    fn test_exact_relative() {
+        let examples = [
+            (vec![0], vec![0], 0, 128),
+            (vec![1], vec![0], 1, 128),
+            (vec![0, 1], vec![0], 0, 1),
+            (vec![0, 2, 3], vec![0, 2], 0, 3),
+            (vec![10, 32, 45], vec![0, 22, 35], 10, 128),
+            (vec![10, 32, 45], vec![1, 22, 35], 0, 0),
+            (vec![10, 32], vec![0, 22, 35], 0, 0),
+            (vec![10, 32, 45], vec![0, 22], 10, 33),
+        ];
+
+        for (active, offsets, zero, next) in examples {
+            one_exact_relative(&active, offsets, zero, next);
         }
     }
 }

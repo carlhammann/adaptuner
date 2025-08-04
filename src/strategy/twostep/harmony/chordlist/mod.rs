@@ -117,6 +117,65 @@ impl<T: StackType> PatternConfig<T> {
             allow_extra_high_notes,
         }
     }
+
+    /// assumes that at least one of the `keys` is sounding.
+    pub fn exact_fixed_from_current(
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        allow_extra_high_notes: bool,
+    ) -> Self {
+        Self {
+            key_shape: KeyShape::ExactFixed {
+                keys: keys
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, k)| k.is_sounding())
+                    .map(|(i, _)| i as u8)
+                    .collect(),
+            },
+            neighbourhood: SomeNeighbourhood::Partial({
+                let mut neigh = Partial::new();
+                for (i, stack) in tunings.iter().enumerate() {
+                    if keys[i].is_sounding() {
+                        let _ = neigh.insert(stack);
+                    }
+                }
+                neigh
+            }),
+            allow_extra_high_notes,
+        }
+    }
+
+    pub fn exact_relative_from_current(
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        lowest_sounding: usize,
+        allow_extra_high_notes: bool,
+    ) -> Self {
+        Self {
+            key_shape: KeyShape::ExactRelative {
+                offsets: keys
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, k)| k.is_sounding())
+                    .map(|(i, _)| i as u8 - lowest_sounding as u8)
+                    .collect(),
+            },
+            neighbourhood: SomeNeighbourhood::Partial({
+                let mut neigh = Partial::new();
+                let mut tmp = Stack::new_zero();
+                for (i, stack) in tunings.iter().enumerate() {
+                    if keys[i].is_sounding() {
+                        tmp.clone_from(stack);
+                        tmp.scaled_add(-1, &tunings[lowest_sounding]);
+                        let _ = neigh.insert(&tmp);
+                    }
+                }
+                neigh
+            }),
+            allow_extra_high_notes,
+        }
+    }
 }
 
 impl<T: StackType> ExtractConfig<PatternConfig<T>> for Pattern<T> {
@@ -124,7 +183,7 @@ impl<T: StackType> ExtractConfig<PatternConfig<T>> for Pattern<T> {
         let Pattern {
             key_shape,
             neighbourhood,
-            allow_extra_high_notes: allow_extra_high_notes,
+            allow_extra_high_notes,
         } = self;
         PatternConfig {
             key_shape: key_shape.clone(),
@@ -156,7 +215,7 @@ impl<T: StackType> ChordList<T> {
 impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
     fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>) {
         if self.patterns.is_empty() {
-                return (None {}, None {});
+            return (None {}, None {});
         }
 
         let mut fit = Fit::new_worst();

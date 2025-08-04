@@ -245,13 +245,7 @@ impl<'a, T: StackType + HasNoteNames + PartialEq> AsWindows<'a, T> {
                 } => {
                     x.chord_list_editor_window
                         .show(&format!("chord list ({name})"), ctx, |ui| {
-                            x.chord_list_editor.show(
-                                ui,
-                                &state.active_notes,
-                                &state.tunings,
-                                patterns,
-                                forward,
-                            );
+                            x.chord_list_editor.show(ui, state, patterns, forward);
                         });
                 }
                 _ => {}
@@ -311,7 +305,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                             }
                         })),
                     },
-                    &()
+                    &(),
                 );
 
                 match list_edit_res {
