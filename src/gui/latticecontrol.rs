@@ -84,57 +84,36 @@ impl<'a, T: StackType + HasNoteNames> AsBigControls<'a, T> {
             ui.separator();
 
             ui.vertical(|ui| {
-                ui.label("note background colours");
-                egui::ComboBox::from_id_salt("note_color_period_picker")
-                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                    .selected_text(format!("period: {:.02}ct", controls.color_period_ct))
-                    .show_ui(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            if ui
-                                .add(egui::DragValue::new(&mut controls.color_period_ct))
-                                .changed()
-                            {
-                                if controls.color_period_ct <= 0.0 {
-                                    controls.color_period_ct = 100.0;
-                                }
-                                controls.tmp_correction.reset_to_zero();
-                            }
-                            ui.label("ct");
-                        });
-                        ui.label("or");
-
-                        let mut correction_changed = false;
-                        ui.vertical(|ui| {
-                            for (i, x) in controls.tmp_correction.coeffs.indexed_iter_mut() {
-                                ui.horizontal(|ui| {
-                                    let name = &T::named_intervals()[i].name;
-                                    if rational_drag_value(ui, ui.id().with(name), x) {
-                                        correction_changed = true;
-                                    }
-                                    ui.label(name);
-                                });
-                            }
-                        });
-                        if correction_changed && controls.tmp_correction.is_nonzero() {
-                            controls.color_period_ct = controls.tmp_correction.semitones() * 100.0;
+                ui.horizontal(|ui| {
+                    ui.label("repeat background colours after");
+                    if ui
+                        .add(egui::DragValue::new(&mut controls.color_period_ct))
+                        .changed()
+                    {
+                        if controls.color_period_ct <= 0.0 {
+                            controls.color_period_ct = 100.0;
                         }
-                    });
-                ui.horizontal(|ui| {
-                    ui.label("start:");
-                    egui::widgets::color_picker::color_edit_button_hsva(
-                        ui,
-                        &mut controls.in_tune_note_color,
-                        egui::widgets::color_picker::Alpha::Opaque,
-                    );
+                        controls.tmp_correction.reset_to_zero();
+                    }
+                    ui.label("ct");
                 });
-                ui.horizontal(|ui| {
-                    ui.label("end:");
-                    egui::widgets::color_picker::color_edit_button_hsva(
-                        ui,
-                        &mut controls.out_of_tune_note_color,
-                        egui::widgets::color_picker::Alpha::Opaque,
-                    );
-                });
+
+                if T::num_named_intervals() > 0 {
+                    ui.label("or");
+                    let mut correction_changed = false;
+                    for (i, x) in controls.tmp_correction.coeffs.indexed_iter_mut() {
+                        ui.horizontal(|ui| {
+                            let name = &T::named_intervals()[i].name;
+                            if rational_drag_value(ui, ui.id().with(name), x) {
+                                correction_changed = true;
+                            }
+                            ui.label(name);
+                        });
+                    }
+                    if correction_changed && controls.tmp_correction.is_nonzero() {
+                        controls.color_period_ct = controls.tmp_correction.semitones() * 100.0;
+                    }
+                }
             });
         });
     }

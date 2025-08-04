@@ -43,15 +43,6 @@ const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
-pub struct Hsv {
-    pub h: f32,
-    pub s: f32,
-    pub v: f32,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "kebab-case")]
 pub struct LatticeWindowConfig {
     pub zoom: f32,
     pub interval_heights: Vec<f32>,
@@ -65,9 +56,7 @@ pub struct LatticeWindowConfig {
     pub screen_keyboard_velocity: u8,
     pub notenamestyle: NoteNameStyle,
     pub highlight_playable_keys: bool,
-    pub in_tune_note_color: Hsv,
-    pub out_of_tune_note_color: Hsv,
-    pub color_period: Semitones,
+    pub color_period_ct: Semitones,
 }
 
 impl LatticeWindowConfig {
@@ -84,9 +73,7 @@ impl LatticeWindowConfig {
             screen_keyboard_velocity,
             notenamestyle,
             highlight_playable_keys,
-            in_tune_note_color,
-            out_of_tune_note_color,
-            color_period,
+            color_period_ct,
         } = self;
         LatticeWindowControls {
             zoom,
@@ -100,19 +87,7 @@ impl LatticeWindowConfig {
             notenamestyle,
             correction_system_chooser,
             highlight_playable_keys,
-            in_tune_note_color: ecolor::Hsva {
-                h: in_tune_note_color.h,
-                s: in_tune_note_color.s,
-                v: in_tune_note_color.v,
-                a: 1.0,
-            },
-            out_of_tune_note_color: ecolor::Hsva {
-                h: out_of_tune_note_color.h,
-                s: out_of_tune_note_color.s,
-                v: out_of_tune_note_color.v,
-                a: 1.0,
-            },
-            color_period_ct: color_period,
+            color_period_ct,
             tmp_correction: Correction::new_zero(),
         }
     }
@@ -130,8 +105,6 @@ pub struct LatticeWindowControls<T: StackType> {
     pub notenamestyle: NoteNameStyle,
     pub correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
     pub highlight_playable_keys: bool,
-    pub in_tune_note_color: ecolor::Hsva,
-    pub out_of_tune_note_color: ecolor::Hsva,
     pub color_period_ct: Semitones,
     pub tmp_correction: Correction<T>,
 }
@@ -223,6 +196,7 @@ fn grid_line_color(ui: &egui::Ui) -> egui::Color32 {
 }
 
 fn activation_color<T: StackType>(
+    ui: &egui::Ui,
     controls: &LatticeWindowControls<T>,
     stack: &Stack<T>,
 ) -> egui::Color32 {
@@ -230,28 +204,14 @@ fn activation_color<T: StackType>(
         .rem_euclid(controls.color_period_ct / 100.0)
         / controls.color_period_ct
         * 100.0) as f32;
-    let start: ecolor::HsvaGamma = controls.in_tune_note_color.into();
-    let end: ecolor::HsvaGamma = controls.out_of_tune_note_color.into();
-    let x = ecolor::HsvaGamma {
-        a: (1.0 - t) * start.a + t * end.a,
-        h: {
-            let d = end.h - start.h;
-
-            let delta = if d < -0.5 {
-                d + 1.0
-            } else if d > 0.5 {
-                d - 1.0
-            } else {
-                d
-            };
-
-            start.h + t * delta
-        },
-        s: (1.0 - t) * start.s + t * end.s,
-        v: (1.0 - t) * start.v + t * end.v,
-    };
-
-    x.into()
+    let start_color = ecolor::HsvaGamma::from(ui.style().visuals.selection.bg_fill);
+    (ecolor::HsvaGamma {
+        a: start_color.a,
+        h: (start_color.h + t).rem_euclid(1.0),
+        s: start_color.s,
+        v: start_color.v,
+    })
+    .into()
 }
 
 impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
@@ -423,7 +383,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                 ui.painter().circle_filled(
                     pos,
                     controls.zoom * FONT_SIZE,
-                    activation_color(controls, stack),
+                    activation_color(ui, controls, stack),
                 );
             } else {
                 ui.painter().circle_filled(
@@ -1185,8 +1145,6 @@ impl<T: StackType> ExtractConfig<LatticeWindowConfig> for LatticeWindow<T> {
             screen_keyboard_velocity,
             notenamestyle,
             highlight_playable_keys,
-            in_tune_note_color,
-            out_of_tune_note_color,
             color_period_ct: color_period,
             ..
         } = &self.controls;
@@ -1199,17 +1157,7 @@ impl<T: StackType> ExtractConfig<LatticeWindowConfig> for LatticeWindow<T> {
             screen_keyboard_velocity: *screen_keyboard_velocity,
             notenamestyle: *notenamestyle,
             highlight_playable_keys: *highlight_playable_keys,
-            in_tune_note_color: Hsv {
-                h: in_tune_note_color.h,
-                s: in_tune_note_color.s,
-                v: in_tune_note_color.v,
-            },
-            out_of_tune_note_color: Hsv {
-                h: out_of_tune_note_color.h,
-                s: out_of_tune_note_color.s,
-                v: out_of_tune_note_color.v,
-            },
-            color_period: *color_period,
+            color_period_ct: *color_period,
         }
     }
 }
