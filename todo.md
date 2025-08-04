@@ -7,7 +7,6 @@
 
 # UI 
 
-- make the SmallFloatingWindo resizable (?) and collapsible (use it for the note window?)
 - coordination of zoom and scroll
 - flattening the grid layout to increase space for keyboard
 - multi-touch keyboard

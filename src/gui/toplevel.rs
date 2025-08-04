@@ -69,8 +69,7 @@ pub struct Toplevel<T: StackType> {
     tx: mpsc::Sender<FromUi<T>>,
 
     notes: NoteWindow<T>,
-    show_notes: bool,
-    notes_to_foreground: bool,
+    note_window: SmallFloatingWindow,
 
     config_file_dialog: ConfigFileDialog<T>,
 }
@@ -100,8 +99,7 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
             backend: BackendWindow::new(config.backend_window),
             latency: LatencyWindow::new(config.latency_mean_over),
             notes: NoteWindow::new(ctx),
-            show_notes: false,
-            notes_to_foreground: false,
+            note_window: SmallFloatingWindow::new(egui::Id::new("note_window")),
             tx,
             config_file_dialog: ConfigFileDialog::new(),
         }
@@ -218,12 +216,7 @@ where
 
                 self.connection_window
                     .show_hide_button(ui, "MIDI connections");
-                show_hide_button(
-                    ui,
-                    "notes",
-                    &mut self.show_notes,
-                    &mut self.notes_to_foreground,
-                );
+                self.note_window.show_hide_button(ui, "notes");
 
                 if ui.button("save config").clicked() {
                     let gui_config = self.extract_config();
@@ -282,20 +275,9 @@ where
             self.lattice.show(ui, &self.state, &self.tx);
         });
 
-        let note_window_id = egui::Id::new("note_window_id");
-        if self.show_notes {
-            egui::containers::Window::new("notes")
-                .id(note_window_id)
-                .open(&mut self.show_notes)
-                .show(ctx, |ui| {
-                    self.notes.show(ui, &self.tx);
-                });
-        }
-        if self.notes_to_foreground {
-            let layer_id = egui::LayerId::new(egui::Order::Middle, note_window_id);
-            ctx.move_to_top(layer_id);
-            self.notes_to_foreground = false;
-        }
+        self.note_window.show("notes", ctx, |ui| {
+            self.notes.show(ui, &self.tx);
+        });
 
         self.connection_window.show("midi connections", ctx, |ui| {
             ui.vertical(|ui| {

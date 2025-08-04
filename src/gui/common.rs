@@ -355,8 +355,6 @@ impl SmallFloatingWindow {
 
         egui::containers::Window::new(title)
             .id(self.id)
-            .collapsible(false)
-            .resizable(false)
             .open(&mut self.open)
             .show(ctx, add_contents)
     }
