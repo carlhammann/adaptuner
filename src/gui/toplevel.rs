@@ -181,6 +181,15 @@ impl<T: StackType + Serialize> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
                 self.state.active_notes[*note as usize].note_on(*channel, *time);
                 self.state.tunings[*note as usize].clone_from(tuning_stack);
             }
+
+            ToUi::SetReference { stack } => {
+                self.state.reference.clone_from(stack);
+            }
+
+            ToUi::SetTuningReference { reference } => {
+                self.state.tuning_reference.clone_from(reference);
+            }
+
             _ => {}
         }
 
