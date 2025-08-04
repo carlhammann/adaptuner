@@ -314,7 +314,8 @@ impl<T: StackType> StaticTuning<T> {
             }
             ToStrategy::ChordListAction { .. }
             | ToStrategy::PushNewChord { .. }
-            | ToStrategy::AllowExtraHighNotes { .. } => unreachable!(),
+            | ToStrategy::AllowExtraHighNotes { .. }
+            | ToStrategy::EnableChordList { .. } => unreachable!(),
         }
     }
 }

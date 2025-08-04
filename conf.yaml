@@ -92,35 +92,37 @@ strategies:
   description: blablabla
   config: !two-step
     harmony: !chord-list
-    - name: major
-      key-shape: !classes-relative
-        classes:
-        - 0
-        - 4
-        - 7
-      neighbourhood: !periodic-partial
-        0: {}
-        4:
-          third: 1
-        7:
-          fifth: 1
-      allow-extra-high-notes: true
-      original-reference: {}
-    - name: minor
-      key-shape: !classes-relative
-        classes:
-        - 0
-        - 3
-        - 7
-      neighbourhood: !periodic-partial
-        0: {}
-        3:
-          fifth: 1
-          third: -1
-        7:
-          fifth: 1
-      allow-extra-high-notes: true
-      original-reference: {}
+      enable: true
+      patterns:
+      - name: major
+        key-shape: !classes-relative
+          classes:
+          - 0
+          - 4
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          4:
+            third: 1
+          7:
+            fifth: 1
+        allow-extra-high-notes: true
+        original-reference: {}
+      - name: minor
+        key-shape: !classes-relative
+          classes:
+          - 0
+          - 3
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          3:
+            fifth: 1
+            third: -1
+          7:
+            fifth: 1
+        allow-extra-high-notes: true
+        original-reference: {}
     melody: !static-tuning
       neighbourhoods:
       - name: pure

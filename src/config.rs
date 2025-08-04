@@ -275,7 +275,10 @@ pub struct ExtendedStaticTuningConfig<T: IntervalBasis> {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum ExtendedHarmonyStrategyConfig<T: IntervalBasis> {
-    ChordList(Vec<NamedPatternConfig<T>>),
+    ChordList {
+        enable: bool,
+        patterns: Vec<NamedPatternConfig<T>>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -469,9 +472,10 @@ impl<T: IntervalBasis> ExtendedStaticTuningConfig<T> {
 impl<T: IntervalBasis> ExtendedHarmonyStrategyConfig<T> {
     fn split(&self) -> (HarmonyStrategyConfig<T>, HarmonyStrategyNames<T>) {
         match self {
-            ExtendedHarmonyStrategyConfig::ChordList(c) => (
+            ExtendedHarmonyStrategyConfig::ChordList { enable, patterns } => (
                 HarmonyStrategyConfig::ChordList(ChordListConfig {
-                    patterns: c
+                    enable: *enable,
+                    patterns: patterns
                         .iter()
                         .map(|p| PatternConfig {
                             key_shape: p.key_shape.clone(),
@@ -481,7 +485,7 @@ impl<T: IntervalBasis> ExtendedHarmonyStrategyConfig<T> {
                         .collect(),
                 }),
                 HarmonyStrategyNames::ChordList {
-                    patterns: c.clone(),
+                    patterns: patterns.clone(),
                 },
             ),
         }
@@ -490,15 +494,18 @@ impl<T: IntervalBasis> ExtendedHarmonyStrategyConfig<T> {
     fn join(strat: HarmonyStrategyConfig<T>, names: HarmonyStrategyNames<T>) -> Self {
         match (strat, names) {
             (
-                HarmonyStrategyConfig::ChordList(c),
+                HarmonyStrategyConfig::ChordList(ChordListConfig { enable, patterns }),
                 HarmonyStrategyNames::ChordList {
                     patterns: named_patterns,
                 },
             ) => {
-                if c.patterns.len() != named_patterns.len() {
+                if patterns.len() != named_patterns.len() {
                     panic!("different numbers of patterns in the chord list and names for these patterns");
                 }
-                ExtendedHarmonyStrategyConfig::ChordList(named_patterns)
+                ExtendedHarmonyStrategyConfig::ChordList {
+                    enable,
+                    patterns: named_patterns,
+                }
             }
         }
     }

@@ -32,6 +32,7 @@ pub trait HarmonyStrategy<T: IntervalBasis>: ExtractConfig<HarmonyStrategyConfig
     fn handle_chord_list_action(&mut self, action: ListAction) -> bool;
     fn push_new_chord(&mut self, chord: PatternConfig<T>) -> bool;
     fn allow_extra_high_notes(&mut self, pattern_index: usize, allow: bool);
+    fn enable_chord_list(&mut self, enable: bool);
 }
 
 pub trait MelodyStrategy<T: StackType>: ExtractConfig<MelodyStrategyConfig<T>> {
@@ -160,6 +161,10 @@ impl<T: StackType> Strategy<T> for TwoStep<T> {
                 time,
             } => {
                 self.harmony.allow_extra_high_notes(pattern_index, allow);
+                self.solve(keys, tunings, time, forward)
+            }
+            ToStrategy::EnableChordList { enable, time } => {
+                self.harmony.enable_chord_list(enable);
                 self.solve(keys, tunings, time, forward)
             }
             _ => {

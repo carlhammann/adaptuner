@@ -1,4 +1,4 @@
-use std::{cell::RefCell, marker::PhantomData, rc::Rc, sync::mpsc, time::Instant};
+use std::{cell::RefCell, rc::Rc, sync::mpsc, time::Instant};
 
 use eframe::egui::{self, vec2};
 
@@ -19,7 +19,7 @@ use crate::{
 };
 
 pub struct ChordListEditor<T: StackType> {
-    _phantom: PhantomData<T>,
+    enabled: bool,
     active_pattern: Option<usize>,
     recompute: bool,
     new_name: String,
@@ -103,7 +103,7 @@ fn describe_pattern<T: StackType + HasNoteNames>(
 impl<T: StackType + HasNoteNames> ChordListEditor<T> {
     pub fn new(correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>) -> Self {
         Self {
-            _phantom: PhantomData,
+            enabled: true,
             active_pattern: None {},
             match_voicings: true,
             match_transpositions: true,
@@ -122,72 +122,95 @@ impl<T: StackType + HasNoteNames> ChordListEditor<T> {
         patterns: &mut Vec<NamedPatternConfig<T>>,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
-        // the self.active_pattern won't be changed, because select_allowed = false
-        let res = RefListEdit::new(patterns, &mut self.active_pattern).show(
-            ui,
-            "chord_list_editor_list_edit",
-            ListEditOpts {
-                empty_allowed: true,
-                select_allowed: false,
-                no_selection_allowed: true,
-                delete_allowed: true,
-                show_one: Box::new(
-                    |ui, i, pattern, correction_system_chooser: &CorrectionSystemChooser<T>| {
-                        let mut msg = None {};
-                        ui.horizontal(|ui| {
-                            egui::ComboBox::from_id_salt(&pattern.key_shape)
-                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                                .selected_text(&pattern.name)
-                                .show_ui(ui, |ui| {
-                                    ui.add(egui::TextEdit::singleline(&mut pattern.name).min_size(
-                                        vec2(
-                                            ui.style().spacing.text_edit_width / 2.0,
-                                            ui.style().spacing.interact_size.y,
-                                        ),
-                                    ));
-                                    if ui
-                                        .checkbox(
-                                            &mut pattern.allow_extra_high_notes,
-                                            "allow additional high notes, \
-                                            if no other entry fits perfectly",
-                                        )
-                                        .clicked()
-                                    {
-                                        msg = Some(FromUi::AllowExtraHighNotes {
-                                            pattern_index: i,
-                                            allow: pattern.allow_extra_high_notes,
-                                            time: Instant::now(),
-                                        });
-                                    }
-                                    describe_pattern(
-                                        ui,
-                                        &pattern.key_shape,
-                                        &pattern.neighbourhood,
-                                        &pattern.original_reference,
-                                        correction_system_chooser,
-                                    );
-                                });
-                        });
-                        msg
-                    },
-                ),
-                clone: None {},
-            },
-            &*self.correction_system_chooser.borrow(),
-        );
-
-        match res {
-            crate::gui::common::ListEditResult::Message(msg) => {
-                let _ = forward.send(msg);
-            }
-            crate::gui::common::ListEditResult::Action(action) => {
-                let _ = forward.send(FromUi::ChordListAction {
-                    action,
+        ui.vertical_centered(|ui| {
+            if ui
+                .button(if self.enabled { "disable" } else { "enable" })
+                .clicked()
+            {
+                self.enabled = !self.enabled;
+                let _ = forward.send(FromUi::EnableChordList {
+                    enable: self.enabled,
                     time: Instant::now(),
                 });
             }
-            crate::gui::common::ListEditResult::None => {}
-        }
+        });
+
+        ui.separator();
+
+        ui.vertical(|ui| {
+            if !self.enabled {
+                ui.disable();
+            }
+
+            // the self.active_pattern won't be changed, because select_allowed = false
+            let res = RefListEdit::new(patterns, &mut self.active_pattern).show(
+                ui,
+                "chord_list_editor_list_edit",
+                ListEditOpts {
+                    empty_allowed: true,
+                    select_allowed: false,
+                    no_selection_allowed: true,
+                    delete_allowed: true,
+                    show_one: Box::new(
+                        |ui, i, pattern, correction_system_chooser: &CorrectionSystemChooser<T>| {
+                            let mut msg = None {};
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_salt(&pattern.key_shape)
+                                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                                    .selected_text(&pattern.name)
+                                    .show_ui(ui, |ui| {
+                                        ui.add(
+                                            egui::TextEdit::singleline(&mut pattern.name).min_size(
+                                                vec2(
+                                                    ui.style().spacing.text_edit_width / 2.0,
+                                                    ui.style().spacing.interact_size.y,
+                                                ),
+                                            ),
+                                        );
+                                        if ui
+                                            .checkbox(
+                                                &mut pattern.allow_extra_high_notes,
+                                                "allow additional high notes, \
+                                            if no other entry fits perfectly",
+                                            )
+                                            .clicked()
+                                        {
+                                            msg = Some(FromUi::AllowExtraHighNotes {
+                                                pattern_index: i,
+                                                allow: pattern.allow_extra_high_notes,
+                                                time: Instant::now(),
+                                            });
+                                        }
+                                        describe_pattern(
+                                            ui,
+                                            &pattern.key_shape,
+                                            &pattern.neighbourhood,
+                                            &pattern.original_reference,
+                                            correction_system_chooser,
+                                        );
+                                    });
+                            });
+                            msg
+                        },
+                    ),
+                    clone: None {},
+                },
+                &*self.correction_system_chooser.borrow(),
+            );
+
+            match res {
+                crate::gui::common::ListEditResult::Message(msg) => {
+                    let _ = forward.send(msg);
+                }
+                crate::gui::common::ListEditResult::Action(action) => {
+                    let _ = forward.send(FromUi::ChordListAction {
+                        action,
+                        time: Instant::now(),
+                    });
+                }
+                crate::gui::common::ListEditResult::None => {}
+            }
+        });
 
         ui.separator();
 

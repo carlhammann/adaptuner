@@ -197,16 +197,19 @@ impl<T: StackType> ExtractConfig<PatternConfig<T>> for Pattern<T> {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct ChordListConfig<T: IntervalBasis> {
+    pub enable: bool,
     pub patterns: Vec<PatternConfig<T>>,
 }
 
 pub struct ChordList<T: StackType> {
+    enable: bool,
     patterns: Vec<Pattern<T>>,
 }
 
 impl<T: StackType> ChordList<T> {
     pub fn new(mut conf: ChordListConfig<T>) -> Self {
         Self {
+            enable: conf.enable,
             patterns: conf.patterns.drain(..).map(|c| Pattern::new(c)).collect(),
         }
     }
@@ -214,7 +217,7 @@ impl<T: StackType> ChordList<T> {
 
 impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
     fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>) {
-        if self.patterns.is_empty() {
+        if !self.enable || self.patterns.is_empty() {
             return (None {}, None {});
         }
 
@@ -264,11 +267,16 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
     fn allow_extra_high_notes(&mut self, pattern_index: usize, allow: bool) {
         self.patterns[pattern_index].allow_extra_high_notes = allow;
     }
+
+    fn enable_chord_list(&mut self, enable: bool) {
+        self.enable = enable;
+    }
 }
 
 impl<T: StackType> ExtractConfig<HarmonyStrategyConfig<T>> for ChordList<T> {
     fn extract_config(&self) -> HarmonyStrategyConfig<T> {
         HarmonyStrategyConfig::ChordList(ChordListConfig {
+            enable: self.enable,
             patterns: self.patterns.iter().map(|p| p.extract_config()).collect(),
         })
     }

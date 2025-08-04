@@ -175,7 +175,11 @@ pub enum ToStrategy<T: StackType> {
         pattern_index: usize,
         allow: bool,
         time: Instant,
-    }
+    },
+    EnableChordList {
+        enable: bool,
+        time: Instant,
+    },
 }
 
 pub enum FromStrategy<T: StackType> {
@@ -447,6 +451,10 @@ pub enum FromUi<T: StackType> {
     AllowExtraHighNotes {
         pattern_index: usize,
         allow: bool,
+        time: Instant,
+    },
+    EnableChordList {
+        enable: bool,
         time: Instant,
     },
 }
@@ -874,6 +882,15 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 Some(ToProcess::ToStrategy(ToStrategy::AllowExtraHighNotes {
                     pattern_index,
                     allow,
+                    time,
+                })),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::EnableChordList { enable, time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::EnableChordList {
+                    enable,
                     time,
                 })),
                 None {},
