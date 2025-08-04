@@ -5,7 +5,7 @@ use midi_msg::Channel;
 
 use crate::{interval::stacktype::r#trait::StackType, msg::FromUi, notename::HasNoteNames};
 
-use super::{lattice::LatticeWindow, r#trait::GuiShow};
+use super::{common::rational_drag_value, lattice::LatticeWindow, r#trait::GuiShow};
 
 pub struct AsKeyboardControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
 
@@ -13,17 +13,26 @@ impl<'a, T: StackType> GuiShow<T> for AsKeyboardControls<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let AsKeyboardControls(LatticeWindow { controls, .. }) = self;
         ui.horizontal(|ui| {
-            ui.add(
-                egui::widgets::Slider::new(&mut controls.zoom, 5.0..=100.0)
-                    .smart_aim(false)
-                    .show_value(false)
-                    .logarithmic(true)
-                    .text("zoom"),
-            );
+            if ui
+                .add(egui::Button::new("sustain").selected(controls.screen_keyboard_pedal_hold))
+                .clicked()
+            {
+                controls.screen_keyboard_pedal_hold = !controls.screen_keyboard_pedal_hold;
+                let _ = forward.send(FromUi::PedalHold {
+                    time: Instant::now(),
+                    value: if controls.screen_keyboard_pedal_hold {
+                        127
+                    } else {
+                        0
+                    },
+                    channel: controls.screen_keyboard_channel,
+                });
+            }
 
-            ui.separator();
+            ui.label("velocity:");
+            ui.add(egui::DragValue::new(&mut controls.screen_keyboard_velocity).range(0..=127));
 
-            ui.label("screen keyboard MIDI channel:");
+            ui.label("MIDI channel:");
 
             egui::ComboBox::from_id_salt("keyboard MIDI channel")
                 .width(ui.style().spacing.interact_size.y)
@@ -38,24 +47,6 @@ impl<'a, T: StackType> GuiShow<T> for AsKeyboardControls<'a, T> {
                         );
                     }
                 });
-
-            ui.label("velocity:");
-            ui.add(egui::DragValue::new(&mut controls.screen_keyboard_velocity).range(0..=127));
-
-            if ui
-                .toggle_value(&mut controls.screen_keyboard_pedal_hold, "sustain")
-                .changed()
-            {
-                let _ = forward.send(FromUi::PedalHold {
-                    time: Instant::now(),
-                    value: if controls.screen_keyboard_pedal_hold {
-                        127
-                    } else {
-                        0
-                    },
-                    channel: controls.screen_keyboard_channel,
-                });
-            }
         });
     }
 }
@@ -88,6 +79,62 @@ impl<'a, T: StackType + HasNoteNames> AsBigControls<'a, T> {
                             .text(&T::intervals()[i].name),
                     );
                 }
+            });
+
+            ui.separator();
+
+            ui.vertical(|ui| {
+                ui.label("note background colours");
+                egui::ComboBox::from_id_salt("note_color_period_picker")
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .selected_text(format!("period: {:.02}ct", controls.color_period_ct))
+                    .show_ui(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add(egui::DragValue::new(&mut controls.color_period_ct))
+                                .changed()
+                            {
+                                if controls.color_period_ct <= 0.0 {
+                                    controls.color_period_ct = 100.0;
+                                }
+                                controls.tmp_correction.reset_to_zero();
+                            }
+                            ui.label("ct");
+                        });
+                        ui.label("or");
+
+                        let mut correction_changed = false;
+                        ui.vertical(|ui| {
+                            for (i, x) in controls.tmp_correction.coeffs.indexed_iter_mut() {
+                                ui.horizontal(|ui| {
+                                    let name = &T::named_intervals()[i].name;
+                                    if rational_drag_value(ui, ui.id().with(name), x) {
+                                        correction_changed = true;
+                                    }
+                                    ui.label(name);
+                                });
+                            }
+                        });
+                        if correction_changed && controls.tmp_correction.is_nonzero() {
+                            controls.color_period_ct = controls.tmp_correction.semitones() * 100.0;
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    ui.label("start:");
+                    egui::widgets::color_picker::color_edit_button_hsva(
+                        ui,
+                        &mut controls.in_tune_note_color,
+                        egui::widgets::color_picker::Alpha::Opaque,
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("end:");
+                    egui::widgets::color_picker::color_edit_button_hsva(
+                        ui,
+                        &mut controls.out_of_tune_note_color,
+                        egui::widgets::color_picker::Alpha::Opaque,
+                    );
+                });
             });
         });
     }

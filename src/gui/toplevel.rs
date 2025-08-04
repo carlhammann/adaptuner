@@ -17,7 +17,7 @@ use crate::{
 
 use super::{
     backend::BackendWindow,
-    common::{show_hide_button, CorrectionSystemChooser, SmallFloatingWindow},
+    common::{CorrectionSystemChooser, SmallFloatingWindow},
     config::ConfigFileDialog,
     connection::{ConnectionWindow, Input, Output},
     latency::LatencyWindow,
@@ -207,10 +207,10 @@ where
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if self.show_keyboard_controls && ui.button("hide controls").clicked() {
+                if self.show_keyboard_controls && ui.button("hide keyboard controls").clicked() {
                     self.show_keyboard_controls = false;
                 }
-                if !self.show_keyboard_controls && ui.button("show controls").clicked() {
+                if !self.show_keyboard_controls && ui.button("show keyboard controls").clicked() {
                     self.show_keyboard_controls = true;
                 }
 

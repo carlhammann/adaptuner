@@ -6,7 +6,8 @@ use num_traits::Zero;
 
 use crate::{
     interval::{
-        stack::Stack,
+        base::Semitones,
+        stack::{semitones_from_actual, Stack},
         stacktype::r#trait::{StackCoeff, StackType},
     },
     util::subsequences::Subsequences,
@@ -43,6 +44,19 @@ impl<T: StackType> Correction<T> {
             _phantom: PhantomData,
             coeffs: Array1::zeros(T::num_named_intervals()),
         }
+    }
+
+    pub fn semitones(&self) -> Semitones {
+        let mut res = 0.0;
+        for (i, &c) in self.coeffs.iter().enumerate() {
+            res += *c.numer() as Semitones / *c.denom() as Semitones
+                * semitones_from_actual::<T>(T::named_intervals()[i].coeffs.view());
+        }
+        res
+    }
+
+    pub fn is_nonzero(&self) -> bool {
+        self.coeffs.iter().any(|c| !c.is_zero())
     }
 
     pub fn set_with(&mut self, stack: &Stack<T>, preference_order: &[usize]) -> bool {

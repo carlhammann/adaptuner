@@ -8,6 +8,7 @@ use crate::{
     config::ExtractConfig,
     custom_serde::common::{deserialize_channel, serialize_channel},
     interval::{
+        base::Semitones,
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{StackCoeff, StackType},
     },
@@ -42,6 +43,15 @@ const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
+pub struct Hsv {
+    pub h: f32,
+    pub s: f32,
+    pub v: f32,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 pub struct LatticeWindowConfig {
     pub zoom: f32,
     pub interval_heights: Vec<f32>,
@@ -55,6 +65,9 @@ pub struct LatticeWindowConfig {
     pub screen_keyboard_velocity: u8,
     pub notenamestyle: NoteNameStyle,
     pub highlight_playable_keys: bool,
+    pub in_tune_note_color: Hsv,
+    pub out_of_tune_note_color: Hsv,
+    pub color_period: Semitones,
 }
 
 impl LatticeWindowConfig {
@@ -71,6 +84,9 @@ impl LatticeWindowConfig {
             screen_keyboard_velocity,
             notenamestyle,
             highlight_playable_keys,
+            in_tune_note_color,
+            out_of_tune_note_color,
+            color_period,
         } = self;
         LatticeWindowControls {
             zoom,
@@ -84,6 +100,20 @@ impl LatticeWindowConfig {
             notenamestyle,
             correction_system_chooser,
             highlight_playable_keys,
+            in_tune_note_color: ecolor::Hsva {
+                h: in_tune_note_color.h,
+                s: in_tune_note_color.s,
+                v: in_tune_note_color.v,
+                a: 1.0,
+            },
+            out_of_tune_note_color: ecolor::Hsva {
+                h: out_of_tune_note_color.h,
+                s: out_of_tune_note_color.s,
+                v: out_of_tune_note_color.v,
+                a: 1.0,
+            },
+            color_period_ct: color_period,
+            tmp_correction: Correction::new_zero(),
         }
     }
 }
@@ -100,6 +130,10 @@ pub struct LatticeWindowControls<T: StackType> {
     pub notenamestyle: NoteNameStyle,
     pub correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
     pub highlight_playable_keys: bool,
+    pub in_tune_note_color: ecolor::Hsva,
+    pub out_of_tune_note_color: ecolor::Hsva,
+    pub color_period_ct: Semitones,
+    pub tmp_correction: Correction<T>,
 }
 
 struct Positions {
@@ -121,7 +155,7 @@ pub struct LatticeWindow<T: StackType> {
     considered_notes: Partial<T>,
 
     reset_position: bool,
-    control_tooltip_pos: egui::Pos2,
+    show_controls: bool,
 
     positions: Positions,
 
@@ -188,8 +222,36 @@ fn grid_line_color(ui: &egui::Ui) -> egui::Color32 {
     ui.style().visuals.weak_text_color()
 }
 
-fn activation_color(ui: &egui::Ui) -> egui::Color32 {
-    ui.style().visuals.selection.bg_fill
+fn activation_color<T: StackType>(
+    controls: &LatticeWindowControls<T>,
+    stack: &Stack<T>,
+) -> egui::Color32 {
+    let t: f32 = ((stack.semitones() - stack.target_semitones())
+        .rem_euclid(controls.color_period_ct / 100.0)
+        / controls.color_period_ct
+        * 100.0) as f32;
+    let start: ecolor::HsvaGamma = controls.in_tune_note_color.into();
+    let end: ecolor::HsvaGamma = controls.out_of_tune_note_color.into();
+    let x = ecolor::HsvaGamma {
+        a: (1.0 - t) * start.a + t * end.a,
+        h: {
+            let d = end.h - start.h;
+
+            let delta = if d < -0.5 {
+                d + 1.0
+            } else if d > 0.5 {
+                d - 1.0
+            } else {
+                d
+            };
+
+            start.h + t * delta
+        },
+        s: (1.0 - t) * start.s + t * end.s,
+        v: (1.0 - t) * start.v + t * end.v,
+    };
+
+    x.into()
 }
 
 impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
@@ -358,8 +420,11 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
     {
         let draw_activation_circle = |active: bool| {
             if active {
-                ui.painter()
-                    .circle_filled(pos, controls.zoom * FONT_SIZE, activation_color(ui));
+                ui.painter().circle_filled(
+                    pos,
+                    controls.zoom * FONT_SIZE,
+                    activation_color(controls, stack),
+                );
             } else {
                 ui.painter().circle_filled(
                     pos,
@@ -412,7 +477,7 @@ impl<T: StackType> LatticeWindow<T> {
             tmp_stack: Stack::new_zero(),
             other_tmp_stack: Stack::new_zero(),
             reset_position: true,
-            control_tooltip_pos: pos2(0.0, 0.0),
+            show_controls: false,
             positions: Positions {
                 left: 0.0,
                 bottom: 0.0,
@@ -1020,7 +1085,7 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
         state: &KeysAndTunings<T>,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
-        let r = ui.interact(
+        let mut r = ui.interact(
             ui.max_rect(),
             egui::Id::new("global_grid_interaction"),
             egui::Sense::click_and_drag(),
@@ -1047,44 +1112,46 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
 
         self.keyboard_hover_interaction(ui, forward);
 
-        let popup_id = egui::Id::new("lattice_control_popup");
-        if r.clicked() {
-            if !ui.memory(|mem| mem.any_popup_open()) {
-                self.control_tooltip_pos =
-                    r.interact_pointer_pos().unwrap_or(ui.max_rect().center());
-                ui.memory_mut(|mem| mem.open_popup(popup_id));
-            } else {
-                ui.memory_mut(|mem| mem.close_popup());
-            }
-        }
-        egui::popup::popup_below_widget(
-            ui,
-            popup_id,
-            &r.with_new_rect(egui::Rect::from_center_size(
-                self.control_tooltip_pos,
-                egui::Vec2::ZERO,
-            )),
-            egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-            |ui| {
-                let reference_name = state.reference.corrected_notename(
-                    &self.controls.notenamestyle,
-                    self.controls
-                        .correction_system_chooser
-                        .borrow()
-                        .preference_order(),
-                    self.controls
-                        .correction_system_chooser
-                        .borrow()
-                        .use_cent_values,
-                );
-                AsBigControls(self).show(&reference_name, ui);
-            },
-        );
+        // egui::Frame::new().show(ui, |ui| {
+        self.draw_keyboard(ui, state, forward);
+        self.draw_lattice(ui, state, forward);
+        // });
 
-        egui::Frame::new().show(ui, |ui| {
-            self.draw_keyboard(ui, state, forward);
-            self.draw_lattice(ui, state, forward);
+        ui.horizontal(|ui| {
+            r = ui.button("☰");
+            if r.clicked() {
+                self.show_controls = !self.show_controls;
+            }
+
+            if ui.button("🔍+").clicked() {
+                self.controls.zoom *= 1.2;
+            }
+            if ui.button("🔍-").clicked() {
+                self.controls.zoom /= 1.2;
+            }
         });
+
+        if self.show_controls {
+            egui::Window::new("lattice_control_window")
+                .resizable(false)
+                .title_bar(false)
+                .fixed_pos(r.rect.left_bottom() + vec2(0.0, ui.style().spacing.item_spacing.y))
+                .pivot(egui::Align2::LEFT_TOP)
+                .show(ui.ctx(), |ui| {
+                    let reference_name = state.reference.corrected_notename(
+                        &self.controls.notenamestyle,
+                        self.controls
+                            .correction_system_chooser
+                            .borrow()
+                            .preference_order(),
+                        self.controls
+                            .correction_system_chooser
+                            .borrow()
+                            .use_cent_values,
+                    );
+                    AsBigControls(self).show(&reference_name, ui);
+                });
+        }
     }
 }
 
@@ -1118,6 +1185,9 @@ impl<T: StackType> ExtractConfig<LatticeWindowConfig> for LatticeWindow<T> {
             screen_keyboard_velocity,
             notenamestyle,
             highlight_playable_keys,
+            in_tune_note_color,
+            out_of_tune_note_color,
+            color_period_ct: color_period,
             ..
         } = &self.controls;
         LatticeWindowConfig {
@@ -1129,6 +1199,17 @@ impl<T: StackType> ExtractConfig<LatticeWindowConfig> for LatticeWindow<T> {
             screen_keyboard_velocity: *screen_keyboard_velocity,
             notenamestyle: *notenamestyle,
             highlight_playable_keys: *highlight_playable_keys,
+            in_tune_note_color: Hsv {
+                h: in_tune_note_color.h,
+                s: in_tune_note_color.s,
+                v: in_tune_note_color.v,
+            },
+            out_of_tune_note_color: Hsv {
+                h: out_of_tune_note_color.h,
+                s: out_of_tune_note_color.s,
+                v: out_of_tune_note_color.v,
+            },
+            color_period: *color_period,
         }
     }
 }

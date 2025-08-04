@@ -214,6 +214,15 @@ gui:
     screen-keyboard-velocity: 64
     notenamestyle: class
     highlight-playable-keys: true
+    in-tune-note-color:
+      h: 0.3
+      s: 1.0
+      v: 0.6
+    out-of-tune-note-color:
+      h: 0.8
+      s: 1.0
+      v: 0.6
+    color-period: 21.506289596715078
   tuning-editor:
     notenamestyle: full
   reference-editor:

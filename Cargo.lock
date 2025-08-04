@@ -115,6 +115,7 @@ name = "adaptuner"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "ecolor",
  "eframe",
  "egui-file-dialog",
  "egui_extras",

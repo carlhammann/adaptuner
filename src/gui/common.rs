@@ -397,7 +397,7 @@ pub fn show_hide_button(
         if ui
             .add_enabled(
                 *open,
-                egui::Button::new("x").corner_radius(egui::CornerRadius {
+                egui::Button::new("×").corner_radius(egui::CornerRadius {
                     nw: 0,
                     ne: ui.style().visuals.menu_corner_radius.ne,
                     sw: 0,
