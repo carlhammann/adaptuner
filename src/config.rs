@@ -18,7 +18,7 @@ use crate::{
     reference::Reference,
     strategy::{
         r#static::{StaticTuning, StaticTuningConfig},
-        r#trait::Strategy,
+        r#trait::{Strategy, StrategyAction},
         twostep::{
             harmony::chordlist::{keyshape::KeyShape, ChordListConfig, PatternConfig},
             TwoStep,
@@ -218,22 +218,30 @@ pub enum StrategyKind {
 }
 
 impl StrategyKind {
-    pub fn increment_neighbourhood_index_allowed(&self) -> bool {
-        match self {
-            StrategyKind::StaticTuning => true,
-            StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning) => true,
-        }
-    }
-    pub fn set_reference_to_lowest_allowed(&self) -> bool {
-        match self {
-            StrategyKind::StaticTuning => true,
-            StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning) => true,
-        }
-    }
-    pub fn set_reference_to_highest_allowed(&self) -> bool {
-        match self {
-            StrategyKind::StaticTuning => true,
-            StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning) => true,
+    /// For parameterised actions like [StrategyAction::IncrementNeighbourhoodIndex], if it returns
+    /// true for one parameter, it will return true for all parameters.
+    pub fn action_allowed(&self, action: &StrategyAction) -> bool {
+        match (self, action) {
+            (StrategyKind::StaticTuning, StrategyAction::IncrementNeighbourhoodIndex(_)) => true,
+            (StrategyKind::StaticTuning, StrategyAction::SetReferenceToLowest) => true,
+            (StrategyKind::StaticTuning, StrategyAction::SetReferenceToHighest) => true,
+            (StrategyKind::StaticTuning, StrategyAction::ToggleChordMatching) => false,
+            (
+                StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning),
+                StrategyAction::IncrementNeighbourhoodIndex(_),
+            ) => true,
+            (
+                StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning),
+                StrategyAction::SetReferenceToLowest,
+            ) => true,
+            (
+                StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning),
+                StrategyAction::SetReferenceToHighest,
+            ) => true,
+            (
+                StrategyKind::TwoStep(HarmonyStrategyKind::ChordList, _),
+                StrategyAction::ToggleChordMatching,
+            ) => true,
         }
     }
 }

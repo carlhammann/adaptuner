@@ -179,6 +179,7 @@ impl<T: StackType> StaticTuning<T> {
             StrategyAction::SetReferenceToHighest => {
                 self.set_reference(true, keys, tunings, forward)
             }
+            _ => false,
         } {
             Some(time)
         } else {

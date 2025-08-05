@@ -14,7 +14,10 @@ use crate::{
     neighbourhood::SomeNeighbourhood,
 };
 
-use super::{r#static::StaticTuning, r#trait::Strategy};
+use super::{
+    r#static::StaticTuning,
+    r#trait::{Strategy, StrategyAction},
+};
 
 pub mod harmony;
 pub mod melody;
@@ -29,6 +32,7 @@ pub struct Harmony<T: IntervalBasis> {
 pub trait HarmonyStrategy<T: StackType>: ExtractConfig<HarmonyStrategyConfig<T>> {
     fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>);
     fn handle_msg(&mut self, msg: ToHarmonyStrategy<T>) -> bool;
+    fn handle_action(&mut self, action: StrategyAction, forward: &mut VecDeque<FromStrategy<T>>);
 }
 
 pub trait MelodyStrategy<T: StackType>: ExtractConfig<MelodyStrategyConfig<T>> {
@@ -143,6 +147,18 @@ impl<T: StackType> Strategy<T> for TwoStep<T> {
                 } else {
                     false
                 }
+            }
+
+            ToStrategy::Action { action, .. } => {
+                self.harmony.handle_action(action, forward);
+                let (pattern_index, harmony) = self.harmony.solve(keys);
+                let (success, reference) =
+                    self.melody.handle_msg(keys, tunings, harmony, msg, forward);
+                forward.push_back(FromStrategy::CurrentHarmony {
+                    pattern_index,
+                    reference,
+                });
+                success
             }
 
             _ => {

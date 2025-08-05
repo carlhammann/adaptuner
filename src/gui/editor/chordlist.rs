@@ -530,6 +530,8 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for ChordListEditor<T> {
                 self.request_recompute = true;
             }
 
+            ToUi::EnableChordList { enable } => self.enabled = *enable,
+
             _ => {}
         }
     }

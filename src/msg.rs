@@ -196,6 +196,9 @@ pub enum FromStrategy<T: StackType> {
         pattern_index: Option<usize>,
         reference: Option<Stack<T>>,
     },
+    EnableChordList {
+        enable: bool,
+    },
 }
 
 pub enum ToBackend {
@@ -343,6 +346,9 @@ pub enum ToUi<T: StackType> {
     CurrentHarmony {
         pattern_index: Option<usize>,
         reference: Option<Stack<T>>,
+    },
+    EnableChordList {
+        enable: bool,
     },
 }
 
@@ -656,6 +662,9 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
                     reference,
                 }),
             ),
+            FromStrategy::EnableChordList { enable } => {
+                (None {}, Some(ToUi::EnableChordList { enable }))
+            }
         }
     }
 }

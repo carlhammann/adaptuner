@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{collections::VecDeque, rc::Rc};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -9,9 +9,12 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
-    msg::ToHarmonyStrategy,
+    msg::{FromStrategy, ToHarmonyStrategy},
     neighbourhood::{Neighbourhood, Partial, PeriodicPartial, SomeNeighbourhood},
-    strategy::twostep::{Harmony, HarmonyStrategy},
+    strategy::{
+        r#trait::StrategyAction,
+        twostep::{Harmony, HarmonyStrategy},
+    },
 };
 
 pub mod keyshape;
@@ -351,6 +354,18 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
                 self.enable = enable;
                 true
             }
+        }
+    }
+
+    fn handle_action(&mut self, action: StrategyAction, forward: &mut VecDeque<FromStrategy<T>>) {
+        match action {
+            StrategyAction::ToggleChordMatching => {
+                self.enable = !self.enable;
+                forward.push_back(FromStrategy::EnableChordList {
+                    enable: self.enable,
+                });
+            }
+            _ => {}
         }
     }
 }

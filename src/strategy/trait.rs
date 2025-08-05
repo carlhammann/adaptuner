@@ -19,14 +19,12 @@ pub enum StrategyAction {
     IncrementNeighbourhoodIndex(isize),
     SetReferenceToLowest,
     SetReferenceToHighest,
+    ToggleChordMatching,
 }
 
 impl fmt::Display for StrategyAction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            // StrategyAction::SwitchToNeighbourhood(i) => {
-            //     write!(f, "switch to neighbourhood {}", i + 1)
-            // }
             StrategyAction::IncrementNeighbourhoodIndex(i) => {
                 write!(f, "increment neighbourhood index by {i}")
             }
@@ -36,6 +34,7 @@ impl fmt::Display for StrategyAction {
             StrategyAction::SetReferenceToHighest => {
                 write!(f, "set reference to highest sounding note")
             }
+            StrategyAction::ToggleChordMatching => write!(f, "toggle chord matching"),
         }
     }
 }
@@ -54,6 +53,8 @@ pub trait Strategy<T: StackType>: ExtractConfig<StrategyConfig<T>> {
     ) -> Option<(Semitones, &'a Stack<T>)>;
 
     /// expects the effect of the "note off" event to be alead reflected in `keys`
+    ///
+    /// returns true iff the note off event was successfully handled
     fn note_off(
         &mut self,
         keys: &[KeyState; 128],
@@ -63,6 +64,7 @@ pub trait Strategy<T: StackType>: ExtractConfig<StrategyConfig<T>> {
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool;
 
+    /// returns true iff the message was successfully handled
     fn handle_msg(
         &mut self,
         keys: &[KeyState; 128],

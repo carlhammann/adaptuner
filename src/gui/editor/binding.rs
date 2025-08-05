@@ -217,7 +217,7 @@ pub fn strategy_action_selector(
             //     close_popup(ui);
             // }
 
-            if strategy_kind.increment_neighbourhood_index_allowed() {
+            if strategy_kind.action_allowed(&StrategyAction::IncrementNeighbourhoodIndex(0)) {
                 ui.horizontal(|ui| {
                     if let Some(StrategyAction::IncrementNeighbourhoodIndex(i)) =
                         tmp_strategy_action
@@ -248,7 +248,7 @@ pub fn strategy_action_selector(
                 });
             }
 
-            if strategy_kind.set_reference_to_lowest_allowed() {
+            if strategy_kind.action_allowed(&StrategyAction::SetReferenceToLowest) {
                 let r = ui.selectable_value(
                     tmp_strategy_action,
                     Some(StrategyAction::SetReferenceToLowest),
@@ -260,11 +260,23 @@ pub fn strategy_action_selector(
                 }
             }
 
-            if strategy_kind.set_reference_to_highest_allowed() {
+            if strategy_kind.action_allowed(&StrategyAction::SetReferenceToHighest) {
                 let r = ui.selectable_value(
                     tmp_strategy_action,
                     Some(StrategyAction::SetReferenceToHighest),
                     "set reference to highest sounding note",
+                );
+                if r.clicked() {
+                    changed = r.changed();
+                    close_popup(ui);
+                }
+            }
+
+            if strategy_kind.action_allowed(&StrategyAction::ToggleChordMatching) {
+                let r = ui.selectable_value(
+                    tmp_strategy_action,
+                    Some(StrategyAction::ToggleChordMatching),
+                    "toggle chord matching",
                 );
                 if r.clicked() {
                     changed = r.changed();

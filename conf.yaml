@@ -96,17 +96,20 @@ strategies:
       patterns:
       - name: dominant seventh in root position
         key-shape: !block-voicing-relative
-          blocks: [[0], [4,7,10]]
-          # zero: 1
+          blocks:
+          - - 0
+          - - 4
+            - 7
+            - 10
         neighbourhood: !periodic-partial
           0: {}
           4:
             third: 1
           7:
             fifth: 1
-          10: 
-            fifth: -2
+          10:
             octave: 2
+            fifth: -2
         allow-extra-high-notes: true
         original-reference: {}
       - name: major
@@ -317,6 +320,7 @@ strategies:
       bindings:
         sostenuto-pedal-down: !increment-neighbourhood-index 1
         soft-pedal-down: set-reference-to-lowest
+        Backspace: toggle-chord-matching
         Enter: !increment-neighbourhood-index 1
         Space: set-reference-to-lowest
 backend: !pitchbend12
