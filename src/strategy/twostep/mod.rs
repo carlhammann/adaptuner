@@ -1,6 +1,7 @@
 use std::{collections::VecDeque, rc::Rc, time::Instant};
 
 use harmony::chordlist::ChordList;
+use melody::neighbourhoods::Neighbourhoods;
 
 use crate::{
     config::{ExtractConfig, HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
@@ -14,10 +15,7 @@ use crate::{
     neighbourhood::SomeNeighbourhood,
 };
 
-use super::{
-    r#static::StaticTuning,
-    r#trait::{Strategy, StrategyAction},
-};
+use super::r#trait::{Strategy, StrategyAction};
 
 pub mod harmony;
 pub mod melody;
@@ -56,6 +54,15 @@ pub trait MelodyStrategy<T: StackType>: ExtractConfig<MelodyStrategyConfig<T>> {
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> (bool, Option<Stack<T>>);
 
+    fn handle_action(
+        &mut self,
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        action: StrategyAction,
+        time: Instant,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    );
+
     fn start(
         &mut self,
         keys: &[KeyState; 128],
@@ -83,7 +90,7 @@ impl<T: StackType> TwoStep<T> {
                 HarmonyStrategyConfig::ChordList(c) => Box::new(ChordList::new(c)),
             },
             melody: match melody_config {
-                MelodyStrategyConfig::StaticTuning(c) => Box::new(StaticTuning::new(c)),
+                MelodyStrategyConfig::Neighbourhoods(c) => Box::new(Neighbourhoods::new(c)),
             },
         }
     }
@@ -149,16 +156,11 @@ impl<T: StackType> Strategy<T> for TwoStep<T> {
                 }
             }
 
-            ToStrategy::Action { action, .. } => {
+            ToStrategy::Action { action, time } => {
                 self.harmony.handle_action(action, forward);
-                let (pattern_index, harmony) = self.harmony.solve(keys);
-                let (success, reference) =
-                    self.melody.handle_msg(keys, tunings, harmony, msg, forward);
-                forward.push_back(FromStrategy::CurrentHarmony {
-                    pattern_index,
-                    reference,
-                });
-                success
+                self.melody
+                    .handle_action(keys, tunings, action, time, forward);
+                self.solve(keys, tunings, time, forward)
             }
 
             _ => {

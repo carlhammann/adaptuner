@@ -21,6 +21,7 @@ use crate::{
         r#trait::{Strategy, StrategyAction},
         twostep::{
             harmony::chordlist::{keyshape::KeyShape, ChordListConfig, PatternConfig},
+            melody::neighbourhoods::NeighbourhoodsConfig,
             TwoStep,
         },
     },
@@ -34,23 +35,17 @@ pub trait ExtractConfig<C> {
     fn extract_config(&self) -> C;
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone)]
 pub enum HarmonyStrategyConfig<T: IntervalBasis> {
     ChordList(ChordListConfig<T>),
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone)]
 pub enum MelodyStrategyConfig<T: IntervalBasis> {
-    StaticTuning(StaticTuningConfig<T>),
+    Neighbourhoods(NeighbourhoodsConfig<T>),
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone)]
 pub enum StrategyConfig<T: IntervalBasis> {
     StaticTuning(StaticTuningConfig<T>),
     TwoStep(HarmonyStrategyConfig<T>, MelodyStrategyConfig<T>),
@@ -208,7 +203,7 @@ pub enum HarmonyStrategyKind {
 
 #[derive(Clone, Copy)]
 pub enum MelodyStrategyKind {
-    StaticTuning,
+    Neighbourhoods,
 }
 
 #[derive(Clone, Copy)]
@@ -227,15 +222,15 @@ impl StrategyKind {
             (StrategyKind::StaticTuning, StrategyAction::SetReferenceToHighest) => true,
             (StrategyKind::StaticTuning, StrategyAction::ToggleChordMatching) => false,
             (
-                StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning),
+                StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods),
                 StrategyAction::IncrementNeighbourhoodIndex(_),
             ) => true,
             (
-                StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning),
+                StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods),
                 StrategyAction::SetReferenceToLowest,
             ) => true,
             (
-                StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning),
+                StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods),
                 StrategyAction::SetReferenceToHighest,
             ) => true,
             (
@@ -279,6 +274,19 @@ pub struct ExtendedStaticTuningConfig<T: IntervalBasis> {
     bindings: Bindings<Bindable>,
 }
 
+fn deserialize_nonempty_neighbourhoods<
+    'de,
+    D: serde::Deserializer<'de>,
+    T: IntervalBasis + serde::Deserialize<'de>,
+>(
+    deserializer: D,
+) -> Result<Vec<NamedCompleteNeighbourhood<T>>, D::Error> {
+    deserialize_nonempty(
+        "expected a non-empty list of neighbourhoods for strategy definition",
+        deserializer,
+    )
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
@@ -293,7 +301,18 @@ pub enum ExtendedHarmonyStrategyConfig<T: IntervalBasis> {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum ExtendedMelodyStrategyConfig<T: IntervalBasis> {
-    StaticTuning(ExtendedStaticTuningConfig<T>),
+    Neighbourhoods(ExtendedNeighbourhoodsConfig<T>),
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub struct ExtendedNeighbourhoodsConfig<T: IntervalBasis> {
+    fixed: bool,
+    #[serde(deserialize_with = "deserialize_nonempty_neighbourhoods")]
+    neighbourhoods: Vec<NamedCompleteNeighbourhood<T>>,
+    tuning_reference: Reference<T>,
+    reference: Stack<T>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -304,20 +323,8 @@ pub enum ExtendedStrategyConfig<T: IntervalBasis> {
     TwoStep {
         harmony: ExtendedHarmonyStrategyConfig<T>,
         melody: ExtendedMelodyStrategyConfig<T>,
+        bindings: Bindings<Bindable>,
     },
-}
-
-pub fn deserialize_nonempty_neighbourhoods<
-    'de,
-    D: serde::Deserializer<'de>,
-    T: IntervalBasis + serde::Deserialize<'de>,
->(
-    deserializer: D,
-) -> Result<Vec<NamedCompleteNeighbourhood<T>>, D::Error> {
-    deserialize_nonempty(
-        "expected a non-empty list of neighbourhoods for strategy definition",
-        deserializer,
-    )
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -340,7 +347,7 @@ pub enum HarmonyStrategyNames<T: IntervalBasis> {
 
 #[derive(Clone)]
 pub enum MelodyStrategyNames {
-    StaticTuning { neighbourhood_names: Vec<String> },
+    Neighbourhoods { neighbourhood_names: Vec<String> },
 }
 
 #[derive(Clone)]
@@ -364,11 +371,11 @@ impl<T: IntervalBasis> StrategyNames<T> {
             StrategyNames::StaticTuning { .. } => StrategyKind::StaticTuning,
             StrategyNames::TwoStep {
                 harmony: HarmonyStrategyNames::ChordList { .. },
-                melody: MelodyStrategyNames::StaticTuning { .. },
+                melody: MelodyStrategyNames::Neighbourhoods { .. },
                 ..
             } => StrategyKind::TwoStep(
                 HarmonyStrategyKind::ChordList,
-                MelodyStrategyKind::StaticTuning,
+                MelodyStrategyKind::Neighbourhoods,
             ),
         }
     }
@@ -409,7 +416,7 @@ impl<T: IntervalBasis> StrategyNames<T> {
             } => neighbourhood_names,
             StrategyNames::TwoStep {
                 melody:
-                    MelodyStrategyNames::StaticTuning {
+                    MelodyStrategyNames::Neighbourhoods {
                         neighbourhood_names,
                     },
                 ..
@@ -520,16 +527,10 @@ impl<T: IntervalBasis> ExtendedHarmonyStrategyConfig<T> {
 }
 
 impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
-    fn split(
-        &self,
-    ) -> (
-        MelodyStrategyConfig<T>,
-        Bindings<Bindable>,
-        MelodyStrategyNames,
-    ) {
+    fn split(&self) -> (MelodyStrategyConfig<T>, MelodyStrategyNames) {
         match self {
-            ExtendedMelodyStrategyConfig::StaticTuning(ExtendedStaticTuningConfig {
-                bindings,
+            ExtendedMelodyStrategyConfig::Neighbourhoods(ExtendedNeighbourhoodsConfig {
+                fixed,
                 neighbourhoods,
                 tuning_reference,
                 reference,
@@ -539,13 +540,15 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
                 let neighbourhoods: Vec<SomeCompleteNeighbourhood<T>> =
                     neighbourhoods.iter().map(|x| x.inner()).collect();
                 (
-                    MelodyStrategyConfig::StaticTuning(StaticTuningConfig {
-                        neighbourhoods,
-                        tuning_reference: tuning_reference.clone(),
-                        reference: reference.clone(),
+                    MelodyStrategyConfig::Neighbourhoods(NeighbourhoodsConfig {
+                        fixed: *fixed,
+                        inner: StaticTuningConfig {
+                            neighbourhoods,
+                            tuning_reference: tuning_reference.clone(),
+                            reference: reference.clone(),
+                        },
                     }),
-                    bindings.clone(),
-                    MelodyStrategyNames::StaticTuning {
+                    MelodyStrategyNames::Neighbourhoods {
                         neighbourhood_names,
                     },
                 )
@@ -553,23 +556,23 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
         }
     }
 
-    fn join(
-        strat: MelodyStrategyConfig<T>,
-        bindings: Bindings<Bindable>,
-        names: MelodyStrategyNames,
-    ) -> Self {
+    fn join(strat: MelodyStrategyConfig<T>, names: MelodyStrategyNames) -> Self {
         match (strat, names) {
             (
-                MelodyStrategyConfig::StaticTuning(StaticTuningConfig {
-                    mut neighbourhoods,
-                    tuning_reference,
-                    reference,
+                MelodyStrategyConfig::Neighbourhoods(NeighbourhoodsConfig {
+                    fixed,
+                    inner:
+                        StaticTuningConfig {
+                            mut neighbourhoods,
+                            tuning_reference,
+                            reference,
+                        },
                 }),
-                MelodyStrategyNames::StaticTuning {
+                MelodyStrategyNames::Neighbourhoods {
                     mut neighbourhood_names,
                 },
-            ) => Self::StaticTuning(ExtendedStaticTuningConfig {
-                bindings,
+            ) => Self::Neighbourhoods(ExtendedNeighbourhoodsConfig {
+                fixed,
                 neighbourhoods: if neighbourhoods.len() != neighbourhood_names.len() {
                     panic!(
                         "different number of neighbourhoods ({}) and neighbourhood names ({})",
@@ -615,13 +618,18 @@ impl<T: IntervalBasis> NamedAndDescribed<ExtendedStrategyConfig<T>> {
             NamedAndDescribed {
                 name,
                 description,
-                config: ExtendedStrategyConfig::TwoStep { harmony, melody },
+                config:
+                    ExtendedStrategyConfig::TwoStep {
+                        bindings,
+                        harmony,
+                        melody,
+                    },
             } => {
                 let (harmony_config, harmony_names) = harmony.split();
-                let (melody_config, bindings, melody_names) = melody.split();
+                let (melody_config, melody_names) = melody.split();
                 (
                     StrategyConfig::TwoStep(harmony_config, melody_config),
-                    bindings,
+                    bindings.clone(),
                     StrategyNames::TwoStep {
                         name: name.clone(),
                         description: description.clone(),
@@ -667,12 +675,9 @@ impl<T: IntervalBasis> NamedAndDescribed<ExtendedStrategyConfig<T>> {
                 name,
                 description,
                 config: ExtendedStrategyConfig::TwoStep {
+                    bindings,
                     harmony: ExtendedHarmonyStrategyConfig::join(harmony_config, harmony_names),
-                    melody: ExtendedMelodyStrategyConfig::join(
-                        melody_config,
-                        bindings,
-                        melody_names,
-                    ),
+                    melody: ExtendedMelodyStrategyConfig::join(melody_config, melody_names),
                 },
             },
             _ => panic!("strategy config and strategy names don't have matching types"),

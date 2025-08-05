@@ -155,7 +155,7 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
                 ui.horizontal(|ui| {
                     match strn.0.strategy_kind() {
                         StrategyKind::StaticTuning
-                        | StrategyKind::TwoStep(_, MelodyStrategyKind::StaticTuning) => {
+                        | StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods) => {
                             x.tuning_editor_window.show_hide_button(ui, "global tuning");
                             x.reference_editor_window.show_hide_button(ui, "reference");
                             x.neighbourhood_editor_window

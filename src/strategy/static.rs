@@ -161,7 +161,8 @@ impl<T: StackType> StaticTuning<T> {
         }
     }
 
-    fn action(
+    /// returns a time at which a re-tune would be necessary, or None if no re-tune is nescessary
+    pub fn handle_action(
         &mut self,
         keys: &[KeyState; 128],
         tunings: &[Stack<T>; 128],
@@ -217,15 +218,22 @@ impl<T: StackType> StaticTuning<T> {
         };
         for i in range {
             if keys[i].is_sounding() {
-                let new_reference = tunings[i].clone();
-                self.reference.clone_from(&new_reference);
-                forward.push_back(FromStrategy::SetReference {
-                    stack: new_reference,
-                });
+                self.set_reference_to(&tunings[i], forward);
                 return true;
             }
         }
         false
+    }
+
+    pub fn set_reference_to(
+        &mut self,
+        new_reference: &Stack<T>,
+        forward: &mut VecDeque<FromStrategy<T>>,
+    ) {
+        self.reference.clone_from(&new_reference);
+        forward.push_back(FromStrategy::SetReference {
+            stack: new_reference.clone(),
+        });
     }
 
     /// returns `Some(x)` iff the message was successfully handled and a retune at time `x` is necessary
@@ -302,7 +310,7 @@ impl<T: StackType> StaticTuning<T> {
                 Some(time)
             }
             ToStrategy::Action { action, time } => {
-                self.action(keys, tunings, action, time, forward)
+                self.handle_action(keys, tunings, action, time, forward)
             }
             ToStrategy::NeighbourhoodListAction { action, time } => {
                 action.apply_to(

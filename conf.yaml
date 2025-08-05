@@ -201,7 +201,8 @@ strategies:
         original-reference:
           octave: -1
           fifth: 2
-    melody: !static-tuning
+    melody: !neighbourhoods
+      fixed: false
       neighbourhoods:
       - name: pure
         entries: !periodic-complete
@@ -317,12 +318,12 @@ strategies:
           third: 1
         semitones: 69.0
       reference: {}
-      bindings:
-        sostenuto-pedal-down: !increment-neighbourhood-index 1
-        soft-pedal-down: set-reference-to-lowest
-        Backspace: toggle-chord-matching
-        Enter: !increment-neighbourhood-index 1
-        Space: set-reference-to-lowest
+    bindings:
+      sostenuto-pedal-down: !increment-neighbourhood-index 1
+      soft-pedal-down: set-reference-to-lowest
+      Backspace: toggle-chord-matching
+      Enter: !increment-neighbourhood-index 1
+      Space: set-reference-to-lowest
 backend: !pitchbend12
   bend-range: 2.0
   channels:
