@@ -312,10 +312,7 @@ impl<T: StackType> StaticTuning<T> {
                 self.start_but_dont_retune(forward);
                 Some(time)
             }
-            ToStrategy::ChordListAction { .. }
-            | ToStrategy::PushNewChord { .. }
-            | ToStrategy::AllowExtraHighNotes { .. }
-            | ToStrategy::EnableChordList { .. } => unreachable!(),
+            ToStrategy::ToHarmonyStrategy(_, _) => unreachable!(),
         }
     }
 }

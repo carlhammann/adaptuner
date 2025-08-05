@@ -133,6 +133,13 @@ pub enum FromProcess<T: StackType> {
     CurrentConfig(ProcessConfig<T>),
 }
 
+pub enum ToHarmonyStrategy<T: StackType> {
+    ChordListAction { action: ListAction },
+    PushNewChord { pattern: PatternConfig<T> },
+    AllowExtraHighNotes { pattern_index: usize, allow: bool },
+    EnableChordList { enable: bool },
+}
+
 pub enum ToStrategy<T: StackType> {
     Consider {
         stack: Stack<T>,
@@ -163,23 +170,7 @@ pub enum ToStrategy<T: StackType> {
         action: StrategyAction,
         time: Instant,
     },
-    ChordListAction {
-        action: ListAction,
-        time: Instant,
-    },
-    PushNewChord {
-        pattern: PatternConfig<T>,
-        time: Instant,
-    },
-    AllowExtraHighNotes {
-        pattern_index: usize,
-        allow: bool,
-        time: Instant,
-    },
-    EnableChordList {
-        enable: bool,
-        time: Instant,
-    },
+    ToHarmonyStrategy(ToHarmonyStrategy<T>, Instant),
 }
 
 pub enum FromStrategy<T: StackType> {
@@ -857,19 +848,19 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
             ),
             FromUi::ChordListAction { action, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::ChordListAction {
-                    action,
+                Some(ToProcess::ToStrategy(ToStrategy::ToHarmonyStrategy(
+                    ToHarmonyStrategy::ChordListAction { action },
                     time,
-                })),
+                ))),
                 None {},
                 None {},
                 None {},
             ),
             FromUi::PushNewChord { pattern, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::PushNewChord {
-                    pattern,
+                Some(ToProcess::ToStrategy(ToStrategy::ToHarmonyStrategy(
+                    ToHarmonyStrategy::PushNewChord { pattern },
                     time,
-                })),
+                ))),
                 None {},
                 None {},
                 None {},
@@ -879,20 +870,22 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 allow,
                 time,
             } => (
-                Some(ToProcess::ToStrategy(ToStrategy::AllowExtraHighNotes {
-                    pattern_index,
-                    allow,
+                Some(ToProcess::ToStrategy(ToStrategy::ToHarmonyStrategy(
+                    ToHarmonyStrategy::AllowExtraHighNotes {
+                        pattern_index,
+                        allow,
+                    },
                     time,
-                })),
+                ))),
                 None {},
                 None {},
                 None {},
             ),
             FromUi::EnableChordList { enable, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::EnableChordList {
-                    enable,
+                Some(ToProcess::ToStrategy(ToStrategy::ToHarmonyStrategy(
+                    ToHarmonyStrategy::EnableChordList { enable },
                     time,
-                })),
+                ))),
                 None {},
                 None {},
                 None {},

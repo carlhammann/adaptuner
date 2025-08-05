@@ -9,9 +9,9 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
+    msg::ToHarmonyStrategy,
     neighbourhood::{Neighbourhood, Partial, PeriodicPartial, SomeNeighbourhood},
     strategy::twostep::{Harmony, HarmonyStrategy},
-    util::list_action::ListAction,
 };
 
 pub mod keyshape;
@@ -329,23 +329,29 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         )
     }
 
-    fn handle_chord_list_action(&mut self, action: ListAction) -> bool {
-        let mut dummy = Some(0);
-        action.apply_to(|p| p.clone(), &mut self.patterns, &mut dummy);
-        true
-    }
-
-    fn push_new_chord(&mut self, chord: PatternConfig<T>) -> bool {
-        self.patterns.push(Pattern::new(chord));
-        true
-    }
-
-    fn allow_extra_high_notes(&mut self, pattern_index: usize, allow: bool) {
-        self.patterns[pattern_index].allow_extra_high_notes = allow;
-    }
-
-    fn enable_chord_list(&mut self, enable: bool) {
-        self.enable = enable;
+    fn handle_msg(&mut self, msg: crate::msg::ToHarmonyStrategy<T>) -> bool {
+        match msg {
+            ToHarmonyStrategy::ChordListAction { action } => {
+                let mut dummy = Some(0);
+                action.apply_to(|p| p.clone(), &mut self.patterns, &mut dummy);
+                true
+            }
+            ToHarmonyStrategy::PushNewChord { pattern } => {
+                self.patterns.push(Pattern::new(pattern));
+                true
+            }
+            ToHarmonyStrategy::AllowExtraHighNotes {
+                pattern_index,
+                allow,
+            } => {
+                self.patterns[pattern_index].allow_extra_high_notes = allow;
+                true
+            }
+            ToHarmonyStrategy::EnableChordList { enable } => {
+                self.enable = enable;
+                true
+            }
+        }
     }
 }
 

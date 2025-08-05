@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, rc::Rc, time::Instant};
 
-use harmony::chordlist::{ChordList, PatternConfig};
+use harmony::chordlist::ChordList;
 
 use crate::{
     config::{ExtractConfig, HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
@@ -10,9 +10,8 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
-    msg::{FromStrategy, ToStrategy},
+    msg::{FromStrategy, ToHarmonyStrategy, ToStrategy},
     neighbourhood::SomeNeighbourhood,
-    util::list_action::ListAction,
 };
 
 use super::{r#static::StaticTuning, r#trait::Strategy};
@@ -27,12 +26,9 @@ pub struct Harmony<T: IntervalBasis> {
     pub reference: StackCoeff,
 }
 
-pub trait HarmonyStrategy<T: IntervalBasis>: ExtractConfig<HarmonyStrategyConfig<T>> {
+pub trait HarmonyStrategy<T: StackType>: ExtractConfig<HarmonyStrategyConfig<T>> {
     fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>);
-    fn handle_chord_list_action(&mut self, action: ListAction) -> bool;
-    fn push_new_chord(&mut self, chord: PatternConfig<T>) -> bool;
-    fn allow_extra_high_notes(&mut self, pattern_index: usize, allow: bool);
-    fn enable_chord_list(&mut self, enable: bool);
+    fn handle_msg(&mut self, msg: ToHarmonyStrategy<T>) -> bool;
 }
 
 pub trait MelodyStrategy<T: StackType>: ExtractConfig<MelodyStrategyConfig<T>> {
@@ -141,32 +137,14 @@ impl<T: StackType> Strategy<T> for TwoStep<T> {
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool {
         match msg {
-            ToStrategy::ChordListAction { action, time } => {
-                if self.harmony.handle_chord_list_action(action) {
+            ToStrategy::ToHarmonyStrategy(msg, time) => {
+                if self.harmony.handle_msg(msg) {
                     self.solve(keys, tunings, time, forward)
                 } else {
                     false
                 }
             }
-            ToStrategy::PushNewChord { pattern, time } => {
-                if self.harmony.push_new_chord(pattern) {
-                    self.solve(keys, tunings, time, forward)
-                } else {
-                    false
-                }
-            }
-            ToStrategy::AllowExtraHighNotes {
-                pattern_index,
-                allow,
-                time,
-            } => {
-                self.harmony.allow_extra_high_notes(pattern_index, allow);
-                self.solve(keys, tunings, time, forward)
-            }
-            ToStrategy::EnableChordList { enable, time } => {
-                self.harmony.enable_chord_list(enable);
-                self.solve(keys, tunings, time, forward)
-            }
+
             _ => {
                 let (pattern_index, harmony) = self.harmony.solve(keys);
                 let (success, reference) =
