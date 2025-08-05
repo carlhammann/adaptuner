@@ -94,6 +94,21 @@ strategies:
     harmony: !chord-list
       enable: true
       patterns:
+      - name: dominant seventh in root position
+        key-shape: !block-voicing-relative
+          blocks: [[0], [4,7,10]]
+          # zero: 1
+        neighbourhood: !periodic-partial
+          0: {}
+          4:
+            third: 1
+          7:
+            fifth: 1
+          10: 
+            fifth: -2
+            octave: 2
+        allow-extra-high-notes: true
+        original-reference: {}
       - name: major
         key-shape: !classes-relative
           classes:
@@ -123,6 +138,66 @@ strategies:
             fifth: 1
         allow-extra-high-notes: true
         original-reference: {}
+      - name: dominant seventh
+        key-shape: !classes-relative
+          classes:
+          - 10
+          - 0
+          - 4
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          4:
+            third: 1
+          7:
+            fifth: 1
+          10:
+            octave: 2
+            fifth: -2
+        allow-extra-high-notes: true
+        original-reference:
+          octave: -1
+          fifth: 2
+      - name: major add 9
+        key-shape: !classes-relative
+          classes:
+          - 0
+          - 2
+          - 4
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          2:
+            octave: -1
+            fifth: 2
+          4:
+            third: 1
+          7:
+            fifth: 1
+        allow-extra-high-notes: true
+        original-reference:
+          octave: -1
+          fifth: 2
+      - name: major seventh
+        key-shape: !classes-relative
+          classes:
+          - 11
+          - 0
+          - 4
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          4:
+            third: 1
+          7:
+            fifth: 1
+          11:
+            fifth: 1
+            third: 1
+        allow-extra-high-notes: true
+        original-reference:
+          octave: -1
+          fifth: 2
     melody: !static-tuning
       neighbourhoods:
       - name: pure
@@ -153,8 +228,9 @@ strategies:
             octave: 1
             third: -1
           9:
-            octave: -1
-            fifth: 3
+            octave: 1
+            fifth: -1
+            third: 1
           10:
             octave: 2
             fifth: -2
@@ -196,12 +272,11 @@ strategies:
               third: '-1/4'
           6:
             target:
-              octave: 2
-              fifth: -2
-              third: -1
+              octave: -1
+              fifth: 2
+              third: 1
             actual:
-              octave: '1'
-              third: '-3/2'
+              third: '3/2'
           7:
             target:
               fifth: 1
@@ -238,8 +313,7 @@ strategies:
           fifth: -1
           third: 1
         semitones: 69.0
-      reference:
-        octave: -1
+      reference: {}
       bindings:
         sostenuto-pedal-down: !increment-neighbourhood-index 1
         soft-pedal-down: set-reference-to-lowest

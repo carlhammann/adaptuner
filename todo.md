@@ -4,6 +4,8 @@
 - handle the other two pedals correctly
   - treat ChannelVoice Messages in the backend, tweak PedalHold...?
 - I just learned that Rust logical operators have short-circuiting variants. Use them!
+- verify the invariant of chord list entries when deserializing: every bound
+  offset mut have an associated tuning
 
 # UI 
 

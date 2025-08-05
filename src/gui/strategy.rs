@@ -278,6 +278,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                         select_allowed: true,
                         no_selection_allowed: false,
                         delete_allowed: true,
+                        reorder_allowed: true,
                         show_one: Box::new(|ui, _i, elem, _| {
                             ui.add(egui::TextEdit::singleline(elem.0.name_mut()).min_size(vec2(
                                 ui.style().spacing.text_edit_width / 2.0,
@@ -294,6 +295,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                             None::<()> {}
                         }),
                         clone: Some(Box::new(|ui, _elems, selected, _| {
+                            ui.separator();
                             if let Some(i) = selected {
                                 if ui.button("create copy of selected").clicked() {
                                     Some(i)
@@ -305,7 +307,7 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                             }
                         })),
                     },
-                    &(),
+                    &mut (),
                 );
 
                 match list_edit_res {

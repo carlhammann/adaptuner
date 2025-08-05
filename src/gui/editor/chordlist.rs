@@ -5,12 +5,12 @@ use eframe::egui::{self, vec2};
 use crate::{
     config::NamedPatternConfig,
     gui::{
-        common::{CorrectionSystemChooser, ListEdit, ListEditOpts, RefListEdit},
+        common::{CorrectionSystemChooser, ListEdit, ListEditOpts, ListEditResult, RefListEdit},
         toplevel::KeysAndTunings,
     },
     interval::{
         stack::{ScaledAdd, Stack},
-        stacktype::r#trait::StackType,
+        stacktype::r#trait::{StackCoeff, StackType},
     },
     msg::{FromUi, HandleMsgRef, ToUi},
     neighbourhood::{Neighbourhood, SomeNeighbourhood},
@@ -21,13 +21,16 @@ use crate::{
 pub struct ChordListEditor<T: StackType> {
     enabled: bool,
     active_pattern: Option<usize>,
-    recompute: bool,
+    request_recompute: bool,
     new_name: String,
     new_config: Option<(PatternConfig<T>, Stack<T>)>,
+    simple: bool,
+    block_sizes: Vec<usize>,
     match_transpositions: bool,
     match_voicings: bool,
     allow_extra_high_notes: bool,
     correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
+    tmp_stack: Stack<T>,
 }
 
 fn describe_pattern<T: StackType + HasNoteNames>(
@@ -36,6 +39,7 @@ fn describe_pattern<T: StackType + HasNoteNames>(
     neighbourhood: &SomeNeighbourhood<T>,
     original_reference: &Stack<T>,
     correction_system_chooser: &CorrectionSystemChooser<T>,
+    tmp_stack: &mut Stack<T>,
 ) {
     match key_shape {
         KeyShape::ClassesRelative { .. } => {
@@ -53,13 +57,12 @@ fn describe_pattern<T: StackType + HasNoteNames>(
         }
         KeyShape::ClassesFixed { .. } => {
             ui.label("match all voicings of:");
-            let mut stack = Stack::new_zero();
             neighbourhood.for_each_stack(|_offset, relative_stack| {
-                stack.clone_from(relative_stack);
-                stack.scaled_add(1, original_reference);
+                tmp_stack.clone_from(relative_stack);
+                tmp_stack.scaled_add(1, original_reference);
                 ui.label(format!(
                     "  {}",
-                    stack.corrected_notename(
+                    tmp_stack.corrected_notename(
                         &NoteNameStyle::Class,
                         correction_system_chooser.preference_order(),
                         correction_system_chooser.use_cent_values
@@ -81,14 +84,13 @@ fn describe_pattern<T: StackType + HasNoteNames>(
             });
         }
         KeyShape::ExactRelative { .. } => {
-            ui.label("match any transposition of this chord:");
-            let mut stack = Stack::new_zero();
+            ui.label("match all transpositions of this chord:");
             neighbourhood.for_each_stack(|_offset, relative_stack| {
-                stack.clone_from(relative_stack);
-                stack.scaled_add(1, original_reference);
+                tmp_stack.clone_from(relative_stack);
+                tmp_stack.scaled_add(1, original_reference);
                 ui.label(format!(
                     "  {}",
-                    stack.corrected_notename(
+                    tmp_stack.corrected_notename(
                         &NoteNameStyle::Full,
                         correction_system_chooser.preference_order(),
                         correction_system_chooser.use_cent_values
@@ -96,7 +98,55 @@ fn describe_pattern<T: StackType + HasNoteNames>(
                 ));
             });
         }
-        _ => todo!(),
+        KeyShape::BlockVoicingFixed { blocks, .. } => {
+            ui.label("match all block voicings of:");
+            ui.horizontal(|ui| {
+                for block in blocks {
+                    ui.vertical(|ui| {
+                        for offset in block {
+                            // this will always succeed, because `neighbourhood` contains all pitch
+                            // classes in the `blocks`
+                            let _ = neighbourhood
+                                .try_write_relative_stack(tmp_stack, *offset as StackCoeff);
+                            tmp_stack.scaled_add(1, original_reference);
+
+                            ui.label(format!(
+                                "  {}",
+                                tmp_stack.corrected_notename(
+                                    &NoteNameStyle::Class,
+                                    correction_system_chooser.preference_order(),
+                                    correction_system_chooser.use_cent_values
+                                )
+                            ));
+                        }
+                    });
+                }
+            });
+        }
+        KeyShape::BlockVoicingRelative { blocks } => {
+            ui.label("match all transpositions of all block voicings of:");
+            ui.horizontal(|ui| {
+                for block in blocks {
+                    ui.vertical(|ui| {
+                        for offset in block {
+                            // this will always succeed, because `neighbourhood` contains all pitch
+                            // classes in the `blocks`
+                            let _ = neighbourhood
+                                .try_write_relative_stack(tmp_stack, *offset as StackCoeff);
+
+                            ui.label(format!(
+                                "  {}",
+                                tmp_stack.corrected_notename(
+                                    &NoteNameStyle::Class,
+                                    correction_system_chooser.preference_order(),
+                                    correction_system_chooser.use_cent_values
+                                )
+                            ));
+                        }
+                    });
+                }
+            });
+        }
     }
 }
 
@@ -105,13 +155,173 @@ impl<T: StackType + HasNoteNames> ChordListEditor<T> {
         Self {
             enabled: true,
             active_pattern: None {},
+            simple: true,
+            block_sizes: vec![1],
             match_voicings: true,
             match_transpositions: true,
             allow_extra_high_notes: true,
             correction_system_chooser,
-            recompute: true,
+            request_recompute: true,
             new_name: String::with_capacity(16),
             new_config: None {},
+            tmp_stack: Stack::new_zero(),
+        }
+    }
+
+    fn recompute_simple(&mut self, state: &KeysAndTunings<T>) {
+        if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
+            self.new_config = match (self.match_transpositions, self.match_voicings) {
+                (true, true) => Some((
+                    PatternConfig::classes_relative_from_current(
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    ),
+                    state.tunings[lowest_sounding].clone(),
+                )),
+                (false, true) => Some((
+                    PatternConfig::classes_fixed_from_current(
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    ),
+                    state.tunings[lowest_sounding].clone(),
+                )),
+                (false, false) => Some((
+                    PatternConfig::exact_fixed_from_current(
+                        &state.active_notes,
+                        &state.tunings,
+                        self.allow_extra_high_notes,
+                    ),
+                    state.tunings[lowest_sounding].clone(),
+                )),
+                (true, false) => Some((
+                    PatternConfig::exact_relative_from_current(
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    ),
+                    state.tunings[lowest_sounding].clone(),
+                )),
+            };
+        } else {
+            self.new_config = None {};
+        }
+    }
+
+    fn recompute_block(&mut self, state: &KeysAndTunings<T>) {
+        if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
+            self.new_config = if self.match_transpositions {
+                Some((
+                    PatternConfig::block_voicing_relative_from_current(
+                        &self.block_sizes,
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    ),
+                    state.tunings[lowest_sounding].clone(),
+                ))
+            } else {
+                Some((
+                    PatternConfig::block_voicing_fixed_from_current(
+                        &self.block_sizes,
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    ),
+                    state.tunings[lowest_sounding].clone(),
+                ))
+            }
+        } else {
+            self.new_config = None {};
+        }
+    }
+
+    fn recompute_new_config(&mut self, state: &KeysAndTunings<T>) {
+        if self.simple {
+            self.recompute_simple(state);
+        } else {
+            self.recompute_block(state);
+        }
+    }
+
+    fn show_new_simple(&mut self, ui: &mut egui::Ui, state: &KeysAndTunings<T>) {
+        // don't use short-circuiting here, we want to show all checkboxes always.
+        if ui
+            .checkbox(&mut self.match_voicings, "match all voicings")
+            .changed()
+            | ui.checkbox(&mut self.match_transpositions, "match all transpositions")
+                .changed()
+            | ui.checkbox(
+                &mut self.allow_extra_high_notes,
+                "allow additional high notes, if no other entry fits perfectly",
+            )
+            .changed()
+        {
+            self.recompute_new_config(state);
+        }
+    }
+
+    fn show_new_block(&mut self, ui: &mut egui::Ui, state: &KeysAndTunings<T>) {
+        let mut recompute = false;
+        // don't use short-circuiting here, we want to show all checkboxes always.
+        if ui
+            .checkbox(&mut self.match_transpositions, "match all transpositions")
+            .changed()
+            | ui.checkbox(
+                &mut self.allow_extra_high_notes,
+                "allow additional high notes, if no other entry fits perfectly",
+            )
+            .changed()
+        {
+            recompute = true;
+        }
+
+        ui.separator();
+        ui.label("block sizes (number of pitch classes in each block, lowest to highest):");
+        let mut dummy = None {};
+        let res = RefListEdit::new(&mut self.block_sizes, &mut dummy).show(
+            ui,
+            "block_size_editor",
+            ListEditOpts {
+                empty_allowed: false,
+                select_allowed: false,
+                no_selection_allowed: false,
+                delete_allowed: true,
+                reorder_allowed: false,
+                show_one: Box::new(|ui, _, block_size, _| {
+                    if ui
+                        .add(egui::DragValue::new(block_size).range(1..=128))
+                        .changed()
+                    {
+                        Some(())
+                    } else {
+                        None {}
+                    }
+                }),
+                clone: Some(Box::new(|ui, elems, _, _| {
+                    if ui.button("add a block").clicked() {
+                        Some(elems.len() - 1)
+                    } else {
+                        None {}
+                    }
+                })),
+            },
+            &mut (),
+        );
+        if res != ListEditResult::None {
+            recompute = true;
+        }
+
+        ui.separator();
+
+        if recompute {
+            self.recompute_new_config(state);
         }
     }
 
@@ -122,6 +332,11 @@ impl<T: StackType + HasNoteNames> ChordListEditor<T> {
         patterns: &mut Vec<NamedPatternConfig<T>>,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
+        if self.request_recompute {
+            self.recompute_new_config(state);
+            self.request_recompute = false;
+        }
+
         ui.vertical_centered(|ui| {
             if ui
                 .button(if self.enabled { "disable" } else { "enable" })
@@ -151,8 +366,15 @@ impl<T: StackType + HasNoteNames> ChordListEditor<T> {
                     select_allowed: false,
                     no_selection_allowed: true,
                     delete_allowed: true,
+                    reorder_allowed: true,
                     show_one: Box::new(
-                        |ui, i, pattern, correction_system_chooser: &CorrectionSystemChooser<T>| {
+                        |ui,
+                         i,
+                         pattern,
+                         (correction_system_chooser, tmp_stack): &mut (
+                            &CorrectionSystemChooser<T>,
+                            &mut Stack<T>,
+                        )| {
                             let mut msg = None {};
                             ui.horizontal(|ui| {
                                 egui::ComboBox::from_id_salt(&pattern.key_shape)
@@ -187,6 +409,7 @@ impl<T: StackType + HasNoteNames> ChordListEditor<T> {
                                             &pattern.neighbourhood,
                                             &pattern.original_reference,
                                             correction_system_chooser,
+                                            tmp_stack,
                                         );
                                     });
                             });
@@ -195,7 +418,10 @@ impl<T: StackType + HasNoteNames> ChordListEditor<T> {
                     ),
                     clone: None {},
                 },
-                &*self.correction_system_chooser.borrow(),
+                &mut (
+                    &*self.correction_system_chooser.borrow(),
+                    &mut self.tmp_stack,
+                ),
             );
 
             match res {
@@ -226,76 +452,25 @@ impl<T: StackType + HasNoteNames> ChordListEditor<T> {
             );
         });
 
-        // don't use short-circuiting here, we want to show all checkboxes always.
-        if ui
-            .checkbox(&mut self.match_voicings, "match all voicings")
-            .changed()
-            | ui.checkbox(&mut self.match_transpositions, "match all transpositions")
-                .changed()
-            | ui.checkbox(
-                &mut self.allow_extra_high_notes,
-                "allow additional high notes, if no other entry fits perfectly",
-            )
-            .changed()
-        {
-            self.recompute = true;
-        }
-
-        if self.recompute {
-            self.recompute = false;
-            if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
-                self.new_config = match (self.match_transpositions, self.match_voicings) {
-                    (true, true) => Some((
-                        PatternConfig::classes_relative_from_current(
-                            &state.active_notes,
-                            &state.tunings,
-                            lowest_sounding,
-                            self.allow_extra_high_notes,
-                        ),
-                        state.tunings[lowest_sounding].clone(),
-                    )),
-                    (false, true) => Some((
-                        PatternConfig::classes_fixed_from_current(
-                            &state.active_notes,
-                            &state.tunings,
-                            lowest_sounding,
-                            self.allow_extra_high_notes,
-                        ),
-                        state.tunings[lowest_sounding].clone(),
-                    )),
-                    (false, false) => Some((
-                        PatternConfig::exact_fixed_from_current(
-                            &state.active_notes,
-                            &state.tunings,
-                            self.allow_extra_high_notes,
-                        ),
-                        state.tunings[lowest_sounding].clone(),
-                    )),
-                    (true, false) => Some((
-                        PatternConfig::exact_relative_from_current(
-                            &state.active_notes,
-                            &state.tunings,
-                            lowest_sounding,
-                            self.allow_extra_high_notes,
-                        ),
-                        state.tunings[lowest_sounding].clone(),
-                    )),
-                };
-            } else {
-                self.new_config = None {};
+        ui.horizontal(|ui| {
+            if ui
+                .selectable_value(&mut self.simple, true, "simple chord or voicing")
+                .clicked()
+            {
+                self.request_recompute = true;
             }
-        }
+            if ui
+                .selectable_value(&mut self.simple, false, "block voicing")
+                .clicked()
+            {
+                self.request_recompute = true;
+            }
+        });
 
-        if let (None {}, Some((pattern, original_reference))) =
-            (self.active_pattern, &self.new_config)
-        {
-            describe_pattern(
-                ui,
-                &pattern.key_shape,
-                &pattern.neighbourhood,
-                original_reference,
-                &*self.correction_system_chooser.borrow(),
-            );
+        if self.simple {
+            self.show_new_simple(ui, state);
+        } else {
+            self.show_new_block(ui, state);
         }
 
         ui.vertical_centered(|ui| {
@@ -325,6 +500,19 @@ impl<T: StackType + HasNoteNames> ChordListEditor<T> {
                 self.new_name.clear();
             }
         });
+
+        if let (None {}, Some((pattern, original_reference))) =
+            (self.active_pattern, &self.new_config)
+        {
+            describe_pattern(
+                ui,
+                &pattern.key_shape,
+                &pattern.neighbourhood,
+                original_reference,
+                &*self.correction_system_chooser.borrow(),
+                &mut self.tmp_stack,
+            );
+        }
     }
 }
 
@@ -339,7 +527,7 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for ChordListEditor<T> {
             | ToUi::TunedNoteOn { .. }
             | ToUi::NoteOff { .. }
             | ToUi::PedalHold { .. } => {
-                self.recompute = true;
+                self.request_recompute = true;
             }
 
             _ => {}

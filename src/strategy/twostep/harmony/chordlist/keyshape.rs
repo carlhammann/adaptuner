@@ -16,9 +16,9 @@ pub enum KeyShape {
     #[serde(rename_all = "kebab-case")]
     ClassesRelative { classes: Vec<u8> },
     #[serde(rename_all = "kebab-case")]
-    VoicingFixed { blocks: Vec<Vec<u8>>, zero: u8 },
+    BlockVoicingFixed { blocks: Vec<Vec<u8>>, zero: u8 },
     #[serde(rename_all = "kebab-case")]
-    VoicingRelative { blocks: Vec<Vec<u8>> },
+    BlockVoicingRelative { blocks: Vec<Vec<u8>> },
 }
 
 #[derive(Debug, PartialEq)]
@@ -108,8 +108,8 @@ impl KeyShape {
         match self {
             Self::ClassesFixed { classes, zero } => fit_classes_fixed(classes, *zero, notes, start),
             Self::ClassesRelative { classes } => fit_classes_relative(classes, notes, start),
-            Self::VoicingFixed { blocks, zero } => fit_voicing_fixed(blocks, *zero, notes, start),
-            Self::VoicingRelative { blocks } => fit_voicing_relative(blocks, notes, start),
+            Self::BlockVoicingFixed { blocks, zero } => fit_voicing_fixed(blocks, *zero, notes, start),
+            Self::BlockVoicingRelative { blocks } => fit_voicing_relative(blocks, notes, start),
             Self::ExactFixed { .. } | Self::ExactRelative { .. } => unreachable!(),
         }
     }
@@ -410,7 +410,7 @@ mod test {
     ) {
         one_case(
             active,
-            KeyShape::VoicingFixed { blocks, zero },
+            KeyShape::BlockVoicingFixed { blocks, zero },
             Fit {
                 zero: reference,
                 next,
@@ -449,7 +449,7 @@ mod test {
     fn one_voicing_relative(active: &[u8], blocks: Vec<Vec<u8>>, reference: u8, next: usize) {
         one_case(
             active,
-            KeyShape::VoicingRelative { blocks },
+            KeyShape::BlockVoicingRelative { blocks },
             Fit {
                 zero: reference,
                 next,

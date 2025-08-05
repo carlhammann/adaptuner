@@ -88,6 +88,49 @@ fn sounding_neighbourhood<T: IntervalBasis>(
     }
 }
 
+fn blocks_from_current(
+    block_sizes: &[usize],
+    keys: &[KeyState; 128],
+    lowest_sounding: usize,
+) -> Vec<Vec<u8>> {
+    let mut encountered = [false; 12];
+    let mut blocks = vec![];
+    let mut i = 0;
+    for &n in block_sizes {
+        let mut block = vec![];
+        while i < 128 && block.len() < n {
+            if keys[i].is_sounding() {
+                let class = (i as isize - lowest_sounding as isize).rem_euclid(12) as usize;
+                if !encountered[class] {
+                    block.push(class as u8);
+                    encountered[class] = true;
+                }
+            }
+            i += 1;
+        }
+        if !block.is_empty() {
+            blocks.push(block);
+        }
+    }
+
+    let mut last_block = vec![];
+    while i < 128 {
+        if keys[i].is_sounding() {
+            let class = (i as isize - lowest_sounding as isize).rem_euclid(12) as usize;
+            if !encountered[class] {
+                last_block.push(class as u8);
+                encountered[class] = true;
+            }
+        }
+        i += 1;
+    }
+    if !last_block.is_empty() {
+        blocks.push(last_block);
+    }
+
+    blocks
+}
+
 impl<T: StackType> PatternConfig<T> {
     // In principle, `lowest_sounding` is computable from the `keys` argument. The additional
     // argument thus moves the burden of this check to the caller, which might already know
@@ -173,6 +216,39 @@ impl<T: StackType> PatternConfig<T> {
                 }
                 neigh
             }),
+            allow_extra_high_notes,
+        }
+    }
+
+    pub fn block_voicing_fixed_from_current(
+        block_sizes: &[usize],
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        lowest_sounding: usize,
+        allow_extra_high_notes: bool,
+    ) -> Self {
+        Self {
+            key_shape: KeyShape::BlockVoicingFixed {
+                zero: lowest_sounding as u8 % 12,
+                blocks: blocks_from_current(block_sizes, keys, lowest_sounding),
+            },
+            neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
+            allow_extra_high_notes,
+        }
+    }
+
+    pub fn block_voicing_relative_from_current(
+        block_sizes: &[usize],
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        lowest_sounding: usize,
+        allow_extra_high_notes: bool,
+    ) -> Self {
+        Self {
+            key_shape: KeyShape::BlockVoicingRelative {
+                blocks: blocks_from_current(block_sizes, keys, lowest_sounding),
+            },
+            neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
             allow_extra_high_notes,
         }
     }

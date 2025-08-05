@@ -56,10 +56,12 @@ pub struct ListEditOpts<X, M, H> {
     pub select_allowed: bool,
     pub no_selection_allowed: bool,
     pub delete_allowed: bool,
-    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X, &H) -> Option<M>>,
-    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>, &H) -> Option<usize>>>,
+    pub reorder_allowed: bool,
+    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X, &mut H) -> Option<M>>,
+    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>, &mut H) -> Option<usize>>>,
 }
 
+#[derive(PartialEq)]
 pub enum ListEditResult<M> {
     Message(M),
     Action(ListAction),
@@ -84,7 +86,7 @@ pub trait ListEdit<X> {
         ui: &mut egui::Ui,
         id_salt: &'static str,
         opts: ListEditOpts<X, M, H>,
-        view_data: &H,
+        view_data: &mut H,
     ) -> ListEditResult<M>
     where
         X: Clone;
@@ -100,7 +102,7 @@ impl<'a, X> RefListEdit<'a, X> {
         ui: &mut egui::Ui,
         id_salt: &'static str,
         opts: ListEditOpts<X, M, H>,
-        view_data: &H,
+        view_data: &mut H,
     ) -> ListEditResult<M> {
         let mut res = ListEditResult::None;
         let mut update_res = |new_res: ListEditResult<M>| match res {
@@ -139,37 +141,39 @@ impl<'a, X> RefListEdit<'a, X> {
                         update_res(ListEditResult::Message(m));
                     }
 
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 0.0;
-                        if ui
-                            .add_enabled(
-                                i > 0,
-                                egui::Button::new("⏶").corner_radius(egui::CornerRadius {
-                                    ne: 0,
-                                    nw: ui.style().visuals.menu_corner_radius.nw,
-                                    se: 0,
-                                    sw: ui.style().visuals.menu_corner_radius.sw,
-                                }),
-                            )
-                            .clicked()
-                        {
-                            update_res(ListEditResult::Action(ListAction::SwapWithPrev(i)));
-                        }
-                        if ui
-                            .add_enabled(
-                                i < n - 1,
-                                egui::Button::new("⏷").corner_radius(egui::CornerRadius {
-                                    nw: 0,
-                                    ne: ui.style().visuals.menu_corner_radius.ne,
-                                    sw: 0,
-                                    se: ui.style().visuals.menu_corner_radius.se,
-                                }),
-                            )
-                            .clicked()
-                        {
-                            update_res(ListEditResult::Action(ListAction::SwapWithPrev(i + 1)));
-                        }
-                    });
+                    if opts.reorder_allowed {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            if ui
+                                .add_enabled(
+                                    i > 0,
+                                    egui::Button::new("⏶").corner_radius(egui::CornerRadius {
+                                        ne: 0,
+                                        nw: ui.style().visuals.menu_corner_radius.nw,
+                                        se: 0,
+                                        sw: ui.style().visuals.menu_corner_radius.sw,
+                                    }),
+                                )
+                                .clicked()
+                            {
+                                update_res(ListEditResult::Action(ListAction::SwapWithPrev(i)));
+                            }
+                            if ui
+                                .add_enabled(
+                                    i < n - 1,
+                                    egui::Button::new("⏷").corner_radius(egui::CornerRadius {
+                                        nw: 0,
+                                        ne: ui.style().visuals.menu_corner_radius.ne,
+                                        sw: 0,
+                                        se: ui.style().visuals.menu_corner_radius.se,
+                                    }),
+                                )
+                                .clicked()
+                            {
+                                update_res(ListEditResult::Action(ListAction::SwapWithPrev(i + 1)));
+                            }
+                        });
+                    }
 
                     if opts.delete_allowed {
                         if ui
@@ -185,7 +189,6 @@ impl<'a, X> RefListEdit<'a, X> {
             });
 
         if let Some(f) = opts.clone {
-            ui.separator();
             if let Some(i) = f(ui, &self.elems, *self.selected, view_data) {
                 update_res(ListEditResult::Action(ListAction::Clone(i)));
             }
@@ -235,7 +238,7 @@ impl<'a, X> ListEdit<X> for RefListEdit<'a, X> {
         ui: &mut egui::Ui,
         id_salt: &'static str,
         opts: ListEditOpts<X, M, H>,
-        view_data: &H,
+        view_data: &mut H,
     ) -> ListEditResult<M>
     where
         X: Clone,
@@ -317,7 +320,7 @@ impl<X> ListEdit<X> for OwningListEdit<X> {
         ui: &mut egui::Ui,
         id_salt: &'static str,
         opts: ListEditOpts<X, M, H>,
-        view_data: &H,
+        view_data: &mut H,
     ) -> ListEditResult<M>
     where
         X: Clone,
@@ -459,6 +462,7 @@ impl<T: StackType> CorrectionSystemChooser<T> {
                     select_allowed: false,
                     no_selection_allowed: false,
                     delete_allowed: false,
+                    reorder_allowed: true,
                     show_one: Box::new(|ui, _, i, _| {
                         ui.label(format!(
                             "{} ('{}')",
@@ -469,7 +473,7 @@ impl<T: StackType> CorrectionSystemChooser<T> {
                     }),
                     clone: None {},
                 },
-                &(),
+                &mut (),
             );
         });
     }
