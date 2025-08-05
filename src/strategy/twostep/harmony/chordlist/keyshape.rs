@@ -1,16 +1,17 @@
 use serde_derive::{Deserialize, Serialize};
 
+/// invariant: the first entry of, `offsets`, `classes`, or `blocks` fields must always be 0.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, std::hash::Hash)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum KeyShape {
     #[serde(rename_all = "kebab-case")]
-    ExactFixed { keys: Vec<u8> },
-    #[serde(rename_all = "kebab-case")]
-    ExactRelative {
-        /// invariant: the first entry must be 0
-        offsets: Vec<u8>,
+    ExactFixed {
+        /// this is the only Vec<u8> field whose first entry may be nonzero
+        keys: Vec<u8>,
     },
+    #[serde(rename_all = "kebab-case")]
+    ExactRelative { offsets: Vec<u8> },
     #[serde(rename_all = "kebab-case")]
     ClassesFixed { classes: Vec<u8>, zero: u8 },
     #[serde(rename_all = "kebab-case")]
@@ -108,7 +109,9 @@ impl KeyShape {
         match self {
             Self::ClassesFixed { classes, zero } => fit_classes_fixed(classes, *zero, notes, start),
             Self::ClassesRelative { classes } => fit_classes_relative(classes, notes, start),
-            Self::BlockVoicingFixed { blocks, zero } => fit_voicing_fixed(blocks, *zero, notes, start),
+            Self::BlockVoicingFixed { blocks, zero } => {
+                fit_voicing_fixed(blocks, *zero, notes, start)
+            }
             Self::BlockVoicingRelative { blocks } => fit_voicing_relative(blocks, notes, start),
             Self::ExactFixed { .. } | Self::ExactRelative { .. } => unreachable!(),
         }
@@ -201,12 +204,16 @@ fn fit_classes_fixed<N: HasActivationStatus>(
     notes: &[N; 128],
     start: usize,
 ) -> Fit {
+    let mut matched_zero = u8::MAX;
     let mut used = vec![false; classes.len()];
     let mut i = start;
     while i < 128 {
         if !notes[i].active() {
             i += 1;
             continue;
+        }
+        if i as u8 % 12 == zero % 12 {
+            matched_zero = matched_zero.min(i as u8);
         }
         match classes
             .iter()
@@ -222,7 +229,10 @@ fn fit_classes_fixed<N: HasActivationStatus>(
     if used.iter().any(|&u| !u) {
         Fit { zero, next: start }
     } else {
-        Fit { zero, next: i }
+        Fit {
+            zero: matched_zero,
+            next: i,
+        }
     }
 }
 
@@ -251,11 +261,16 @@ fn fit_voicing_fixed<N: HasActivationStatus>(
     notes: &[N; 128],
     start: usize,
 ) -> Fit {
+    let mut matched_zero = u8::MAX;
     let mut next = start;
     let mut i = 0;
     while i < blocks.len() {
         match fit_classes_fixed(&blocks[i], zero, notes, next) {
-            Fit { next: new_next, .. } => {
+            Fit {
+                next: new_next,
+                zero: new_matched_zero,
+            } => {
+                matched_zero = matched_zero.min(new_matched_zero);
                 if new_next > next {
                     next = new_next;
                     i += 1;
@@ -266,7 +281,10 @@ fn fit_voicing_fixed<N: HasActivationStatus>(
         }
     }
     if i == blocks.len() {
-        Fit { zero, next }
+        Fit {
+            zero: matched_zero,
+            next,
+        }
     } else {
         Fit { zero, next: start }
     }
@@ -325,7 +343,6 @@ mod test {
         let examples = [
             (vec![0], vec![0], 0, 0, 128),
             (vec![0, 1], vec![0], 0, 0, 1),
-            (vec![1], vec![1], 0, 0, 128),
             (vec![1], vec![0], 1, 1, 128),
             (vec![1], vec![0], 0, 0, 0),
             (vec![0], vec![0], 1, 1, 0),
@@ -333,25 +350,20 @@ mod test {
             (vec![0, 4], vec![0, 5], 0, 0, 0),
             (vec![0, 5], vec![0, 4], 0, 0, 0),
             (vec![1, 5], vec![0, 4], 1, 1, 128),
-            (vec![0, 4], vec![1, 5], 11, 11, 128),
             (vec![0, 5, 6], vec![0, 5], 0, 0, 6),
             // the order doesn't matter, as long as the "matching" keys come first:
             (vec![8, 3, 11], vec![0, 5], 3, 3, 11),
             (vec![8, 3, 4], vec![0, 5], 3, 3, 0),
             // permutations (active notes)
-            (vec![1, 2, 3], vec![1, 2, 3], 0, 0, 128),
-            (vec![1, 3, 2], vec![1, 2, 3], 0, 0, 128),
-            (vec![2, 1, 3], vec![1, 2, 3], 0, 0, 128),
-            (vec![2, 3, 1], vec![1, 2, 3], 0, 0, 128),
-            (vec![3, 1, 2], vec![1, 2, 3], 0, 0, 128),
-            (vec![3, 2, 1], vec![1, 2, 3], 0, 0, 128),
+            (vec![0, 1, 2], vec![0, 1, 2], 0, 0, 128),
+            (vec![0, 2, 1], vec![0, 1, 2], 0, 0, 128),
+            (vec![1, 0, 2], vec![0, 1, 2], 0, 0, 128),
+            (vec![1, 2, 0], vec![0, 1, 2], 0, 0, 128),
+            (vec![2, 0, 1], vec![0, 1, 2], 0, 0, 128),
+            (vec![2, 1, 0], vec![0, 1, 2], 0, 0, 128),
             // permutations (pattern)
-            (vec![1, 2, 3], vec![1, 2, 3], 0, 0, 128),
-            (vec![1, 2, 3], vec![1, 3, 2], 0, 0, 128),
-            (vec![1, 2, 3], vec![2, 1, 3], 0, 0, 128),
-            (vec![1, 2, 3], vec![2, 3, 1], 0, 0, 128),
-            (vec![1, 2, 3], vec![3, 1, 2], 0, 0, 128),
-            (vec![1, 2, 3], vec![3, 2, 1], 0, 0, 128),
+            (vec![0, 1, 2], vec![0, 1, 2], 0, 0, 128),
+            (vec![0, 1, 2], vec![0, 2, 1], 0, 0, 128),
             // longer than one octave
             (vec![0, 13], vec![0, 1], 0, 0, 128),
             (vec![20, 7], vec![0, 1], 7, 7, 128),
@@ -378,22 +390,17 @@ mod test {
         let examples = [
             (vec![0], vec![0], 0, 128),
             (vec![1], vec![0], 1, 128),
-            (vec![0], vec![1], 11, 128),
             (vec![1, 5], vec![0, 4], 1, 128),
-            (vec![0, 4], vec![1, 5], 11, 128),
             (vec![0, 5, 6], vec![0, 5], 0, 6),
             // the order doesn't matter, as long as the "matching" keys come first:
             (vec![8, 3, 11], vec![0, 5], 3, 11),
             (vec![8, 3, 4], vec![0, 5], 0, 0),
             // big major chord with octave doublings
-            (vec![1, 13, 18, 22, 34], vec![0, 4, 7], 6, 128),
-            // a few illustrative examples
-            (vec![60, 64, 67], vec![2, 7, 11], 5, 128),
-            (vec![60, 64, 67], vec![0, 5, 9], 7, 128),
-            (vec![60, 64, 67], vec![10, 3, 7], 9, 128),
-            (vec![62, 66, 69], vec![2, 7, 11], 7, 128),
-            (vec![62, 66, 69], vec![0, 5, 9], 9, 128),
-            (vec![62, 66, 69], vec![10, 3, 7], 11, 128),
+            (vec![1, 13, 18, 22, 34], vec![0, 4, 7], 18, 128),
+            // a few illustrative examples: inversions of a major chord
+            (vec![60, 64, 67], vec![0, 4, 7], 60, 128),
+            (vec![60, 64, 67], vec![0, 3, 8], 64, 128),
+            (vec![60, 64, 67], vec![0, 5, 9], 67, 128),
         ];
 
         for (active, classes, reference, next) in examples {
@@ -421,24 +428,11 @@ mod test {
     #[test]
     fn test_voicing_fixed() {
         let examples = [
-            (vec![1, 2, 3, 4], vec![vec![1, 2], vec![4, 3]], 0, 0, 128),
-            (vec![1, 2, 3, 4], vec![vec![1], vec![3, 2]], 0, 0, 4),
-            (vec![1, 2, 3], vec![vec![1, 3], vec![2]], 0, 0, 0),
-            // [zero]s can be offset by multiples of 12
-            (
-                vec![25 + 1, 25 + 2, 25 + 3],
-                vec![vec![1, 2], vec![3]],
-                25,
-                25,
-                128,
-            ),
-            (
-                vec![25 + 1, 25 + 2, 25 + 3],
-                vec![vec![1, 2], vec![3]],
-                1,
-                1,
-                128,
-            ),
+            (vec![1, 2, 3, 4], vec![vec![0, 1], vec![3, 2]], 1, 1, 128),
+            (vec![3, 4, 5, 6], vec![vec![0], vec![2, 1]], 3, 3, 6),
+            (vec![0, 1, 2], vec![vec![0, 2], vec![1]], 0, 0, 0),
+            (vec![25, 26, 27], vec![vec![0, 1], vec![2]], 1, 25, 128),
+            (vec![25, 26, 27], vec![vec![0, 1], vec![2]], 0, 0, 0),
         ];
 
         for (active, blocks, zero, reference, next) in examples {
@@ -460,14 +454,13 @@ mod test {
     #[test]
     fn test_voicing_relative() {
         let examples = [
-            (vec![4, 5, 6, 7], vec![vec![1, 2], vec![4, 3]], 3, 128),
-            (vec![0, 1, 2, 3], vec![vec![1], vec![3, 2]], 11, 3),
-            (vec![1, 2, 3], vec![vec![1, 3], vec![2]], 0, 0),
-            // the [zero] in the range 0..12 is chosen:
+            (vec![4, 5, 6, 7], vec![vec![0, 1], vec![3, 2]], 4, 128),
+            (vec![0, 1, 2, 3], vec![vec![0], vec![2, 1]], 0, 3),
+            (vec![1, 2, 3], vec![vec![0, 2], vec![1]], 0, 0),
             (
                 vec![25 + 1, 25 + 2, 25 + 3],
-                vec![vec![1, 2], vec![3]],
-                1,
+                vec![vec![0, 1], vec![2]],
+                25 + 1,
                 128,
             ),
         ];
@@ -519,6 +512,7 @@ mod test {
             (vec![10, 32, 45], vec![1, 22, 35], 0, 0),
             (vec![10, 32], vec![0, 22, 35], 0, 0),
             (vec![10, 32, 45], vec![0, 22], 10, 33),
+            (vec![20, 42, 55], vec![0, 22], 20, 43),
         ];
 
         for (active, offsets, zero, next) in examples {
