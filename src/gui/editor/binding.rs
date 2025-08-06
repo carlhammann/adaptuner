@@ -211,12 +211,6 @@ pub fn strategy_action_selector(
                 ui.memory_mut(|m| m.close_popup());
             };
 
-            // let r = ui.selectable_value(tmp_strategy_action, None {}, "no action");
-            // if r.clicked() {
-            //     changed = r.changed();
-            //     close_popup(ui);
-            // }
-
             if strategy_kind.action_allowed(&StrategyAction::IncrementNeighbourhoodIndex(0)) {
                 ui.horizontal(|ui| {
                     if let Some(StrategyAction::IncrementNeighbourhoodIndex(i)) =
@@ -265,6 +259,18 @@ pub fn strategy_action_selector(
                     tmp_strategy_action,
                     Some(StrategyAction::SetReferenceToHighest),
                     "set reference to highest sounding note",
+                );
+                if r.clicked() {
+                    changed = r.changed();
+                    close_popup(ui);
+                }
+            }
+
+            if strategy_kind.action_allowed(&StrategyAction::SetReferenceToCurrent) {
+                let r = ui.selectable_value(
+                    tmp_strategy_action,
+                    Some(StrategyAction::SetReferenceToCurrent),
+                    "set reference to current chord's reference",
                 );
                 if r.clicked() {
                     changed = r.changed();

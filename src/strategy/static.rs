@@ -22,7 +22,7 @@ pub struct StaticTuning<T: IntervalBasis> {
     neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
     curr_neighbourhood_index: Option<usize>,
     pub tuning_reference: Reference<T>,
-    reference: Stack<T>,
+    pub reference: Stack<T>,
     tuning_up_to_date: [bool; 128],
 }
 
@@ -321,7 +321,9 @@ impl<T: StackType> StaticTuning<T> {
                 self.start_but_dont_retune(forward);
                 Some(time)
             }
-            ToStrategy::ToHarmonyStrategy(_, _) => unreachable!(),
+            ToStrategy::ToHarmonyStrategy(_, _)
+            | ToStrategy::ReanchorOnMatch { .. }
+            | ToStrategy::SetGroupMs { .. } => unreachable!(),
         }
     }
 }

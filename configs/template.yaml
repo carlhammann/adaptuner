@@ -65,12 +65,6 @@ temperaments:
       fifth: -4
       third: 4
 named-intervals:
-- name: syntonic comma
-  short-name: 's'
-  coeffs:
-    octave: '-2'
-    fifth: '4'
-    third: '-1'
 - name: diesis
   short-name: 'd'
   coeffs:
@@ -81,6 +75,12 @@ named-intervals:
   coeffs:
     octave: '-7'
     fifth: '12'
+- name: syntonic comma
+  short-name: 's'
+  coeffs:
+    octave: '-2'
+    fifth: '4'
+    third: '-1'
 - name: kleisma
   short-name: 'k'
   coeffs:
@@ -183,6 +183,268 @@ strategies:
       soft-pedal-down: set-reference-to-lowest
       Enter: !increment-neighbourhood-index 1
       Space: set-reference-to-lowest
+- name: matching chords
+  description: |-
+    This strategy allows you to
+    • define and switch between neighbourhoods like the "static" strategy,
+    • define a list of chords and voicings that have a known tuning, and
+    • reset the reference note on the fly, either manually or automatically to the reference note of the currently sounding chord.
+  config: !two-step
+    harmony: !chord-list
+      enable: true
+      patterns:
+      - name: major
+        key-shape: !classes-relative
+          classes:
+          - 0
+          - 4
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          4:
+            third: 1
+          7:
+            fifth: 1
+        allow-extra-high-notes: true
+        original-reference: {}
+      - name: minor
+        key-shape: !classes-relative
+          classes:
+          - 0
+          - 3
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          3:
+            fifth: 1
+            third: -1
+          7:
+            fifth: 1
+        allow-extra-high-notes: true
+        original-reference: {}
+      - name: dominant seventh
+        key-shape: !classes-relative
+          classes:
+          - 10
+          - 0
+          - 4
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          4:
+            third: 1
+          7:
+            fifth: 1
+          10:
+            octave: 2
+            fifth: -2
+        allow-extra-high-notes: true
+        original-reference:
+          octave: -1
+          fifth: 2
+      - name: major add 9
+        key-shape: !classes-relative
+          classes:
+          - 0
+          - 2
+          - 4
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          2:
+            octave: -1
+            fifth: 2
+          4:
+            third: 1
+          7:
+            fifth: 1
+        allow-extra-high-notes: true
+        original-reference:
+          octave: -1
+          fifth: 2
+      - name: major seventh
+        key-shape: !classes-relative
+          classes:
+          - 11
+          - 0
+          - 4
+          - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          4:
+            third: 1
+          7:
+            fifth: 1
+          11:
+            fifth: 1
+            third: 1
+        allow-extra-high-notes: true
+        original-reference:
+          octave: -1
+          fifth: 2
+      - name: major add6
+        key-shape: !block-voicing-relative
+          blocks:
+          - - 0
+          - - 4
+            - 7
+            - 9
+        neighbourhood: !periodic-partial
+          0: {}
+          4:
+            third: 1
+          7:
+            fifth: 1
+          9:
+            octave: 1
+            fifth: -1
+            third: 1
+        allow-extra-high-notes: true
+        original-reference: {}
+      - name: minor seventh
+        key-shape: !block-voicing-relative
+          blocks:
+          - - 0
+          - - 3
+            - 7
+            - 10
+        neighbourhood: !periodic-partial
+          0: {}
+          3:
+            fifth: 1
+            third: -1
+          7:
+            fifth: 1
+          10:
+            fifth: 2
+            third: -1
+        allow-extra-high-notes: true
+        original-reference: {}
+    melody: !neighbourhoods
+      fixed: true
+      group-ms: 100
+      neighbourhoods:
+      - name: pure
+        entries: !periodic-complete
+          0: {}
+          1:
+            octave: 1
+            fifth: -1
+            third: -1
+          2:
+            octave: -1
+            fifth: 2
+          3:
+            fifth: 1
+            third: -1
+          4:
+            third: 1
+          5:
+            octave: 1
+            fifth: -1
+          6:
+            octave: -1
+            fifth: 2
+            third: 1
+          7:
+            fifth: 1
+          8:
+            octave: 1
+            third: -1
+          9:
+            octave: 1
+            fifth: -1
+            third: 1
+          10:
+            octave: 2
+            fifth: -2
+          11:
+            fifth: 1
+            third: 1
+      - name: meantone
+        entries: !periodic-complete
+          0: {}
+          1:
+            target:
+              octave: 1
+              fifth: -1
+              third: -1
+            actual:
+              octave: '1/2'
+              third: '-5/4'
+          2:
+            target:
+              octave: -1
+              fifth: 2
+            actual:
+              third: '1/2'
+          3:
+            target:
+              fifth: 1
+              third: -1
+            actual:
+              octave: '1/2'
+              third: '-3/4'
+          4:
+            third: 1
+          5:
+            target:
+              octave: 1
+              fifth: -1
+            actual:
+              octave: '1/2'
+              third: '-1/4'
+          6:
+            target:
+              octave: -1
+              fifth: 2
+              third: 1
+            actual:
+              third: '3/2'
+          7:
+            target:
+              fifth: 1
+            actual:
+              octave: '1/2'
+              third: '1/4'
+          8:
+            octave: 1
+            third: -1
+          9:
+            target:
+              octave: 1
+              fifth: -1
+              third: 1
+            actual:
+              octave: '1/2'
+              third: '3/4'
+          10:
+            target:
+              octave: 2
+              fifth: -2
+            actual:
+              octave: '1'
+              third: '-1/2'
+          11:
+            target:
+              fifth: 1
+              third: 1
+            actual:
+              octave: '1/2'
+              third: '5/4'
+      tuning-reference:
+        stack:
+          octave: 1
+          fifth: -1
+          third: 1
+        semitones: 69.0
+      reference: {}
+    bindings:
+      sostenuto-pedal-down: !increment-neighbourhood-index 1
+      soft-pedal-down: set-reference-to-current
+      Backspace: toggle-chord-matching
+      Enter: !increment-neighbourhood-index 1
+      Space: set-reference-to-current
 backend: !pitchbend12
   bend-range: 2.0
   channels:

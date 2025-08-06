@@ -24,6 +24,7 @@ use super::{
         neighbourhood::NeighbourhoodEditor,
         reference::{ReferenceEditor, ReferenceEditorConfig},
         tuning::{TuningEditor, TuningEditorConfig},
+        twostep::TwoStepEditor,
     },
     r#trait::GuiShow,
     toplevel::KeysAndTunings,
@@ -47,6 +48,9 @@ pub struct StrategyWindows<T: StackType + 'static> {
 
     chord_list_editor_window: SmallFloatingWindow,
     chord_list_editor: ChordListEditor<T>,
+
+    twostep_editor_window: SmallFloatingWindow,
+    twostep_editor: TwoStepEditor,
 }
 
 impl<T: StackType + HasNoteNames> StrategyWindows<T> {
@@ -84,6 +88,8 @@ impl<T: StackType + HasNoteNames> StrategyWindows<T> {
                 "chord_list_editor_window",
             )),
             chord_list_editor: ChordListEditor::new(correction_system_chooser),
+            twostep_editor_window: SmallFloatingWindow::new(egui::Id::new("twostep_editor_window")),
+            twostep_editor: TwoStepEditor::new(),
         }
     }
 
@@ -95,10 +101,12 @@ impl<T: StackType + HasNoteNames> StrategyWindows<T> {
         correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
         _time: Instant,
     ) {
-        self.strategies.put_elems(strategies);
-        self.tuning_editor = TuningEditor::new(tuning_editor, correction_system_chooser.clone());
-        self.reference_editor =
-            ReferenceEditor::new(reference_editor, correction_system_chooser.clone());
+        *self = Self::new(
+            strategies,
+            tuning_editor,
+            reference_editor,
+            correction_system_chooser,
+        );
     }
 }
 
@@ -118,6 +126,7 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
         self.tuning_editor.handle_msg_ref(msg, forward);
         self.neighbourhood_editor.handle_msg_ref(msg, forward);
         self.chord_list_editor.handle_msg_ref(msg, forward);
+        self.twostep_editor.handle_msg_ref(msg, forward);
     }
 }
 
@@ -166,6 +175,13 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
                         StrategyKind::TwoStep(HarmonyStrategyKind::ChordList, _) => {
                             x.chord_list_editor_window
                                 .show_hide_button(ui, "chord list");
+                        }
+                        _ => {}
+                    }
+                    match strn.0.strategy_kind() {
+                        StrategyKind::TwoStep(_, _) => {
+                            x.twostep_editor_window
+                                .show_hide_button(ui, "melody/harmony");
                         }
                         _ => {}
                     }
@@ -246,6 +262,21 @@ impl<'a, T: StackType + HasNoteNames + PartialEq> AsWindows<'a, T> {
                     x.chord_list_editor_window
                         .show(&format!("chord list ({name})"), ctx, |ui| {
                             x.chord_list_editor.show(ui, state, patterns, forward);
+                        });
+                }
+                _ => {}
+            }
+
+            match &mut curr.0 {
+                StrategyNames::TwoStep {
+                    name,
+                    harmony,
+                    melody,
+                    ..
+                } => {
+                    x.twostep_editor_window
+                        .show(&format!("melody/harmony ({name})"), ctx, |ui| {
+                            x.twostep_editor.show(ui, harmony, melody, forward);
                         });
                 }
                 _ => {}

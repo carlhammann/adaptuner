@@ -19,6 +19,7 @@ pub enum StrategyAction {
     IncrementNeighbourhoodIndex(isize),
     SetReferenceToLowest,
     SetReferenceToHighest,
+    SetReferenceToCurrent,
     ToggleChordMatching,
 }
 
@@ -33,6 +34,9 @@ impl fmt::Display for StrategyAction {
             }
             StrategyAction::SetReferenceToHighest => {
                 write!(f, "set reference to highest sounding note")
+            }
+            StrategyAction::SetReferenceToCurrent => {
+                write!(f, "set reference to current chord's reference")
             }
             StrategyAction::ToggleChordMatching => write!(f, "toggle chord matching"),
         }

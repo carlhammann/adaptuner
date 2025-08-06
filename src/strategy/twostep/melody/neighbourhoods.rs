@@ -1,4 +1,7 @@
-use std::{collections::VecDeque, time::Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use crate::{
     config::{ExtractConfig, MelodyStrategyConfig, StrategyConfig},
@@ -22,10 +25,14 @@ use super::super::{Harmony, MelodyStrategy};
 pub struct NeighbourhoodsConfig<T: IntervalBasis> {
     pub fixed: bool,
     pub inner: StaticTuningConfig<T>,
+    pub group_ms: u64,
 }
 
 pub struct Neighbourhoods<T: StackType> {
     fixed: bool,
+    last_solve: Instant,
+    group_start_reference: Stack<T>,
+    group_duration: Duration,
     inner: StaticTuning<T>,
 }
 
@@ -33,6 +40,9 @@ impl<T: StackType> Neighbourhoods<T> {
     pub fn new(config: NeighbourhoodsConfig<T>) -> Self {
         Self {
             fixed: config.fixed,
+            last_solve: Instant::now(),
+            group_start_reference: config.inner.reference.clone(),
+            group_duration: Duration::from_millis(config.group_ms),
             inner: StaticTuning::new(config.inner),
         }
     }
@@ -83,10 +93,6 @@ impl<T: StackType> StaticTuning<T> {
 }
 
 impl<T: StackType> MelodyStrategy<T> for Neighbourhoods<T> {
-    /// Will tune the `harmony.reference` according to the currently selected neighbourhood. For
-    /// all other notes, applies the tunings in the `harmony.neighbourhood` relative to the
-    /// `harmony.reference`, falling back to the base tunings of the currently selected
-    /// neighbourhood.
     fn solve(
         &mut self,
         keys: &[KeyState; 128],
@@ -95,14 +101,29 @@ impl<T: StackType> MelodyStrategy<T> for Neighbourhoods<T> {
         time: Instant,
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> (bool, Option<Stack<T>>) {
+        let new_group = time.duration_since(self.last_solve) > self.group_duration;
+        self.last_solve = time;
+
+        if !self.fixed {
+            if new_group {
+                self.last_solve = time;
+                self.group_start_reference.clone_from(&self.inner.reference);
+            } else {
+                self.inner
+                    .set_reference_to(&self.group_start_reference, forward);
+            }
+        }
+
         let (success, new_reference) = self
             .inner
             .update_tunings_from_harmony(keys, tunings, harmony, time, forward);
+
         if !self.fixed {
             if let Some(new_reference) = &new_reference {
                 self.inner.set_reference_to(new_reference, forward);
             }
         }
+
         (success, new_reference)
     }
 
@@ -114,13 +135,25 @@ impl<T: StackType> MelodyStrategy<T> for Neighbourhoods<T> {
         msg: ToStrategy<T>,
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> (bool, Option<Stack<T>>) {
-        if let Some(time) = self
-            .inner
-            .handle_msg_but_dont_retune(keys, tunings, msg, forward)
-        {
-            self.solve(keys, tunings, harmony, time, forward)
-        } else {
-            (true, harmony.map(|h| tunings[h.reference as usize].clone()))
+        match msg {
+            ToStrategy::ReanchorOnMatch { reanchor } => {
+                self.fixed = !reanchor;
+                (true, Some(self.inner.reference.clone()))
+            }
+            ToStrategy::SetGroupMs { group_ms } => {
+                self.group_duration = Duration::from_millis(group_ms);
+                (true, Some(self.inner.reference.clone()))
+            }
+            _ => {
+                if let Some(time) = self
+                    .inner
+                    .handle_msg_but_dont_retune(keys, tunings, msg, forward)
+                {
+                    self.solve(keys, tunings, harmony, time, forward)
+                } else {
+                    (true, harmony.map(|h| tunings[h.reference as usize].clone()))
+                }
+            }
         }
     }
 
@@ -143,13 +176,29 @@ impl<T: StackType> MelodyStrategy<T> for Neighbourhoods<T> {
     fn handle_action(
         &mut self,
         keys: &[KeyState; 128],
-        tunings: &[Stack<T>; 128],
+        tunings: &mut [Stack<T>; 128],
+        harmony: Option<Harmony<T>>,
         action: StrategyAction,
         time: Instant,
         forward: &mut VecDeque<FromStrategy<T>>,
-    ) {
-        self.inner
-            .handle_action(keys, tunings, action, time, forward);
+    ) -> (bool, Option<Stack<T>>) {
+        match action {
+            StrategyAction::SetReferenceToCurrent => {
+                if self.fixed {
+                    self.fixed = false;
+                    let res = self.solve(keys, tunings, harmony, time, forward);
+                    self.fixed = true;
+                    res
+                } else {
+                    self.solve(keys, tunings, harmony, time, forward)
+                }
+            }
+            _ => {
+                self.inner
+                    .handle_action(keys, tunings, action, time, forward);
+                self.solve(keys, tunings, harmony, time, forward)
+            }
+        }
     }
 }
 
@@ -160,6 +209,7 @@ impl<T: StackType> ExtractConfig<MelodyStrategyConfig<T>> for Neighbourhoods<T> 
                 MelodyStrategyConfig::Neighbourhoods(NeighbourhoodsConfig {
                     fixed: self.fixed,
                     inner: c,
+                    group_ms: self.group_duration.as_millis() as u64,
                 })
             }
             _ => unreachable!(),

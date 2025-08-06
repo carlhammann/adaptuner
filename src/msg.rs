@@ -171,6 +171,12 @@ pub enum ToStrategy<T: StackType> {
         time: Instant,
     },
     ToHarmonyStrategy(ToHarmonyStrategy<T>, Instant),
+    ReanchorOnMatch {
+        reanchor: bool,
+    },
+    SetGroupMs {
+        group_ms: u64,
+    },
 }
 
 pub enum FromStrategy<T: StackType> {
@@ -453,6 +459,12 @@ pub enum FromUi<T: StackType> {
     EnableChordList {
         enable: bool,
         time: Instant,
+    },
+    ReanchorOnMatch {
+        reanchor: bool,
+    },
+    SetGroupMs {
+        group_ms: u64,
     },
 }
 
@@ -895,6 +907,20 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                     ToHarmonyStrategy::EnableChordList { enable },
                     time,
                 ))),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::ReanchorOnMatch { reanchor } => (
+                Some(ToProcess::ToStrategy(ToStrategy::ReanchorOnMatch {
+                    reanchor,
+                })),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::SetGroupMs { group_ms } => (
+                Some(ToProcess::ToStrategy(ToStrategy::SetGroupMs { group_ms })),
                 None {},
                 None {},
                 None {},

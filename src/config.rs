@@ -220,6 +220,7 @@ impl StrategyKind {
             (StrategyKind::StaticTuning, StrategyAction::IncrementNeighbourhoodIndex(_)) => true,
             (StrategyKind::StaticTuning, StrategyAction::SetReferenceToLowest) => true,
             (StrategyKind::StaticTuning, StrategyAction::SetReferenceToHighest) => true,
+            (StrategyKind::StaticTuning, StrategyAction::SetReferenceToCurrent) => false,
             (StrategyKind::StaticTuning, StrategyAction::ToggleChordMatching) => false,
             (
                 StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods),
@@ -228,10 +229,14 @@ impl StrategyKind {
             (
                 StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods),
                 StrategyAction::SetReferenceToLowest,
-            ) => true,
+            ) => false,
             (
                 StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods),
                 StrategyAction::SetReferenceToHighest,
+            ) => false,
+            (
+                StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods),
+                StrategyAction::SetReferenceToCurrent,
             ) => true,
             (
                 StrategyKind::TwoStep(HarmonyStrategyKind::ChordList, _),
@@ -309,6 +314,7 @@ pub enum ExtendedMelodyStrategyConfig<T: IntervalBasis> {
 #[serde(rename_all = "kebab-case")]
 pub struct ExtendedNeighbourhoodsConfig<T: IntervalBasis> {
     fixed: bool,
+    group_ms: u64,
     #[serde(deserialize_with = "deserialize_nonempty_neighbourhoods")]
     neighbourhoods: Vec<NamedCompleteNeighbourhood<T>>,
     tuning_reference: Reference<T>,
@@ -347,7 +353,11 @@ pub enum HarmonyStrategyNames<T: IntervalBasis> {
 
 #[derive(Clone)]
 pub enum MelodyStrategyNames {
-    Neighbourhoods { neighbourhood_names: Vec<String> },
+    Neighbourhoods {
+        group_ms: u64,
+        fixed: bool,
+        neighbourhood_names: Vec<String>,
+    },
 }
 
 #[derive(Clone)]
@@ -418,6 +428,7 @@ impl<T: IntervalBasis> StrategyNames<T> {
                 melody:
                     MelodyStrategyNames::Neighbourhoods {
                         neighbourhood_names,
+                        ..
                     },
                 ..
             } => neighbourhood_names,
@@ -531,6 +542,7 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
         match self {
             ExtendedMelodyStrategyConfig::Neighbourhoods(ExtendedNeighbourhoodsConfig {
                 fixed,
+                group_ms,
                 neighbourhoods,
                 tuning_reference,
                 reference,
@@ -542,6 +554,7 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
                 (
                     MelodyStrategyConfig::Neighbourhoods(NeighbourhoodsConfig {
                         fixed: *fixed,
+                        group_ms: *group_ms,
                         inner: StaticTuningConfig {
                             neighbourhoods,
                             tuning_reference: tuning_reference.clone(),
@@ -550,6 +563,8 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
                     }),
                     MelodyStrategyNames::Neighbourhoods {
                         neighbourhood_names,
+                        group_ms: *group_ms,
+                        fixed: *fixed,
                     },
                 )
             }
@@ -561,6 +576,7 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
             (
                 MelodyStrategyConfig::Neighbourhoods(NeighbourhoodsConfig {
                     fixed,
+                    group_ms,
                     inner:
                         StaticTuningConfig {
                             mut neighbourhoods,
@@ -570,9 +586,11 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
                 }),
                 MelodyStrategyNames::Neighbourhoods {
                     mut neighbourhood_names,
+                    .. //group_ms, fixed
                 },
             ) => Self::Neighbourhoods(ExtendedNeighbourhoodsConfig {
                 fixed,
+                group_ms,
                 neighbourhoods: if neighbourhoods.len() != neighbourhood_names.len() {
                     panic!(
                         "different number of neighbourhoods ({}) and neighbourhood names ({})",

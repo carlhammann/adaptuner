@@ -57,11 +57,12 @@ pub trait MelodyStrategy<T: StackType>: ExtractConfig<MelodyStrategyConfig<T>> {
     fn handle_action(
         &mut self,
         keys: &[KeyState; 128],
-        tunings: &[Stack<T>; 128],
+        tunings: &mut [Stack<T>; 128],
+        harmony: Option<Harmony<T>>,
         action: StrategyAction,
         time: Instant,
         forward: &mut VecDeque<FromStrategy<T>>,
-    );
+    ) -> (bool, Option<Stack<T>>);
 
     fn start(
         &mut self,
@@ -158,9 +159,15 @@ impl<T: StackType> Strategy<T> for TwoStep<T> {
 
             ToStrategy::Action { action, time } => {
                 self.harmony.handle_action(action, forward);
-                self.melody
-                    .handle_action(keys, tunings, action, time, forward);
-                self.solve(keys, tunings, time, forward)
+                let (pattern_index, harmony) = self.harmony.solve(keys);
+                let (success, reference) = self
+                    .melody
+                    .handle_action(keys, tunings, harmony, action, time, forward);
+                forward.push_back(FromStrategy::CurrentHarmony {
+                    pattern_index,
+                    reference,
+                });
+                success
             }
 
             _ => {
