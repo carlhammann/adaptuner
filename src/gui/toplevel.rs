@@ -24,6 +24,7 @@ use super::{
     lattice::LatticeWindow,
     latticecontrol::AsKeyboardControls,
     notes::NoteWindow,
+    notifications::Notifications,
     r#trait::GuiShow,
     strategy::{AsStrategyPicker, AsWindows, StrategyWindows},
 };
@@ -72,6 +73,8 @@ pub struct Toplevel<T: StackType> {
     note_window: SmallFloatingWindow,
 
     config_file_dialog: ConfigFileDialog<T>,
+
+    notifications: Notifications<T>,
 }
 
 impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
@@ -90,7 +93,7 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
                 correction_system_chooser.clone(),
             ),
 
-            lattice: LatticeWindow::new(config.lattice_window, correction_system_chooser),
+            lattice: LatticeWindow::new(config.lattice_window, correction_system_chooser.clone()),
             show_keyboard_controls: false,
 
             input_connection: ConnectionWindow::new(),
@@ -102,6 +105,7 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
             note_window: SmallFloatingWindow::new(egui::Id::new("note_window")),
             tx,
             config_file_dialog: ConfigFileDialog::new(),
+            notifications: Notifications::new(correction_system_chooser),
         }
     }
 
@@ -120,13 +124,15 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
             config.strategies,
             config.tuning_editor,
             config.reference_editor,
-            correction_system_chooser,
+            correction_system_chooser.clone(),
             time,
         );
-        // input, output, latency don't need a restart
+        // input, output, latency, config_file_dialog don't need a restart
 
         self.backend
             .restart_from_config(config.backend_window, time);
+
+        self.notifications = Notifications::new(correction_system_chooser);
 
         // self.notes.restart_from_config(config.notes_window, time);
     }
@@ -199,6 +205,7 @@ impl<T: StackType + Serialize> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
         self.input_connection.handle_msg_ref(&msg, forward);
         self.output_connection.handle_msg_ref(&msg, forward);
         self.latency.handle_msg_ref(&msg, forward);
+        self.notifications.handle_msg_ref(&msg, forward);
         self.config_file_dialog.handle_msg(msg, forward); // keep this last, eating up all the messages
     }
 }
@@ -262,6 +269,23 @@ where
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            self.notifications.clear_old(Instant::now());
+            if self.notifications.is_nonempty() {
+                egui::Window::new("notification window")
+                    .title_bar(false)
+                    .resizable(false)
+                    .interactable(false)
+                    .fixed_pos(ui.max_rect().center_top())
+                    .pivot(egui::Align2::CENTER_TOP)
+                    .show(ui.ctx(), |ui| {
+                        self.notifications.show(
+                            ui,
+                            &self.state,
+                            self.strategies.currently_active().map(|p| &p.0),
+                        )
+                    });
+            }
+
             AsWindows(&mut self.strategies).show(ui, &self.state, &self.tx);
             if let Some(config) = self.config_file_dialog.show(ui) {
                 let _ = T::initialise(&config.temperaments, &config.named_intervals);

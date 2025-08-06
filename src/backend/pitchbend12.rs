@@ -118,7 +118,7 @@ impl Pitchbend12 {
                 note,
                 actual: note as Semitones + self.semitones_from_bend(desired_bend),
                 should_be: tuning,
-                explanation: "Exceeded bend range",
+                explanation: "exceeded bend range",
             });
         }
     }

@@ -1127,8 +1127,6 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindow<T> {
                     (*channel == self.controls.screen_keyboard_channel) & (*value != 0);
             }
 
-            ToUi::DetunedNote { .. } => todo!(),
-
             _ => {}
         }
     }

@@ -12,7 +12,5 @@
 - coordination of zoom and scroll
 - flattening the grid layout to increase space for keyboard
 - multi-touch keyboard
-- hande DetunedNote messages
-- "really delete" should disappear upon closing the strategy selection popup
 - paths that connect an "outlier" note to the reference may drop below the level of the keyboard
 

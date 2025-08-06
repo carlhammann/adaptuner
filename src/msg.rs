@@ -90,9 +90,6 @@ pub enum ToProcess<T: StackType> {
 }
 
 pub enum FromProcess<T: StackType> {
-    Notify {
-        line: String,
-    },
     MidiParseErr(String),
     OutgoingMidi {
         bytes: Vec<u8>,
@@ -526,7 +523,6 @@ pub enum FromMidiOut {
 impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProcess<T> {
     fn translate3(self) -> (Option<ToBackend>, Option<ToMidiOut>, Option<ToUi<T>>) {
         match self {
-            FromProcess::Notify { line } => (None {}, None {}, Some(ToUi::Notify { line })),
             FromProcess::MidiParseErr(err) => (
                 None {},
                 None {},

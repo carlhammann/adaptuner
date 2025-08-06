@@ -58,6 +58,10 @@ impl<T: StackType + HasNoteNames> StrategyWindows<T> {
         self.strategies.elems()
     }
 
+    pub fn currently_active(&self) -> Option<&(StrategyNames<T>, Bindings<Bindable>)> {
+        self.strategies.current_selected()
+    }
+
     pub fn new(
         strategies: Vec<(StrategyNames<T>, Bindings<Bindable>)>,
         tuning_editor: TuningEditorConfig,
