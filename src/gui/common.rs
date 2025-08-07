@@ -385,9 +385,9 @@ pub fn show_hide_button(
             .add(
                 egui::Button::new(description).corner_radius(egui::CornerRadius {
                     ne: 0,
-                    nw: ui.style().visuals.menu_corner_radius.nw,
+                    nw: 2,
                     se: 0,
-                    sw: ui.style().visuals.menu_corner_radius.sw,
+                    sw: 2,
                 }),
             )
             .clicked()
@@ -402,9 +402,9 @@ pub fn show_hide_button(
                 *open,
                 egui::Button::new("×").corner_radius(egui::CornerRadius {
                     nw: 0,
-                    ne: ui.style().visuals.menu_corner_radius.ne,
+                    ne: 2,
                     sw: 0,
-                    se: ui.style().visuals.menu_corner_radius.se,
+                    se: 2,
                 }),
             )
             .clicked()

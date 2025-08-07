@@ -22,7 +22,7 @@ use super::{
     connection::{ConnectionWindow, Input, Output},
     latency::LatencyWindow,
     lattice::LatticeWindow,
-    latticecontrol::AsKeyboardControls,
+    latticecontrol::{AsBigControls, AsKeyboardControls},
     notes::NoteWindow,
     notifications::Notifications,
     r#trait::GuiShow,
@@ -55,8 +55,10 @@ impl<T: IntervalBasis> KeysAndTunings<T> {
 pub struct Toplevel<T: StackType> {
     state: KeysAndTunings<T>,
 
+    show_side_panel: bool,
+
     lattice: LatticeWindow<T>,
-    show_keyboard_controls: bool,
+    keyboard_control_window: SmallFloatingWindow,
 
     strategies: StrategyWindows<T>,
 
@@ -86,6 +88,9 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
 
         Self {
             state: KeysAndTunings::new(Instant::now()),
+
+            show_side_panel: true,
+
             strategies: StrategyWindows::new(
                 config.strategies,
                 config.tuning_editor,
@@ -94,7 +99,9 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
             ),
 
             lattice: LatticeWindow::new(config.lattice_window, correction_system_chooser.clone()),
-            show_keyboard_controls: false,
+            keyboard_control_window: SmallFloatingWindow::new(egui::Id::new(
+                "keyboard_control_window",
+            )),
 
             input_connection: ConnectionWindow::new(),
             output_connection: ConnectionWindow::new(),
@@ -221,50 +228,50 @@ where
         + Reloadable,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::bottom("bottom panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if self.show_keyboard_controls && ui.button("hide keyboard controls").clicked() {
-                    self.show_keyboard_controls = false;
-                }
-                if !self.show_keyboard_controls && ui.button("show keyboard controls").clicked() {
-                    self.show_keyboard_controls = true;
-                }
+        egui::SidePanel::left("left panel").show_animated(ctx, self.show_side_panel, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                AsStrategyPicker(&mut self.strategies).show(ui, &self.tx);
+
+                ui.separator();
 
                 self.connection_window
                     .show_hide_button(ui, "MIDI connections");
                 self.note_window.show_hide_button(ui, "notes");
+                self.keyboard_control_window
+                    .show_hide_button(ui, "keyboard controls");
 
-                if ui.button("save config").clicked() {
+                ui.separator();
+
+                if ui.button("save configuration").clicked() {
                     let gui_config = self.extract_config();
                     self.config_file_dialog.as_save().open(gui_config, &self.tx);
                 }
 
-                if ui.button("load config").clicked() {
+                if ui.button("load configuration").clicked() {
                     let gui_config = self.extract_config();
                     self.config_file_dialog.as_load().open(gui_config, &self.tx);
                 }
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    egui::widgets::global_theme_preference_buttons(ui);
-                });
-            });
-        });
+                ui.separator();
 
-        egui::TopBottomPanel::bottom("small control bottom panel").show_animated(
-            ctx,
-            self.show_keyboard_controls,
-            |ui| {
-                AsKeyboardControls(&mut self.lattice).show(ui, &self.tx);
-            },
-        );
+                let reference_name = self.state.reference.corrected_notename(
+                    &self.lattice.controls.notenamestyle,
+                    self.lattice
+                        .controls
+                        .correction_system_chooser
+                        .borrow()
+                        .preference_order(),
+                    self.lattice
+                        .controls
+                        .correction_system_chooser
+                        .borrow()
+                        .use_cent_values,
+                );
+                AsBigControls(&mut self.lattice).show(&reference_name, ui);
 
-        egui::TopBottomPanel::top("strategy top panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                AsStrategyPicker(&mut self.strategies).show(ui, &self.tx);
+                ui.separator();
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    self.latency.show(ui, &self.tx);
-                });
+                egui::widgets::global_theme_preference_buttons(ui);
             });
         });
 
@@ -305,7 +312,19 @@ where
 
                 return; // don't continue updating for this frame
             }
-            self.lattice.show(ui, &self.state, &self.tx);
+
+            self.keyboard_control_window
+                .show("keyboard controls", ctx, |ui| {
+                    AsKeyboardControls(&mut self.lattice).show(ui, &self.tx);
+                });
+
+            self.lattice.show(
+                ui,
+                &self.state,
+                &self.latency,
+                &mut self.show_side_panel,
+                &self.tx,
+            );
         });
 
         self.note_window.show("notes", ctx, |ui| {

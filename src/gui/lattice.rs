@@ -19,7 +19,7 @@ use crate::{
 
 use super::{
     common::{temperament_applier, CorrectionSystemChooser},
-    latticecontrol::AsBigControls,
+    latency::LatencyWindow,
     toplevel::KeysAndTunings,
 };
 
@@ -128,7 +128,6 @@ pub struct LatticeWindow<T: StackType> {
     considered_notes: Partial<T>,
 
     reset_position: bool,
-    show_controls: bool,
 
     positions: Positions,
 
@@ -437,7 +436,6 @@ impl<T: StackType> LatticeWindow<T> {
             tmp_stack: Stack::new_zero(),
             other_tmp_stack: Stack::new_zero(),
             reset_position: true,
-            show_controls: false,
             positions: Positions {
                 left: 0.0,
                 bottom: 0.0,
@@ -1043,9 +1041,11 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
         &mut self,
         ui: &mut egui::Ui,
         state: &KeysAndTunings<T>,
+        latency: &LatencyWindow,
+        show_side_panel: &mut bool,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
-        let mut r = ui.interact(
+        let r = ui.interact(
             ui.max_rect(),
             egui::Id::new("global_grid_interaction"),
             egui::Sense::click_and_drag(),
@@ -1060,58 +1060,40 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
         if r.double_clicked() {
             self.reset_position = true;
         }
+
         if self.reset_position {
             let egui::Pos2 {
                 x: center,
                 y: bottom,
             } = ui.max_rect().center_bottom();
-            let left = ui.max_rect().left();
-            self.positions.left = left - (self.c4_offset(state) - center);
+            self.positions.left = center - self.c4_offset(state);
             self.positions.bottom = bottom;
         }
-
         self.keyboard_hover_interaction(ui, forward);
-
-        // egui::Frame::new().show(ui, |ui| {
         self.draw_keyboard(ui, state, forward);
         self.draw_lattice(ui, state, forward);
-        // });
 
         ui.horizontal(|ui| {
-            r = ui.button("☰");
-            if r.clicked() {
-                self.show_controls = !self.show_controls;
+            if !*show_side_panel {
+                if ui.button("☰").clicked() {
+                    *show_side_panel = true;
+                }
+            } else {
+                if ui.button("⏴").clicked() {
+                    *show_side_panel = false;
+                }
             }
 
             if ui.button("🔍+").clicked() {
-                self.controls.zoom *= 1.2;
+                self.controls.zoom *= 1.1;
             }
             if ui.button("🔍-").clicked() {
-                self.controls.zoom /= 1.2;
+                self.controls.zoom /= 1.1;
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                latency.show(ui);
+            });
         });
-
-        if self.show_controls {
-            egui::Window::new("lattice_control_window")
-                .resizable(false)
-                .title_bar(false)
-                .fixed_pos(r.rect.left_bottom() + vec2(0.0, ui.style().spacing.item_spacing.y))
-                .pivot(egui::Align2::LEFT_TOP)
-                .show(ui.ctx(), |ui| {
-                    let reference_name = state.reference.corrected_notename(
-                        &self.controls.notenamestyle,
-                        self.controls
-                            .correction_system_chooser
-                            .borrow()
-                            .preference_order(),
-                        self.controls
-                            .correction_system_chooser
-                            .borrow()
-                            .use_cent_values,
-                    );
-                    AsBigControls(self).show(&reference_name, ui);
-                });
-        }
     }
 }
 

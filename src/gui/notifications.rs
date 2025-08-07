@@ -141,7 +141,8 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
 
         if let (Some(reference), _) = &self.reference {
             ui.horizontal(|ui| {
-                ui.label("reference: ");
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.label("reference ");
                 ui.strong(reference.corrected_notename(
                     &NoteNameStyle::Full,
                     self.correction_system_chooser.borrow().preference_order(),

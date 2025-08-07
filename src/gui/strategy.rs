@@ -139,60 +139,55 @@ pub struct AsStrategyPicker<'a, T: StackType + 'static>(pub &'a mut StrategyWind
 impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         let AsStrategyPicker(x) = self;
-        ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt("strategy picker")
-                .selected_text(x.strategies.current_selected().map_or("", |x| x.0.name()))
-                .show_ui(ui, |ui| {
-                    if let Some((i, _)) = x.strategies.show_as_list_picker(
-                        ui,
-                        |x| x.0.name(),
-                        |x| Some(x.0.description()),
-                    ) {
-                        let _ = forward.send(FromUi::StrategyListAction {
-                            action: ListAction::Select(i),
-                            time: Instant::now(),
-                        });
-                    }
+        egui::ComboBox::from_id_salt("strategy picker")
+            .selected_text(x.strategies.current_selected().map_or("", |x| x.0.name()))
+            .show_ui(ui, |ui| {
+                if let Some((i, _)) = x.strategies.show_as_list_picker(
+                    ui,
+                    |x| x.0.name(),
+                    |x| Some(x.0.description()),
+                ) {
+                    let _ = forward.send(FromUi::StrategyListAction {
+                        action: ListAction::Select(i),
+                        time: Instant::now(),
+                    });
+                }
 
-                    ui.separator();
+                ui.separator();
 
-                    x.strategy_list_editor_window
-                        .show_hide_button(ui, "edit strategies");
+                x.strategy_list_editor_window
+                    .show_hide_button(ui, "edit strategies");
 
-                    ui.shrink_width_to_current();
-                });
+                ui.shrink_width_to_current();
+            });
 
-            ui.separator();
-
-            if let Some(strn) = x.strategies.current_selected() {
-                ui.horizontal(|ui| {
-                    match strn.0.strategy_kind() {
-                        StrategyKind::StaticTuning
-                        | StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods) => {
-                            x.tuning_editor_window.show_hide_button(ui, "global tuning");
-                            x.reference_editor_window.show_hide_button(ui, "reference");
-                            x.neighbourhood_editor_window
-                                .show_hide_button(ui, "neighbourhoods");
-                        }
-                    }
-                    match strn.0.strategy_kind() {
-                        StrategyKind::TwoStep(HarmonyStrategyKind::ChordList, _) => {
-                            x.chord_list_editor_window
-                                .show_hide_button(ui, "chord list");
-                        }
-                        _ => {}
-                    }
-                    match strn.0.strategy_kind() {
-                        StrategyKind::TwoStep(_, _) => {
-                            x.twostep_editor_window
-                                .show_hide_button(ui, "melody/harmony");
-                        }
-                        _ => {}
-                    }
-                    x.binding_editor_window.show_hide_button(ui, "bindings");
-                });
+        if let Some(strn) = x.strategies.current_selected() {
+            // ui.horizontal(|ui| {
+            match strn.0.strategy_kind() {
+                StrategyKind::StaticTuning
+                | StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods) => {
+                    x.tuning_editor_window.show_hide_button(ui, "global tuning");
+                    x.reference_editor_window.show_hide_button(ui, "reference");
+                    x.neighbourhood_editor_window
+                        .show_hide_button(ui, "neighbourhoods");
+                }
             }
-        });
+            match strn.0.strategy_kind() {
+                StrategyKind::TwoStep(HarmonyStrategyKind::ChordList, _) => {
+                    x.chord_list_editor_window
+                        .show_hide_button(ui, "chord list");
+                }
+                _ => {}
+            }
+            match strn.0.strategy_kind() {
+                StrategyKind::TwoStep(_, _) => {
+                    x.twostep_editor_window
+                        .show_hide_button(ui, "melody/harmony");
+                }
+                _ => {}
+            }
+            x.binding_editor_window.show_hide_button(ui, "bindings");
+        }
     }
 }
 
