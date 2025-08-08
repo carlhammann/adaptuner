@@ -289,6 +289,18 @@ pub fn strategy_action_selector(
                     close_popup(ui);
                 }
             }
+
+            if strategy_kind.action_allowed(&StrategyAction::ToggleReanchor) {
+                let r = ui.selectable_value(
+                    tmp_strategy_action,
+                    Some(StrategyAction::ToggleReanchor),
+                    "toggle re-setting of the reference on chord match",
+                );
+                if r.clicked() {
+                    changed = r.changed();
+                    close_popup(ui);
+                }
+            }
         });
 
     changed

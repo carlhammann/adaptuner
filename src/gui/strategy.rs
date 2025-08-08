@@ -5,8 +5,8 @@ use eframe::egui::{self, vec2};
 use crate::{
     bindable::{Bindable, Bindings},
     config::{
-        ExtractConfig, HarmonyStrategyKind, HarmonyStrategyNames, MelodyStrategyKind, StrategyKind,
-        StrategyNames,
+        ExtractConfig, HarmonyStrategyKind, HarmonyStrategyNames, MelodyStrategyKind,
+        MelodyStrategyNames, StrategyKind, StrategyNames,
     },
     interval::stacktype::r#trait::StackType,
     msg::{FromUi, HandleMsgRef, ToUi},
@@ -124,13 +124,27 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
                     self.strategies.apply(ListAction::Deselect);
                 }
             }
+            ToUi::ReanchorOnMatch { reanchor } => {
+                if let Some((
+                    StrategyNames::TwoStep {
+                        melody: MelodyStrategyNames::Neighbourhoods { fixed, .. },
+                        ..
+                    },
+                    _,
+                )) = self.strategies.current_selected_mut()
+                {
+                    *fixed = !reanchor;
+                }
+            }
             _ => {}
         }
         self.reference_editor.handle_msg_ref(msg, forward);
         self.tuning_editor.handle_msg_ref(msg, forward);
         self.neighbourhood_editor.handle_msg_ref(msg, forward);
         self.chord_list_editor.handle_msg_ref(msg, forward);
-        self.twostep_editor.handle_msg_ref(msg, forward);
+
+        // twostep_editor doesn't need to handle any messages, we handle ReanchorOnMatch here:
+        // self.twostep_editor.handle_msg_ref(msg, forward); 
     }
 }
 

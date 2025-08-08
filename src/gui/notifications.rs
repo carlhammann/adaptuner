@@ -19,53 +19,61 @@ use super::{common::CorrectionSystemChooser, toplevel::KeysAndTunings};
 
 pub struct Notifications<T: StackType> {
     chord: (Option<(usize, Stack<T>)>, Instant),
-    reference: (Option<Stack<T>>, Instant),
+    reference: (Stack<T>, bool, Instant),
     neighbourhood_index: (Option<usize>, Instant),
     enable_chord_list: (Option<bool>, Instant),
+    enable_reanchor: (Option<bool>, Instant),
     detuned_notes: VecDeque<(u8, Semitones, Semitones, &'static str, Instant)>,
     correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
+    cleanup_time: Duration,
 }
 
 impl<T: StackType + HasNoteNames> Notifications<T> {
     pub fn new(correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>) -> Self {
         Self {
             chord: (None {}, Instant::now()),
-            reference: (None {}, Instant::now()),
+            reference: (Stack::new_zero(), false, Instant::now()),
             neighbourhood_index: (None {}, Instant::now()),
             enable_chord_list: (None {}, Instant::now()),
+            enable_reanchor: (None {}, Instant::now()),
             detuned_notes: VecDeque::new(),
             correction_system_chooser,
+            cleanup_time: Duration::from_secs(2),
         }
     }
 
     pub fn clear_old(&mut self, time: Instant) {
         // if let (Some(_), chord_time) = self.chord {
-        //     if time.duration_since(chord_time) > Duration::from_secs(1) {
+        //     if time.duration_since(chord_time) > self.cleanup_time {
         //         self.chord = (None {}, time);
         //     }
         // }
 
-        if let (Some(_), old) = self.reference {
-            if time.duration_since(old) > Duration::from_secs(1) {
-                self.reference = (None {}, time);
-            }
+        if time.duration_since(self.reference.2) > self.cleanup_time {
+            self.reference.1 = false;
         }
 
         if let (Some(_), old) = self.neighbourhood_index {
-            if time.duration_since(old) > Duration::from_secs(1) {
+            if time.duration_since(old) > self.cleanup_time {
                 self.neighbourhood_index = (None {}, time);
             }
         }
 
         if let (Some(_), old) = self.enable_chord_list {
-            if time.duration_since(old) > Duration::from_secs(1) {
+            if time.duration_since(old) > self.cleanup_time {
                 self.enable_chord_list = (None {}, time);
+            }
+        }
+
+        if let (Some(_), old) = self.enable_reanchor {
+            if time.duration_since(old) > self.cleanup_time {
+                self.enable_reanchor = (None {}, time);
             }
         }
 
         loop {
             if let Some((_, _, _, _, old)) = self.detuned_notes.front() {
-                if time.duration_since(*old) > Duration::from_secs(1) {
+                if time.duration_since(*old) > self.cleanup_time {
                     let _ = self.detuned_notes.pop_front();
                 } else {
                     break;
@@ -78,9 +86,10 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
 
     pub fn is_nonempty(&self) -> bool {
         self.chord.0.is_some()
-            || self.reference.0.is_some()
+            || self.reference.1
             || self.neighbourhood_index.0.is_some()
             || self.enable_chord_list.0.is_some()
+            || self.enable_reanchor.0.is_some()
             || !self.detuned_notes.is_empty()
     }
 
@@ -120,6 +129,14 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
             }
         }
 
+        if let (Some(enabled), _) = self.enable_reanchor {
+            if enabled {
+                ui.label("re-setting of the reference on chord match enabled");
+            } else {
+                ui.label("re-setting of the reference on chord match disabled");
+            }
+        }
+
         if let (Some((pattern_index, reference)), _) = &self.chord {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
@@ -139,7 +156,7 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
             });
         }
 
-        if let (Some(reference), _) = &self.reference {
+        if let (reference, true, _) = &self.reference {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.label("reference ");
@@ -169,7 +186,9 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for Notifications<T> {
     fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
         match msg {
             ToUi::SetReference { stack } => {
-                self.reference = (Some(stack.clone()), Instant::now());
+                if self.reference.0 != *stack {
+                    self.reference = (stack.clone(), true, Instant::now());
+                }
             }
             ToUi::CurrentNeighbourhoodIndex { index } => {
                 self.neighbourhood_index = (Some(*index), Instant::now());
@@ -200,6 +219,9 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for Notifications<T> {
             }
             ToUi::EnableChordList { enable } => {
                 self.enable_chord_list = (Some(*enable), Instant::now());
+            }
+            ToUi::ReanchorOnMatch { reanchor } => {
+                self.enable_reanchor = (Some(*reanchor), Instant::now());
             }
 
             ToUi::CurrentStrategyIndex(_) => {}

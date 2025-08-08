@@ -202,6 +202,9 @@ pub enum FromStrategy<T: StackType> {
     EnableChordList {
         enable: bool,
     },
+    ReanchorOnMatch {
+        reanchor: bool,
+    },
 }
 
 pub enum ToBackend {
@@ -352,6 +355,9 @@ pub enum ToUi<T: StackType> {
     },
     EnableChordList {
         enable: bool,
+    },
+    ReanchorOnMatch {
+        reanchor: bool,
     },
 }
 
@@ -672,6 +678,9 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
             ),
             FromStrategy::EnableChordList { enable } => {
                 (None {}, Some(ToUi::EnableChordList { enable }))
+            }
+            FromStrategy::ReanchorOnMatch { reanchor } => {
+                (None {}, Some(ToUi::ReanchorOnMatch { reanchor }))
             }
         }
     }

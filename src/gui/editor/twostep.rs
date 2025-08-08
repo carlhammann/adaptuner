@@ -5,7 +5,7 @@ use eframe::egui;
 use crate::{
     config::{HarmonyStrategyNames, MelodyStrategyNames},
     interval::stacktype::r#trait::StackType,
-    msg::{FromUi, HandleMsgRef, ToUi},
+    msg::FromUi,
 };
 
 pub struct TwoStepEditor {}
@@ -68,11 +68,5 @@ impl TwoStepEditor {
                 }
             }
         }
-    }
-}
-
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for TwoStepEditor {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
-        // todo!()
     }
 }

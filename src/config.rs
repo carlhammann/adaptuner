@@ -222,6 +222,7 @@ impl StrategyKind {
             (StrategyKind::StaticTuning, StrategyAction::SetReferenceToHighest) => true,
             (StrategyKind::StaticTuning, StrategyAction::SetReferenceToCurrent) => false,
             (StrategyKind::StaticTuning, StrategyAction::ToggleChordMatching) => false,
+            (StrategyKind::StaticTuning, StrategyAction::ToggleReanchor) => false,
             (
                 StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods),
                 StrategyAction::IncrementNeighbourhoodIndex(_),
@@ -237,6 +238,10 @@ impl StrategyKind {
             (
                 StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods),
                 StrategyAction::SetReferenceToCurrent,
+            ) => true,
+            (
+                StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods),
+                StrategyAction::ToggleReanchor,
             ) => true,
             (
                 StrategyKind::TwoStep(HarmonyStrategyKind::ChordList, _),

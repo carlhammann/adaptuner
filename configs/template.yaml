@@ -471,6 +471,7 @@ strategies:
     bindings:
       sostenuto-pedal-down: !increment-neighbourhood-index 1
       soft-pedal-down: set-reference-to-current
+      Escape: toggle-reanchor
       Backspace: toggle-chord-matching
       Enter: !increment-neighbourhood-index 1
       Space: set-reference-to-current

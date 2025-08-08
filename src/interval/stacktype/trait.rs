@@ -110,7 +110,7 @@ impl<T: IntervalBasis> NamedInterval<T> {
 }
 
 /// A description of the [Interval]s and [Temperament]s that may be used in a [Stack][crate::interval::stack::Stack]
-pub trait StackType: IntervalBasis + 'static {
+pub trait StackType: IntervalBasis + Eq + 'static {
     /// The list of [Temperament]s that may be applied to intervals in a
     /// [Stack][crate::interval::stack::Stack] of this type. The "dimension" of the temperaments
     /// must be the [IntervalBasis::num_intervals].

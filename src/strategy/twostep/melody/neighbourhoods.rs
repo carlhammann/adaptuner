@@ -138,6 +138,7 @@ impl<T: StackType> MelodyStrategy<T> for Neighbourhoods<T> {
         match msg {
             ToStrategy::ReanchorOnMatch { reanchor } => {
                 self.fixed = !reanchor;
+                forward.push_back(FromStrategy::ReanchorOnMatch { reanchor });
                 (true, Some(self.inner.reference.clone()))
             }
             ToStrategy::SetGroupMs { group_ms } => {
@@ -192,6 +193,11 @@ impl<T: StackType> MelodyStrategy<T> for Neighbourhoods<T> {
                 } else {
                     self.solve(keys, tunings, harmony, time, forward)
                 }
+            }
+            StrategyAction::ToggleReanchor => {
+                self.fixed = !self.fixed;
+                forward.push_back(FromStrategy::ReanchorOnMatch { reanchor: !self.fixed });
+                self.solve(keys, tunings, harmony, time, forward)
             }
             _ => {
                 self.inner

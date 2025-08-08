@@ -21,6 +21,7 @@ pub enum StrategyAction {
     SetReferenceToHighest,
     SetReferenceToCurrent,
     ToggleChordMatching,
+    ToggleReanchor,
 }
 
 impl fmt::Display for StrategyAction {
@@ -39,6 +40,7 @@ impl fmt::Display for StrategyAction {
                 write!(f, "set reference to current chord's reference")
             }
             StrategyAction::ToggleChordMatching => write!(f, "toggle chord matching"),
+            StrategyAction::ToggleReanchor => write!(f, "toggle re-setting of the reference on chord match"),
         }
     }
 }
