@@ -63,31 +63,23 @@ impl<'a, T: StackType + HasNoteNames> AsBigControls<'a, T> {
 
         ui.vertical(|ui| {
             ui.label("background note range");
-            ui.horizontal(|ui| {
-                ui.selectable_value(
-                    &mut controls.background_around_reference,
-                    true,
-                    "around the current reference",
-                );
-                ui.selectable_value(
-                    &mut controls.background_around_reference,
-                    false,
-                    "around middle C",
-                );
-            });
 
             egui::Grid::new("background_note_distance_grid").show(ui, |ui| {
                 for i in (0..T::num_intervals()).rev() {
                     ui.label(&T::intervals()[i].name);
-                    ui.add(
-                        egui::DragValue::new(&mut controls.background_low[i])
-                            .range((-12)..=0),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut controls.background_high[i]).range(0..=12),
-                    );
+                    ui.add(egui::DragValue::new(&mut controls.background_low[i]).range((-12)..=0));
+                    ui.add(egui::DragValue::new(&mut controls.background_high[i]).range(0..=12));
                     ui.end_row();
                 }
+            });
+
+            ui.horizontal(|ui| {
+                ui.selectable_value(
+                    &mut controls.background_around_reference,
+                    true,
+                    "around current reference",
+                );
+                ui.selectable_value(&mut controls.background_around_reference, false, "around C");
             });
         });
 

@@ -122,6 +122,8 @@ struct Positions {
     grid_reference_pos: egui::Pos2, // not necessarily the reference of the current neighbourhood
     bottom: f32,
     left: f32,
+    background_low_with_considered: Vec<StackCoeff>,
+    background_high_with_considered: Vec<StackCoeff>,
 }
 
 struct OneNodeDrawState<T: StackType> {
@@ -454,6 +456,8 @@ impl<T: StackType> LatticeWindow<T> {
                 bottom: 0.0,
                 c4_hpos: 0.0,
                 grid_reference_pos: pos2(0.0, 0.0),
+                background_low_with_considered: vec![0; T::num_intervals()],
+                background_high_with_considered: vec![0; T::num_intervals()],
             },
             controls: config.to_controls(correction_system_chooser),
         }
@@ -742,6 +746,28 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             self.grid_reference.reset_to_zero();
         }
 
+        self.positions
+            .background_low_with_considered
+            .copy_from_slice(&self.controls.background_low);
+        self.positions
+            .background_high_with_considered
+            .copy_from_slice(&self.controls.background_high);
+
+        // let mut lowest_considered: f32 = 0.0;
+        for (_, relative_stack) in self.considered_notes.iter() {
+            for i in 0..T::num_intervals() {
+                if i == self.controls.project_dimension {
+                    continue;
+                }
+                let x = relative_stack.target[i] + state.reference.target[i]
+                    - self.grid_reference.target[i];
+                self.positions.background_low_with_considered[i] =
+                    self.positions.background_low_with_considered[i].min(x);
+                self.positions.background_high_with_considered[i] =
+                    self.positions.background_high_with_considered[i].max(x);
+            }
+        }
+
         self.positions.c4_hpos = self.positions.left + self.c4_offset(state);
 
         self.positions.grid_reference_pos.x =
@@ -749,26 +775,18 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
 
         let mut lowest_background: f32 = 0.0;
         let mut background = PureStacksAround::new(
-            &self.controls.background_low,
-            &self.controls.background_high,
+            &self.positions.background_low_with_considered,
+            &self.positions.background_high_with_considered,
             &self.grid_reference,
         );
         while let Some(stack) = background.next() {
             lowest_background = lowest_background.max(self.vpos_relative_to_grid_reference(stack));
         }
 
-        let mut lowest_considered: f32 = 0.0;
-        for (_, relative_stack) in self.considered_notes.iter() {
-            self.tmp_stack.clone_from(relative_stack);
-            self.tmp_stack.scaled_add(1, &state.reference);
-            lowest_considered =
-                lowest_considered.max(self.vpos_relative_to_grid_reference(&self.tmp_stack));
-        }
-
         self.positions.grid_reference_pos.y = self.positions.bottom
             - self.keyboard_height()
             - self.controls.zoom * FREE_SPACE_ABOVE_KEYBOARD
-            - lowest_considered.max(lowest_background);
+            - lowest_background;
     }
 
     fn vpos_relative_to_grid_reference(&self, stack: &Stack<T>) -> f32 {
@@ -837,8 +855,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         };
 
         let mut background = PureStacksAround::new(
-            &self.controls.background_low,
-            &self.controls.background_high,
+            &self.positions.background_low_with_considered,
+            &self.positions.background_high_with_considered,
             &self.grid_reference,
         );
         while let Some(stack) = background.next() {
@@ -853,43 +871,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             }
         }
 
-        let draw_path_without_projection = |stack: &Stack<T>| {
-            let mut in_bounds = true;
-            for i in 0..T::num_intervals() {
-                if i == self.controls.project_dimension {
-                    continue;
-                }
-                let d = stack.target[i] - self.grid_reference.target[i];
-                if d > self.controls.background_high[i] || d < self.controls.background_low[i] {
-                    in_bounds = false;
-                    break;
-                }
-            }
-
-            if !in_bounds {
-                let mut pos = self.positions.grid_reference_pos;
-                for i in 0..T::num_intervals() {
-                    if i == self.controls.project_dimension {
-                        continue;
-                    }
-                    let d = stack.target[i] - self.grid_reference.target[i];
-                    for _ in 0..d.abs() {
-                        pos = draw_limb(i, d > 0, pos);
-                        draw_circle(pos);
-                    }
-                }
-            }
-        };
-
-        self.considered_notes.for_each_stack(|_, stk| {
-            self.tmp_stack.clone_from(&state.reference);
-            self.tmp_stack.scaled_add(1, stk);
-            draw_path_without_projection(&self.tmp_stack);
-        });
-
         for (i, stack) in state.tunings.iter().enumerate() {
             if state.active_notes[i].is_sounding() {
-                draw_path_without_projection(stack);
                 let mut pos = self.projected_pos(stack);
                 let d = stack.target[self.controls.project_dimension]
                     - self.grid_reference.target[self.controls.project_dimension];
@@ -959,8 +942,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         };
 
         let mut background = PureStacksAround::new(
-            &self.controls.background_low,
-            &self.controls.background_high,
+            &self.positions.background_low_with_considered,
+            &self.positions.background_high_with_considered,
             &self.grid_reference,
         );
         while let Some(stack) = background.next() {
