@@ -54,7 +54,7 @@ impl<'a, T: StackType> GuiShow<T> for AsKeyboardControls<'a, T> {
 pub struct AsBigControls<'a, T: StackType>(pub &'a mut LatticeWindow<T>);
 
 impl<'a, T: StackType + HasNoteNames> AsBigControls<'a, T> {
-    pub fn show(&mut self, reference_name: &str, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui) {
         let AsBigControls(lw) = self;
         let controls = &mut lw.controls;
 
@@ -62,20 +62,33 @@ impl<'a, T: StackType + HasNoteNames> AsBigControls<'a, T> {
         ui.separator();
 
         ui.vertical(|ui| {
+            ui.label("background note range");
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
-                ui.label("grid range around the reference ( currently ");
-                ui.strong(reference_name);
-                ui.label(" )");
+                ui.selectable_value(
+                    &mut controls.background_around_reference,
+                    true,
+                    "around the current reference",
+                );
+                ui.selectable_value(
+                    &mut controls.background_around_reference,
+                    false,
+                    "around middle C",
+                );
             });
 
-            for i in (0..T::num_intervals()).rev() {
-                ui.add(
-                    egui::Slider::new(&mut controls.background_stack_distances[i], 0..=6)
-                        .smart_aim(false)
-                        .text(&T::intervals()[i].name),
-                );
-            }
+            egui::Grid::new("background_note_distance_grid").show(ui, |ui| {
+                for i in (0..T::num_intervals()).rev() {
+                    ui.label(&T::intervals()[i].name);
+                    ui.add(
+                        egui::DragValue::new(&mut controls.background_low[i])
+                            .range((-12)..=0),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut controls.background_high[i]).range(0..=12),
+                    );
+                    ui.end_row();
+                }
+            });
         });
 
         ui.separator();

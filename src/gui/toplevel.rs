@@ -254,20 +254,7 @@ where
 
                 ui.separator();
 
-                let reference_name = self.state.reference.corrected_notename(
-                    &self.lattice.controls.notenamestyle,
-                    self.lattice
-                        .controls
-                        .correction_system_chooser
-                        .borrow()
-                        .preference_order(),
-                    self.lattice
-                        .controls
-                        .correction_system_chooser
-                        .borrow()
-                        .use_cent_values,
-                );
-                AsBigControls(&mut self.lattice).show(&reference_name, ui);
+                AsBigControls(&mut self.lattice).show(ui);
 
                 ui.separator();
 

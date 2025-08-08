@@ -46,7 +46,9 @@ const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
 pub struct LatticeWindowConfig {
     pub zoom: f32,
     pub interval_heights: Vec<f32>,
-    pub background_stack_distances: Vec<StackCoeff>,
+    pub background_around_reference: bool,
+    pub background_low: Vec<StackCoeff>,
+    pub background_high: Vec<StackCoeff>,
     pub project_dimension: usize,
     #[serde(
         serialize_with = "serialize_channel",
@@ -67,7 +69,9 @@ impl LatticeWindowConfig {
         let LatticeWindowConfig {
             zoom,
             interval_heights,
-            background_stack_distances,
+            background_around_reference,
+            background_low,
+            background_high,
             project_dimension,
             screen_keyboard_channel,
             screen_keyboard_velocity,
@@ -78,7 +82,9 @@ impl LatticeWindowConfig {
         LatticeWindowControls {
             zoom,
             interval_heights,
-            background_stack_distances,
+            background_around_reference,
+            background_low,
+            background_high,
             project_dimension,
             screen_keyboard_channel,
             screen_keyboard_velocity,
@@ -96,7 +102,9 @@ impl LatticeWindowConfig {
 pub struct LatticeWindowControls<T: StackType> {
     pub zoom: f32,
     pub interval_heights: Vec<f32>,
-    pub background_stack_distances: Vec<StackCoeff>,
+    pub background_around_reference: bool,
+    pub background_low: Vec<StackCoeff>,
+    pub background_high: Vec<StackCoeff>,
     pub project_dimension: usize,
     pub screen_keyboard_channel: Channel,
     pub screen_keyboard_velocity: u8,
@@ -111,7 +119,7 @@ pub struct LatticeWindowControls<T: StackType> {
 
 struct Positions {
     c4_hpos: f32,
-    reference_pos: egui::Pos2,
+    grid_reference_pos: egui::Pos2, // not necessarily the reference of the current neighbourhood
     bottom: f32,
     left: f32,
 }
@@ -129,6 +137,7 @@ pub struct LatticeWindow<T: StackType> {
 
     reset_position: bool,
 
+    grid_reference: Stack<T>,
     positions: Positions,
 
     draw_state: OneNodeDrawState<T>,
@@ -137,24 +146,26 @@ pub struct LatticeWindow<T: StackType> {
 }
 
 struct PureStacksAround<'a, T: StackType> {
-    dists: &'a [StackCoeff],
+    low: &'a [StackCoeff],
+    high: &'a [StackCoeff],
     reference: &'a Stack<T>,
     curr: Stack<T>,
 }
 
 impl<'a, T: StackType> PureStacksAround<'a, T> {
-    /// entries of dists must be nonnegative
-    fn new(dists: &'a [StackCoeff], reference: &'a Stack<T>) -> Self {
+    /// entries of low must be less than or equal to 0, entries of high must be nonnegative
+    fn new(low: &'a [StackCoeff], high: &'a [StackCoeff], reference: &'a Stack<T>) -> Self {
         let mut curr = reference.clone();
 
         for i in 0..T::num_intervals() {
-            curr.increment_at_index_pure(i, -dists[i]);
+            curr.increment_at_index_pure(i, low[i]);
         }
 
         curr.increment_at_index_pure(T::num_intervals() - 1, -1);
 
         Self {
-            dists,
+            low,
+            high,
             reference,
             curr,
         }
@@ -164,11 +175,12 @@ impl<'a, T: StackType> PureStacksAround<'a, T> {
 impl<'a, T: StackType> PureStacksAround<'a, T> {
     fn next(&mut self) -> Option<&Stack<T>> {
         for i in (0..T::num_intervals()).rev() {
-            if self.curr.target[i] < self.reference.target[i] + self.dists[i] {
+            if self.curr.target[i] < self.reference.target[i] + self.high[i] {
                 self.curr.increment_at_index_pure(i, 1);
                 return Some(&self.curr);
             }
-            self.curr.increment_at_index_pure(i, -2 * self.dists[i]);
+            self.curr
+                .increment_at_index_pure(i, self.low[i] - self.high[i]);
         }
         return None {};
     }
@@ -436,11 +448,12 @@ impl<T: StackType> LatticeWindow<T> {
             tmp_stack: Stack::new_zero(),
             other_tmp_stack: Stack::new_zero(),
             reset_position: true,
+            grid_reference: Stack::new_zero(),
             positions: Positions {
                 left: 0.0,
                 bottom: 0.0,
                 c4_hpos: 0.0,
-                reference_pos: pos2(0.0, 0.0),
+                grid_reference_pos: pos2(0.0, 0.0),
             },
             controls: config.to_controls(correction_system_chooser),
         }
@@ -722,69 +735,72 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                    + state.tuning_reference.c4_semitones() as f32)
     }
 
-    fn compute_reference_positions(&mut self, state: &KeysAndTunings<T>) {
+    fn update_positions(&mut self, state: &KeysAndTunings<T>) {
+        if self.controls.background_around_reference {
+            self.grid_reference.clone_from(&state.reference);
+        } else {
+            self.grid_reference.reset_to_zero();
+        }
+
         self.positions.c4_hpos = self.positions.left + self.c4_offset(state);
 
-        self.positions.reference_pos.x =
-            self.positions.c4_hpos + self.controls.zoom * state.reference.semitones() as f32;
+        self.positions.grid_reference_pos.x =
+            self.positions.c4_hpos + self.controls.zoom * self.grid_reference.semitones() as f32;
 
-        let lowest_background = self
-            .controls
-            .background_stack_distances
-            .iter()
-            .enumerate()
-            .fold(0.0, |acc, (i, c)| {
-                acc + *c as f32 * self.controls.zoom * self.controls.interval_heights[i].abs()
-            });
+        let mut lowest_background: f32 = 0.0;
+        let mut background = PureStacksAround::new(
+            &self.controls.background_low,
+            &self.controls.background_high,
+            &self.grid_reference,
+        );
+        while let Some(stack) = background.next() {
+            lowest_background = lowest_background.max(self.vpos_relative_to_grid_reference(stack));
+        }
 
-        let lowest_considered = self
-            .considered_notes
-            .iter()
-            .fold(0.0, |acc: f32, (_i, stack)| {
-                let d = stack.target.iter().enumerate().fold(0.0, |acc, (i, c)| {
-                    acc + *c as f32 * self.controls.zoom * self.controls.interval_heights[i]
-                });
-                acc.max(d)
-            });
+        let mut lowest_considered: f32 = 0.0;
+        for (_, relative_stack) in self.considered_notes.iter() {
+            self.tmp_stack.clone_from(relative_stack);
+            self.tmp_stack.scaled_add(1, &state.reference);
+            lowest_considered =
+                lowest_considered.max(self.vpos_relative_to_grid_reference(&self.tmp_stack));
+        }
 
-        self.positions.reference_pos.y = self.positions.bottom
+        self.positions.grid_reference_pos.y = self.positions.bottom
             - self.keyboard_height()
             - self.controls.zoom * FREE_SPACE_ABOVE_KEYBOARD
             - lowest_considered.max(lowest_background);
     }
 
-    fn vpos_relative_to_reference(&self, state: &KeysAndTunings<T>, stack: &Stack<T>) -> f32 {
-        self.controls.zoom * {
-            let mut y = 0.0;
-            for i in 0..T::num_intervals() {
-                y += (stack.target[i] - state.reference.target[i]) as f32
-                    * self.controls.interval_heights[i];
-            }
-            y
+    fn vpos_relative_to_grid_reference(&self, stack: &Stack<T>) -> f32 {
+        let mut y = 0.0;
+        for i in 0..T::num_intervals() {
+            y += (stack.target[i] - self.grid_reference.target[i]) as f32
+                * self.controls.interval_heights[i];
         }
+        self.controls.zoom * y
     }
 
-    fn vpos(&self, state: &KeysAndTunings<T>, stack: &Stack<T>) -> f32 {
-        self.positions.reference_pos.y + self.vpos_relative_to_reference(state, stack)
+    fn vpos(&self, stack: &Stack<T>) -> f32 {
+        self.positions.grid_reference_pos.y + self.vpos_relative_to_grid_reference(stack)
     }
 
     fn hpos(&self, stack: &Stack<T>) -> f32 {
         self.positions.c4_hpos + self.controls.zoom * stack.semitones() as f32
     }
 
-    fn pos(&self, state: &KeysAndTunings<T>, stack: &Stack<T>) -> egui::Pos2 {
-        pos2(self.hpos(stack), self.vpos(state, stack))
+    fn pos(&self, stack: &Stack<T>) -> egui::Pos2 {
+        pos2(self.hpos(stack), self.vpos(stack))
     }
 
-    fn has_projection(&self, state: &KeysAndTunings<T>, stack: &Stack<T>) -> bool {
+    fn has_projection(&self, stack: &Stack<T>) -> bool {
         stack.target[self.controls.project_dimension]
-            != state.reference.target[self.controls.project_dimension]
+            != self.grid_reference.target[self.controls.project_dimension]
     }
 
-    fn projected_pos(&self, state: &KeysAndTunings<T>, stack: &Stack<T>) -> egui::Pos2 {
-        self.pos(state, stack)
+    fn projected_pos(&self, stack: &Stack<T>) -> egui::Pos2 {
+        self.pos(stack)
             - (stack.target[self.controls.project_dimension]
-                - state.reference.target[self.controls.project_dimension]) as f32
+                - self.grid_reference.target[self.controls.project_dimension]) as f32
                 * self.controls.zoom
                 * vec2(
                     T::intervals()[self.controls.project_dimension].semitones as f32,
@@ -820,15 +836,18 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             end_pos
         };
 
-        let mut background =
-            PureStacksAround::new(&self.controls.background_stack_distances, &state.reference);
+        let mut background = PureStacksAround::new(
+            &self.controls.background_low,
+            &self.controls.background_high,
+            &self.grid_reference,
+        );
         while let Some(stack) = background.next() {
             for i in 0..T::num_intervals() {
-                let d = stack.target[i] - state.reference.target[i];
+                let d = stack.target[i] - self.grid_reference.target[i];
                 if d == 0 {
                     continue;
                 }
-                let p = self.pos(state, stack);
+                let p = self.pos(stack);
                 // draw_circle(p);
                 let _ = draw_limb(i, d < 0, p);
             }
@@ -840,21 +859,20 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 if i == self.controls.project_dimension {
                     continue;
                 }
-                if (stack.target[i] - state.reference.target[i]).abs()
-                    > self.controls.background_stack_distances[i]
-                {
+                let d = stack.target[i] - self.grid_reference.target[i];
+                if d > self.controls.background_high[i] || d < self.controls.background_low[i] {
                     in_bounds = false;
                     break;
                 }
             }
 
             if !in_bounds {
-                let mut pos = self.positions.reference_pos;
+                let mut pos = self.positions.grid_reference_pos;
                 for i in 0..T::num_intervals() {
                     if i == self.controls.project_dimension {
                         continue;
                     }
-                    let d = stack.target[i] - state.reference.target[i];
+                    let d = stack.target[i] - self.grid_reference.target[i];
                     for _ in 0..d.abs() {
                         pos = draw_limb(i, d > 0, pos);
                         draw_circle(pos);
@@ -872,9 +890,9 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         for (i, stack) in state.tunings.iter().enumerate() {
             if state.active_notes[i].is_sounding() {
                 draw_path_without_projection(stack);
-                let mut pos = self.projected_pos(state, stack);
+                let mut pos = self.projected_pos(stack);
                 let d = stack.target[self.controls.project_dimension]
-                    - state.reference.target[self.controls.project_dimension];
+                    - self.grid_reference.target[self.controls.project_dimension];
                 for _ in 0..d.abs() {
                     pos = draw_limb(self.controls.project_dimension, d > 0, pos);
                     draw_circle(pos);
@@ -887,7 +905,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         let bottom = self.keyboard_top();
         for (i, stack) in state.tunings.iter().enumerate() {
             if state.active_notes[i].is_sounding() {
-                let ppos = self.projected_pos(state, stack);
+                let ppos = self.projected_pos(stack);
                 ui.painter().vline(
                     ppos.x,
                     egui::Rangef {
@@ -897,8 +915,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                     self.grid_line_stroke(ui),
                 );
 
-                if self.has_projection(state, stack) {
-                    let pos = self.pos(state, stack);
+                if self.has_projection(stack) {
+                    let pos = self.pos(stack);
                     ui.painter().vline(
                         pos.x,
                         egui::Rangef {
@@ -921,25 +939,30 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         T: Hash,
     {
         let write_considered_stack_to_draw = |considered: &Stack<T>, output: &mut Stack<T>| {
-            output.clone_from(considered);
+            output.clone_from(&state.reference);
+            output.scaled_add(1, considered);
             output.increment_at_index_pure(
                 self.controls.project_dimension,
-                -considered.target[self.controls.project_dimension],
+                self.grid_reference.target[self.controls.project_dimension]
+                    - state.reference.target[self.controls.project_dimension]
+                    - considered.target[self.controls.project_dimension],
             );
-            output.scaled_add(1, &state.reference);
         };
 
         let write_sounding_stack_to_draw = |sounding: &Stack<T>, output: &mut Stack<T>| {
             output.clone_from(sounding);
             output.increment_at_index_pure(
                 self.controls.project_dimension,
-                state.reference.target[self.controls.project_dimension]
+                self.grid_reference.target[self.controls.project_dimension]
                     - sounding.target[self.controls.project_dimension],
             );
         };
 
-        let mut background =
-            PureStacksAround::new(&self.controls.background_stack_distances, &state.reference);
+        let mut background = PureStacksAround::new(
+            &self.controls.background_low,
+            &self.controls.background_high,
+            &self.grid_reference,
+        );
         while let Some(stack) = background.next() {
             let draw_this = self.considered_notes.iter().all(|(_, considered)| {
                 write_considered_stack_to_draw(considered, &mut self.tmp_stack);
@@ -955,7 +978,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 self.draw_state.draw_note_and_interaction_zone(
                     ui,
                     stack,
-                    self.pos(state, stack),
+                    self.pos(stack),
                     &state.reference,
                     &self.controls,
                     NoteDrawStyle::Background,
@@ -977,7 +1000,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 self.draw_state.draw_note_and_interaction_zone(
                     ui,
                     &self.tmp_stack,
-                    self.pos(state, &self.tmp_stack),
+                    self.pos(&self.tmp_stack),
                     &state.reference,
                     &self.controls,
                     NoteDrawStyle::Considered,
@@ -992,17 +1015,17 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 self.draw_state.draw_note_and_interaction_zone(
                     ui,
                     &self.tmp_stack,
-                    self.pos(state, &self.tmp_stack),
+                    self.pos(&self.tmp_stack),
                     &state.reference,
                     &self.controls,
                     NoteDrawStyle::Playing,
                     forward,
                 );
-                if self.has_projection(state, stack) {
+                if self.has_projection(stack) {
                     self.draw_state.draw_note_and_interaction_zone(
                         ui,
                         stack,
-                        self.pos(state, stack),
+                        self.pos(stack),
                         &state.reference,
                         &self.controls,
                         NoteDrawStyle::Antenna,
@@ -1021,7 +1044,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     ) where
         T: Hash,
     {
-        self.compute_reference_positions(state);
+        self.update_positions(state);
         self.draw_down_lines(ui, state);
         self.draw_grid_lines(ui, state);
         self.draw_note_names_and_interaction_zones(ui, state, forward);
@@ -1119,7 +1142,9 @@ impl<T: StackType> ExtractConfig<LatticeWindowConfig> for LatticeWindow<T> {
         let LatticeWindowControls {
             zoom,
             interval_heights,
-            background_stack_distances,
+            background_around_reference,
+            background_low,
+            background_high,
             project_dimension,
             screen_keyboard_channel,
             screen_keyboard_velocity,
@@ -1131,7 +1156,9 @@ impl<T: StackType> ExtractConfig<LatticeWindowConfig> for LatticeWindow<T> {
         LatticeWindowConfig {
             zoom: *zoom,
             interval_heights: interval_heights.clone(),
-            background_stack_distances: background_stack_distances.clone(),
+            background_around_reference: *background_around_reference,
+            background_low: background_low.clone(),
+            background_high: background_high.clone(),
             project_dimension: *project_dimension,
             screen_keyboard_channel: *screen_keyboard_channel,
             screen_keyboard_velocity: *screen_keyboard_velocity,
