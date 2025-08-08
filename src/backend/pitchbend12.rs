@@ -303,12 +303,9 @@ impl HandleMsg<ToBackend, FromBackend> for Pitchbend12 {
             ToBackend::GetCurrentConfig => {
                 let _ = forward.send(FromBackend::CurrentConfig(self.extract_config()));
             }
-            ToBackend::RestartWithConfig { time, config } => {
+            ToBackend::RestartWithConfig { config, .. } => {
                 *self = <Self as FromConfigAndState<_, _>>::initialise(config, ());
             }
-            ToBackend::Start { time } => todo!(),
-            ToBackend::Reset { time } => todo!(),
-            ToBackend::Stop => todo!(),
         }
     }
 }

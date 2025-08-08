@@ -15,7 +15,9 @@ use crate::{
     interval::stacktype::r#trait::StackType,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
-        FromBackend, FromMidiIn, FromMidiOut, FromProcess, FromUi, HandleMsg, HasStop, MessageTranslate, MessageTranslate2, MessageTranslate3, MessageTranslate4, ReceiveMsg, ToBackend, ToMidiIn, ToMidiOut, ToProcess, ToUi
+        FromBackend, FromMidiIn, FromMidiOut, FromProcess, FromUi, HandleMsg, HasStop,
+        MessageTranslate, MessageTranslate2, MessageTranslate3, MessageTranslate4, ReceiveMsg,
+        ToBackend, ToMidiIn, ToMidiOut, ToProcess, ToUi,
     },
 };
 
@@ -304,14 +306,8 @@ pub struct RunState<T: StackType> {
         mpsc::Receiver<ToBackend>,
         mpsc::Sender<FromBackend>,
     )>,
-    midi_output_forward: thread::JoinHandle<()>,
-    midi_input_forward: thread::JoinHandle<()>,
-    process_forward: thread::JoinHandle<()>,
-    backend_forward: thread::JoinHandle<()>,
-    ui_forward: thread::JoinHandle<()>,
     to_process_tx: mpsc::Sender<ToProcess<T>>,
     to_backend_tx: mpsc::Sender<ToBackend>,
-    to_ui_tx: mpsc::Sender<ToUi<T>>,
     to_midi_input_tx: mpsc::Sender<ToMidiIn>,
     to_midi_output_tx: mpsc::Sender<ToMidiOut>,
     gui_config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
@@ -378,6 +374,25 @@ impl<T: StackType> RunState<T> {
 
         let gui_config_return = Arc::new(Mutex::new(None {}));
 
+        let _midi_output_forward = start_translate_thread(from_midi_output_rx, &to_ui_tx);
+        let _midi_input_forward =
+            start_translate_2_thread(from_midi_input_rx, &to_process_tx, &to_ui_tx);
+        let _process_forward = start_translate_3_thread(
+            from_process_rx,
+            &to_backend_tx,
+            &to_midi_output_tx,
+            &to_ui_tx,
+        );
+        let _backend_forward =
+            start_translate_2_thread(from_backend_rx, &to_midi_output_tx, &to_ui_tx);
+        let _ui_forward = start_translate_4_thread(
+            from_ui_rx,
+            &to_process_tx,
+            &to_backend_tx,
+            &to_midi_input_tx,
+            &to_midi_output_tx,
+        );
+
         let res = Self {
             midi_input: start_handler_thread(|| midi_input, to_midi_input_rx, from_midi_input_tx),
             midi_output: start_handler_thread(
@@ -395,33 +410,8 @@ impl<T: StackType> RunState<T> {
                 to_backend_rx,
                 from_backend_tx,
             ),
-            midi_output_forward: start_translate_thread(from_midi_output_rx, &to_ui_tx),
-            midi_input_forward: start_translate_2_thread(
-                from_midi_input_rx,
-                &to_process_tx,
-                &to_ui_tx,
-            ),
-            process_forward: start_translate_3_thread(
-                from_process_rx,
-                &to_backend_tx,
-                &to_midi_output_tx,
-                &to_ui_tx,
-            ),
-            backend_forward: start_translate_2_thread(
-                from_backend_rx,
-                &to_midi_output_tx,
-                &to_ui_tx,
-            ),
-            ui_forward: start_translate_4_thread(
-                from_ui_rx,
-                &to_process_tx,
-                &to_backend_tx,
-                &to_midi_input_tx,
-                &to_midi_output_tx,
-            ),
             to_process_tx: to_process_tx.clone(),
             to_backend_tx,
-            to_ui_tx,
             to_midi_input_tx: to_midi_input_tx.clone(),
             to_midi_output_tx: to_midi_output_tx.clone(),
             gui_config_return: gui_config_return.clone(),

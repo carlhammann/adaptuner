@@ -7,7 +7,7 @@ pub mod editor;
 pub mod latency;
 pub mod lattice;
 pub mod latticecontrol;
-pub mod notes;
+// pub mod notes; // temporaril disabled because its' unfinished
 pub mod notifications;
 pub mod strategy;
 pub mod toplevel;

@@ -17,7 +17,7 @@ pub enum LUErr {
 pub struct LU<'a, T> {
     a: ArrayViewMut2<'a, T>,
     perm: ArrayViewMut1<'a, usize>,
-    n_swaps: usize,
+    // n_swaps: usize,
 }
 
 /// Like [lu], only with a pre-set `better_pivot` argument that prefers simpler fractions
@@ -94,7 +94,7 @@ where
         perm[i] = i;
     }
 
-    let mut n_swaps = 0;
+    // let mut n_swaps = 0;
 
     let mut pivot;
     let mut i_pivot;
@@ -121,7 +121,7 @@ where
             perm[i_pivot] = tmp_i;
 
             // count the number of swaps
-            n_swaps += 1;
+            // n_swaps += 1;
 
             // row interchange in a
             let (mut v, mut w) = a.multi_slice_mut((s![i, ..], s![i_pivot, ..]));
@@ -139,7 +139,11 @@ where
         }
     }
 
-    Ok(LU { a, perm, n_swaps })
+    Ok(LU {
+        a,
+        perm,
+        // n_swaps
+    })
 }
 
 impl<'a, T> LU<'a, T> {

@@ -23,7 +23,6 @@ use super::{
     latency::LatencyWindow,
     lattice::LatticeWindow,
     latticecontrol::{AsBigControls, AsKeyboardControls},
-    notes::NoteWindow,
     notifications::Notifications,
     r#trait::GuiShow,
     strategy::{AsStrategyPicker, AsWindows, StrategyWindows},
@@ -71,8 +70,8 @@ pub struct Toplevel<T: StackType> {
     latency: LatencyWindow,
     tx: mpsc::Sender<FromUi<T>>,
 
-    notes: NoteWindow<T>,
-    note_window: SmallFloatingWindow,
+    // notes: NoteWindow<T>,
+    // note_window: SmallFloatingWindow,
 
     config_file_dialog: ConfigFileDialog<T>,
 
@@ -80,7 +79,7 @@ pub struct Toplevel<T: StackType> {
 }
 
 impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
-    pub fn new(config: GuiConfig<T>, ctx: &egui::Context, tx: mpsc::Sender<FromUi<T>>) -> Self {
+    pub fn new(config: GuiConfig<T>, _ctx: &egui::Context, tx: mpsc::Sender<FromUi<T>>) -> Self {
         let correction_system_chooser = Rc::new(RefCell::new(CorrectionSystemChooser::new(
             "correction_system_chooser",
             config.use_cent_values,
@@ -108,8 +107,8 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
             connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window")),
             backend: BackendWindow::new(config.backend_window),
             latency: LatencyWindow::new(config.latency_mean_over),
-            notes: NoteWindow::new(ctx),
-            note_window: SmallFloatingWindow::new(egui::Id::new("note_window")),
+            // notes: NoteWindow::new(ctx),
+            // note_window: SmallFloatingWindow::new(egui::Id::new("note_window")),
             tx,
             config_file_dialog: ConfigFileDialog::new(),
             notifications: Notifications::new(correction_system_chooser),
@@ -207,7 +206,7 @@ impl<T: StackType + Serialize> ReceiveMsg<ToUi<T>> for Toplevel<T> {
         }
 
         self.lattice.receive_msg_ref(&msg);
-        self.notes.receive_msg_ref(&msg);
+        // self.notes.receive_msg_ref(&msg);
         self.strategies.receive_msg_ref(&msg);
         self.input_connection.receive_msg_ref(&msg);
         self.output_connection.receive_msg_ref(&msg);
@@ -236,7 +235,7 @@ where
 
                 self.connection_window
                     .show_hide_button(ui, "MIDI connections");
-                self.note_window.show_hide_button(ui, "notes");
+                // self.note_window.show_hide_button(ui, "notes");
                 self.keyboard_control_window
                     .show_hide_button(ui, "keyboard controls");
 
@@ -314,9 +313,9 @@ where
             );
         });
 
-        self.note_window.show("notes", ctx, |ui| {
-            self.notes.show(ui, &self.tx);
-        });
+        // self.note_window.show("notes", ctx, |ui| {
+        //     self.notes.show(ui, &self.tx);
+        // });
 
         self.connection_window.show("midi connections", ctx, |ui| {
             ui.vertical(|ui| {
