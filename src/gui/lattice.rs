@@ -12,7 +12,7 @@ use crate::{
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{StackCoeff, StackType},
     },
-    msg::{FromUi, HandleMsgRef, ToUi},
+    msg::{FromUi, ReceiveMsgRef, ToUi},
     neighbourhood::{Neighbourhood, Partial},
     notename::{correction::Correction, HasNoteNames, NoteNameStyle},
 };
@@ -1103,8 +1103,8 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatticeWindow<T> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType> ReceiveMsgRef<ToUi<T>> for LatticeWindow<T> {
+    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
         match msg {
             ToUi::Consider { stack } => {
                 let _ = self.considered_notes.insert(stack);

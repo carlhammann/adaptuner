@@ -19,8 +19,12 @@ pub trait HandleMsg<I, O> {
     fn handle_msg(&mut self, msg: I, forward: &mpsc::Sender<O>);
 }
 
-pub trait HandleMsgRef<I, O> {
-    fn handle_msg_ref(&mut self, msg: &I, forward: &mpsc::Sender<O>);
+pub trait ReceiveMsg<I> {
+    fn receive_msg(&mut self, msg: I);
+}
+
+pub trait ReceiveMsgRef<I> {
+    fn receive_msg_ref(&mut self, msg: &I);
 }
 
 /// Convention: the handler wil handle a 'stop' message, and immediately after that the thread will exit.

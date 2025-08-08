@@ -13,7 +13,7 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
-    msg::{FromUi, HandleMsgRef, ToUi},
+    msg::{FromUi, ReceiveMsgRef, ToUi},
     notename::{Accidental, HasNoteNames, NoteName},
 };
 
@@ -673,8 +673,8 @@ impl<T: IntervalBasis + HasNoteNames> NoteWindow<T> {
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NoteWindow<T> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType> ReceiveMsgRef<ToUi<T>> for NoteWindow<T> {
+    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
         match msg {
             ToUi::NoteOn {
                 time,

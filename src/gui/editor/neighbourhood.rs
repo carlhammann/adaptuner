@@ -5,7 +5,7 @@ use eframe::egui::{self, vec2};
 use crate::{
     gui::common::{ListEdit, ListEditOpts, RefListEdit},
     interval::stacktype::r#trait::StackType,
-    msg::{FromUi, HandleMsgRef, ToUi},
+    msg::{FromUi, ReceiveMsgRef, ToUi},
 };
 
 pub struct NeighbourhoodEditor<T: StackType> {
@@ -107,8 +107,8 @@ impl<T: StackType> NeighbourhoodEditor<T> {
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for NeighbourhoodEditor<T> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType> ReceiveMsgRef<ToUi<T>> for NeighbourhoodEditor<T> {
+    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
         match msg {
             ToUi::CurrentNeighbourhoodIndex { index } => {
                 self.current_neighbourhood_index = Some(*index);

@@ -8,7 +8,7 @@ use crate::{
     config::{BackendConfig, Config, GuiConfig, ProcessConfig},
     gui::diffshow::DiffShow,
     interval::stacktype::r#trait::{IntervalBasis, StackType},
-    msg::{FromUi, HandleMsg, ToUi},
+    msg::{FromUi, ReceiveMsg, ToUi},
     util::update_cell::UpdateCell,
 };
 
@@ -161,8 +161,8 @@ impl<T: StackType + Serialize> ConfigFileDialog<T> {
     }
 }
 
-impl<T: StackType + Serialize> HandleMsg<ToUi<T>, FromUi<T>> for ConfigFileDialog<T> {
-    fn handle_msg(&mut self, msg: ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType + Serialize> ReceiveMsg<ToUi<T>> for ConfigFileDialog<T> {
+    fn receive_msg(&mut self, msg: ToUi<T>) {
         match msg {
             ToUi::CurrentProcessConfig(process_config) => {
                 self.current_config

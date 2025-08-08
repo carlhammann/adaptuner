@@ -2,7 +2,6 @@ use std::{
     cell::RefCell,
     collections::VecDeque,
     rc::Rc,
-    sync::mpsc,
     time::{Duration, Instant},
 };
 
@@ -11,7 +10,7 @@ use eframe::egui;
 use crate::{
     config::{HarmonyStrategyNames, MelodyStrategyNames, StrategyNames},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
-    msg::{FromUi, HandleMsgRef, ToUi},
+    msg::{ReceiveMsgRef, ToUi},
     notename::{HasNoteNames, NoteNameStyle},
 };
 
@@ -182,8 +181,8 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for Notifications<T> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType> ReceiveMsgRef<ToUi<T>> for Notifications<T> {
+    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
         match msg {
             ToUi::SetReference { stack } => {
                 if self.reference.0 != *stack {

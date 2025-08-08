@@ -12,7 +12,7 @@ use crate::{
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{StackCoeff, StackType},
     },
-    msg::{FromUi, HandleMsgRef, ToUi},
+    msg::{FromUi, ReceiveMsgRef, ToUi},
     neighbourhood::{Neighbourhood, SomeNeighbourhood},
     notename::{HasNoteNames, NoteNameStyle},
     strategy::twostep::harmony::chordlist::{keyshape::KeyShape, PatternConfig},
@@ -516,8 +516,8 @@ impl<T: StackType + HasNoteNames> ChordListEditor<T> {
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for ChordListEditor<T> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType> ReceiveMsgRef<ToUi<T>> for ChordListEditor<T> {
+    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
         match msg {
             ToUi::CurrentHarmony { pattern_index, .. } => {
                 self.active_pattern.clone_from(pattern_index);

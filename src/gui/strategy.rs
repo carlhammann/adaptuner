@@ -9,7 +9,7 @@ use crate::{
         MelodyStrategyNames, StrategyKind, StrategyNames,
     },
     interval::stacktype::r#trait::StackType,
-    msg::{FromUi, HandleMsgRef, ToUi},
+    msg::{FromUi, ReceiveMsgRef, ToUi},
     notename::HasNoteNames,
     util::list_action::ListAction,
 };
@@ -114,8 +114,8 @@ impl<T: StackType + HasNoteNames> StrategyWindows<T> {
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType> ReceiveMsgRef<ToUi<T>> for StrategyWindows<T> {
+    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
         match msg {
             ToUi::CurrentStrategyIndex(index) => {
                 if let Some(i) = index {
@@ -138,13 +138,13 @@ impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for StrategyWindows<T> {
             }
             _ => {}
         }
-        self.reference_editor.handle_msg_ref(msg, forward);
-        self.tuning_editor.handle_msg_ref(msg, forward);
-        self.neighbourhood_editor.handle_msg_ref(msg, forward);
-        self.chord_list_editor.handle_msg_ref(msg, forward);
+        self.reference_editor.receive_msg_ref(msg);
+        self.tuning_editor.receive_msg_ref(msg);
+        self.neighbourhood_editor.receive_msg_ref(msg);
+        self.chord_list_editor.receive_msg_ref(msg);
 
         // twostep_editor doesn't need to handle any messages, we handle ReanchorOnMatch here:
-        // self.twostep_editor.handle_msg_ref(msg, forward); 
+        // self.twostep_editor.handle_msg_ref(msg, forward);
     }
 }
 

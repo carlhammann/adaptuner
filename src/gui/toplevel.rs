@@ -10,7 +10,7 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, Reloadable, StackType},
     },
     keystate::KeyState,
-    msg::{FromUi, HandleMsg, HandleMsgRef, ToUi},
+    msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi},
     notename::HasNoteNames,
     reference::Reference,
 };
@@ -145,8 +145,8 @@ impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
     }
 }
 
-impl<T: StackType + Serialize> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
-    fn handle_msg(&mut self, msg: ToUi<T>, forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType + Serialize> ReceiveMsg<ToUi<T>> for Toplevel<T> {
+    fn receive_msg(&mut self, msg: ToUi<T>) {
         match &msg {
             ToUi::NoteOn {
                 time,
@@ -206,14 +206,14 @@ impl<T: StackType + Serialize> HandleMsg<ToUi<T>, FromUi<T>> for Toplevel<T> {
             _ => {}
         }
 
-        self.lattice.handle_msg_ref(&msg, forward);
-        self.notes.handle_msg_ref(&msg, forward);
-        self.strategies.handle_msg_ref(&msg, forward);
-        self.input_connection.handle_msg_ref(&msg, forward);
-        self.output_connection.handle_msg_ref(&msg, forward);
-        self.latency.handle_msg_ref(&msg, forward);
-        self.notifications.handle_msg_ref(&msg, forward);
-        self.config_file_dialog.handle_msg(msg, forward); // keep this last, eating up all the messages
+        self.lattice.receive_msg_ref(&msg);
+        self.notes.receive_msg_ref(&msg);
+        self.strategies.receive_msg_ref(&msg);
+        self.input_connection.receive_msg_ref(&msg);
+        self.output_connection.receive_msg_ref(&msg);
+        self.latency.receive_msg_ref(&msg);
+        self.notifications.receive_msg_ref(&msg);
+        self.config_file_dialog.receive_msg(msg); // keep this last, eating up all the messages
     }
 }
 

@@ -15,9 +15,7 @@ use crate::{
     interval::stacktype::r#trait::StackType,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
-        FromBackend, FromMidiIn, FromMidiOut, FromProcess, FromUi, HandleMsg, HasStop,
-        MessageTranslate, MessageTranslate2, MessageTranslate3, MessageTranslate4, ToBackend,
-        ToMidiIn, ToMidiOut, ToProcess, ToUi,
+        FromBackend, FromMidiIn, FromMidiOut, FromProcess, FromUi, HandleMsg, HasStop, MessageTranslate, MessageTranslate2, MessageTranslate3, MessageTranslate4, ReceiveMsg, ToBackend, ToMidiIn, ToMidiOut, ToProcess, ToUi
     },
 };
 
@@ -55,7 +53,6 @@ where
 struct GuiWithConnections<T: StackType, G> {
     gui: G,
     rx: mpsc::Receiver<ToUi<T>>,
-    tx: mpsc::Sender<FromUi<T>>,
     config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
 }
 
@@ -64,7 +61,6 @@ impl<T: StackType + Send, G> GuiWithConnections<T, G> {
         cc: &eframe::CreationContext,
         gui: G,
         rx: mpsc::Receiver<ToUi<T>>,
-        tx: mpsc::Sender<FromUi<T>>,
         config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
     ) -> Self {
         let ctx = cc.egui_ctx.clone();
@@ -85,7 +81,6 @@ impl<T: StackType + Send, G> GuiWithConnections<T, G> {
         Self {
             gui,
             rx: forward_rx,
-            tx,
             config_return,
         }
     }
@@ -94,11 +89,11 @@ impl<T: StackType + Send, G> GuiWithConnections<T, G> {
 impl<T, G> eframe::App for GuiWithConnections<T, G>
 where
     T: StackType,
-    G: HandleMsg<ToUi<T>, FromUi<T>> + ExtractConfig<GuiConfig<T>> + eframe::App,
+    G: ReceiveMsg<ToUi<T>> + ExtractConfig<GuiConfig<T>> + eframe::App,
 {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         for msg in self.rx.try_iter() {
-            self.gui.handle_msg(msg, &self.tx);
+            self.gui.receive_msg(msg);
         }
         self.gui.update(ctx, frame);
         if ctx.input(|i| i.viewport().close_requested()) {
@@ -115,7 +110,7 @@ fn start_gui<T, H, NH>(
     config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
 ) -> Result<(), eframe::Error>
 where
-    H: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
+    H: ReceiveMsg<ToUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
     NH: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> H + Send + 'static,
     T: StackType + Send + 'static,
 {
@@ -129,7 +124,6 @@ where
                 cc,
                 gui,
                 rx,
-                tx,
                 config_return,
             )))
         }),
@@ -362,7 +356,7 @@ impl<T: StackType> RunState<T> {
         B: HandleMsg<ToBackend, FromBackend>
             + ExtractConfig<BackendConfig>
             + FromConfigAndState<BackendConfig, ()>,
-        U: HandleMsg<ToUi<T>, FromUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
+        U: ReceiveMsg<ToUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
         NU: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> U + Send + 'static,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();

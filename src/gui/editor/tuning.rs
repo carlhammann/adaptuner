@@ -10,7 +10,7 @@ use crate::{
         r#trait::GuiShow,
     },
     interval::{stack::Stack, stacktype::r#trait::StackType},
-    msg::{FromUi, HandleMsgRef, ToUi},
+    msg::{FromUi, ReceiveMsgRef, ToUi},
     notename::{correction::Correction, HasNoteNames, NoteNameStyle},
     reference::{frequency_from_semitones, semitones_from_frequency, Reference},
 };
@@ -121,8 +121,8 @@ impl<T: StackType + HasNoteNames + PartialEq> GuiShow<T> for TuningEditor<T> {
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for TuningEditor<T> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType> ReceiveMsgRef<ToUi<T>> for TuningEditor<T> {
+    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
         match msg {
             ToUi::SetTuningReference { reference } => self.reference = Some(reference.clone()),
             _ => {}

@@ -7,7 +7,7 @@ use crate::{
     config::ExtractConfig, gui::{
         common::{note_picker, CorrectionSystemChooser},
         r#trait::GuiShow,
-    }, interval::{stack::Stack, stacktype::r#trait::StackType}, msg::{FromUi, HandleMsgRef, ToUi}, notename::{correction::Correction, HasNoteNames, NoteNameStyle}
+    }, interval::{stack::Stack, stacktype::r#trait::StackType}, msg::{FromUi, ReceiveMsgRef, ToUi}, notename::{correction::Correction, HasNoteNames, NoteNameStyle}
 };
 
 pub struct ReferenceEditor<T: StackType> {
@@ -103,8 +103,8 @@ impl<T: StackType + HasNoteNames + PartialEq> GuiShow<T> for ReferenceEditor<T> 
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for ReferenceEditor<T> {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType> ReceiveMsgRef<ToUi<T>> for ReferenceEditor<T> {
+    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
         match msg {
             ToUi::SetReference { stack } => {
                 self.reference = Some(stack.clone());

@@ -1,9 +1,9 @@
-use std::{sync::mpsc, time::Duration};
+use std::time::Duration;
 
 use crate::{
     config::ExtractConfig,
     interval::stacktype::r#trait::StackType,
-    msg::{self, FromUi, HandleMsgRef, ToUi},
+    msg::{self, ReceiveMsgRef, ToUi},
 };
 use eframe::{self, egui};
 
@@ -23,8 +23,8 @@ impl LatencyWindow {
     }
 }
 
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for LatencyWindow {
-    fn handle_msg_ref(&mut self, msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {
+impl<T: StackType> ReceiveMsgRef<ToUi<T>> for LatencyWindow {
+    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
         match msg {
             msg::ToUi::EventLatency { since_input } => {
                 let n = self.values.len();

@@ -7,7 +7,7 @@ use crate::{
     backend::pitchbend12::Pitchbend12Config,
     config::{BackendConfig, ExtractConfig},
     interval::{base::Semitones, stacktype::r#trait::StackType},
-    msg::{FromUi, HandleMsgRef, ToUi},
+    msg::FromUi,
 };
 
 use super::r#trait::GuiShow;
@@ -51,10 +51,6 @@ impl BackendWindow {
             }
         }
     }
-}
-
-impl<T: StackType> HandleMsgRef<ToUi<T>, FromUi<T>> for BackendWindow {
-    fn handle_msg_ref(&mut self, _msg: &ToUi<T>, _forward: &mpsc::Sender<FromUi<T>>) {}
 }
 
 impl<T: StackType> GuiShow<T> for BackendWindow {
