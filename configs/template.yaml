@@ -181,6 +181,7 @@ strategies:
       sostenuto-pedal-down: !increment-neighbourhood-index 1
       sostenuto-pedal-up: !increment-neighbourhood-index -1
       soft-pedal-down: set-reference-to-lowest
+      Escape: reset
       Enter: !increment-neighbourhood-index 1
       Space: set-reference-to-lowest
 - name: matching chords
@@ -471,7 +472,8 @@ strategies:
     bindings:
       sostenuto-pedal-down: !increment-neighbourhood-index 1
       soft-pedal-down: set-reference-to-current
-      Escape: toggle-reanchor
+      Escape: reset
+      Tab: toggle-reanchor
       Backspace: toggle-chord-matching
       Enter: !increment-neighbourhood-index 1
       Space: set-reference-to-current

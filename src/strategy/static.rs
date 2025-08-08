@@ -180,6 +180,16 @@ impl<T: StackType> StaticTuning<T> {
             StrategyAction::SetReferenceToHighest => {
                 self.set_reference(true, keys, tunings, forward)
             }
+            StrategyAction::Reset => {
+                self.curr_neighbourhood_index = if self.neighbourhoods.is_empty() {
+                    None {}
+                } else {
+                    Some(0)
+                };
+                self.reference = Stack::new_zero();
+                self.start_but_dont_retune(forward);
+                true
+            }
             _ => false,
         } {
             Some(time)

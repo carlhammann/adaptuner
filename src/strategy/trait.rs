@@ -22,6 +22,7 @@ pub enum StrategyAction {
     SetReferenceToCurrent,
     ToggleChordMatching,
     ToggleReanchor,
+    Reset,
 }
 
 impl fmt::Display for StrategyAction {
@@ -41,6 +42,7 @@ impl fmt::Display for StrategyAction {
             }
             StrategyAction::ToggleChordMatching => write!(f, "toggle chord matching"),
             StrategyAction::ToggleReanchor => write!(f, "toggle re-setting of the reference on chord match"),
+            StrategyAction::Reset => write!(f, "reset"),
         }
     }
 }

@@ -217,6 +217,7 @@ impl StrategyKind {
     /// true for one parameter, it will return true for all parameters.
     pub fn action_allowed(&self, action: &StrategyAction) -> bool {
         match (self, action) {
+            (_, StrategyAction::Reset) => true,
             (StrategyKind::StaticTuning, StrategyAction::IncrementNeighbourhoodIndex(_)) => true,
             (StrategyKind::StaticTuning, StrategyAction::SetReferenceToLowest) => true,
             (StrategyKind::StaticTuning, StrategyAction::SetReferenceToHighest) => true,
