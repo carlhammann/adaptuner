@@ -6,6 +6,8 @@
 - I just learned that Rust logical operators have short-circuiting variants. Use them!
 - verify the invariant of chord list entries when deserializing: every bound
   offset mut have an associated tuning
+- "exact" chord matches are anchored on the enharmonically equivalent note in
+  the current neighbourhood, but they should stay put. (Should they?)
 
 # UI 
 

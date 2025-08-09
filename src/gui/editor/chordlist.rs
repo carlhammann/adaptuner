@@ -10,7 +10,7 @@ use crate::{
     },
     interval::{
         stack::{ScaledAdd, Stack},
-        stacktype::r#trait::{StackCoeff, StackType},
+        stacktype::r#trait::{OctavePeriodicStackType, StackCoeff, StackType},
     },
     msg::{FromUi, ReceiveMsgRef, ToUi},
     neighbourhood::{Neighbourhood, SomeNeighbourhood},
@@ -72,10 +72,12 @@ fn describe_pattern<T: StackType + HasNoteNames>(
         }
         KeyShape::ExactFixed { .. } => {
             ui.label("match exactly this chord:");
-            neighbourhood.for_each_stack(|_offset, stack| {
+            neighbourhood.for_each_stack(|_offset, relative_stack| {
+                tmp_stack.clone_from(relative_stack);
+                tmp_stack.scaled_add(1, original_reference);
                 ui.label(format!(
                     "  {}",
-                    stack.corrected_notename(
+                    tmp_stack.corrected_notename(
                         &NoteNameStyle::Full,
                         correction_system_chooser.preference_order(),
                         correction_system_chooser.use_cent_values
@@ -85,12 +87,10 @@ fn describe_pattern<T: StackType + HasNoteNames>(
         }
         KeyShape::ExactRelative { .. } => {
             ui.label("match all transpositions of this chord:");
-            neighbourhood.for_each_stack(|_offset, relative_stack| {
-                tmp_stack.clone_from(relative_stack);
-                tmp_stack.scaled_add(1, original_reference);
+            neighbourhood.for_each_stack(|_offset, stack| {
                 ui.label(format!(
                     "  {}",
-                    tmp_stack.corrected_notename(
+                    stack.corrected_notename(
                         &NoteNameStyle::Full,
                         correction_system_chooser.preference_order(),
                         correction_system_chooser.use_cent_values
@@ -150,7 +150,7 @@ fn describe_pattern<T: StackType + HasNoteNames>(
     }
 }
 
-impl<T: StackType + HasNoteNames> ChordListEditor<T> {
+impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
     pub fn new(correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>) -> Self {
         Self {
             enabled: true,
@@ -193,6 +193,7 @@ impl<T: StackType + HasNoteNames> ChordListEditor<T> {
                     PatternConfig::exact_fixed_from_current(
                         &state.active_notes,
                         &state.tunings,
+                        lowest_sounding,
                         self.allow_extra_high_notes,
                     ),
                     state.tunings[lowest_sounding].clone(),
@@ -526,7 +527,8 @@ impl<T: StackType> ReceiveMsgRef<ToUi<T>> for ChordListEditor<T> {
             ToUi::NoteOn { .. }
             | ToUi::TunedNoteOn { .. }
             | ToUi::NoteOff { .. }
-            | ToUi::PedalHold { .. } => {
+            | ToUi::PedalHold { .. }
+            | ToUi::Retune { .. } => {
                 self.request_recompute = true;
             }
 

@@ -8,7 +8,7 @@ use crate::{
         ExtractConfig, HarmonyStrategyKind, HarmonyStrategyNames, MelodyStrategyKind,
         MelodyStrategyNames, StrategyKind, StrategyNames,
     },
-    interval::stacktype::r#trait::StackType,
+    interval::stacktype::r#trait::{OctavePeriodicStackType, StackType},
     msg::{FromUi, ReceiveMsgRef, ToUi},
     notename::HasNoteNames,
     util::list_action::ListAction,
@@ -53,7 +53,8 @@ pub struct StrategyWindows<T: StackType + 'static> {
     twostep_editor: TwoStepEditor,
 }
 
-impl<T: StackType + HasNoteNames> StrategyWindows<T> {
+/// [OctavePeriodicStackType] is needed for the [ChordListEditor]
+impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWindows<T> {
     pub fn strategies(&self) -> &[(StrategyNames<T>, Bindings<Bindable>)] {
         self.strategies.elems()
     }
@@ -207,7 +208,8 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
 
 pub struct AsWindows<'a, T: StackType>(pub &'a mut StrategyWindows<T>);
 
-impl<'a, T: StackType + HasNoteNames + PartialEq> AsWindows<'a, T> {
+/// [OctavePeriodicStackType] is needed for the [ChordListEditor]
+impl<'a, T: OctavePeriodicStackType + HasNoteNames + PartialEq> AsWindows<'a, T> {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,

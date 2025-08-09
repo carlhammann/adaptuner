@@ -226,10 +226,10 @@ strategies:
       - name: dominant seventh
         key-shape: !classes-relative
           classes:
-          - 10
           - 0
           - 4
           - 7
+          - 10
         neighbourhood: !periodic-partial
           0: {}
           4:
@@ -240,49 +240,7 @@ strategies:
             octave: 2
             fifth: -2
         allow-extra-high-notes: true
-        original-reference:
-          octave: -1
-          fifth: 2
-      - name: major add 9
-        key-shape: !classes-relative
-          classes:
-          - 0
-          - 2
-          - 4
-          - 7
-        neighbourhood: !periodic-partial
-          0: {}
-          2:
-            octave: -1
-            fifth: 2
-          4:
-            third: 1
-          7:
-            fifth: 1
-        allow-extra-high-notes: true
-        original-reference:
-          octave: -1
-          fifth: 2
-      - name: major seventh
-        key-shape: !classes-relative
-          classes:
-          - 11
-          - 0
-          - 4
-          - 7
-        neighbourhood: !periodic-partial
-          0: {}
-          4:
-            third: 1
-          7:
-            fifth: 1
-          11:
-            fifth: 1
-            third: 1
-        allow-extra-high-notes: true
-        original-reference:
-          octave: -1
-          fifth: 2
+        original-reference: {}
       - name: major add6
         key-shape: !block-voicing-relative
           blocks:
@@ -321,6 +279,21 @@ strategies:
             third: -1
         allow-extra-high-notes: true
         original-reference: {}
+      - name: 'sus4 '
+        key-shape: !block-voicing-relative
+          blocks:
+          - - 0
+            - 7
+          - - 5
+        neighbourhood: !periodic-partial
+          0: {}
+          5:
+            octave: 1
+            fifth: -1
+          7:
+            fifth: 1
+        allow-extra-high-notes: true
+        original-reference: {}
       - name: sus2
         key-shape: !block-voicing-relative
           blocks:
@@ -336,23 +309,8 @@ strategies:
             fifth: 1
         allow-extra-high-notes: true
         original-reference: {}
-      - name: sus4
-        key-shape: !block-voicing-relative
-          blocks:
-          - - 0
-            - 7
-          - - 5
-        neighbourhood: !periodic-partial
-          0: {}
-          5:
-            octave: 1
-            fifth: -1
-          7:
-            fifth: 1
-        allow-extra-high-notes: true
-        original-reference: {}
     melody: !neighbourhoods
-      fixed: false
+      fixed: true
       group-ms: 100
       neighbourhoods:
       - name: pure

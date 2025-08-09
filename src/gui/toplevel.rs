@@ -7,7 +7,7 @@ use crate::{
     config::{ExtractConfig, GuiConfig},
     interval::{
         stack::Stack,
-        stacktype::r#trait::{IntervalBasis, Reloadable, StackType},
+        stacktype::r#trait::{IntervalBasis, OctavePeriodicStackType, Reloadable, StackType},
     },
     keystate::KeyState,
     msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi},
@@ -78,7 +78,8 @@ pub struct Toplevel<T: StackType> {
     notifications: Notifications<T>,
 }
 
-impl<T: StackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
+/// [OctavePeriodicStackType] is needed for the [ChordListEditor]
+impl<T: OctavePeriodicStackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
     pub fn new(config: GuiConfig<T>, _ctx: &egui::Context, tx: mpsc::Sender<FromUi<T>>) -> Self {
         let correction_system_chooser = Rc::new(RefCell::new(CorrectionSystemChooser::new(
             "correction_system_chooser",
@@ -216,9 +217,10 @@ impl<T: StackType + Serialize> ReceiveMsg<ToUi<T>> for Toplevel<T> {
     }
 }
 
+/// [OctavePeriodicStackType] is needed for the [ChordListEditor]
 impl<T> eframe::App for Toplevel<T>
 where
-    T: StackType
+    T: OctavePeriodicStackType
         + HasNoteNames
         + PartialEq
         + Hash

@@ -6,7 +6,7 @@ use crate::{
     config::{ExtractConfig, HarmonyStrategyConfig},
     interval::{
         stack::{ScaledAdd, Stack},
-        stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
+        stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
     msg::{FromStrategy, ToHarmonyStrategy},
@@ -18,7 +18,7 @@ use crate::{
 };
 
 pub mod keyshape;
-use keyshape::{Fit, HasActivationStatus, KeyShape};
+use keyshape::{first_complete_fit_or_best, HasActivationStatus, KeyShape};
 
 #[derive(Debug, Clone, PartialEq)]
 struct Pattern<T: StackType> {
@@ -52,43 +52,90 @@ pub struct PatternConfig<T: IntervalBasis> {
     pub allow_extra_high_notes: bool,
 }
 
-/// build a partial neighbourhood around the current lowest soundign note from the other sounding
+impl<T: IntervalBasis> PatternConfig<T> {
+    /// assumes that at least one of the `keys` is sounding.
+    pub fn exact_fixed_from_current(
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        lowest_sounding: usize,
+        allow_extra_high_notes: bool,
+    ) -> Self {
+        Self {
+            key_shape: KeyShape::ExactFixed {
+                keys: keys
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, k)| k.is_sounding())
+                    .map(|(i, _)| i as u8)
+                    .collect(),
+            },
+            neighbourhood: SomeNeighbourhood::Partial({
+                let mut neigh = Partial::new();
+                let mut tmp = Stack::new_zero();
+                for (i, stack) in tunings.iter().enumerate() {
+                    if keys[i].is_sounding() {
+                        tmp.clone_from(stack);
+                        tmp.scaled_add(-1, &tunings[lowest_sounding]);
+                        let _ = neigh.insert(&tmp);
+                    }
+                }
+                neigh
+            }),
+            allow_extra_high_notes,
+        }
+    }
+
+    pub fn exact_relative_from_current(
+        keys: &[KeyState; 128],
+        tunings: &[Stack<T>; 128],
+        lowest_sounding: usize,
+        allow_extra_high_notes: bool,
+    ) -> Self {
+        Self {
+            key_shape: KeyShape::ExactRelative {
+                offsets: keys
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, k)| k.is_sounding())
+                    .map(|(i, _)| i as u8 - lowest_sounding as u8)
+                    .collect(),
+            },
+            neighbourhood: SomeNeighbourhood::Partial({
+                let mut neigh = Partial::new();
+                let mut tmp = Stack::new_zero();
+                for (i, stack) in tunings.iter().enumerate() {
+                    if keys[i].is_sounding() {
+                        tmp.clone_from(stack);
+                        tmp.scaled_add(-1, &tunings[lowest_sounding]);
+                        let _ = neigh.insert(&tmp);
+                    }
+                }
+                neigh
+            }),
+            allow_extra_high_notes,
+        }
+    }
+}
+
+/// Build a [PeriodicPartial] neighbourhood around the lowest sounding note from the other sounding
 /// notes.
-///
-/// If [IntervalBasis::try_period_index] returns `Some` for `T`, build a [PeriodicPartial],
-/// otherwise a [Partial].
-fn sounding_neighbourhood<T: IntervalBasis>(
+fn sounding_neighbourhood<T: OctavePeriodicIntervalBasis>(
     keys: &[KeyState; 128],
     tunings: &[Stack<T>; 128],
     lowest_sounding: usize,
 ) -> SomeNeighbourhood<T> {
-    if let Some(period_index) = T::try_period_index() {
-        SomeNeighbourhood::PeriodicPartial({
-            let mut neigh = PeriodicPartial::new_from_period_index(period_index);
-            let mut tmp = Stack::new_zero();
-            for (i, stack) in tunings.iter().enumerate() {
-                if keys[i].is_sounding() {
-                    tmp.clone_from(stack);
-                    tmp.scaled_add(-1, &tunings[lowest_sounding]);
-                    let _ = neigh.insert(&tmp);
-                }
+    SomeNeighbourhood::PeriodicPartial({
+        let mut neigh = PeriodicPartial::new_from_period_index(T::period_index());
+        let mut tmp = Stack::new_zero();
+        for (i, stack) in tunings.iter().enumerate() {
+            if keys[i].is_sounding() {
+                tmp.clone_from(stack);
+                tmp.scaled_add(-1, &tunings[lowest_sounding]);
+                let _ = neigh.insert(&tmp);
             }
-            neigh
-        })
-    } else {
-        SomeNeighbourhood::Partial({
-            let mut neigh = Partial::new();
-            let mut tmp = Stack::new_zero();
-            for (i, stack) in tunings.iter().enumerate() {
-                if keys[i].is_sounding() {
-                    tmp.clone_from(stack);
-                    tmp.scaled_add(-1, &tunings[lowest_sounding]);
-                    let _ = neigh.insert(&tmp);
-                }
-            }
-            neigh
-        })
-    }
+        }
+        neigh
+    })
 }
 
 fn blocks_from_current(
@@ -134,7 +181,7 @@ fn blocks_from_current(
     blocks
 }
 
-impl<T: StackType> PatternConfig<T> {
+impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
     // In principle, `lowest_sounding` is computable from the `keys` argument. The additional
     // argument thus moves the burden of this check to the caller, which might already know
     // whether there are any notes sounding.
@@ -158,67 +205,8 @@ impl<T: StackType> PatternConfig<T> {
         allow_extra_high_notes: bool,
     ) -> Self {
         Self {
-            key_shape: KeyShape::classes_fixed_from_current(keys, lowest_sounding),
+            key_shape: KeyShape::classes_fixed_from_current(keys),
             neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
-            allow_extra_high_notes,
-        }
-    }
-
-    /// assumes that at least one of the `keys` is sounding.
-    pub fn exact_fixed_from_current(
-        keys: &[KeyState; 128],
-        tunings: &[Stack<T>; 128],
-        allow_extra_high_notes: bool,
-    ) -> Self {
-        Self {
-            key_shape: KeyShape::ExactFixed {
-                keys: keys
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, k)| k.is_sounding())
-                    .map(|(i, _)| i as u8)
-                    .collect(),
-            },
-            neighbourhood: SomeNeighbourhood::Partial({
-                let mut neigh = Partial::new();
-                for (i, stack) in tunings.iter().enumerate() {
-                    if keys[i].is_sounding() {
-                        let _ = neigh.insert(stack);
-                    }
-                }
-                neigh
-            }),
-            allow_extra_high_notes,
-        }
-    }
-
-    pub fn exact_relative_from_current(
-        keys: &[KeyState; 128],
-        tunings: &[Stack<T>; 128],
-        lowest_sounding: usize,
-        allow_extra_high_notes: bool,
-    ) -> Self {
-        Self {
-            key_shape: KeyShape::ExactRelative {
-                offsets: keys
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, k)| k.is_sounding())
-                    .map(|(i, _)| i as u8 - lowest_sounding as u8)
-                    .collect(),
-            },
-            neighbourhood: SomeNeighbourhood::Partial({
-                let mut neigh = Partial::new();
-                let mut tmp = Stack::new_zero();
-                for (i, stack) in tunings.iter().enumerate() {
-                    if keys[i].is_sounding() {
-                        tmp.clone_from(stack);
-                        tmp.scaled_add(-1, &tunings[lowest_sounding]);
-                        let _ = neigh.insert(&tmp);
-                    }
-                }
-                neigh
-            }),
             allow_extra_high_notes,
         }
     }
@@ -232,7 +220,6 @@ impl<T: StackType> PatternConfig<T> {
     ) -> Self {
         Self {
             key_shape: KeyShape::BlockVoicingFixed {
-                zero: lowest_sounding as u8 % 12,
                 blocks: blocks_from_current(block_sizes, keys, lowest_sounding),
             },
             neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
@@ -300,18 +287,8 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
             return (None {}, None {});
         }
 
-        let mut fit = Fit::new_worst();
-        let mut index = 0;
-        for (i, p) in self.patterns.iter().enumerate() {
-            if fit.is_complete() {
-                break;
-            }
-            let new_fit = p.key_shape.fit(keys);
-            if new_fit.is_better_than(&fit) {
-                fit = new_fit;
-                index = i;
-            }
-        }
+        let (index, fit) =
+            first_complete_fit_or_best(keys, self.patterns.iter().map(|p| &p.key_shape));
 
         let selected = &self.patterns[index];
 
@@ -327,7 +304,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
             Some(index),
             Some(Harmony {
                 neighbourhood: selected.neighbourhood.clone(),
-                reference: fit.zero as StackCoeff,
+                reference: fit.reference() as StackCoeff,
             }),
         )
     }
