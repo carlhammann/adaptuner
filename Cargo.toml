@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 midi-msg = "0.6.1"
-midir = "0.9.1"
+midir = "0.10.2"
 ndarray = "0.15.6"
 num-integer = "0.1.46"
 num-traits = "0.2.18"
