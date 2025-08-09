@@ -58,12 +58,11 @@ impl<'a, T: StackType + HasNoteNames> AsBigControls<'a, T> {
         let AsBigControls(lw) = self;
         let controls = &mut lw.controls;
 
-        controls.correction_system_chooser.borrow_mut().show(ui);
-        ui.separator();
+        ui.collapsing("how to write detuned notes", |ui| {
+            controls.correction_system_chooser.borrow_mut().show(ui);
+        });
 
-        ui.vertical(|ui| {
-            ui.label("background note range");
-
+        ui.collapsing("background note range", |ui| {
             egui::Grid::new("background_note_distance_grid").show(ui, |ui| {
                 for i in (0..T::num_intervals()).rev() {
                     ui.label(&T::intervals()[i].name);
@@ -83,9 +82,7 @@ impl<'a, T: StackType + HasNoteNames> AsBigControls<'a, T> {
             });
         });
 
-        ui.separator();
-
-        ui.vertical(|ui| {
+        ui.collapsing("detuned note colours", |ui| {
             ui.horizontal(|ui| {
                 ui.label("repeat background colours after");
                 if ui

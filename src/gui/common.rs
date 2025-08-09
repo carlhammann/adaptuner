@@ -336,11 +336,11 @@ pub struct SmallFloatingWindow {
 }
 
 impl SmallFloatingWindow {
-    pub fn new(id: egui::Id) -> Self {
+    pub fn new(id: egui::Id, open: bool) -> Self {
         Self {
             id,
-            open: false,
-            bring_to_foreground: false,
+            open,
+            bring_to_foreground: open,
         }
     }
 
@@ -451,7 +451,7 @@ impl<T: StackType> CorrectionSystemChooser<T> {
         ui.vertical(|ui| {
             ui.checkbox(
                 &mut self.use_cent_values,
-                "write temperaments as cent values",
+                "use cent values",
             );
             ui.label("preference order for commas:");
             let _ = self.preference_order.show(

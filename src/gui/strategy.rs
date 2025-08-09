@@ -4,10 +4,7 @@ use eframe::egui::{self, vec2};
 
 use crate::{
     bindable::{Bindable, Bindings},
-    config::{
-        ExtractConfig, HarmonyStrategyKind, HarmonyStrategyNames, MelodyStrategyKind,
-        MelodyStrategyNames, StrategyKind, StrategyNames,
-    },
+    config::{ExtractConfig, HarmonyStrategyNames, MelodyStrategyNames, StrategyNames},
     interval::stacktype::r#trait::{OctavePeriodicStackType, StackType},
     msg::{FromUi, ReceiveMsgRef, ToUi},
     notename::HasNoteNames,
@@ -34,22 +31,11 @@ pub struct StrategyWindows<T: StackType + 'static> {
     strategy_list_editor_window: SmallFloatingWindow,
     strategies: OwningListEdit<(StrategyNames<T>, Bindings<Bindable>)>,
 
-    tuning_editor_window: SmallFloatingWindow,
     tuning_editor: TuningEditor<T>,
-
-    reference_editor_window: SmallFloatingWindow,
     reference_editor: ReferenceEditor<T>,
-
-    neighbourhood_editor_window: SmallFloatingWindow,
     neighbourhood_editor: NeighbourhoodEditor<T>,
-
-    binding_editor_window: SmallFloatingWindow,
     binding_editor: BindingEditor,
-
-    chord_list_editor_window: SmallFloatingWindow,
     chord_list_editor: ChordListEditor<T>,
-
-    twostep_editor_window: SmallFloatingWindow,
     twostep_editor: TwoStepEditor,
 }
 
@@ -71,29 +57,18 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWindows<T> {
     ) -> Self {
         Self {
             strategies: OwningListEdit::new(strategies),
-            strategy_list_editor_window: SmallFloatingWindow::new(egui::Id::new(
-                "strategy_list_editor_window",
-            )),
-            tuning_editor_window: SmallFloatingWindow::new(egui::Id::new("tuning_editor_window")),
+            strategy_list_editor_window: SmallFloatingWindow::new(
+                egui::Id::new("strategy_list_editor_window"),
+                false,
+            ),
             tuning_editor: TuningEditor::new(tuning_editor, correction_system_chooser.clone()),
-            reference_editor_window: SmallFloatingWindow::new(egui::Id::new(
-                "reference_editor_window",
-            )),
             reference_editor: ReferenceEditor::new(
                 reference_editor,
                 correction_system_chooser.clone(),
             ),
-            neighbourhood_editor_window: SmallFloatingWindow::new(egui::Id::new(
-                "neigbourhood_editor_window",
-            )),
             neighbourhood_editor: NeighbourhoodEditor::new(),
-            binding_editor_window: SmallFloatingWindow::new(egui::Id::new("binding_editor_window")),
             binding_editor: BindingEditor::new(),
-            chord_list_editor_window: SmallFloatingWindow::new(egui::Id::new(
-                "chord_list_editor_window",
-            )),
             chord_list_editor: ChordListEditor::new(correction_system_chooser),
-            twostep_editor_window: SmallFloatingWindow::new(egui::Id::new("twostep_editor_window")),
             twostep_editor: TwoStepEditor::new(),
         }
     }
@@ -151,8 +126,14 @@ impl<T: StackType> ReceiveMsgRef<ToUi<T>> for StrategyWindows<T> {
 
 pub struct AsStrategyPicker<'a, T: StackType + 'static>(pub &'a mut StrategyWindows<T>);
 
-impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
-    fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+/// [OctavePeriodicStackType] is needed for the [ChordListEditor]
+impl<'a, T: OctavePeriodicStackType + HasNoteNames> AsStrategyPicker<'a, T> {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        state: &KeysAndTunings<T>,
+        forward: &mpsc::Sender<FromUi<T>>,
+    ) {
         let AsStrategyPicker(x) = self;
         egui::ComboBox::from_id_salt("strategy picker")
             .selected_text(x.strategies.current_selected().map_or("", |x| x.0.name()))
@@ -176,51 +157,60 @@ impl<'a, T: StackType> GuiShow<T> for AsStrategyPicker<'a, T> {
                 ui.shrink_width_to_current();
             });
 
-        if let Some(strn) = x.strategies.current_selected() {
-            // ui.horizontal(|ui| {
-            match strn.0.strategy_kind() {
-                StrategyKind::StaticTuning
-                | StrategyKind::TwoStep(_, MelodyStrategyKind::Neighbourhoods) => {
-                    x.tuning_editor_window.show_hide_button(ui, "global tuning");
-                    x.reference_editor_window.show_hide_button(ui, "reference");
-                    x.neighbourhood_editor_window
-                        .show_hide_button(ui, "neighbourhoods");
+        ui.collapsing("global tuning", |ui| x.tuning_editor.show(ui, forward));
+        ui.collapsing("reference", |ui| x.reference_editor.show(ui, forward));
+        if let Some(strn) = x.strategies.current_selected_mut() {
+            ui.collapsing("bindings", |ui| {
+                x.binding_editor
+                    .show(ui, strn.0.strategy_kind(), &mut strn.1, forward)
+            });
+
+            match &mut strn.0 {
+                StrategyNames::StaticTuning {
+                    neighbourhood_names,
+                    ..
+                } => {
+                    ui.collapsing("neighbourhoods", |ui| {
+                        x.neighbourhood_editor
+                            .show(ui, neighbourhood_names, forward)
+                    });
+                }
+                StrategyNames::TwoStep {
+                    harmony, melody, ..
+                } => {
+                    match melody {
+                        MelodyStrategyNames::Neighbourhoods {
+                            neighbourhood_names,
+                            ..
+                        } => {
+                            ui.collapsing("neighbourhoods", |ui| {
+                                x.neighbourhood_editor
+                                    .show(ui, neighbourhood_names, forward)
+                            });
+                        }
+                    }
+                    match harmony {
+                        HarmonyStrategyNames::ChordList { patterns } => {
+                            ui.collapsing("chord list", |ui| {
+                                x.chord_list_editor.show(ui, state, patterns, forward);
+                            });
+                        }
+                    }
+                    ui.collapsing("melody/harmony", |ui| {
+                        x.twostep_editor.show(ui, harmony, melody, forward)
+                    });
                 }
             }
-            match strn.0.strategy_kind() {
-                StrategyKind::TwoStep(HarmonyStrategyKind::ChordList, _) => {
-                    x.chord_list_editor_window
-                        .show_hide_button(ui, "chord list");
-                }
-                _ => {}
-            }
-            match strn.0.strategy_kind() {
-                StrategyKind::TwoStep(_, _) => {
-                    x.twostep_editor_window
-                        .show_hide_button(ui, "melody/harmony");
-                }
-                _ => {}
-            }
-            x.binding_editor_window.show_hide_button(ui, "bindings");
         }
     }
 }
 
 pub struct AsWindows<'a, T: StackType>(pub &'a mut StrategyWindows<T>);
 
-/// [OctavePeriodicStackType] is needed for the [ChordListEditor]
 impl<'a, T: OctavePeriodicStackType + HasNoteNames + PartialEq> AsWindows<'a, T> {
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        state: &KeysAndTunings<T>,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) {
+    pub fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         self.display_strategy_list_editor_window(ui, forward);
-
         let AsWindows(x) = self;
-        let ctx = ui.ctx();
-
         if let Some(curr) = x.strategies.current_selected_mut() {
             if ui.ui_contains_pointer() {
                 ui.input(|i| {
@@ -248,60 +238,6 @@ impl<'a, T: OctavePeriodicStackType + HasNoteNames + PartialEq> AsWindows<'a, T>
                     }
                 });
             }
-
-            x.tuning_editor_window
-                .show(&format!("global tuning ({})", curr.0.name()), ctx, |ui| {
-                    x.tuning_editor.show(ui, forward);
-                });
-
-            x.reference_editor_window
-                .show(&format!("reference ({})", curr.0.name()), ctx, |ui| {
-                    x.reference_editor.show(ui, forward);
-                });
-
-            x.neighbourhood_editor_window.show(
-                &format!("neighbourhoods ({})", curr.0.name()),
-                ctx,
-                |ui| {
-                    x.neighbourhood_editor
-                        .show(ui, curr.0.neighbourhood_names_mut(), forward);
-                },
-            );
-
-            match &mut curr.0 {
-                StrategyNames::TwoStep {
-                    name,
-                    harmony: HarmonyStrategyNames::ChordList { patterns },
-                    ..
-                } => {
-                    x.chord_list_editor_window
-                        .show(&format!("chord list ({name})"), ctx, |ui| {
-                            x.chord_list_editor.show(ui, state, patterns, forward);
-                        });
-                }
-                _ => {}
-            }
-
-            match &mut curr.0 {
-                StrategyNames::TwoStep {
-                    name,
-                    harmony,
-                    melody,
-                    ..
-                } => {
-                    x.twostep_editor_window
-                        .show(&format!("melody/harmony ({name})"), ctx, |ui| {
-                            x.twostep_editor.show(ui, harmony, melody, forward);
-                        });
-                }
-                _ => {}
-            }
-
-            x.binding_editor_window
-                .show(&format!("bindings ({})", curr.0.name()), ctx, |ui| {
-                    x.binding_editor
-                        .show(ui, curr.0.strategy_kind(), &mut curr.1, forward);
-                });
         }
     }
 }

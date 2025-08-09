@@ -50,7 +50,7 @@ impl<T: StackType> TuningEditor<T> {
     }
 }
 
-impl<T: StackType + HasNoteNames + PartialEq> GuiShow<T> for TuningEditor<T> {
+impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
     fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
         if let Some(reference) = &self.reference {
             ui.horizontal(|ui| {

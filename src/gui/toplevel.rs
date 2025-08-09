@@ -72,7 +72,6 @@ pub struct Toplevel<T: StackType> {
 
     // notes: NoteWindow<T>,
     // note_window: SmallFloatingWindow,
-
     config_file_dialog: ConfigFileDialog<T>,
 
     notifications: Notifications<T>,
@@ -89,7 +88,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
         Self {
             state: KeysAndTunings::new(Instant::now()),
 
-            show_side_panel: true,
+            show_side_panel: false,
 
             strategies: StrategyWindows::new(
                 config.strategies,
@@ -99,13 +98,14 @@ impl<T: OctavePeriodicStackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
             ),
 
             lattice: LatticeWindow::new(config.lattice_window, correction_system_chooser.clone()),
-            keyboard_control_window: SmallFloatingWindow::new(egui::Id::new(
-                "keyboard_control_window",
-            )),
+            keyboard_control_window: SmallFloatingWindow::new(
+                egui::Id::new("keyboard_control_window"),
+                false,
+            ),
 
             input_connection: ConnectionWindow::new(),
             output_connection: ConnectionWindow::new(),
-            connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window")),
+            connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window"), true),
             backend: BackendWindow::new(config.backend_window),
             latency: LatencyWindow::new(config.latency_mean_over),
             // notes: NoteWindow::new(ctx),
@@ -231,7 +231,9 @@ where
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::SidePanel::left("left panel").show_animated(ctx, self.show_side_panel, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                AsStrategyPicker(&mut self.strategies).show(ui, &self.tx);
+                ui.visuals_mut().collapsing_header_frame = true;
+
+                AsStrategyPicker(&mut self.strategies).show(ui, &self.state, &self.tx);
 
                 ui.separator();
 
@@ -281,7 +283,7 @@ where
                     });
             }
 
-            AsWindows(&mut self.strategies).show(ui, &self.state, &self.tx);
+            AsWindows(&mut self.strategies).show(ui, &self.tx);
             if let Some(config) = self.config_file_dialog.show(ui) {
                 let _ = T::initialise(&config.temperaments, &config.named_intervals);
 

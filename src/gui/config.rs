@@ -1,6 +1,6 @@
 use std::{sync::mpsc, time::SystemTime};
 
-use eframe::egui::{self};
+use eframe::egui::{self, vec2};
 use egui_file_dialog::{DirectoryEntry, FileDialog, FileDialogConfig};
 use serde::{Deserialize, Serialize};
 
@@ -115,6 +115,7 @@ impl<T: StackType + Serialize> ConfigFileDialog<T> {
             as_load: false,
             file_dialog: FileDialog::with_config(
                 FileDialogConfig {
+                    anchor: Some((egui::Align2::CENTER_TOP, vec2(0.0, 0.0))),
                     show_left_panel: false,
                     show_back_button: false,
                     show_forward_button: false,
