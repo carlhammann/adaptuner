@@ -67,18 +67,24 @@ impl<T: StackType> StaticTuning<T> {
             };
             for i in 0..128 {
                 if keys[i].is_sounding() {
-                    let tuning = &mut tunings[i];
-                    if neighbourhood.try_write_relative_stack(tuning, i as StackCoeff - reference) {
-                        tuning.scaled_add(1, &reference_tuning);
-                        self.mark_tuning_as_manually_set(i as u8);
+                    let send_retune: bool;
+                    if neighbourhood
+                        .try_write_relative_stack(&mut tunings[i], i as StackCoeff - reference)
+                    {
+                        tunings[i].scaled_add(1, &reference_tuning);
+                        self.mark_tuning_as_outdated(i as u8);
+                        send_retune = true;
+                    } else {
+                        send_retune = self.update_tuning(tunings, i as u8) == Some(true);
+                    }
+                    if send_retune {
                         forward.push_back(FromStrategy::Retune {
                             note: i as u8,
-                            tuning: tuning.absolute_semitones(self.tuning_reference.c4_semitones()),
-                            tuning_stack: tuning.clone(),
+                            tuning: tunings[i]
+                                .absolute_semitones(self.tuning_reference.c4_semitones()),
+                            tuning_stack: tunings[i].clone(),
                             time,
                         });
-                    } else {
-                        self.force_update_tuning(tunings, i as u8);
                     }
                 }
             }
@@ -111,6 +117,7 @@ impl<T: StackType> MelodyStrategy<T> for Neighbourhoods<T> {
             } else {
                 self.inner
                     .set_reference_to(&self.group_start_reference, forward);
+                self.inner.mark_all_tunings_as_outdated();
             }
         }
 
@@ -196,7 +203,9 @@ impl<T: StackType> MelodyStrategy<T> for Neighbourhoods<T> {
             }
             StrategyAction::ToggleReanchor => {
                 self.fixed = !self.fixed;
-                forward.push_back(FromStrategy::ReanchorOnMatch { reanchor: !self.fixed });
+                forward.push_back(FromStrategy::ReanchorOnMatch {
+                    reanchor: !self.fixed,
+                });
                 self.solve(keys, tunings, harmony, time, forward)
             }
             _ => {

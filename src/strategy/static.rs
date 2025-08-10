@@ -61,18 +61,11 @@ impl<T: StackType> StaticTuning<T> {
         }
     }
 
-    /// Returns `true` iff the tuning was successfully updated (this will always be the case if
-    /// there's a selected neighbourhood).
-    pub fn force_update_tuning(&mut self, tunings: &mut [Stack<T>; 128], note: u8) -> bool {
-        self.tuning_up_to_date[note as usize] = false;
-        self.update_tuning(tunings, note).is_some()
-    }
-
     /// Returns `Some` iff the tuning was successfully updated (this will always be the case if
     /// long as there's a selected neighbourhood),
     ///
     /// `Some(true)` means the tuning wasn't previously up to date.
-    fn update_tuning(&mut self, tunings: &mut [Stack<T>; 128], note: u8) -> Option<bool> {
+    pub fn update_tuning(&mut self, tunings: &mut [Stack<T>; 128], note: u8) -> Option<bool> {
         if let Some(cni) = self.curr_neighbourhood_index {
             if !self.tuning_up_to_date[note as usize] {
                 self.neighbourhoods[cni].write_relative_stack(
@@ -93,8 +86,12 @@ impl<T: StackType> StaticTuning<T> {
         }
     }
 
-    pub fn mark_tuning_as_manually_set(&mut self, note: u8) {
+    pub fn mark_tuning_as_outdated(&mut self, note: u8) {
         self.tuning_up_to_date[note as usize] = false;
+    }
+
+    pub fn mark_all_tunings_as_outdated(&mut self) {
+        self.tuning_up_to_date.iter_mut().for_each(|b| *b = false);
     }
 
     fn update_tuning_and_send(
@@ -204,11 +201,17 @@ impl<T: StackType> StaticTuning<T> {
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool {
         if let Some(cni) = self.curr_neighbourhood_index {
-            self.curr_neighbourhood_index = Some(
-                (cni as isize + increment).rem_euclid(self.neighbourhoods.len() as isize) as usize,
-            );
-            self.start_but_dont_retune(forward);
-            true
+            let old_index = cni;
+            let new_index =
+                (cni as isize + increment).rem_euclid(self.neighbourhoods.len() as isize) as usize;
+            if old_index != new_index {
+                self.curr_neighbourhood_index = Some(new_index);
+                self.tuning_up_to_date.iter_mut().for_each(|b| *b = false);
+                self.start_but_dont_retune(forward);
+                true
+            } else {
+                false
+            }
         } else {
             false
         }
