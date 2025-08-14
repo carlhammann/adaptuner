@@ -7,7 +7,7 @@ use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::{One, Signed, Zero};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LUErr {
     MatrixNotSquare { nrows: usize, ncols: usize },
     WrongPermLenght { nrows: usize, perm_length: usize },

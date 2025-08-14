@@ -146,7 +146,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TemperamentErr {
     FromLinalgErr(LUErr),
     Indeterminate { name: String },

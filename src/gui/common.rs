@@ -117,6 +117,8 @@ impl<'a, X> RefListEdit<'a, X> {
             .with_row_color(move |i, style| {
                 if Some(i) == selected {
                     Some(style.visuals.selection.bg_fill)
+                } else if i % 2 == 0 {
+                    Some(style.visuals.faint_bg_color)
                 } else {
                     None {}
                 }
@@ -370,6 +372,10 @@ impl SmallFloatingWindow {
             &mut self.bring_to_foreground,
         )
     }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
 }
 
 pub fn show_hide_button(
@@ -449,10 +455,7 @@ impl<T: StackType> CorrectionSystemChooser<T> {
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
-            ui.checkbox(
-                &mut self.use_cent_values,
-                "use cent values",
-            );
+            ui.checkbox(&mut self.use_cent_values, "use cent values");
             ui.label("preference order for commas:");
             let _ = self.preference_order.show(
                 ui,

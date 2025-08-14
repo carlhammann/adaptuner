@@ -117,9 +117,9 @@ impl ExtractConfig<BackendWindowConfig> for BackendWindow {
             channels: {
                 let mut channels = [Channel::Ch1.into(); 12];
                 let mut i = 0;
-                for &b in self.use_channels.iter() {
-                    if b {
-                        channels[i] = Channel::from_u8(i as u8).into();
+                for j in 0..16 {
+                    if self.use_channels[j] {
+                        channels[i] = Channel::from_u8(j as u8).into();
                         i += 1;
                     }
                 }

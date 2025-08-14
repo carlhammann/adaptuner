@@ -358,6 +358,10 @@ impl<T: StackType + fmt::Debug + 'static> HandleMsg<ToProcess<T>, FromProcess<T>
                 *self = <Self as FromConfigAndState<_, _>>::initialise(config, ());
                 self.start(time, forward);
             }
+            ToProcess::RestartWithCurrentConfig { time } => {
+                *self = <Self as FromConfigAndState<_, _>>::initialise(self.extract_config(), ());
+                self.start(time, forward);
+            }
         }
     }
 }

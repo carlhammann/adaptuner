@@ -20,9 +20,8 @@ const TEMPLATE_CONFIG: &'static str = include_str!("../../configs/template.yaml"
 
 fn run() -> Result<(), Box<dyn Error>> {
     let config: Config<TheFiveLimitStackType> = serde_yml::from_str(TEMPLATE_CONFIG)?;
-    TheFiveLimitStackType::initialise(&config.temperaments, &config.named_intervals)?;
-
     let (process_config, gui_config, backend_config) = config.split();
+    TheFiveLimitStackType::initialise(config.temperaments, config.named_intervals)?;
 
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;

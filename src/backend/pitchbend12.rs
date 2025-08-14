@@ -31,7 +31,7 @@ pub struct Pitchbend12 {
     bend_range: Semitones,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 #[derive(Clone, Copy)]
 pub struct WrappedChannel(
@@ -303,8 +303,13 @@ impl HandleMsg<ToBackend, FromBackend> for Pitchbend12 {
             ToBackend::GetCurrentConfig => {
                 let _ = forward.send(FromBackend::CurrentConfig(self.extract_config()));
             }
-            ToBackend::RestartWithConfig { config, .. } => {
+            ToBackend::RestartWithConfig { config, time } => {
                 *self = <Self as FromConfigAndState<_, _>>::initialise(config, ());
+                self.reset(time, forward);
+            }
+            ToBackend::RestartWithCurrentConfig { time } => {
+                *self = <Self as FromConfigAndState<_, _>>::initialise(self.extract_config(), ());
+                self.reset(time, forward);
             }
         }
     }

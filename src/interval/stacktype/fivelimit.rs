@@ -64,8 +64,8 @@ static TEMPERAMENT_DEFINITIONS: RwLock<Vec<TemperamentDefinition<TheFiveLimitSta
 
 impl Reloadable for TheFiveLimitStackType {
     fn initialise(
-        temperament_definitions: &[TemperamentDefinition<TheFiveLimitStackType>],
-        named_intervals: &[NamedInterval<TheFiveLimitStackType>],
+        temperament_definitions: Vec<TemperamentDefinition<TheFiveLimitStackType>>,
+        named_intervals: Vec<NamedInterval<TheFiveLimitStackType>>,
     ) -> Result<(), StackTypeInitialisationErr> {
         {
             let mut t = TEMPERAMENTS.write().unwrap();
@@ -76,18 +76,6 @@ impl Reloadable for TheFiveLimitStackType {
                         .map_err(StackTypeInitialisationErr::FromTemperamentErr)?,
                 );
             }
-        }
-
-        {
-            let mut td = TEMPERAMENT_DEFINITIONS.write().unwrap();
-            td.clear();
-            td.extend_from_slice(temperament_definitions);
-        }
-
-        {
-            let mut ni = NAMED_INTERVALS.write().unwrap();
-            ni.clear();
-            ni.extend_from_slice(named_intervals);
         }
 
         {
@@ -113,6 +101,9 @@ impl Reloadable for TheFiveLimitStackType {
                 }
             }
         }
+
+        *TEMPERAMENT_DEFINITIONS.write().unwrap() = temperament_definitions;
+        *NAMED_INTERVALS.write().unwrap() = named_intervals;
 
         Ok(())
     }

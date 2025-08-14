@@ -55,6 +55,9 @@ pub enum ToProcess<T: StackType> {
         time: Instant,
         config: ProcessConfig<T>,
     },
+    RestartWithCurrentConfig {
+        time: Instant,
+    },
     Start {
         time: Instant,
     },
@@ -216,6 +219,9 @@ pub enum ToBackend {
     RestartWithConfig {
         time: Instant,
         config: BackendConfig,
+    },
+    RestartWithCurrentConfig {
+        time: Instant,
     },
     Start {
         time: Instant,
@@ -448,6 +454,12 @@ pub enum FromUi<T: StackType> {
     },
     RestartBackendWithConfig {
         config: BackendConfig,
+        time: Instant,
+    },
+    RestartProcessWithCurrentConfig {
+        time: Instant,
+    },
+    RestartBackendWithCurrentConfig {
         time: Instant,
     },
     ChordListAction {
@@ -874,6 +886,18 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::RestartBackendWithConfig { config, time } => (
                 None {},
                 Some(ToBackend::RestartWithConfig { time, config }),
+                None {},
+                None {},
+            ),
+            FromUi::RestartProcessWithCurrentConfig { time } => (
+                Some(ToProcess::RestartWithCurrentConfig { time }),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::RestartBackendWithCurrentConfig { time } => (
+                None {},
+                Some(ToBackend::RestartWithCurrentConfig { time }),
                 None {},
                 None {},
             ),

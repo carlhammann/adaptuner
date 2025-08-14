@@ -208,35 +208,37 @@ impl<'a, T: OctavePeriodicStackType + HasNoteNames> AsStrategyPicker<'a, T> {
 pub struct AsWindows<'a, T: StackType>(pub &'a mut StrategyWindows<T>);
 
 impl<'a, T: OctavePeriodicStackType + HasNoteNames + PartialEq> AsWindows<'a, T> {
-    pub fn show(&mut self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
-        self.display_strategy_list_editor_window(ui, forward);
-        let AsWindows(x) = self;
-        if let Some(curr) = x.strategies.current_selected_mut() {
-            if ui.ui_contains_pointer() {
-                ui.input(|i| {
-                    for e in &i.events {
-                        match e {
-                            egui::Event::Key {
-                                key,
-                                pressed,
-                                repeat,
-                                ..
-                            } => {
-                                if !*pressed || *repeat {
-                                    return;
+    pub fn show(&mut self, ui: &mut egui::Ui, disable: bool, forward: &mpsc::Sender<FromUi<T>>) {
+        self.display_strategy_list_editor_window(ui, disable, forward);
+        if !disable {
+            let AsWindows(x) = self;
+            if let Some(curr) = x.strategies.current_selected_mut() {
+                if ui.ui_contains_pointer() {
+                    ui.input(|i| {
+                        for e in &i.events {
+                            match e {
+                                egui::Event::Key {
+                                    key,
+                                    pressed,
+                                    repeat,
+                                    ..
+                                } => {
+                                    if !*pressed || *repeat {
+                                        return;
+                                    }
+                                    let bindings = &curr.1;
+                                    if let Some(&action) = bindings.get(&Bindable::KeyPress(*key)) {
+                                        let _ = forward.send(FromUi::Action {
+                                            action,
+                                            time: Instant::now(),
+                                        });
+                                    }
                                 }
-                                let bindings = &curr.1;
-                                if let Some(&action) = bindings.get(&Bindable::KeyPress(*key)) {
-                                    let _ = forward.send(FromUi::Action {
-                                        action,
-                                        time: Instant::now(),
-                                    });
-                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
-                    }
-                });
+                    });
+                }
             }
         }
     }
@@ -246,12 +248,16 @@ impl<'a, T: StackType> AsWindows<'a, T> {
     fn display_strategy_list_editor_window(
         &mut self,
         ui: &mut egui::Ui,
+        disable: bool,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
         let AsWindows(x) = self;
         let ctx = ui.ctx();
         x.strategy_list_editor_window
             .show("edit strategies", ctx, |ui| {
+                if disable {
+                    ui.disable();
+                }
                 let list_edit_res = x.strategies.show(
                     ui,
                     "strategy editor",

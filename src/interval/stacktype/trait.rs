@@ -163,8 +163,8 @@ impl std::error::Error for StackTypeInitialisationErr {}
 
 pub trait Reloadable: StackType {
     fn initialise(
-        temperament_definitions: &[TemperamentDefinition<Self>],
-        named_intervals: &[NamedInterval<Self>],
+        temperament_definitions: Vec<TemperamentDefinition<Self>>,
+        named_intervals: Vec<NamedInterval<Self>>,
     ) -> Result<(), StackTypeInitialisationErr>;
 }
 

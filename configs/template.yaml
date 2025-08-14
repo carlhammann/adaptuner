@@ -64,6 +64,24 @@ temperaments:
       octave: 2
       fifth: -4
       third: 4
+- name: '1/5-comma meantone'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 5
+    pure:
+      octave: 2
+      fifth: 1
+      third: 1
+  - tempered:
+      third: 5
+    pure:
+      octave: -2
+      fifth: 4
+      third: 4
 named-intervals:
 - name: diesis
   short-name: 'd'
