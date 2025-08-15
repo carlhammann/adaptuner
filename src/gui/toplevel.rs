@@ -20,7 +20,7 @@ use super::{
     common::{CorrectionSystemChooser, SmallFloatingWindow},
     config::ConfigFileDialog,
     connection::{ConnectionWindow, Input, Output},
-    editor::temperament::TemperamentEditor,
+    editor::{commas::CommaEditor, temperament::TemperamentEditor},
     latency::LatencyWindow,
     lattice::LatticeWindow,
     latticecontrol::{AsBigControls, AsKeyboardControls},
@@ -84,6 +84,9 @@ pub struct Toplevel<T: StackType> {
 
     temperament_editor: TemperamentEditor<T>,
     temperament_editor_window: SmallFloatingWindow,
+
+    comma_editor: CommaEditor<T>,
+    comma_editor_window: SmallFloatingWindow,
 }
 
 /// [OctavePeriodicStackType] is needed for the [ChordListEditor]
@@ -133,6 +136,11 @@ impl<T: OctavePeriodicStackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
                 egui::Id::new("temperament_editor_window"),
                 false,
             ),
+            comma_editor: CommaEditor::new(),
+            comma_editor_window: SmallFloatingWindow::new(
+                egui::Id::new("comma_editor_window"),
+                false,
+            ),
         }
     }
 
@@ -162,6 +170,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
         self.notifications = Notifications::new(correction_system_chooser);
 
         self.temperament_editor = TemperamentEditor::new();
+        self.comma_editor = CommaEditor::new();
 
         // self.notes.restart_from_config(config.notes_window, time);
     }
@@ -259,7 +268,8 @@ where
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // no need to check for the ConfigFileDialog, which is also shown as modal; this has its
         // own implementation of a modal window from egui_file_dialog
-        let any_modal_open = self.temperament_editor_window.is_open();
+        let any_modal_open =
+            self.temperament_editor_window.is_open() || self.comma_editor_window.is_open();
 
         egui::SidePanel::left("left panel").show_animated(ctx, self.show_side_panel, |ui| {
             if any_modal_open {
@@ -283,6 +293,13 @@ where
                 {
                     self.current_config = self.extract_config();
                     self.temperament_editor = TemperamentEditor::new();
+                }
+                if self
+                    .comma_editor_window
+                    .show_hide_button(ui, "commas")
+                {
+                    self.current_config = self.extract_config();
+                    self.comma_editor = CommaEditor::new();
                 }
 
                 ui.separator();
@@ -398,6 +415,28 @@ where
             {
                 let named_intervals = T::named_intervals().clone();
                 let _ = T::initialise(new_temperament_definitions, named_intervals);
+
+                let time = Instant::now();
+                self.restart_from_config(self.current_config.clone(), time);
+                let _ = self
+                    .tx
+                    .send(FromUi::RestartProcessWithCurrentConfig { time });
+                let _ = self
+                    .tx
+                    .send(FromUi::RestartBackendWithCurrentConfig { time });
+
+                return; // don't continue updating for this frame
+            }
+
+            if let Some(egui::InnerResponse {
+                inner: Some(Some(new_named_intervals)),
+                ..
+            }) = self
+                .comma_editor_window
+                .show("commas", ctx, |ui| self.comma_editor.show(ui))
+            {
+                let temperament_definitions = T::temperament_definitions().clone();
+                let _ = T::initialise(temperament_definitions, new_named_intervals);
 
                 let time = Instant::now();
                 self.restart_from_config(self.current_config.clone(), time);

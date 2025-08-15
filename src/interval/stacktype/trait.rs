@@ -95,11 +95,12 @@ pub struct NamedInterval<T: IntervalBasis> {
     _phantom: PhantomData<T>,
     pub coeffs: Array1<Ratio<StackCoeff>>,
     pub name: String,
-    pub short_name: char,
+    /// at most two characters long
+    pub short_name: String,
 }
 
 impl<T: IntervalBasis> NamedInterval<T> {
-    pub fn new(coeffs: Array1<Ratio<StackCoeff>>, name: String, short_name: char) -> Self {
+    pub fn new(coeffs: Array1<Ratio<StackCoeff>>, name: String, short_name: String) -> Self {
         Self {
             _phantom: PhantomData,
             coeffs,

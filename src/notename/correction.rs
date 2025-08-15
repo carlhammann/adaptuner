@@ -108,7 +108,7 @@ impl<T: StackType> Correction<T> {
 
     pub fn fmt<W: fmt::Write>(&self, f: &mut W) -> fmt::Result {
         for (i, x) in self.coeffs.iter().enumerate() {
-            let suffix = T::named_intervals()[i].short_name;
+            let suffix = &T::named_intervals()[i].short_name;
             if x.is_zero() {
                 continue;
             }

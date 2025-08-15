@@ -224,21 +224,21 @@ pub mod mock {
     static MOCK_NAMED_INTERVALS: LazyLock<Vec<NamedInterval<MockFiveLimitStackType>>> =
         LazyLock::new(|| {
             vec![
-                NamedInterval::new(arr1(&[1.into(), 0.into(), 0.into()]), "octave".into(), 'o'),
+                NamedInterval::new(arr1(&[1.into(), 0.into(), 0.into()]), "octave".into(), "o".into()),
                 NamedInterval::new(
                     arr1(&[(-2).into(), 4.into(), (-1).into()]),
                     "syntonic comma".into(),
-                    's',
+                    "s".into(),
                 ),
                 NamedInterval::new(
                     arr1(&[(-7).into(), 12.into(), 0.into()]),
                     "pythagorean comma".into(),
-                    'p',
+                    "p".into(),
                 ),
                 NamedInterval::new(
                     arr1(&[1.into(), 0.into(), (-3).into()]),
                     "diesis".into(),
-                    'd',
+                    "d".into(),
                 ),
             ]
         });
