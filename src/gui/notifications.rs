@@ -110,11 +110,11 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
                                 ..
                             },
                         ..
-                    }) => &neighbourhood_names[neighbourhood_index],
+                    }) => &neighbourhood_names[neighbourhood_index % neighbourhood_names.len()],
                     Some(StrategyNames::StaticTuning {
                         neighbourhood_names,
                         ..
-                    }) => &neighbourhood_names[neighbourhood_index],
+                    }) => &neighbourhood_names[neighbourhood_index % neighbourhood_names.len()],
                     _ => "<no name>",
                 });
             });
@@ -143,7 +143,7 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
                     Some(StrategyNames::TwoStep {
                         harmony: HarmonyStrategyNames::ChordList { patterns },
                         ..
-                    }) => &patterns[*pattern_index].name,
+                    }) => &patterns[*pattern_index % patterns.len()].name,
                     _ => "<no name>",
                 });
                 ui.label(" on ");
