@@ -9,55 +9,32 @@ release has two assets, which contain the binaries:
 - `adaptuner-ubuntu-latest.zip` (which can be used for all x86_64 Linux
   systems; the "ubuntu" in the name only means that it was *built* on ubuntu).
 
-## Configuration file
- 
-You'll also need a configuration file for the *adaptuner*. This file contains a
-user-definable list of the chords and voicings the program recognizes and knows
-how to tune. I propose you download [lorem.hjson](../configs/lorem.hjson)
-(there's a download link at the file) and use that initially. Later, you can
-familiarise yourself with its contents (and the explanation of the format
-[here](./configuration-file.md)), and edit it to your needs.
-
 ## Running the program
 
-You'll have to run *adaptuner* from the command line.
-
-I'll assume that you have unpacked the pre-compiled binary and saved the
-configuration file in a directory structure that looks like this:
-
+I'll assume that you have unpacked the`.zip` file somewhere convenient. Now,
+navigate to the directory that contains the binary and make it executable:
 ```
-.
-├── adaptuner
-└── lorem.hjson
+chmod a+x adaptuner
 ```
-
-Now, 
-1. Start your e-piano and/or synthesizer and connect it to the computer.
-2. Navigate to the directory whose contents are shown above and make the `adaptuner` binary executable:
-   ```
-   chmod a+x adaptuner
-   ```
-   Then, run `adaptuner` like so:
-   ```
-   ./adaptuner lorem.hjson
-   ```
-3. You'll be greeted with something like 
-   ```
-   Available input ports:
-   0: Midi Through:Midi Through Port-0 14:0
-     ...
-     ...
-   Please select input port: 
-   ```
-   Enter the number of the port that connects to your e-piano or input keyboard
-   and press return. This will repeat for the output port (which connects to the
-   synthesizer or back to the e-piano). 
-4. Now, the *adaptuner* is connected and ready to play, and you'll see the user
-   interface described [here](./tui.md). 
-
-## Alternative: Using Nix
-
-Clone this repo, and then run
+Then, you can run `adaptuner` either from the command line like so
 ```
-nix run .# ./configs/lorem.hjson
+./adaptuner
 ```
+or by (double-)clicking on the binary in your file browser. 
+
+On Linuxes with a "normal" file system hierarchy you can install the binary by
+putting it in `/usr/bin` or a similar location.
+
+On MacOS, you'll probably receive a warning the first time you try to run
+`adaptuner`. I trust you'll know [the
+dance](https://support.apple.com/guide/mac-help/open-an-app-by-overriding-security-settings-mh40617/mac)
+to circumvent it.
+
+## Alternative: Use Nix
+
+The flake in this repository has one `package` output, which is the `adaptuner`
+program. For example, you can clone this repo, and then do
+```
+nix run .#
+```
+to run the very latest commit on `main`.

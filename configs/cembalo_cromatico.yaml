@@ -1,19 +1,5 @@
-version: 0.2.0
+version: '0.2.0'
 temperaments:
-- name: equal temperament
-  equations:
-  - tempered:
-      octave: 1
-    pure:
-      octave: 1
-  - tempered:
-      fifth: 12
-    pure:
-      octave: 7
-  - tempered:
-      third: 3
-    pure:
-      octave: 1
 - name: '1/4-comma meantone'
   equations:
   - tempered:
@@ -83,132 +69,50 @@ temperaments:
       octave: -2
       fifth: 4
       third: 4
+- name: equal temperament
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 12
+    pure:
+      octave: 7
+  - tempered:
+      third: 3
+    pure:
+      octave: 1
 named-intervals:
-- name: diesis
-  short-name: 'd'
-  coeffs:
-    octave: '1'
-    third: '-3'
-- name: pythagorean comma
-  short-name: 'p'
-  coeffs:
-    octave: '-7'
-    fifth: '12'
 - name: syntonic comma
-  short-name: 's'
+  short-name: s
   coeffs:
     octave: '-2'
     fifth: '4'
     third: '-1'
+- name: diesis
+  short-name: d
+  coeffs:
+    octave: '1'
+    third: '-3'
+- name: pythagorean comma
+  short-name: p
+  coeffs:
+    octave: '-7'
+    fifth: '12'
 - name: kleisma
-  short-name: 'k'
+  short-name: k
   coeffs:
     octave: '1'
     fifth: '-5'
     third: '6'
 strategies:
-- name: static
+- name: cembalo cromatico
   description: |-
-    This strategy allows you to
-    • define the (static) tuning of all 12 notes as a "neighbourhood" of the reference note,
-    • switch between different neighbourhoods on the fly, and
-    • reset the reference note on the fly.
-  config: !static-tuning
-    neighbourhoods:
-    - name: flats
-      entries: !periodic-complete
-        0: {}
-        1:
-          octave: 1
-          fifth: -1
-          third: -1
-        2:
-          octave: -1
-          fifth: 2
-        3:
-          fifth: 1
-          third: -1
-        4:
-          third: 1
-        5:
-          octave: 1
-          fifth: -1
-        6:
-          octave: 2
-          fifth: -2
-          third: -1
-        7:
-          fifth: 1
-        8:
-          octave: 1
-          third: -1
-        9:
-          octave: 1
-          fifth: -1
-          third: 1
-        10:
-          octave: 2
-          fifth: -2
-        11:
-          fifth: 1
-          third: 1
-    - name: sharps
-      entries: !periodic-complete
-        0: {}
-        1:
-          fifth: -1
-          third: 2
-        2:
-          octave: -1
-          fifth: 2
-        3:
-          octave: -1
-          fifth: 1
-          third: 2
-        4:
-          third: 1
-        5:
-          octave: 1
-          fifth: -1
-        6:
-          octave: -1
-          fifth: 2
-          third: 1
-        7:
-          fifth: 1
-        8:
-          third: 2
-        9:
-          octave: 1
-          fifth: -1
-          third: 1
-        10:
-          octave: -1
-          fifth: 2
-          third: 2
-        11:
-          fifth: 1
-          third: 1
-    tuning-reference:
-      stack:
-        octave: 1
-        fifth: -1
-        third: 1
-      semitones: 69.0
-    reference: {}
-    bindings:
-      sostenuto-pedal-down: !increment-neighbourhood-index 1
-      sostenuto-pedal-up: !increment-neighbourhood-index -1
-      soft-pedal-down: set-reference-to-lowest
-      Escape: reset
-      Enter: !increment-neighbourhood-index 1
-      Space: set-reference-to-lowest
-- name: static + list of chords
-  description: |-
-    This strategy allows you to
-    • define and switch between neighbourhoods like the "static" strategy,
-    • define a list of chords and voicings that have a known tuning, and
-    • reset the reference note on the fly, either manually or automatically to the reference note of the currently sounding chord.
+    A "better cembalo cromatico" that allows you to play with reference notes in 1/4-comma meantone, but just harmonic intervals.
+    • It knows the "correct" (just) tunings of most relevant chords for the period.
+    • Sostenuto pedal toggles between two meantone scales for the reference notes: one with the chromatic notes, one with the enharmonic notes.
+    • Soft pedal resets the reference of the scales to the reference of the currently sounding chord.
   config: !two-step
     harmony: !chord-list
       enable: true
@@ -298,12 +202,12 @@ strategies:
             third: -1
         allow-extra-high-notes: true
         original-reference: {}
-      - name: 'sus4 '
+      - name: sus4
         key-shape: !block-voicing-relative
           blocks:
           - - 0
-            - 7
           - - 5
+            - 7
         neighbourhood: !periodic-partial
           0: {}
           5:
@@ -312,13 +216,15 @@ strategies:
           7:
             fifth: 1
         allow-extra-high-notes: true
-        original-reference: {}
+        original-reference:
+          octave: -1
+          fifth: 2
       - name: sus2
         key-shape: !block-voicing-relative
           blocks:
           - - 0
-            - 7
           - - 2
+            - 7
         neighbourhood: !periodic-partial
           0: {}
           2:
@@ -328,129 +234,189 @@ strategies:
             fifth: 1
         allow-extra-high-notes: true
         original-reference: {}
+      - name: sus2,4
+        key-shape: !block-voicing-relative
+          blocks:
+          - - 0
+          - - 2
+            - 5
+            - 7
+        neighbourhood: !periodic-partial
+          0: {}
+          2:
+            octave: -1
+            fifth: 2
+          5:
+            octave: 1
+            fifth: -1
+          7:
+            fifth: 1
+        allow-extra-high-notes: true
+        original-reference:
+          octave: -1
+          fifth: 1
     melody: !neighbourhoods
       fixed: true
       group-ms: 100
       neighbourhoods:
-      - name: pure
-        entries: !periodic-complete
-          0: {}
-          1:
-            octave: 1
-            fifth: -1
-            third: -1
-          2:
-            octave: -1
-            fifth: 2
-          3:
-            fifth: 1
-            third: -1
-          4:
-            third: 1
-          5:
-            octave: 1
-            fifth: -1
-          6:
-            octave: -1
-            fifth: 2
-            third: 1
-          7:
-            fifth: 1
-          8:
-            octave: 1
-            third: -1
-          9:
-            octave: 1
-            fifth: -1
-            third: 1
-          10:
-            octave: 2
-            fifth: -2
-          11:
-            fifth: 1
-            third: 1
-      - name: equal
+      - name: chromatic
         entries: !periodic-complete
           0: {}
           1:
             target:
-              octave: 1
               fifth: -1
-              third: -1
+              third: 2
             actual:
-              octave: '1/12'
+              octave: '-1/2'
+              third: '7/4'
           2:
             target:
               octave: -1
               fifth: 2
             actual:
-              octave: '1/6'
+              third: '1/2'
           3:
             target:
               fifth: 1
               third: -1
             actual:
-              octave: '1/4'
+              octave: '1/2'
+              third: '-3/4'
           4:
-            target:
-              third: 1
-            actual:
-              octave: '1/3'
+            third: 1
           5:
             target:
               octave: 1
               fifth: -1
             actual:
-              octave: '5/12'
+              octave: '1/2'
+              third: '-1/4'
           6:
             target:
               octave: -1
               fifth: 2
+              third: 1
+            actual:
+              third: '3/2'
+          7:
+            target:
+              fifth: 1
+            actual:
+              octave: '1/2'
+              third: '1/4'
+          8:
+            third: 2
+          9:
+            target:
+              octave: 1
+              fifth: -1
               third: 1
             actual:
               octave: '1/2'
+              third: '3/4'
+          10:
+            target:
+              fifth: 2
+              third: -1
+            actual:
+              octave: '1'
+              third: '-1/2'
+          11:
+            target:
+              fifth: 1
+              third: 1
+            actual:
+              octave: '1/2'
+              third: '5/4'
+      - name: enharmonic
+        entries: !periodic-complete
+          0: {}
+          1:
+            target:
+              octave: 1
+              fifth: -1
+              third: -1
+            actual:
+              octave: '1/2'
+              third: '-5/4'
+          2:
+            target:
+              octave: -1
+              fifth: 2
+            actual:
+              third: '1/2'
+          3:
+            target:
+              octave: -1
+              fifth: 1
+              third: 2
+            actual:
+              octave: '-1/2'
+              third: '9/4'
+          4:
+            third: 1
+          5:
+            target:
+              octave: 1
+              fifth: -1
+            actual:
+              octave: '1/2'
+              third: '-1/4'
+          6:
+            target:
+              octave: 2
+              fifth: -2
+              third: -1
+            actual:
+              octave: '1'
+              third: '-3/2'
           7:
             target:
               fifth: 1
             actual:
-              octave: '7/12'
+              octave: '1/2'
+              third: '1/4'
           8:
-            target:
-              octave: 1
-              third: -1
-            actual:
-              octave: '2/3'
+            octave: 1
+            third: -1
           9:
             target:
               octave: 1
               fifth: -1
               third: 1
             actual:
-              octave: '3/4'
+              octave: '1/2'
+              third: '3/4'
           10:
             target:
-              octave: 2
-              fifth: -2
+              octave: -1
+              fifth: 2
+              third: 2
             actual:
-              octave: '5/6'
+              third: '5/2'
           11:
             target:
               fifth: 1
               third: 1
             actual:
-              octave: '11/12'
+              octave: '1/2'
+              third: '5/4'
       tuning-reference:
         stack:
-          octave: 1
-          fifth: -1
-          third: 1
+          target:
+            octave: 1
+            fifth: -1
+            third: 1
+          actual:
+            octave: '1/2'
+            third: '3/4'
         semitones: 69.0
       reference: {}
     bindings:
       sostenuto-pedal-down: !increment-neighbourhood-index 1
+      sostenuto-pedal-up: !increment-neighbourhood-index -1
       soft-pedal-down: set-reference-to-current
       Escape: reset
-      Tab: toggle-reanchor
       Backspace: toggle-chord-matching
       Enter: !increment-neighbourhood-index 1
       Space: set-reference-to-current
@@ -471,19 +437,19 @@ backend: !pitchbend12
   - 13
 gui:
   lattice-window:
-    zoom: 10.909091
+    zoom: 12.0
     interval-heights:
     - 0.0
     - 3.8631372
     - -7.01955
-    background-around-reference: false
+    background-around-reference: true
     background-low:
     - 0
-    - -4
-    - -3
+    - -2
+    - -2
     background-high:
     - 0
-    - 4
+    - 3
     - 3
     project-dimension: 0
     screen-keyboard-channel: 1
@@ -496,4 +462,4 @@ gui:
   reference-editor:
     notenamestyle: full
   latency-mean-over: 20
-  use-cent-values: true
+  use-cent-values: false

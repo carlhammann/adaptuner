@@ -1,0 +1,10 @@
+# Changelog
+
+## [Unreleased]
+
+- Removed the terminal user interface, added a graphical user interface.
+- Switched to YAML as a configuration file format.
+
+## [0.1.0] - 2025-05-04
+
+The first really usable version, frozen.

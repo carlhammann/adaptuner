@@ -16,7 +16,7 @@ fn main() {
     }
 }
 
-const TEMPLATE_CONFIG: &'static str = include_str!("../../configs/template.yaml");
+const TEMPLATE_CONFIG: &'static str = include_str!("../configs/template.yaml");
 
 fn run() -> Result<(), Box<dyn Error>> {
     let config: Config<TheFiveLimitStackType> = serde_yml::from_str(TEMPLATE_CONFIG)?;
