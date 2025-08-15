@@ -149,6 +149,7 @@ impl HandleMsg<ToMidiIn, FromMidiIn> for MidiInputOrConnection {
                         let name = input.port_name(&p).unwrap_or("<no name>".into());
                         (p, name)
                     })
+                    .filter(|(_, name)| !name.contains("adaptuner output"))
                     .collect();
                 let _ = forward.send(FromMidiIn::Disconnected {
                     available_ports: ports,
