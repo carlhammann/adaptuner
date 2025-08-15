@@ -111,10 +111,14 @@ pub struct MidiOutputConfig {
     // pub output: midir::MidiOutput,
 }
 
+/// This (de) serializes as the current version string.
+pub struct AdaptunerVersion;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config<T: IntervalBasis> {
+    version: AdaptunerVersion,
     pub temperaments: Vec<TemperamentDefinition<T>>,
     pub named_intervals: Vec<NamedInterval<T>>,
     strategies: Vec<NamedAndDescribed<ExtendedStrategyConfig<T>>>,
@@ -166,6 +170,7 @@ impl<T: IntervalBasis> Config<T> {
         named_intervals: Vec<NamedInterval<T>>,
     ) -> Self {
         Self {
+            version: AdaptunerVersion,
             temperaments,
             named_intervals,
             strategies: if process.strategies.len() != gui.strategies.len() {
