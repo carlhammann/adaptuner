@@ -105,7 +105,6 @@ where
 }
 
 fn start_gui<T, H, NH>(
-    app_name: &str,
     new_gui: NH,
     rx: mpsc::Receiver<ToUi<T>>,
     tx: mpsc::Sender<FromUi<T>>,
@@ -116,9 +115,19 @@ where
     NH: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> H + Send + 'static,
     T: StackType + Send + 'static,
 {
+    let icon_bytes = include_bytes!("../assets/icon/aplus.png");
+    let icon = image::load_from_memory(icon_bytes).expect("could not load icon bytes");
+    let icon_data = egui::IconData {
+        width: icon.width(),
+        height: icon.height(),
+        rgba: icon.into_rgba8().to_vec(),
+    };
     eframe::run_native(
-        app_name,
-        eframe::NativeOptions::default(),
+        "adaptuner",
+        eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default().with_icon(icon_data),
+            ..eframe::NativeOptions::default()
+        },
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             let gui = new_gui(&cc.egui_ctx, tx.clone());
@@ -424,13 +433,7 @@ impl<T: StackType> RunState<T> {
         });
         // TODO: send more start messages?
 
-        start_gui(
-            "adaptuner",
-            new_ui_state,
-            to_ui_rx,
-            from_ui_tx,
-            gui_config_return,
-        )?;
+        start_gui(new_ui_state, to_ui_rx, from_ui_tx, gui_config_return)?;
 
         Ok(res)
     }
