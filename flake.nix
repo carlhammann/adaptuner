@@ -1,81 +1,70 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    flake-parts.url = "github:hercules-ci/flake-parts";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    crane.url = "github:ipetkov/crane";
   };
 
-  outputs = {
-    nixpkgs,
-    rust-overlay,
-    ...
-  }: let
-    systems = ["x86_64-linux" "aarch64-darwin"];
-    forAllSystems = f:
-      nixpkgs.lib.genAttrs systems
-      (system:
-        f
-        system
-        (
-          import nixpkgs {
-            inherit system;
-            overlays = [(import rust-overlay)];
-          }
-        ));
-    rust-bin = forAllSystems (_: pkgs: pkgs.rust-bin.stable.latest);
-    rustPlatform = forAllSystems (system: pkgs:
-      pkgs.makeRustPlatform (with rust-bin.${system}; {
-        cargo = minimal;
-        rustc = minimal;
-      }));
-    adaptuner = forAllSystems (system: pkgs: let
-      cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
-    in
-      rustPlatform.${system}.buildRustPackage {
-        pname = cargoToml.package.name;
-        version = cargoToml.package.version;
-        src = ./.;
-        cargoLock.lockFile = ./Cargo.lock;
-        nativeBuildInputs = with pkgs; [pkg-config];
-        buildInputs =
-          (nixpkgs.lib.optionals pkgs.stdenv.isLinux [pkgs.alsa-lib])
-          ++ (nixpkgs.lib.optionals pkgs.stdenv.isDarwin [
-            pkgs.darwin.apple_sdk.frameworks.CoreMIDI
-          ]);
-      });
-  in {
-    packages = forAllSystems (system: _: {default = adaptuner.${system};});
+  outputs = inputs @ {flake-parts, ...}:
+    flake-parts.lib.mkFlake {inherit inputs;} {
+      systems = ["x86_64-linux" "aarch64-darwin"];
+      perSystem = {
+        pkgs,
+        system,
+        ...
+      }: let
+        rust-bin = pkgs.rust-bin.stable.latest;
+      in rec {
+        _module.args.pkgs = import inputs.nixpkgs {
+          inherit system;
+          overlays = [(import inputs.rust-overlay)];
+        };
 
-    devShells = forAllSystems (system: pkgs: {
-      default = pkgs.mkShell {
-        inputsFrom = [adaptuner.${system}];
+        packages = {
+          default = let
+            craneLib = (inputs.crane.mkLib pkgs).overrideToolchain (_: rust-bin.minimal);
+            commonArgs = {
+              src = ./.;
+              strictDeps = true;
+              nativeBuildInputs = [pkgs.pkg-config];
+              buildInputs =
+                (pkgs.lib.optionals pkgs.stdenv.isLinux [pkgs.alsa-lib])
+                ++ (pkgs.lib.optionals pkgs.stdenv.isDarwin [
+                  pkgs.darwin.apple_sdk.frameworks.CoreMIDI
+                ]);
+            };
+          in
+            craneLib.buildPackage (
+              commonArgs // {cargoArtifacts = craneLib.buildDepsOnly commonArgs;}
+            );
+        };
 
-        packages = with pkgs;
-          [
-            fluidsynth
-            vmpk
+        devShells.default = pkgs.mkShell {
+          inputsFrom = [packages.default];
 
-            # dev-y
-            rust-bin.${system}.rust-analyzer
-            rust-bin.${system}.rustfmt
-            bacon
-            cargo-flamegraph
+          packages = with pkgs;
+            [
+              fluidsynth
+              vmpk
 
-            # # tex
-            # texlive.combined.scheme-full
-            # latexrun
-          ]
-          ++ nixpkgs.lib.optionals pkgs.stdenv.isLinux [alsa-utils];
+              # dev-y
+              rust-bin.rust-analyzer
+              rust-bin.rustfmt
+              bacon
+            ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [alsa-utils];
 
-        LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath (with pkgs;
-          nixpkgs.lib.optionals stdenv.isLinux [
-            wayland
-            libGL
-            libxkbcommon
-          ])}";
+          LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath (with pkgs;
+            pkgs.lib.optionals stdenv.isLinux [
+              wayland
+              libGL
+              libxkbcommon
+            ])}";
+        };
       };
-    });
-  };
+    };
 }
