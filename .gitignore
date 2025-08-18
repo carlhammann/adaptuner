@@ -1,5 +1,7 @@
 /target
 result*
 /bib
+/vms
+*.deb
 latex.out
 *.pdf

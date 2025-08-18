@@ -3,10 +3,6 @@ name = "adaptuner"
 version = "0.2.0"
 edition = "2021"
 
-[package.metadata.bundle]
-identifier = "com.carlhammann.adaptuner"
-icon = [ "share/icons/**/*.png" ]
-
 [dependencies]
 midi-msg = "0.6.1"
 midir = "0.10.2"

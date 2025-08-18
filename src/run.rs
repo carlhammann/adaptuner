@@ -123,9 +123,12 @@ where
         rgba: icon.into_rgba8().to_vec(),
     };
     eframe::run_native(
-        "adaptuner",
+        "com.carlhammann.adaptuner",
         eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default().with_icon(icon_data),
+            viewport: egui::ViewportBuilder::default()
+                .with_icon(icon_data)
+                .with_title("adaptuner")
+                .with_app_id("com.carlhammann.adaptuner"),
             ..eframe::NativeOptions::default()
         },
         Box::new(|cc| {
