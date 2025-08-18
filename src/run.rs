@@ -115,7 +115,7 @@ where
     NH: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> H + Send + 'static,
     T: StackType + Send + 'static,
 {
-    let icon_bytes = include_bytes!("../assets/icon/aplus.png");
+    let icon_bytes = include_bytes!("../assets/icon.png");
     let icon = image::load_from_memory(icon_bytes).expect("could not load icon bytes");
     let icon_data = egui::IconData {
         width: icon.width(),

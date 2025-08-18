@@ -62,13 +62,23 @@
                   --output $out/bin/adaptuner \
                   ${adaptuner-bin}/bin/adaptuner
 
-                mkdir -p $out/share/applications
-                cp ${./assets/adaptuner.desktop} $out/share/applications/adaptuner.desktop
-
-                mkdir -p $out/share/icons/hicolor/scalable/apps
-                cp ${./assets/icon/aplus.svg} $out/share/icons/hicolor/scalable/apps/adaptuner.svg
+                mkdir $out/share
+                cp -r ${./share}/* $out/share
               '';
             };
+
+            adaptuner-deb = craneLib.mkCargoDerivation (
+              commonArgs
+              // {
+                cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+                nativeBuildInputs = [pkg-config cargo-bundle];
+                buildPhaseCargoCommand = "cargo bundle --release --format=deb";
+                installPhase = ''
+                  mkdir -p $out
+                  cp ./target/release/bundle/deb/*.deb $out
+                '';
+              }
+            );
           });
 
         devShells = pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
@@ -83,6 +93,7 @@
                 (latestStableRust pkgs).rust-analyzer
                 (latestStableRust pkgs).rustfmt
                 bacon
+                cargo-bundle
               ]
               ++ lib.optionals stdenv.isLinux [alsa-utils];
 

@@ -1,5 +1,7 @@
 [Desktop Entry]
-Type=Application
+Encoding=UTF-8
 Name=adaptuner
+Type=Application
+Terminal=false
 Exec=adaptuner
 Icon=adaptuner

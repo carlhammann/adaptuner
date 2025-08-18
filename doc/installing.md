@@ -32,9 +32,8 @@ to circumvent it.
 
 ## Alternative: Use Nix
 
-The flake in this repository has one `package` output, which is the `adaptuner`
-program. For example, you can clone this repo, and then do
+For example, you can clone this repo, and then do
 ```
-nix run .#
+nix run .#adaptuner-wayland
 ```
-to run the very latest commit on `main`.
+to run the very latest commit on `main` as a Wayland app.
