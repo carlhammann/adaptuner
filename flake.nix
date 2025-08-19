@@ -40,6 +40,15 @@
         in
           {
             inherit adaptuner-bin;
+            adaptuner-mingw = let
+              craneLib = (inputs.crane.mkLib pkgs.pkgsCross.mingwW64).overrideToolchain (
+                p:
+                  (latestStableRust p).minimal.override {
+                    targets = ["x86_64-pc-windows-gnu"];
+                  }
+              );
+            in
+              pkgs.callPackage ./. {inherit craneLib;};
           }
           // (with pkgs;
             lib.optionalAttrs stdenv.isLinux {
@@ -126,6 +135,8 @@
                 bacon
 
                 quickemu
+                wineWowPackages.staging
+                winetricks
               ]
               ++ lib.optionals stdenv.isLinux [alsa-utils];
 
