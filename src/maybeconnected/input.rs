@@ -1,4 +1,4 @@
-use std::{cell::Cell, sync::mpsc, time::Instant};
+use std::{sync::mpsc, time::Instant};
 
 use midir::{MidiInput, MidiInputConnection, MidiInputPort};
 
@@ -6,6 +6,7 @@ use crate::{
     config::{ExtractConfig, MidiInputConfig},
     maybeconnected::common::MaybeConnected,
     msg::{FromMidiIn, HandleMsg, ToMidiIn},
+    util::update_cell::UpdateCell,
 };
 
 enum MidiInputOrConnectionInternal {
@@ -24,19 +25,9 @@ impl MidiInputOrConnectionInternal {
         Self::Unconnected { midi_input, tx }
     }
 
-    /// Use this only for data that will never be read!
-    fn empty_placeholder() -> Self {
-        let (tx, _rx) = mpsc::channel();
-        Self::Unconnected {
-            midi_input: midir::MidiInput::new("adaptuner placeholder input").unwrap(),
-            tx,
-        }
-    }
-
     fn connect_internal(self, port: MidiInputPort, portname: &str) -> Result<Self, (String, Self)> {
         match self {
             Self::Unconnected { midi_input, tx } => {
-                // let txclone = tx.clone();
                 match midi_input.connect(
                     &port,
                     portname,
@@ -107,13 +98,13 @@ impl MaybeConnected<MidiInput> for MidiInputOrConnectionInternal {
 }
 
 pub struct MidiInputOrConnection {
-    internal: Cell<MidiInputOrConnectionInternal>,
+    internal: UpdateCell<MidiInputOrConnectionInternal>,
 }
 
 impl MidiInputOrConnection {
     pub fn new(midi_input: MidiInput, tx: mpsc::Sender<FromMidiIn>) -> Self {
         Self {
-            internal: Cell::new(MidiInputOrConnectionInternal::new(midi_input, tx)),
+            internal: UpdateCell::new(MidiInputOrConnectionInternal::new(midi_input, tx)),
         }
     }
 }
@@ -122,24 +113,19 @@ impl HandleMsg<ToMidiIn, FromMidiIn> for MidiInputOrConnection {
     fn handle_msg(&mut self, msg: ToMidiIn, forward: &mpsc::Sender<FromMidiIn>) {
         match msg {
             ToMidiIn::Connect { port, portname } => {
-                let old = self
-                    .internal
-                    .replace(MidiInputOrConnectionInternal::empty_placeholder());
-                match old.connect(port, &portname) {
-                    Ok(new) => {
-                        let _ = forward.send(FromMidiIn::Connected { portname });
-                        self.internal.set(new);
-                    }
-                    Err((reason, new)) => {
-                        let _ = forward.send(FromMidiIn::ConnectionError { reason });
-                        self.internal.set(new);
-                    }
-                }
+                self.internal
+                    .update(|old| match old.connect(port, &portname) {
+                        Ok(new) => {
+                            let _ = forward.send(FromMidiIn::Connected { portname });
+                            new
+                        }
+                        Err((reason, new)) => {
+                            let _ = forward.send(FromMidiIn::ConnectionError { reason });
+                            new
+                        }
+                    })
             }
-            ToMidiIn::Start | ToMidiIn::Disconnect => {
-                let old = self
-                    .internal
-                    .replace(MidiInputOrConnectionInternal::empty_placeholder());
+            ToMidiIn::Start | ToMidiIn::Disconnect => self.internal.update(|old| {
                 let new = old.disconnect();
                 let input = new.unconnected().unwrap(); // this is ok, we just disconnected
                 let ports = input
@@ -154,9 +140,8 @@ impl HandleMsg<ToMidiIn, FromMidiIn> for MidiInputOrConnection {
                 let _ = forward.send(FromMidiIn::Disconnected {
                     available_ports: ports,
                 });
-
-                self.internal.set(new);
-            }
+                new
+            }),
             ToMidiIn::Stop => {}
         }
     }
