@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2025-08-22
 
 - Removed the terminal user interface, added a graphical user interface.
 - Switched to YAML as a configuration file format.
