@@ -112,14 +112,13 @@ dependencies = [
 
 [[package]]
 name = "adaptuner"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "approx",
  "ecolor",
  "eframe",
  "egui-file-dialog",
  "egui_extras",
- "image",
  "midi-msg",
  "midir",
  "ndarray",

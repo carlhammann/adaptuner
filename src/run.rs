@@ -115,12 +115,18 @@ where
     NH: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> H + Send + 'static,
     T: StackType + Send + 'static,
 {
-    let icon_bytes = include_bytes!("../assets/icon.png");
-    let icon = image::load_from_memory(icon_bytes).expect("could not load icon bytes");
+    // create icon.rgba using something like
+    //
+    // magick stream -map rgba -storage-type char icon.png icon.rgba
+    //
+    // you can inspect it using
+    //
+    // magick display -depth 8 -size 512x512 rgba:icon.rgba
+    let icon_bytes = include_bytes!("../assets/icon.rgba");
     let icon_data = egui::IconData {
-        width: icon.width(),
-        height: icon.height(),
-        rgba: icon.into_rgba8().to_vec(),
+        width: 512,
+        height: 512,
+        rgba: icon_bytes.into(),
     };
     eframe::run_native(
         "com.carlhammann.adaptuner",
