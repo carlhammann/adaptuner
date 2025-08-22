@@ -29,7 +29,7 @@ or by (double-)clicking on the binary in your file browser.
 
 On Linuxes with a "normal" file system hierarchy you can install the binary by
 putting it in `/usr/bin` or a similar location. You can also install the
-content of [the "share" directory ](./share) under `/usr/share`, if you want
+content of [the "share" directory ](../share/) under `/usr/share`, if you want
 desktop icons.
 
 On MacOS, you'll probably receive a warning the first time you try to run
