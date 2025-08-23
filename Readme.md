@@ -11,7 +11,7 @@ reasonably usable as an instrument.
 
 - [Here](./doc/installing.md) is how you obtain and run the program. Currently,
   pre-compiled binaries for x86_64 Linux, aarch64 (Apple Silicon) MacOS, and
-  Windows (not yet tested using actual hardware) are available.
+  Windows are available.
 - [Here](./doc/instruments.md) is how you set up instrument(s) to play with
   *adaptuner*. This is needed because *adaptuner* is a MIDI-to-MIDI program; it
   doesn't make any sound on its own.

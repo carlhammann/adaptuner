@@ -30,7 +30,7 @@ binaries exist for
 - x86_64 Linux (both as a raw binary that should run on many distributions, and
   as a `.deb` package),
 - Apple Silicon Macs, and
-- Microsoft Windows (not yet tested on actual hardware).
+- Microsoft Windows.
 
 ## Contacting me
 

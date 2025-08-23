@@ -33,14 +33,31 @@ content of [the "share" directory ](../share/) under `/usr/share`, if you want
 desktop icons.
 
 On MacOS, you'll probably receive a warning the first time you try to run
-`adaptuner`. I trust you'll know [the
-dance](https://support.apple.com/guide/mac-help/open-an-app-by-overriding-security-settings-mh40617/mac)
-to circumvent it.
+`adaptuner`. This is because the binaries aren't signed. These steps should
+work:
 
-## Windows (not tested on actual hardware)
+1. Download the binary and make it executable as described above.
+2. The first time you start the program, a dialog will be shown telling you
+   that the software isn't signed and will therefore not be run. 
+3. Go to your system settings, and allow running the program [as described
+   here](https://support.apple.com/guide/mac-help/open-an-app-by-overriding-security-settings-mh40617/mac).
+4. Now, when you start the program again, a dialog containing the same message
+   will appear, but you'll have the option to start the program anyway. 
+5. On subsequent runs, the program will start normally.
+
+## Windows
 
 Download and unpack the `adaptuner-x86_64-w64-mingw32` asset. It contains an
-`.exe` that you should _hopefully_ be able to run. 
+`.exe` that you should _hopefully_ be able to run. However, Microsoft Defender
+Antivirus makes our life difficult, because the binaries aren't signed. On
+Windows 11, these steps seem to work:
+
+1. Turn off "real time protection" in the [Windows Security
+   App](https://support.microsoft.com/en-us/windows/virus-and-threat-protection-in-the-windows-security-app-1362f4cd-d71a-b52a-0b66-c2820032b65e).
+   If you don't do this, you'll likely already be blocked from downloading or
+   saving the `.zip` file.
+2. Download the `.zip` file and unpack it.
+3. Run the contained `.exe`.
 
 ## Alternative: Use Nix
 
