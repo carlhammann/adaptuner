@@ -1,0 +1,372 @@
+version: 0.3.0
+temperaments:
+- name: equal temperament
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 12
+    pure:
+      octave: 7
+  - tempered:
+      third: 3
+    pure:
+      octave: 1
+- name: '1/4-comma meantone'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 4
+    pure:
+      octave: 2
+      third: 1
+  - tempered:
+      third: 1
+    pure:
+      third: 1
+- name: '1/6-comma meantone'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 6
+    pure:
+      octave: 2
+      fifth: 2
+      third: 1
+  - tempered:
+      third: 6
+    pure:
+      octave: -4
+      fifth: 8
+      third: 4
+- name: '1/3-comma meantone'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 3
+    pure:
+      octave: 2
+      fifth: -1
+      third: 1
+  - tempered:
+      third: 3
+    pure:
+      octave: 2
+      fifth: -4
+      third: 4
+- name: '1/5-comma meantone'
+  equations:
+  - tempered:
+      octave: 1
+    pure:
+      octave: 1
+  - tempered:
+      fifth: 5
+    pure:
+      octave: 2
+      fifth: 1
+      third: 1
+  - tempered:
+      third: 5
+    pure:
+      octave: -2
+      fifth: 4
+      third: 4
+named-intervals:
+- name: diesis
+  short-name: 'd'
+  coeffs:
+    octave: '1'
+    third: '-3'
+- name: pythagorean comma
+  short-name: 'p'
+  coeffs:
+    octave: '-7'
+    fifth: '12'
+- name: syntonic comma
+  short-name: 's'
+  coeffs:
+    octave: '-2'
+    fifth: '4'
+    third: '-1'
+- name: kleisma
+  short-name: 'k'
+  coeffs:
+    octave: '1'
+    fifth: '-5'
+    third: '6'
+strategies:
+- name: static + springs
+  description: |-
+    This strategy allows you to
+    • define and switch between neighbourhoods like the "static" strategy,
+    • define a list of chords and voicings that have a known tuning, and
+    • reset the reference note on the fly, either manually or automatically to the reference note of the currently sounding chord.
+  config: !two-step
+    harmony: !springs
+      memo-springs: true
+      minimum-number-of-sounding-keys: 2 # must be at least 1
+      lower-notes-are-more-stable: true
+      timeout-ms: 20
+      provider: !mod12 
+        octave:
+          octave: 1
+        by-class: 
+        - !rod {}
+        - !springs
+          - length: # diatonic semitone
+              octave: 1 
+              fifth: -1 
+              third: -1 
+            stiffness: 1/5
+          - length: # chromatic semitone
+              fifth: -1 
+              third: 2 
+            stiffness: 1/5
+        - !springs
+          - length: # major tone, 9/8 
+              octave: -1
+              fifth: 2
+            stiffness: 1/3
+          - length: # minor tone, 10/9
+              octave: 1
+              fifth: -2
+              third: 1
+            stiffness: 1/5
+        - !springs
+          - length: # pure minor third
+              fifth: 1
+              third: -1
+            stiffness: 1/5
+        - !springs
+          - length: # pure major third
+              third: 1
+            stiffness: 1/5
+        - !springs
+          - length: # pure fourth
+              octave: 1
+              fifth: -1
+            stiffness: 1/3
+        - !springs
+          - length: # tritone as major tone plus major third
+              octave: -1
+              fifth: 2
+              third: 1
+            stiffness: 1/5
+          - length: # tritone as chromatic semitone below fifth
+              fifth: 2
+              third: -2
+            stiffness: 1/5
+        - !springs
+          - length: # pure fifth
+              fifth: 1
+            stiffness: 1/3
+        - !springs
+          - length: # minor sixth
+              octave: 1
+              third: -1
+            stiffness: 1/5
+        - !springs
+          - length: # major sixth
+              octave: 1
+              fifth: -1
+              third: 1
+            stiffness: 1/5
+          - length: # fifth plus major tone
+              octave: -1
+              fifth: 3
+            stiffness: 1/3
+        - !springs
+          - length: # minor seventh as two fourths
+              octave: 2
+              fifth: -2
+            stiffness: 1/3
+          - length: # fifth plus minor third
+              fifth: 2
+              third: -1
+            stiffness: 1/5
+        - !springs
+          - length: # fifth plus major third
+              fifth: 1
+              third: 1
+            stiffness: 1/5
+    melody: !neighbourhoods
+      fixed: true
+      group-ms: 100
+      neighbourhoods:
+      - name: pure
+        entries: !periodic-complete
+          0: {}
+          1:
+            octave: 1
+            fifth: -1
+            third: -1
+          2:
+            octave: -1
+            fifth: 2
+          3:
+            fifth: 1
+            third: -1
+          4:
+            third: 1
+          5:
+            octave: 1
+            fifth: -1
+          6:
+            octave: -1
+            fifth: 2
+            third: 1
+          7:
+            fifth: 1
+          8:
+            octave: 1
+            third: -1
+          9:
+            octave: 1
+            fifth: -1
+            third: 1
+          10:
+            octave: 2
+            fifth: -2
+          11:
+            fifth: 1
+            third: 1
+      - name: equal
+        entries: !periodic-complete
+          0: {}
+          1:
+            target:
+              octave: 1
+              fifth: -1
+              third: -1
+            actual:
+              octave: '1/12'
+          2:
+            target:
+              octave: -1
+              fifth: 2
+            actual:
+              octave: '1/6'
+          3:
+            target:
+              fifth: 1
+              third: -1
+            actual:
+              octave: '1/4'
+          4:
+            target:
+              third: 1
+            actual:
+              octave: '1/3'
+          5:
+            target:
+              octave: 1
+              fifth: -1
+            actual:
+              octave: '5/12'
+          6:
+            target:
+              octave: -1
+              fifth: 2
+              third: 1
+            actual:
+              octave: '1/2'
+          7:
+            target:
+              fifth: 1
+            actual:
+              octave: '7/12'
+          8:
+            target:
+              octave: 1
+              third: -1
+            actual:
+              octave: '2/3'
+          9:
+            target:
+              octave: 1
+              fifth: -1
+              third: 1
+            actual:
+              octave: '3/4'
+          10:
+            target:
+              octave: 2
+              fifth: -2
+            actual:
+              octave: '5/6'
+          11:
+            target:
+              fifth: 1
+              third: 1
+            actual:
+              octave: '11/12'
+      tuning-reference:
+        stack:
+          octave: 1
+          fifth: -1
+          third: 1
+        semitones: 69.0
+      reference: {}
+    bindings:
+      sostenuto-pedal-down: !increment-neighbourhood-index 1
+      soft-pedal-down: set-reference-to-current
+      Escape: reset
+      Tab: toggle-reanchor
+      Backspace: toggle-chord-matching
+      Enter: !increment-neighbourhood-index 1
+      Space: set-reference-to-current
+backend: !pitchbend12
+  bend-range: 2.0
+  channels:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 11
+  - 12
+  - 13
+gui:
+  lattice-window:
+    zoom: 10.909091
+    interval-heights:
+    - 0.0
+    - 3.8631372
+    - -7.01955
+    background-around-reference: false
+    background-low:
+    - 0
+    - -4
+    - -3
+    background-high:
+    - 0
+    - 4
+    - 3
+    project-dimension: 0
+    screen-keyboard-channel: 1
+    screen-keyboard-velocity: 64
+    notenamestyle: class
+    highlight-playable-keys: true
+    color-period-ct: 21.506289596715078
+  tuning-editor:
+    notenamestyle: full
+  reference-editor:
+    notenamestyle: full
+  latency-mean-over: 20
+  use-cent-values: true

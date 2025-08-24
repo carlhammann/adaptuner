@@ -82,6 +82,11 @@ impl Solver {
         self.l.row_mut(i).assign(&coefficients);
     }
 
+    /// Like [Self::define_length], but defining a zero length.
+    pub fn define_zero_length(&mut self, i:usize) {
+        self.l.row_mut(i).fill(0.into());
+    }
+
     /// Expected invariants:
     /// - `0 <= start < end < n_nodes`
     /// - `0 <= length < n_lengths`
