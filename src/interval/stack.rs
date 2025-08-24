@@ -96,6 +96,11 @@ impl<T: IntervalBasis> Stack<T> {
         }
     }
 
+    pub fn scale(&mut self, scalar: StackCoeff) {
+        self.target.iter_mut().for_each(|c| *c *= scalar);
+        self.actual.iter_mut().for_each(|c| *c *= scalar);
+    }
+
     pub fn from_pure_interval(interval_index: usize, multiplier: StackCoeff) -> Self {
         let mut target = Array1::zeros(T::num_intervals());
         target[interval_index] = multiplier;

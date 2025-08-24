@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, rc::Rc};
+use std::{collections::VecDeque, cell::RefCell, rc::Rc};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -23,7 +23,7 @@ use keyshape::{first_complete_fit_or_best, HasActivationStatus, KeyShape};
 #[derive(Debug, Clone, PartialEq)]
 struct Pattern<T: StackType> {
     key_shape: KeyShape,
-    neighbourhood: Rc<SomeNeighbourhood<T>>,
+    neighbourhood: Rc<RefCell<SomeNeighbourhood<T>>>,
     allow_extra_high_notes: bool,
 }
 
@@ -31,7 +31,7 @@ impl<T: StackType> Pattern<T> {
     fn new(conf: PatternConfig<T>) -> Self {
         Self {
             key_shape: conf.key_shape,
-            neighbourhood: Rc::new(conf.neighbourhood),
+            neighbourhood: Rc::new(RefCell::new(conf.neighbourhood)),
             allow_extra_high_notes: conf.allow_extra_high_notes,
         }
     }
@@ -253,7 +253,7 @@ impl<T: StackType> ExtractConfig<PatternConfig<T>> for Pattern<T> {
         } = self;
         PatternConfig {
             key_shape: key_shape.clone(),
-            neighbourhood: (**neighbourhood).clone(),
+            neighbourhood: neighbourhood.borrow().clone(),
             allow_extra_high_notes: *allow_extra_high_notes,
         }
     }

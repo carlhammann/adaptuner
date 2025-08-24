@@ -3,6 +3,7 @@ use std::{fmt, marker::PhantomData};
 use eframe::{egui, Result};
 use midi_msg::Channel;
 use ndarray::{Array1, ArrayView1};
+use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::Zero;
 use serde::{de::Visitor, ser::SerializeMap, Serializer};
@@ -49,6 +50,29 @@ impl DeSerNumber for Ratio<StackCoeff> {
             Ok(x) => Some(x),
             Err(_) => None {},
         }
+    }
+}
+
+pub fn serialize_ratio<S: serde::Serializer, X: std::fmt::Display + Clone + Integer>(
+    x: &Ratio<X>,
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    ser.serialize_str(&format!("{}", x))
+}
+
+pub fn deserialize_ratio<
+    'de,
+    D: serde::Deserializer<'de>,
+    X: std::str::FromStr + Clone + Integer,
+>(
+    deserializer: D,
+) -> Result<Ratio<X>, D::Error> {
+    let str = <&'de str as serde::Deserialize<'de>>::deserialize(deserializer)?;
+    match str.parse() {
+        Ok(x) => Ok(x),
+        Err(_) => Err(serde::de::Error::custom(format!(
+            "{str} is not a rational number"
+        ))),
     }
 }
 

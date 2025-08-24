@@ -3,10 +3,12 @@
 
 use std::collections::BTreeMap;
 
+use ndarray::ArrayView1;
+use num_rational::Ratio;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
-    stack::{ScaledAdd, Stack},
+    stack::{key_distance_from_coefficients, ScaledAdd, Stack},
     stacktype::r#trait::{IntervalBasis, PeriodicIntervalBasis, StackCoeff},
 };
 
@@ -17,6 +19,18 @@ pub enum SomeNeighbourhood<T: IntervalBasis> {
     PeriodicComplete(PeriodicComplete<T>),
     PeriodicPartial(PeriodicPartial<T>),
     Partial(Partial<T>),
+}
+
+impl<T: IntervalBasis> SomeNeighbourhood<T> {
+    /// returns true iff all entries were cleared. This can only happen for partial neighbourhoods
+    pub fn clear(&mut self) -> bool {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(_) => return false,
+            SomeNeighbourhood::PeriodicPartial(n) => n.clear(),
+            SomeNeighbourhood::Partial(n) => n.clear(),
+        }
+        true
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
@@ -75,19 +89,34 @@ impl<T: IntervalBasis> PeriodicPartial<T> {
             period_index: Some(period_index),
         }
     }
+
+    pub fn clear(&mut self) {
+        self.stacks.iter_mut().for_each(|(_, b)| *b = false);
+    }
 }
 
 impl<T: IntervalBasis> PeriodicNeighbourhood<T> for PeriodicPartial<T> {}
 
 impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
-        let n = self.period_keys(); 
-        let quot = stack.key_distance().div_euclid(n);
-        let rem = stack.key_distance().rem_euclid(n) as usize;
-        self.stacks[rem].0.clone_from(stack);
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T> {
+        let n = self.period_keys();
+        let d = key_distance_from_coefficients::<T>(target);
+        let quot = d.div_euclid(n);
+        let rem = d.rem_euclid(n) as usize;
+        self.stacks[rem].0.target.assign(&target);
+        self.stacks[rem].0.actual.assign(&actual);
         self.stacks[rem].0.scaled_add(-quot, &self.period);
         self.stacks[rem].1 = true;
         &self.stacks[rem].0
+    }
+
+    fn insert_zero(&mut self) {
+        self.stacks[0].0.target.fill(0);
+        self.stacks[0].0.actual.fill(0.into());
     }
 
     fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, mut f: F) {
@@ -161,6 +190,10 @@ impl<T: IntervalBasis> Partial<T> {
     pub fn iter(&self) -> std::collections::btree_map::Iter<'_, StackCoeff, Stack<T>> {
         self.stacks.iter()
     }
+
+    pub fn clear(&mut self) {
+        self.stacks.clear()
+    }
 }
 
 pub trait Neighbourhood<T: IntervalBasis> {
@@ -168,7 +201,20 @@ pub trait Neighbourhood<T: IntervalBasis> {
     /// update. Returns a reference to the actually inserted Stack (which may be different in the
     /// case of [PeriodicNeighbourhood]s, where we store the representative in the "octave" above
     /// the reference)
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T>;
+    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+        self.insert_target_actual(stack.target.view(), stack.actual.view())
+    }
+
+    /// Inserts the zero stack for offset zero
+    fn insert_zero(&mut self);
+
+    /// Like [Self::insert], but with the [Stack::target] and [Stack::actual] as separate
+    /// arguments.
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T>;
 
     /// Go through all stacks _that are actually stored_ (for example, in a
     /// [PeriodicNeighbourhood], only at most the entries for one period are stored) in the
@@ -230,11 +276,23 @@ pub trait Neighbourhood<T: IntervalBasis> {
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T> {
         match self {
-            SomeNeighbourhood::PeriodicComplete(x) => x.insert(stack),
-            SomeNeighbourhood::PeriodicPartial(x) => x.insert(stack),
-            SomeNeighbourhood::Partial(x) => x.insert(stack),
+            SomeNeighbourhood::PeriodicComplete(x) => x.insert_target_actual(target, actual),
+            SomeNeighbourhood::PeriodicPartial(x) => x.insert_target_actual(target, actual),
+            SomeNeighbourhood::Partial(x) => x.insert_target_actual(target, actual),
+        }
+    }
+
+    fn insert_zero(&mut self) {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.insert_zero(),
+            SomeNeighbourhood::PeriodicPartial(x) => x.insert_zero(),
+            SomeNeighbourhood::Partial(x) => x.insert_zero(),
         }
     }
 
@@ -299,9 +357,21 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T> {
         match self {
-            SomeCompleteNeighbourhood::PeriodicComplete(n) => n.insert(stack),
+            SomeCompleteNeighbourhood::PeriodicComplete(n) => {
+                n.insert_target_actual(target, actual)
+            }
+        }
+    }
+
+    fn insert_zero(&mut self) {
+        match self {
+            SomeCompleteNeighbourhood::PeriodicComplete(x) => x.insert_zero(),
         }
     }
 
@@ -356,14 +426,31 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
 impl<T: IntervalBasis> CompleteNeigbourhood<T> for SomeCompleteNeighbourhood<T> {}
 
 impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
-        let offset = stack.key_distance();
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T> {
+        let offset = key_distance_from_coefficients::<T>(target);
         if let Some(old_entry) = self.stacks.get_mut(&offset) {
-            old_entry.clone_from(stack);
+            old_entry.target.assign(&target);
+            old_entry.actual.assign(&actual);
         } else {
-            self.stacks.insert(offset, stack.clone());
+            self.stacks.insert(
+                offset,
+                Stack::from_target_and_actual(target.to_owned(), actual.to_owned()),
+            );
         }
         self.stacks.get(&offset).unwrap()
+    }
+
+    fn insert_zero(&mut self) {
+        if let Some(old_entry) = self.stacks.get_mut(&0) {
+            old_entry.target.fill(0);
+            old_entry.actual.fill(0.into());
+        } else {
+            self.stacks.insert(0, Stack::new_zero());
+        }
     }
 
     fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, mut f: F) {
@@ -411,13 +498,24 @@ impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T> {
         let n = self.period_keys();
-        let quot = stack.key_distance().div_euclid(n);
-        let rem = stack.key_distance().rem_euclid(n) as usize;
-        self.stacks[rem].clone_from(stack);
+        let d = key_distance_from_coefficients::<T>(target);
+        let quot = d.div_euclid(n);
+        let rem = d.rem_euclid(n) as usize;
+        self.stacks[rem].target.assign(&target);
+        self.stacks[rem].actual.assign(&actual);
         self.stacks[rem].scaled_add(-quot, &self.period);
         &self.stacks[rem]
+    }
+
+    fn insert_zero(&mut self) {
+        self.stacks[0].target.fill(0);
+        self.stacks[0].actual.fill(0.into());
     }
 
     fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, mut f: F) {

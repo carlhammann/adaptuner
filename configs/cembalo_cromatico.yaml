@@ -1,4 +1,4 @@
-version: '0.2.1'
+version: '0.3.0'
 temperaments:
 - name: '1/4-comma meantone'
   equations:

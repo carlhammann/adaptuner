@@ -20,7 +20,10 @@ use crate::{
         r#static::{StaticTuning, StaticTuningConfig},
         r#trait::{Strategy, StrategyAction},
         twostep::{
-            harmony::chordlist::{keyshape::KeyShape, ChordListConfig, PatternConfig},
+            harmony::{
+                chordlist::{keyshape::KeyShape, ChordListConfig, PatternConfig},
+                springs::{HarmonySpringsConfig, HarmonySpringsProvider},
+            },
             melody::neighbourhoods::NeighbourhoodsConfig,
             TwoStep,
         },
@@ -38,6 +41,7 @@ pub trait ExtractConfig<C> {
 #[derive(Clone)]
 pub enum HarmonyStrategyConfig<T: IntervalBasis> {
     ChordList(ChordListConfig<T>),
+    Springs(HarmonySpringsConfig<T>),
 }
 
 #[derive(Clone)]
@@ -204,6 +208,7 @@ impl<T: IntervalBasis> Config<T> {
 #[derive(Clone, Copy)]
 pub enum HarmonyStrategyKind {
     ChordList,
+    Springs,
 }
 
 #[derive(Clone, Copy)]
@@ -253,6 +258,10 @@ impl StrategyKind {
                 StrategyKind::TwoStep(HarmonyStrategyKind::ChordList, _),
                 StrategyAction::ToggleChordMatching,
             ) => true,
+            (
+                StrategyKind::TwoStep(HarmonyStrategyKind::Springs, _),
+                StrategyAction::ToggleChordMatching,
+            ) => todo!(),
         }
     }
 }
@@ -307,9 +316,18 @@ fn deserialize_nonempty_neighbourhoods<
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum ExtendedHarmonyStrategyConfig<T: IntervalBasis> {
+    #[serde(rename_all = "kebab-case")]
     ChordList {
         enable: bool,
         patterns: Vec<NamedPatternConfig<T>>,
+    },
+    #[serde(rename_all = "kebab-case")]
+    Springs {
+        memo_springs: bool,
+        minimum_number_of_sounding_keys: usize,
+        lower_notes_are_more_stable: bool,
+        provider: HarmonySpringsProvider<T>,
+        timeout_ms: u64,
     },
 }
 
@@ -360,6 +378,7 @@ pub enum HarmonyStrategyNames<T: IntervalBasis> {
     ChordList {
         patterns: Vec<NamedPatternConfig<T>>,
     },
+    Springs {},
 }
 
 #[derive(Clone)]
@@ -396,6 +415,14 @@ impl<T: IntervalBasis> StrategyNames<T> {
                 ..
             } => StrategyKind::TwoStep(
                 HarmonyStrategyKind::ChordList,
+                MelodyStrategyKind::Neighbourhoods,
+            ),
+            StrategyNames::TwoStep {
+                harmony: HarmonyStrategyNames::Springs { .. },
+                melody: MelodyStrategyNames::Neighbourhoods { .. },
+                ..
+            } => StrategyKind::TwoStep(
+                HarmonyStrategyKind::Springs,
                 MelodyStrategyKind::Neighbourhoods,
             ),
         }
@@ -525,6 +552,22 @@ impl<T: IntervalBasis> ExtendedHarmonyStrategyConfig<T> {
                     patterns: patterns.clone(),
                 },
             ),
+            ExtendedHarmonyStrategyConfig::Springs {
+                memo_springs,
+                minimum_number_of_sounding_keys,
+                lower_notes_are_more_stable,
+                timeout_ms,
+                provider,
+            } => (
+                HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
+                    memo_springs: *memo_springs,
+                    minimum_number_of_sounding_keys: *minimum_number_of_sounding_keys,
+                    lower_notes_are_more_stable: *lower_notes_are_more_stable,
+                    timeout_ms: *timeout_ms,
+                    provider: provider.clone(),
+                }),
+                HarmonyStrategyNames::Springs {},
+            ),
         }
     }
 
@@ -543,6 +586,26 @@ impl<T: IntervalBasis> ExtendedHarmonyStrategyConfig<T> {
                     enable,
                     patterns: named_patterns,
                 }
+            }
+            (
+                HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
+                    memo_springs,
+                    minimum_number_of_sounding_keys,
+                    lower_notes_are_more_stable,
+                    provider,
+                    timeout_ms,
+                }),
+                HarmonyStrategyNames::Springs {},
+            ) => ExtendedHarmonyStrategyConfig::Springs {
+                memo_springs,
+                minimum_number_of_sounding_keys,
+                lower_notes_are_more_stable,
+                provider,
+                timeout_ms,
+            },
+            (HarmonyStrategyConfig::ChordList(_), HarmonyStrategyNames::Springs {})
+            | (HarmonyStrategyConfig::Springs(_), HarmonyStrategyNames::ChordList { .. }) => {
+                panic!("incompatible HarmonyStrategyConfig and HarmonyStrategyNames")
             }
         }
     }

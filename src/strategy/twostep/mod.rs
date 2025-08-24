@@ -1,6 +1,6 @@
-use std::{collections::VecDeque, rc::Rc, time::Instant};
+use std::{cell::RefCell, collections::VecDeque, rc::Rc, time::Instant};
 
-use harmony::chordlist::ChordList;
+use harmony::{chordlist::ChordList, springs::HarmonySprings};
 use melody::neighbourhoods::Neighbourhoods;
 
 use crate::{
@@ -22,7 +22,7 @@ pub mod melody;
 
 #[derive(Clone)]
 pub struct Harmony<T: IntervalBasis> {
-    pub neighbourhood: Rc<SomeNeighbourhood<T>>,
+    pub neighbourhood: Rc<RefCell<SomeNeighbourhood<T>>>,
     /// MIDI key number of the reference note, but may be outside the MIDI range
     pub reference: StackCoeff,
 }
@@ -89,6 +89,7 @@ impl<T: StackType> TwoStep<T> {
         Self {
             harmony: match harmony_config {
                 HarmonyStrategyConfig::ChordList(c) => Box::new(ChordList::new(c)),
+                HarmonyStrategyConfig::Springs(c) => Box::new(HarmonySprings::new(c)),
             },
             melody: match melody_config {
                 MelodyStrategyConfig::Neighbourhoods(c) => Box::new(Neighbourhoods::new(c)),

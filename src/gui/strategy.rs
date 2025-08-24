@@ -195,6 +195,7 @@ impl<'a, T: OctavePeriodicStackType + HasNoteNames> AsStrategyPicker<'a, T> {
                                 x.chord_list_editor.show(ui, state, patterns, forward);
                             });
                         }
+                        HarmonyStrategyNames::Springs {} => {}
                     }
                     ui.collapsing("melody/harmony", |ui| {
                         x.twostep_editor.show(ui, harmony, melody, forward)

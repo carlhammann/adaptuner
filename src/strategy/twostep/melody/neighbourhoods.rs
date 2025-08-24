@@ -69,6 +69,7 @@ impl<T: StackType> StaticTuning<T> {
                 if keys[i].is_sounding() {
                     let send_retune: bool;
                     if neighbourhood
+                        .borrow()
                         .try_write_relative_stack(&mut tunings[i], i as StackCoeff - reference)
                     {
                         tunings[i].scaled_add(1, &reference_tuning);

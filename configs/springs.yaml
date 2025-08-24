@@ -107,227 +107,100 @@ named-intervals:
     fifth: '-5'
     third: '6'
 strategies:
-- name: static
-  description: |-
-    This strategy allows you to
-    • define the (static) tuning of all 12 notes as a "neighbourhood" of the reference note,
-    • switch between different neighbourhoods on the fly, and
-    • reset the reference note on the fly.
-  config: !static-tuning
-    neighbourhoods:
-    - name: flats
-      entries: !periodic-complete
-        0: {}
-        1:
-          octave: 1
-          fifth: -1
-          third: -1
-        2:
-          octave: -1
-          fifth: 2
-        3:
-          fifth: 1
-          third: -1
-        4:
-          third: 1
-        5:
-          octave: 1
-          fifth: -1
-        6:
-          octave: 2
-          fifth: -2
-          third: -1
-        7:
-          fifth: 1
-        8:
-          octave: 1
-          third: -1
-        9:
-          octave: 1
-          fifth: -1
-          third: 1
-        10:
-          octave: 2
-          fifth: -2
-        11:
-          fifth: 1
-          third: 1
-    - name: sharps
-      entries: !periodic-complete
-        0: {}
-        1:
-          fifth: -1
-          third: 2
-        2:
-          octave: -1
-          fifth: 2
-        3:
-          octave: -1
-          fifth: 1
-          third: 2
-        4:
-          third: 1
-        5:
-          octave: 1
-          fifth: -1
-        6:
-          octave: -1
-          fifth: 2
-          third: 1
-        7:
-          fifth: 1
-        8:
-          third: 2
-        9:
-          octave: 1
-          fifth: -1
-          third: 1
-        10:
-          octave: -1
-          fifth: 2
-          third: 2
-        11:
-          fifth: 1
-          third: 1
-    tuning-reference:
-      stack:
-        octave: 1
-        fifth: -1
-        third: 1
-      semitones: 69.0
-    reference: {}
-    bindings:
-      sostenuto-pedal-down: !increment-neighbourhood-index 1
-      sostenuto-pedal-up: !increment-neighbourhood-index -1
-      soft-pedal-down: set-reference-to-lowest
-      Escape: reset
-      Enter: !increment-neighbourhood-index 1
-      Space: set-reference-to-lowest
-- name: static + list of chords
+- name: static + springs
   description: |-
     This strategy allows you to
     • define and switch between neighbourhoods like the "static" strategy,
     • define a list of chords and voicings that have a known tuning, and
     • reset the reference note on the fly, either manually or automatically to the reference note of the currently sounding chord.
   config: !two-step
-    harmony: !chord-list
-      enable: true
-      patterns:
-      - name: major
-        key-shape: !classes-relative
-          classes:
-          - 0
-          - 4
-          - 7
-        neighbourhood: !periodic-partial
-          0: {}
-          4:
-            third: 1
-          7:
-            fifth: 1
-        allow-extra-high-notes: true
-        original-reference: {}
-      - name: minor
-        key-shape: !classes-relative
-          classes:
-          - 0
-          - 3
-          - 7
-        neighbourhood: !periodic-partial
-          0: {}
-          3:
-            fifth: 1
-            third: -1
-          7:
-            fifth: 1
-        allow-extra-high-notes: true
-        original-reference: {}
-      - name: dominant seventh
-        key-shape: !classes-relative
-          classes:
-          - 0
-          - 4
-          - 7
-          - 10
-        neighbourhood: !periodic-partial
-          0: {}
-          4:
-            third: 1
-          7:
-            fifth: 1
-          10:
-            octave: 2
-            fifth: -2
-        allow-extra-high-notes: true
-        original-reference: {}
-      - name: major add6
-        key-shape: !block-voicing-relative
-          blocks:
-          - - 0
-          - - 4
-            - 7
-            - 9
-        neighbourhood: !periodic-partial
-          0: {}
-          4:
-            third: 1
-          7:
-            fifth: 1
-          9:
-            octave: 1
-            fifth: -1
-            third: 1
-        allow-extra-high-notes: true
-        original-reference: {}
-      - name: minor seventh
-        key-shape: !block-voicing-relative
-          blocks:
-          - - 0
-          - - 3
-            - 7
-            - 10
-        neighbourhood: !periodic-partial
-          0: {}
-          3:
-            fifth: 1
-            third: -1
-          7:
-            fifth: 1
-          10:
-            fifth: 2
-            third: -1
-        allow-extra-high-notes: true
-        original-reference: {}
-      - name: 'sus4 '
-        key-shape: !block-voicing-relative
-          blocks:
-          - - 0
-            - 7
-          - - 5
-        neighbourhood: !periodic-partial
-          0: {}
-          5:
-            octave: 1
-            fifth: -1
-          7:
-            fifth: 1
-        allow-extra-high-notes: true
-        original-reference: {}
-      - name: sus2
-        key-shape: !block-voicing-relative
-          blocks:
-          - - 0
-            - 7
-          - - 2
-        neighbourhood: !periodic-partial
-          0: {}
-          2:
-            octave: -1
-            fifth: 2
-          7:
-            fifth: 1
-        allow-extra-high-notes: true
-        original-reference: {}
+    harmony: !springs
+      memo-springs: true
+      minimum-number-of-sounding-keys: 2 # must be at least 1
+      lower-notes-are-more-stable: true
+      timeout-ms: 20
+      provider: !mod12 
+        octave:
+          octave: 1
+        by-class: 
+        - !rod {}
+        - !springs
+          - length: # diatonic semitone
+              octave: 1 
+              fifth: -1 
+              third: -1 
+            stiffness: 1/5
+          - length: # chromatic semitone
+              fifth: -1 
+              third: 2 
+            stiffness: 1/5
+        - !springs
+          - length: # major tone, 9/8 
+              octave: -1
+              fifth: 2
+            stiffness: 1/3
+          - length: # minor tone, 10/9
+              octave: 1
+              fifth: -2
+              third: 1
+            stiffness: 1/5
+        - !springs
+          - length: # pure minor third
+              fifth: 1
+              third: -1
+            stiffness: 1/5
+        - !springs
+          - length: # pure major third
+              third: 1
+            stiffness: 1/5
+        - !springs
+          - length: # pure fourth
+              octave: 1
+              fifth: -1
+            stiffness: 1/3
+        - !springs
+          - length: # tritone as major tone plus major third
+              octave: -1
+              fifth: 2
+              third: 1
+            stiffness: 1/5
+          - length: # tritone as chromatic semitone below fifth
+              fifth: 2
+              third: -2
+            stiffness: 1/5
+        - !springs
+          - length: # pure fifth
+              fifth: 1
+            stiffness: 1/3
+        - !springs
+          - length: # minor sixth
+              octave: 1
+              third: -1
+            stiffness: 1/5
+        - !springs
+          - length: # major sixth
+              octave: 1
+              fifth: -1
+              third: 1
+            stiffness: 1/5
+          - length: # fifth plus major tone
+              octave: -1
+              fifth: 3
+            stiffness: 1/3
+        - !springs
+          - length: # minor seventh as two fourths
+              octave: 2
+              fifth: -2
+            stiffness: 1/3
+          - length: # fifth plus minor third
+              fifth: 2
+              third: -1
+            stiffness: 1/5
+        - !springs
+          - length: # fifth plus major third
+              fifth: 1
+              third: 1
+            stiffness: 1/5
     melody: !neighbourhoods
       fixed: true
       group-ms: 100

@@ -24,7 +24,7 @@ impl TwoStepEditor {
     ) {
         match (harmony, melody) {
             (
-                HarmonyStrategyNames::ChordList { .. },
+                _,
                 MelodyStrategyNames::Neighbourhoods {
                     group_ms, fixed, ..
                 },
