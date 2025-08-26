@@ -52,18 +52,11 @@
             website = with pkgs;
               stdenv.mkDerivation {
                 name = "adaptuner website";
+                phases = ["unpackPhase" "buildPhase" "installPhase"];
+                src = ./website;
                 nativeBuildInputs = [pandoc];
-                phases = ["installPhase"];
-                installPhase = ''
-                  mkdir $out
-                  pandoc \
-                    --standalone \
-                    --template ${./doc/website/template.html} \
-                    --output $out/index.html \
-                    ${./doc/website/index.md}
-                  cp ${./doc/website/favicon.png} $out/favicon.png
-                  cp ${./doc/website/teaser-video.mp4} $out/teaser-video.mp4
-                '';
+                buildPhase = "bash build.sh";
+                installPhase = "mv build $out";
               };
           }
           // (with pkgs;

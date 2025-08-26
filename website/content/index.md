@@ -1,8 +1,6 @@
 ---
-title: Adaptuner
+title: Adaptuner -- adaptive MIDI tuning
 ---
-
-# Adaptuner -- adaptive MIDI tuning
 
 This is the *adaptuner*: It *tunes* MIDI instruments on the fly, *adapt*ing to
 what you're playing right now. It gives anyone with an e-piano that has MIDI
@@ -16,12 +14,13 @@ it's ultimately a question of taste -- I want to make intonation intuitively
 malleable, so that it becomes easy to try different approaches to tuning the
 same piece of music.
 
-The adaptuner is currently under heavy development. Therefore, documentation is
-(for now) scarce. Have a look at this video to get a feel for where we're going:
+The adaptuner is currently under heavy development. Therefore,
+[documentation](./documentation.md) is (for now) scarce. Have a look at this
+video to get a feel for where we're going:
 
-![adaptuner teaser video](./teaser-video.mp4) \
+![adaptuner teaser video](./assets/teaser-video.mp4) \
 
-## Obtaining the program
+# Obtaining the program
 
 There are instructions at the [GitHub
 Repository](https://github.com/carlhammann/adaptuner). Currently, pre-compiled
@@ -32,7 +31,7 @@ binaries exist for
 - Apple Silicon Macs, and
 - Microsoft Windows.
 
-## Contacting me
+# Contacting me
 
 Use the address "adaptuner AT carlhammann DOT com".
 
