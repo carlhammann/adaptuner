@@ -22,9 +22,8 @@ video to get a feel for where we're going:
 
 # Obtaining the program
 
-There are instructions at the [GitHub
-Repository](https://github.com/carlhammann/adaptuner). Currently, pre-compiled
-binaries exist for
+Have a look at the [getting started guide](./documentation/getting-started.md).
+Compiled programs are currently available for
 
 - x86_64 Linux (both as a raw binary that should run on many distributions, and
   as a `.deb` package),

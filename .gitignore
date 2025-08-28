@@ -5,3 +5,4 @@ result*
 *.deb
 latex.out
 *.pdf
+build/
