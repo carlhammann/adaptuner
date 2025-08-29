@@ -10,7 +10,7 @@ use std::{
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2, ArrayViewMut1};
 use num_integer::Integer;
 use num_rational::Ratio;
-use num_traits::{One, Signed};
+use num_traits::{CheckedDiv, CheckedMul, CheckedSub, One, Signed};
 
 use crate::util::lu::{lu_rational, LUErr};
 
@@ -41,6 +41,9 @@ where
         + MulAssign
         + SubAssign
         + AddAssign
+        + CheckedSub
+        + CheckedMul
+        + CheckedDiv
         + Copy
         + One
         + 'static,
