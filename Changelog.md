@@ -1,5 +1,11 @@
 # Changelog
 
+## [unreleased]
+
+### Fixed
+
+- No more crashes on startup on MacOS because of the icon file
+
 ## [0.2.0] - 2025-08-22
 
 - Removed the terminal user interface, added a graphical user interface.
