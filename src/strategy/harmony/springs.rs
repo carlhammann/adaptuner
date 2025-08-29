@@ -834,11 +834,11 @@ mod test {
                 ]),
                 RodOrSprings::Springs(vec![
                     Spring {
-                        length: Stack::from_target(vec![1, 2, 0]), // major whole tone 9/8
+                        length: Stack::from_target(vec![-1, 2, 0]), // major tone 9/8
                         stiffness: Ratio::new(1, 3),
                     },
                     Spring {
-                        length: Stack::from_target(vec![1, -2, 1]), // minor whole tone 10/9
+                        length: Stack::from_target(vec![1, -2, 1]), // minor tone 10/9
                         stiffness: Ratio::new(1, 5),
                     },
                 ]),
@@ -903,6 +903,7 @@ mod test {
 
     fn mock_harmony_springs() -> HarmonySprings<MockFiveLimitStackType> {
         HarmonySprings::new(HarmonySpringsConfig {
+            minimum_number_of_sounding_keys: 1,
             memo_springs: true,
             lower_notes_are_more_stable: true,
             provider: mock_provider(),

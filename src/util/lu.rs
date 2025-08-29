@@ -1,17 +1,23 @@
 //! LU decomposition with minimal trait bounds
 
-use std::ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign};
-
 use ndarray::{s, Array2, ArrayViewMut1, ArrayViewMut2, Zip};
 use num_integer::Integer;
 use num_rational::Ratio;
-use num_traits::{One, Signed, Zero};
+use num_traits::{CheckedDiv, CheckedMul, CheckedSub, One, Signed, Zero};
 
 #[derive(Debug, Clone)]
 pub enum LUErr {
-    MatrixNotSquare { nrows: usize, ncols: usize },
-    WrongPermLenght { nrows: usize, perm_length: usize },
+    MatrixNotSquare {
+        nrows: usize,
+        ncols: usize,
+    },
+    WrongPermLength {
+        nrows: usize,
+        perm_length: usize,
+    },
     MatrixDegenerate,
+    /// this can signal an over- or underflow, or a division by zero
+    ArithmeticError,
 }
 
 pub struct LU<'a, T> {
@@ -26,7 +32,7 @@ pub fn lu_rational<'a, T>(
     perm: ArrayViewMut1<'a, usize>,
 ) -> Result<LU<'a, Ratio<T>>, LUErr>
 where
-    T: Signed + Integer + RemAssign + DivAssign + MulAssign + SubAssign + AddAssign + Clone,
+    T: Integer + Signed + CheckedSub + CheckedMul + CheckedDiv + Clone,
 {
     let better_pivot = |a: &Ratio<T>, b: &Ratio<T>| {
         if a.is_zero() {
@@ -69,11 +75,7 @@ pub fn lu<'a, T, P>(
     better_pivot: P,
 ) -> Result<LU<'a, T>, LUErr>
 where
-    T: Zero
-        + for<'x> SubAssign<&'x T>
-        + for<'x> MulAssign<&'x T>
-        + for<'x> DivAssign<&'x T>
-        + Clone,
+    T: Zero + CheckedDiv + CheckedMul + CheckedSub + Clone,
     P: Fn(&T, &T) -> bool,
 {
     let n = a.shape()[0];
@@ -84,7 +86,7 @@ where
     }
 
     if n != perm.shape()[0] {
-        return Err(LUErr::WrongPermLenght {
+        return Err(LUErr::WrongPermLength {
             nrows: n,
             perm_length: perm.shape()[0],
         });
@@ -100,7 +102,7 @@ where
     let mut i_pivot;
 
     for i in 0..(n - 1) {
-        // find the element on or below the diagonal with the biggest absolute value
+        // find the best pivot on or below the diagonal
         pivot = T::zero();
         i_pivot = i;
         for k in i..n {
@@ -128,13 +130,17 @@ where
             Zip::from(&mut v).and(&mut w).for_each(std::mem::swap);
         }
 
+        let lift_arith = |x: Option<T>| match x {
+            Some(x) => Ok(x),
+            None {} => Err(LUErr::ArithmeticError),
+        };
+
         pivot.clone_from(&a[[i, i]]);
         for j in (i + 1)..n {
-            a[[j, i]] /= &pivot;
+            a[[j, i]] = lift_arith(a[[j, i]].checked_div(&pivot))?;
             for k in (i + 1)..n {
-                let mut tmp = a[[j, i]].clone();
-                tmp *= &a[[i, k]];
-                a[[j, k]] -= &tmp;
+                let tmp = lift_arith(a[[j, i]].checked_mul(&a[[i, k]]))?;
+                a[[j, k]] = lift_arith(a[[j, k]].checked_sub(&tmp))?;
             }
         }
     }
@@ -149,12 +155,7 @@ where
 impl<'a, T> LU<'a, T> {
     pub fn inverse(&self) -> Result<Array2<T>, LUErr>
     where
-        T: Clone
-            + for<'x> SubAssign<&'x T>
-            + for<'x> MulAssign<&'x T>
-            + for<'x> DivAssign<&'x T>
-            + Zero
-            + One,
+        T: Clone + CheckedSub + CheckedMul + CheckedDiv + Zero + One,
     {
         let mut inv = Array2::zeros(self.a.raw_dim());
         self.inverse_inplace(&mut inv.view_mut())?;
@@ -165,12 +166,7 @@ impl<'a, T> LU<'a, T> {
     /// overwritten with the inverse if it is bigger.)
     pub fn inverse_inplace(&self, inv: &mut ArrayViewMut2<T>) -> Result<(), LUErr>
     where
-        T: Clone
-            + for<'x> SubAssign<&'x T>
-            + for<'x> MulAssign<&'x T>
-            + for<'x> DivAssign<&'x T>
-            + Zero
-            + One,
+        T: Clone + CheckedSub + CheckedMul + CheckedDiv + Zero + One,
     {
         let n = self.a.shape()[0];
         if self.a[[n - 1, n - 1]].is_zero() {
@@ -178,7 +174,12 @@ impl<'a, T> LU<'a, T> {
             // elements of self.a are non-zero because [lu] would have thrown an error otherwise.
             return Err(LUErr::MatrixDegenerate);
         }
-        let mut tmp = T::zero();
+
+        let lift_arith = |x: Option<T>| match x {
+            Some(x) => Ok(x),
+            None {} => Err(LUErr::ArithmeticError),
+        };
+
         for j in 0..n {
             for i in 0..n {
                 inv[[i, j]] = if self.perm[i] == j {
@@ -188,19 +189,17 @@ impl<'a, T> LU<'a, T> {
                 };
 
                 for k in 0..i {
-                    tmp.clone_from(&self.a[[i, k]]);
-                    tmp *= &inv[[k, j]];
-                    inv[[i, j]] -= &tmp;
+                    let tmp = lift_arith(self.a[[i, k]].checked_mul(&inv[[k, j]]))?;
+                    inv[[i, j]] = lift_arith(inv[[i, j]].checked_sub(&tmp))?;
                 }
             }
 
             for i in (0..n).rev() {
                 for k in (i + 1)..n {
-                    tmp.clone_from(&self.a[[i, k]]);
-                    tmp *= &inv[[k, j]];
-                    inv[[i, j]] -= &tmp;
+                    let tmp = lift_arith(self.a[[i, k]].checked_mul(&inv[[k, j]]))?;
+                    inv[[i, j]] = lift_arith(inv[[i, j]].checked_sub(&tmp))?;
                 }
-                inv[[i, j]] /= &self.a[[i, i]];
+                inv[[i, j]] = lift_arith(inv[[i, j]].checked_div(&self.a[[i, i]]))?;
             }
         }
 
