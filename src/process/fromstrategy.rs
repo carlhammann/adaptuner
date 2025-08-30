@@ -300,6 +300,26 @@ where
                 value,
                 time,
             });
+            if value > 0 {
+                self.pedal_hold[channel as usize] = true;
+            } else {
+                self.pedal_hold[channel as usize] = false;
+                let mut any_off = false;
+                for i in 0..128 {
+                    any_off |= self.key_states[i].pedal_off(channel, time);
+                }
+                if any_off {
+                    let _ = self.strategies[csi].0.note_off(
+                        &self.key_states,
+                        &mut self.tunings,
+                        time,
+                        &mut self.queue,
+                    );
+                    self.queue.drain(..).for_each(|msg| {
+                        let _ = forward.send(FromProcess::FromStrategy(msg));
+                    });
+                }
+            }
         }
     }
 
