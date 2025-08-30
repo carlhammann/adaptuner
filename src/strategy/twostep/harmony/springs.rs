@@ -73,19 +73,41 @@ pub enum HarmonySpringsProvider<T: IntervalBasis> {
 }
 
 impl<T: IntervalBasis> HarmonySpringsProvider<T> {
-    fn which_connector(&self, i: (usize, u8), j: (usize, u8)) -> Connector<T> {
+    fn collect_connectors(&self, keys: &[u8], output: &mut HashMap<(usize, usize), Connector<T>>) {
+        output.clear();
+        let mut is_free = vec![true; keys.len()];
         match self {
             HarmonySpringsProvider::Mod12 { by_class, octave } => {
-                let d = j.1 as i8 - i.1 as i8;
-                let rem = d.rem_euclid(12) as usize;
-                match &by_class[rem] {
-                    RodOrSprings::Rod(stack) => {
-                        let quot = d.div_euclid(12) as StackCoeff;
-                        let mut rod = stack.clone();
-                        rod.scaled_add(quot, octave);
-                        Connector::Rod(rod)
+                let n = keys.len();
+                for i in 0..n {
+                    for j in (i + 1)..n {
+                        let d = keys[j] as i8 - keys[i] as i8;
+                        let rem = d.rem_euclid(12) as usize;
+                        match &by_class[rem] {
+                            RodOrSprings::Rod(stack) => {
+                                let quot = d.div_euclid(12) as StackCoeff;
+                                let mut rod = stack.clone();
+                                rod.scaled_add(quot, octave);
+                                output.insert((i, j), Connector::Rod(rod));
+                                is_free[j] = false;
+                            }
+                            _ => {}
+                        }
                     }
-                    RodOrSprings::Springs(_) => Connector::Spring,
+                }
+                for i in 0..n {
+                    for j in (i + 1)..n {
+                        let d = keys[j] as i8 - keys[i] as i8;
+                        let rem = d.rem_euclid(12) as usize;
+                        match &by_class[rem] {
+                            RodOrSprings::Rod(_) => {}
+                            RodOrSprings::Springs(_) => {
+                                if is_free[i] && is_free[j] {
+                                    output.insert((i, j), Connector::Spring);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -118,10 +140,10 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
         }
     }
 }
-pub enum Connector<T: IntervalBasis> {
+
+enum Connector<T: IntervalBasis> {
     Spring,
     Rod(Stack<T>),
-    None,
 }
 
 #[derive(Debug)]
@@ -151,6 +173,7 @@ pub struct HarmonySprings<T: IntervalBasis> {
     minimum_number_of_sounding_keys: usize,
     lower_notes_are_more_stable: bool,
     provider: HarmonySpringsProvider<T>,
+    raw_connectors: HashMap<(usize, usize), Connector<T>>,
 
     timeout: Duration,
 
@@ -215,7 +238,7 @@ impl<T: IntervalBasis> SpringSetup<T> {
     fn collect_springs_and_rods(
         &mut self,
         keys: &[u8],
-        which_connector: impl Fn((usize, u8), (usize, u8)) -> Connector<T>,
+        raw_connectors: impl Iterator<Item = ((usize, usize), Connector<T>)>,
         candidate_springs: impl Fn(i8) -> Vec<(Stack<T>, Ratio<StackCoeff>)>,
         memo_springs: bool,
     ) {
@@ -230,28 +253,25 @@ impl<T: IntervalBasis> SpringSetup<T> {
 
         let mut spring_index = 0;
 
-        for i in 0..n {
-            for j in (i + 1)..n {
-                match which_connector((i, keys[i]), (j, keys[j])) {
-                    Connector::Spring => {
-                        let d = keys[j] as i8 - keys[i] as i8;
-                        if !self.memoed_springs.contains_key(&d) {
-                            self.memoed_springs.insert(d, candidate_springs(d));
-                        }
-                        self.current_springs.insert(
-                            (i, j),
-                            SpringInfo {
-                                current_candidate_index: 0,
-                                memo_key: d,
-                                solver_length_index: spring_index,
-                            },
-                        );
-                        spring_index += 1;
+        for ((i, j), connector) in raw_connectors {
+            match connector {
+                Connector::Spring => {
+                    let d = keys[j] as i8 - keys[i] as i8;
+                    if !self.memoed_springs.contains_key(&d) {
+                        self.memoed_springs.insert(d, candidate_springs(d));
                     }
-                    Connector::Rod(stack) => {
-                        self.current_rods.insert((i, j), stack);
-                    }
-                    Connector::None => {}
+                    self.current_springs.insert(
+                        (i, j),
+                        SpringInfo {
+                            current_candidate_index: 0,
+                            memo_key: d,
+                            solver_length_index: spring_index,
+                        },
+                    );
+                    spring_index += 1;
+                }
+                Connector::Rod(stack) => {
+                    self.current_rods.insert((i, j), stack);
                 }
             }
         }
@@ -413,6 +433,7 @@ impl<T: IntervalBasis> HarmonySprings<T> {
             solution_neighbourhood: Rc::new(RefCell::new(SomeNeighbourhood::Partial(
                 Partial::new(),
             ))),
+            raw_connectors: HashMap::new(),
         }
     }
 
@@ -424,9 +445,12 @@ impl<T: IntervalBasis> HarmonySprings<T> {
             }
         });
 
+        self.provider
+            .collect_connectors(&self.keys, &mut self.raw_connectors);
+
         self.spring_setup.collect_springs_and_rods(
             &self.keys,
-            |i, j| self.provider.which_connector(i, j),
+            self.raw_connectors.drain(),
             |d| self.provider.candidate_springs(d),
             self.memo_springs,
         );
@@ -622,7 +646,7 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
         self.initialise(keys);
 
         if self.keys.len() < self.minimum_number_of_sounding_keys {
-            return (None {}, None {})
+            return (None {}, None {});
         }
 
         let mut computed_at_least_one_solution = self.compute_solution_actuals();
@@ -718,12 +742,15 @@ mod test {
 
         ws.collect_springs_and_rods(
             &[0, 1, 2, 3],
-            |(i, _), (j, _)| {
-                Connector::Rod(Stack::from_pure_interval(
-                    0,
-                    j as StackCoeff - i as StackCoeff,
-                ))
-            },
+            vec![
+                ((0, 1), Connector::Rod(Stack::from_pure_interval(0, 1))),
+                ((0, 2), Connector::Rod(Stack::from_pure_interval(0, 2))),
+                ((0, 3), Connector::Rod(Stack::from_pure_interval(0, 3))),
+                ((1, 2), Connector::Rod(Stack::from_pure_interval(0, 1))),
+                ((1, 3), Connector::Rod(Stack::from_pure_interval(0, 2))),
+                ((2, 3), Connector::Rod(Stack::from_pure_interval(0, 1))),
+            ]
+            .drain(..),
             |_| panic!("This will not be called, since there are no springs!"),
             false,
         );
@@ -738,16 +765,24 @@ mod test {
 
         ws.collect_springs_and_rods(
             &[0, 1, 2, 3, 4, 5],
-            |(i, _), (j, _)| {
-                if (j - i) % 2 == 0 {
-                    Connector::Rod(Stack::from_pure_interval(
-                        0,
-                        j as StackCoeff - i as StackCoeff,
-                    ))
-                } else {
-                    Connector::Spring
-                }
-            },
+            vec![
+                ((0, 1), Connector::Spring),
+                ((0, 2), Connector::Rod(Stack::from_pure_interval(0, 2))),
+                ((0, 3), Connector::Spring),
+                ((0, 4), Connector::Rod(Stack::from_pure_interval(0, 4))),
+                ((0, 5), Connector::Spring),
+                ((1, 2), Connector::Spring),
+                ((1, 3), Connector::Rod(Stack::from_pure_interval(0, 2))),
+                ((1, 4), Connector::Spring),
+                ((1, 5), Connector::Rod(Stack::from_pure_interval(0, 4))),
+                ((2, 3), Connector::Spring),
+                ((2, 4), Connector::Rod(Stack::from_pure_interval(0, 2))),
+                ((2, 5), Connector::Spring),
+                ((3, 4), Connector::Spring),
+                ((3, 5), Connector::Rod(Stack::from_pure_interval(0, 2))),
+                ((4, 5), Connector::Spring),
+            ]
+            .drain(..),
             |_| vec![], // irrelevant
             false,
         );
@@ -780,18 +815,18 @@ mod test {
 
         ws.collect_springs_and_rods(
             &[0, 2, 5, 7, 12, 14],
-            |(i, ki), (j, kj)| {
-                let d = kj as StackCoeff - ki as StackCoeff;
-                if d % 12 == 0 {
-                    Connector::Rod(Stack::from_pure_interval(0, d / 12))
-                } else if d % 7 == 0 {
-                    Connector::Rod(Stack::from_pure_interval(1, d / 7))
-                } else if j - i >= 3 {
-                    Connector::Spring
-                } else {
-                    Connector::None
-                }
-            },
+            //0  1  2  3  4   5
+            vec![
+                ((0, 4), Connector::Rod(Stack::from_pure_interval(0, 1))),
+                ((0, 5), Connector::Rod(Stack::from_pure_interval(1, 2))),
+                ((1, 5), Connector::Rod(Stack::from_pure_interval(0, 1))),
+                ((0, 3), Connector::Rod(Stack::from_pure_interval(1, 1))),
+                ((2, 4), Connector::Rod(Stack::from_pure_interval(1, 1))),
+                ((3, 5), Connector::Rod(Stack::from_pure_interval(1, 1))),
+                ((1, 4), Connector::Spring),
+                ((2, 5), Connector::Spring),
+            ]
+            .drain(..),
             |_| vec![], // irrelevant
             false,
         );
@@ -1100,67 +1135,33 @@ mod test {
             ])
         );
 
-        // 69 chord with rods for fifhts
+        // 69 chord with rods for fifhts -- this is relaxed, because the additional rods mean that
+        // we leave out some springs at the "high" ends of the rods.
+        //
+        // Namely, where the last test case had a complete graph of spring connections, here
+        // - the fifth C..G means that no springs will be attached to G, and 
+        // - the fifth D..A+ means that no springs will be attached to A+.
+        // This is due to the logic implemented in [HarmonySpringsProvider::collect_connectors] for
+        // the [HarmonySpringsProvider::Mod12].
         match &mut ws.provider {
             HarmonySpringsProvider::Mod12 { by_class, .. } => {
                 by_class[7] = RodOrSprings::Rod(Stack::from_pure_interval(1, 1));
             }
         }
         ws.solve(&keys);
-        assert!(ws.energy > epsilon);
-        assert!(!ws.relaxed);
-
-        let mut solution = vec![];
-        ws.solution_neighbourhood
-            .borrow()
-            .for_each_stack(|_, stack| solution.push(stack.clone()));
-
-        //C-G fifth
-        assert_eq!(solution[0], Stack::new_zero());
-        assert_eq!(solution[3], Stack::from_pure_interval(1, 1));
-
-        // D-A fifth:
-        let mut delta = solution[4].clone();
-        delta.scaled_add(-1, &solution[1]);
-        // note that the target is maybe of a different shape, e.g. if we're considering the
-        // "fifth" D..A, and not D..A+
-        assert_eq!(delta.actual, arr1(&[0.into(), 1.into(), 0.into()]));
-
-        // the D is between a minor and a major tone higher than C:
-        let majortone = 12.0 * (9.0 as Semitones / 8.0).log2();
-        let minortone = 12.0 * (10.0 as Semitones / 9.0).log2();
-        assert!(solution[1].semitones() < majortone);
-        assert!(solution[1].semitones() > minortone);
-
-        // the distance between E and D is also between a major and minor tone:
-        assert!(solution[2].semitones() - solution[1].semitones() < majortone);
-        assert!(solution[2].semitones() - solution[1].semitones() > minortone);
-
-        // the distance betwen C and D is the same as between G and A:
-        let _ = abs_diff_eq!(
-            solution[1].semitones() - solution[0].semitones(),
-            solution[4].semitones() - solution[3].semitones(),
-            epsilon = epsilon
-        );
-
+        assert!(ws.energy < epsilon);
+        assert!(ws.relaxed);
         assert_eq!(
-            ws.solution_interval_targets.slice(s![0..(5 * 4 / 2), ..]),
-            arr2(&[
-                // intervals from C
-                [-1, 2, 0],
-                [0, 0, 1],
-                [0, 1, 0],
-                [1, -1, 1],
-                // intervals from D
-                [-1, 2, 0],
-                [1, -1, 0],
-                [0, 1, 0],
-                //intervals from E
-                [0, 1, -1],
-                [1, -1, 0],
-                //intervals from G
-                [-1, 2, 0],
-            ])
+            *ws.solution_neighbourhood.borrow(),
+            SomeNeighbourhood::Partial({
+                let mut n = Partial::new();
+                n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
+                n.insert(&Stack::from_target(arr1(&[-1, 2, 0])));
+                n.insert(&Stack::from_target(arr1(&[0, 0, 1])));
+                n.insert(&Stack::from_target(arr1(&[0, 1, 0])));
+                n.insert(&Stack::from_target(arr1(&[-1, 3, 0])));
+                n
+            }),
         );
 
         // 69 chord with rods for fifhts (set above) and fourths. This forces a pythagorean third.
