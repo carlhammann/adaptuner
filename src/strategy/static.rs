@@ -362,7 +362,6 @@ impl<T: StackType> Strategy<T> for StaticTuning<T> {
         &mut self,
         _keys: &[KeyState; 128],
         _tunings: &mut [Stack<T>; 128],
-        _note: u8,
         _time: Instant,
         _forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool {

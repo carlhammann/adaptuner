@@ -212,6 +212,12 @@ impl<T: StackType> ProcessFromStrategy<T> {
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
         if let Some(csi) = self.curr_strategy_index {
+            let _ = forward.send(FromProcess::NoteOff {
+                channel,
+                note,
+                velocity,
+                time,
+            });
             if self.key_states[note as usize].note_off(
                 channel,
                 self.pedal_hold[channel as usize],
@@ -220,7 +226,6 @@ impl<T: StackType> ProcessFromStrategy<T> {
                 self.strategies[csi].0.note_off(
                     &self.key_states,
                     &mut self.tunings,
-                    note,
                     time,
                     &mut self.queue,
                 );
@@ -228,12 +233,6 @@ impl<T: StackType> ProcessFromStrategy<T> {
                     let _ = forward.send(FromProcess::FromStrategy(msg));
                 });
             }
-            let _ = forward.send(FromProcess::NoteOff {
-                channel,
-                note,
-                velocity,
-                time,
-            });
         }
     }
 
@@ -245,31 +244,31 @@ impl<T: StackType> ProcessFromStrategy<T> {
         forward: &mpsc::Sender<FromProcess<T>>,
     ) {
         if let Some(csi) = self.curr_strategy_index {
-            if value > 0 {
-                self.pedal_hold[channel as usize] = true;
-            } else {
-                self.pedal_hold[channel as usize] = false;
-                for i in 0..128 {
-                    let changed = self.key_states[i].pedal_off(channel, time);
-                    if changed {
-                        let _ = self.strategies[csi].0.note_off(
-                            &self.key_states,
-                            &mut self.tunings,
-                            i as u8,
-                            time,
-                            &mut self.queue,
-                        );
-                        self.queue.drain(..).for_each(|msg| {
-                            let _ = forward.send(FromProcess::FromStrategy(msg));
-                        });
-                    }
-                }
-            }
             let _ = forward.send(FromProcess::PedalHold {
                 channel,
                 value,
                 time,
             });
+            if value > 0 {
+                self.pedal_hold[channel as usize] = true;
+            } else {
+                self.pedal_hold[channel as usize] = false;
+                let mut any_off = false;
+                for i in 0..128 {
+                    any_off |= self.key_states[i].pedal_off(channel, time);
+                }
+                if any_off {
+                    let _ = self.strategies[csi].0.note_off(
+                        &self.key_states,
+                        &mut self.tunings,
+                        time,
+                        &mut self.queue,
+                    );
+                    self.queue.drain(..).for_each(|msg| {
+                        let _ = forward.send(FromProcess::FromStrategy(msg));
+                    });
+                }
+            }
         }
     }
 

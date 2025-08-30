@@ -60,14 +60,13 @@ pub trait Strategy<T: StackType>: ExtractConfig<StrategyConfig<T>> {
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> Option<(Semitones, &'a Stack<T>)>;
 
-    /// expects the effect of the "note off" event to be alead reflected in `keys`
+    /// expects the effect of the "note off" event(s) to be aleady reflected in `keys`.
     ///
     /// returns true iff the note off event was successfully handled
     fn note_off(
         &mut self,
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
-        note: u8,
         time: Instant,
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool;

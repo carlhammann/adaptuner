@@ -135,7 +135,6 @@ impl<T: StackType> Strategy<T> for TwoStep<T> {
         &mut self,
         keys: &[KeyState; 128],
         tunings: &mut [Stack<T>; 128],
-        _note: u8,
         time: Instant,
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> bool {
