@@ -90,10 +90,9 @@ facts:
   about 40 cents wide, $C\sharp-D\flat$ is about 60 cents!
 - The semitones you get by adding an accidental to major tones are **very
   big**. These are intervals like $C\sharp-D$ or $A-B\flat$.
-- The semitones you get by by adding an accidental to minor tones are of the
-  same size as the $E-F$ semitone, which, as already noted, is **bigger** than
-  an equally tempered semitone. These are intervals like $D\sharp-E$ or
-  $G-A\flat$.
+- The semitones you get by by adding an accidental to minor tones are diatonic
+  semitones, and are therefore  **bigger** than an equally tempered semitone.
+  These are intervals like $D\sharp-E$ or $G-A\flat$.
 - Augmented unisons like $C-C\sharp$ are **smaller** than an equally tempered
   semitone. This interval is sometimes called a *chromatic semitone*.
 
@@ -102,7 +101,7 @@ facts:
 The nerd's way to explain the accidentals $+$ and $-$ is to say that they
 denote the syntonic comma (i.e. the frequency ratio $\frac{81}{80}$). For the
 working musician, this means that we can extend the alternating sequence
-$F-A-C-E-G-B-D$ of pure major an minor thirds by using plus and minus signs
+$F-A-C-E-G-B-D$ of pure major and minor thirds by using plus and minus signs
 like so:
 
 $$
@@ -120,7 +119,7 @@ examples:
   the fifth of $D^-$ major.
 - $C-E^+$ is a [pythagorean major
   third](https://en.wikipedia.org/wiki/Pythagorean_tuning).
-- $C-D\flat^-$ is a chromatic semitone.
+- $C-D\flat^-$ is a diatonic semitone.
 - $D-E^+-F\sharp^+-G-A^+-B-C\sharp^+$ are the notes of the $D$ major scale, if
   it is tuned like the "accidental-free" $C$ major scale.
 - A frequently-discussed tuning of all twelve notes of the chromatic scale adds

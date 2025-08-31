@@ -37,15 +37,15 @@ signature, the better. If you don't know and trust me, my signature will not be
 of any value to you, and a rubber stamp (even an expensive one) from Apple or
 Microsoft shouldn't change that.
 
-Many free software projects have code signing based on some form "reputation".
+Many free software projects have code signing based on some form of "reputation".
 This is a good idea in principle, because such a system might help you trust my
 signature even if you don't know and trust me personally. But for Apple and
 Microsoft, what reputation really boils down to is (a) I give them money, and
 (b) I have proof that I'm a legitimate company. (Because, of course, there has
 to be a *business*, right? And where there's a business, there's
 accountability, right?) These requirements ensure that you're being scammed by
-people in suits -- either illegally by criminals who are organised enough to
-incorporate and buy a certificate, or legally by Apple and Microsoft.
+people in suits -- by criminals who are organised enough to incorporate and buy
+a certificate, or legally by Apple and Microsoft.
 
 This brings me to the next problem. As often, the advertised "protection"
 really applies not to users, but to corporate interest. Sure, some malware will
@@ -61,9 +61,9 @@ not primarily using it to build a *better* product; they're using it to ensure
 theirs is *the only* product. They're using it to extort programmers by holding
 users hostage in walled-in software ecosystems ("If you want access to *our*
 users, pay!"), while still leeching off their creativity. They're using it to
-poison the general public's understanding of security, insisting that their
-(incompetent) users need "protection", instead of giving them tools to control
-what software they want to run on their computers.
+poison the general public's understanding of security, insisting that we
+(incompetent) users need "protection", instead of giving us the tools to
+control what software we want to run on our computers.
 
 We're not powerless against all of this. We can educate each other -- as I'm
 doing right now -- and we can *stop using their products*. Thankfully, when it

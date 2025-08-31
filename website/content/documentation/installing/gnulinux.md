@@ -14,7 +14,7 @@ can do.
    (double-)clicking on the binary in your file browser. 
 4. Optionally, if you have a "normal" file system hierarchy you can install the
    binary by putting it in `/usr/bin` or a similar location. You can also
-   install the content of [the "share" directory ](../share/) under
+   install the content of [the "share" directory ](https://github.com/carlhammann/adaptuner/tree/main/share) under
    `/usr/share`, if you want desktop icons.
 
 Please report any problems either as GitHub issues or in an e-Mail to
