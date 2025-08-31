@@ -1,8 +1,6 @@
 //! For motivation, see doc/springs.tex
 
-use ndarray::{
-    azip, linalg::general_mat_mul, s, Array1, Array2, ArrayView1, ArrayView2,
-};
+use ndarray::{azip, linalg::general_mat_mul, s, Array1, Array2, ArrayView1, ArrayView2};
 use num_rational::Ratio;
 
 use crate::{interval::stacktype::r#trait::StackCoeff, util::lu};
@@ -38,30 +36,18 @@ impl Solver {
     }
 
     pub fn prepare_system(&mut self, n_nodes: usize, n_lengths: usize, n_base_lengths: usize) {
-        if n_nodes > self.a.shape()[0] {
+        let old_n_nodes = self.a.shape()[0];
+        let old_n_lenghts = self.l.shape()[0];
+        let old_n_base_lengths = self.l.shape()[1];
+
+        if old_n_nodes < n_nodes || old_n_lenghts < n_lengths || old_n_base_lengths < n_base_lengths {
             self.a = Array2::zeros((n_nodes, n_nodes));
             self.perm = Array1::zeros(n_nodes);
             self.ainv = Array2::eye(n_nodes);
             self.b = Array2::zeros((n_nodes, n_lengths));
+            self.l = Array2::zeros((n_lengths, n_base_lengths));
             self.bl = Array2::zeros((n_nodes, n_base_lengths));
             self.res = Array2::zeros((n_nodes, n_base_lengths));
-        }
-
-        if n_lengths > self.l.shape()[0] {
-            if n_nodes <= self.a.shape()[0] {
-                self.b = Array2::zeros((n_nodes, n_lengths));
-            }
-            self.l = Array2::zeros((n_lengths, n_base_lengths));
-        }
-
-        if n_base_lengths > self.l.shape()[1] {
-            if n_nodes <= self.a.shape()[0] {
-                self.bl = Array2::zeros((n_nodes, n_base_lengths));
-                self.res = Array2::zeros((n_nodes, n_base_lengths));
-            }
-            if n_lengths <= self.l.shape()[0] {
-                self.l = Array2::zeros((n_lengths, n_base_lengths));
-            }
         }
 
         self.n_nodes = n_nodes;
@@ -83,7 +69,7 @@ impl Solver {
     }
 
     /// Like [Self::define_length], but defining a zero length.
-    pub fn define_zero_length(&mut self, i:usize) {
+    pub fn define_zero_length(&mut self, i: usize) {
         self.l.row_mut(i).fill(0.into());
     }
 
@@ -217,11 +203,7 @@ mod test {
         workspace.solve().unwrap()
     }
 
-    fn one_case(
-        workspace: &mut Solver,
-        spec: &SystemSpec,
-        expected: &Array2<Ratio<StackCoeff>>,
-    ) {
+    fn one_case(workspace: &mut Solver, spec: &SystemSpec, expected: &Array2<Ratio<StackCoeff>>) {
         let actual = initialise_and_solve(workspace, spec);
         assert_eq!(expected.view(), actual.view())
     }
