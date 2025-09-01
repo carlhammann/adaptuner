@@ -324,10 +324,10 @@ pub enum ExtendedHarmonyStrategyConfig<T: IntervalBasis> {
     #[serde(rename_all = "kebab-case")]
     Springs {
         memo_springs: bool,
-        minimum_number_of_sounding_keys: usize,
+        min_keys: usize,
+        max_tries: usize,
         lower_notes_are_more_stable: bool,
         provider: HarmonySpringsProvider<T>,
-        timeout_ms: u64,
     },
 }
 
@@ -554,16 +554,16 @@ impl<T: IntervalBasis> ExtendedHarmonyStrategyConfig<T> {
             ),
             ExtendedHarmonyStrategyConfig::Springs {
                 memo_springs,
-                minimum_number_of_sounding_keys,
+                min_keys,
+                max_tries,
                 lower_notes_are_more_stable,
-                timeout_ms,
                 provider,
             } => (
                 HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
                     memo_springs: *memo_springs,
-                    minimum_number_of_sounding_keys: *minimum_number_of_sounding_keys,
+                    min_keys: *min_keys,
+                    max_tries: *max_tries,
                     lower_notes_are_more_stable: *lower_notes_are_more_stable,
-                    timeout_ms: *timeout_ms,
                     provider: provider.clone(),
                 }),
                 HarmonyStrategyNames::Springs {},
@@ -590,18 +590,18 @@ impl<T: IntervalBasis> ExtendedHarmonyStrategyConfig<T> {
             (
                 HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
                     memo_springs,
-                    minimum_number_of_sounding_keys,
+                    min_keys,
+                    max_tries,
                     lower_notes_are_more_stable,
                     provider,
-                    timeout_ms,
                 }),
                 HarmonyStrategyNames::Springs {},
             ) => ExtendedHarmonyStrategyConfig::Springs {
                 memo_springs,
-                minimum_number_of_sounding_keys,
+                min_keys,
+                max_tries,
                 lower_notes_are_more_stable,
                 provider,
-                timeout_ms,
             },
             (HarmonyStrategyConfig::ChordList(_), HarmonyStrategyNames::Springs {})
             | (HarmonyStrategyConfig::Springs(_), HarmonyStrategyNames::ChordList { .. }) => {
