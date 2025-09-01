@@ -1,4 +1,4 @@
-version: 0.3.0
+version: '0.3.0'
 temperaments:
 - name: equal temperament
   equations:
@@ -85,23 +85,23 @@ temperaments:
       third: 4
 named-intervals:
 - name: diesis
-  short-name: 'd'
+  short-name: d
   coeffs:
     octave: '1'
     third: '-3'
 - name: pythagorean comma
-  short-name: 'p'
+  short-name: p
   coeffs:
     octave: '-7'
     fifth: '12'
 - name: syntonic comma
-  short-name: 's'
+  short-name: s
   coeffs:
     octave: '-2'
     fifth: '4'
     third: '-1'
 - name: kleisma
-  short-name: 'k'
+  short-name: k
   coeffs:
     octave: '1'
     fifth: '-5'
@@ -116,90 +116,128 @@ strategies:
   config: !two-step
     harmony: !springs
       memo-springs: true
-      minimum-number-of-sounding-keys: 2 # must be at least 1
+      min-keys: 2
+      max-tries: 64
       lower-notes-are-more-stable: true
-      timeout-ms: 20
-      provider: !mod12 
+      provider: !mod12
         octave:
           octave: 1
-        by-class: 
+        by-class:
         - !rod {}
         - !springs
-          - length: # diatonic semitone
-              octave: 1 
-              fifth: -1 
-              third: -1 
-            stiffness: 1/5
-          - length: # chromatic semitone
-              fifth: -1 
-              third: 2 
-            stiffness: 1/5
+          trim-order: 0
+          options:
+          - length:
+              octave: 1
+              fifth: -1
+              third: -1
+            stiffness: '1/5'
+          - length:
+              fifth: -1
+              third: 2
+            stiffness: '1/5'
         - !springs
-          - length: # major tone, 9/8 
+          trim-order: 0
+          options:
+          - length:
               octave: -1
               fifth: 2
-            stiffness: 1/3
-          - length: # minor tone, 10/9
+            stiffness: '1/3'
+          - length:
               octave: 1
               fifth: -2
               third: 1
-            stiffness: 1/5
+            stiffness: '1/5'
         - !springs
-          - length: # pure minor third
+          trim-order: 1 
+          options:
+          - length:
               fifth: 1
               third: -1
-            stiffness: 1/5
+            stiffness: '1/5'
+          - length:
+              octave: 2
+              fifth: -3
+            stiffness: '1/3'
         - !springs
-          - length: # pure major third
+          trim-order: 2 
+          options:
+          - length:
               third: 1
-            stiffness: 1/5
+            stiffness: '1/5'
         - !springs
-          - length: # pure fourth
+          trim-order: 3 
+          options:
+          - length:
               octave: 1
               fifth: -1
-            stiffness: 1/3
+            stiffness: '1/3'
         - !springs
-          - length: # tritone as major tone plus major third
+          trim-order: 0 
+          options:
+          - length:
               octave: -1
               fifth: 2
               third: 1
-            stiffness: 1/5
-          - length: # tritone as chromatic semitone below fifth
-              fifth: 2
-              third: -2
-            stiffness: 1/5
-        - !springs
-          - length: # pure fifth
-              fifth: 1
-            stiffness: 1/3
-        - !springs
-          - length: # minor sixth
-              octave: 1
-              third: -1
-            stiffness: 1/5
-        - !springs
-          - length: # major sixth
-              octave: 1
-              fifth: -1
-              third: 1
-            stiffness: 1/5
-          - length: # fifth plus major tone
-              octave: -1
-              fifth: 3
-            stiffness: 1/3
-        - !springs
-          - length: # minor seventh as two fourths
+            stiffness: '1/5'
+          - length:
               octave: 2
               fifth: -2
-            stiffness: 1/3
-          - length: # fifth plus minor third
+              third: -1
+            stiffness: '1/5'
+          - length:
+              fifth: 2
+              third: -2
+            stiffness: '1/5'
+        - !springs
+          trim-order: 3 
+          options:
+          - length:
+              fifth: 1
+            stiffness: '1/3'
+        # - !rod
+        #       fifth: 1
+        - !springs
+          trim-order: 0 
+          options:
+          - length:
+              octave: 1
+              third: -1
+            stiffness: '1/5'
+        - !springs
+          trim-order: 0 
+          options:
+          - length:
+              octave: 1
+              fifth: -1
+              third: 1
+            stiffness: '1/5'
+          - length:
+              octave: -1
+              fifth: 3
+            stiffness: '1/3'
+        - !springs
+          trim-order: 0 
+          options:
+          - length:
+              octave: 2
+              fifth: -2
+            stiffness: '1/3'
+          - length:
               fifth: 2
               third: -1
-            stiffness: 1/5
+            stiffness: '1/5'
         - !springs
-          - length: # fifth plus major third
+          trim-order: 0 
+          options:
+          - length:
               fifth: 1
               third: 1
+            stiffness: '1/5'
+          - length:
+              octave: 1
+              fifth: 2
+              third: -2
             stiffness: 1/5
     melody: !neighbourhoods
       fixed: true
@@ -318,7 +356,9 @@ strategies:
           fifth: -1
           third: 1
         semitones: 69.0
-      reference: {}
+      reference:
+        fifth: -2
+        third: 2
     bindings:
       sostenuto-pedal-down: !increment-neighbourhood-index 1
       soft-pedal-down: set-reference-to-current
@@ -349,7 +389,7 @@ gui:
     - 0.0
     - 3.8631372
     - -7.01955
-    background-around-reference: false
+    background-around-reference: true
     background-low:
     - 0
     - -4
