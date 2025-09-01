@@ -1,32 +1,42 @@
 #!/usr/bin/env bash
 
+# relative path to the current directory, but must not start with ./
 OUTDIR=build
 
-rm -rf build
-mkdir build
+rm -rf "$OUTDIR"
+mkdir "$OUTDIR"
 
-cp favicon.png build
-cp -r assets build
+# find . -mindepth 1 -not \( -path ./"$OUTDIR" -prune \) -type d -exec sh -c ' \
+#     echo $2
+#     ' find-sh "$OUTDIR" {} \;
+#
+# echo ""
+#
+# find . -mindepth 1 -not \( -path ./"$OUTDIR" -prune \) -type f -name '*.md' -exec sh -c ' \
+#     echo $2
+#     ' find-sh "$OUTDIR" {} \;
 
-find content -mindepth 1 -type d -exec sh -c ' \
+
+find . -mindepth 1 -not \( -path ./"$OUTDIR" -prune \) -type d -exec sh -c ' \
     outdir="$1"
     inpath="$2"
-    relpath=${inpath#"content/"}
-    mkdir -p "$outdir/$relpath"
-    ' find-sh build {} \;
+    mkdir -p "$outdir/$inpath"
+    ' find-sh "$OUTDIR" {} \;
 
-find content -type f -name '*.md' -exec sh -c ' \
+cp favicon.png "$OUTDIR"
+cp -r assets/* "$OUTDIR"/assets/
+
+find . -mindepth 1 -not \( -path ./"$OUTDIR" -prune \) -type f -name '*.md' -exec sh -c ' \
     outdir="$1"
     inpath="$2"
-    relpath=${inpath#"content/"}
     template="${inpath%/*}/template.html"
     set -x
     pandoc --mathjax \
 	   --toc \
 	   --shift-heading-level-by=1 \
 	   --template "$template" \
-	   --output "$outdir/${relpath%.md}.html" \
+	   --output "$outdir/${inpath%.md}.html" \
 	   --lua-filter=links-to-html.lua \
 	   "$inpath"
-    ' find-sh build {} \;
+    ' find-sh "$OUTDIR" {} \;
 
