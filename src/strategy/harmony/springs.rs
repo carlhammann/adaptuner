@@ -1,6 +1,8 @@
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap, VecDeque},
+    fmt,
+    marker::PhantomData,
     rc::Rc,
     time::Instant,
 };
@@ -27,38 +29,109 @@ use crate::{
     util::springs::Solver,
 };
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Clone)]
 pub struct Spring<T: IntervalBasis> {
     length: Stack<T>,
-    #[serde(
-        deserialize_with = "deserialize_ratio",
-        serialize_with = "serialize_ratio"
-    )]
+    #[serde(serialize_with = "serialize_ratio")]
     stiffness: Ratio<StackCoeff>,
+}
+
+// somehow, serde needs this manual implementaion to be able to understand that no `Deserialize`
+// constaint on `T: IntervalBasis` is needed...
+impl<'de, T: IntervalBasis> serde::Deserialize<'de> for Spring<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct SpringVisitor<T: IntervalBasis> {
+            _phantom: PhantomData<T>,
+        }
+
+        impl<T: IntervalBasis> SpringVisitor<T> {
+            fn new() -> Self {
+                Self {
+                    _phantom: PhantomData,
+                }
+            }
+        }
+
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum SpringField {
+            Length,
+            Stiffness,
+        }
+
+        #[derive(Deserialize)]
+        struct WrappedRatio(#[serde(deserialize_with = "deserialize_ratio")] Ratio<StackCoeff>);
+
+        impl<'de, T> serde::de::Visitor<'de> for SpringVisitor<T>
+        where
+            T: IntervalBasis,
+        {
+            type Value = Spring<T>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                write!(formatter, "spring")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut length = None {};
+                let mut stiffness = None {};
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        SpringField::Length => {
+                            if length.is_some() {
+                                return Err(serde::de::Error::duplicate_field("length"));
+                            }
+                            let stack = map.next_value::<Stack<T>>()?;
+                            length = Some(stack);
+                        }
+                        SpringField::Stiffness => {
+                            if stiffness.is_some() {
+                                return Err(serde::de::Error::duplicate_field("stiffness"));
+                            }
+
+                            let WrappedRatio(val) = map.next_value::<WrappedRatio>()?;
+                            stiffness = Some(val);
+                        }
+                    }
+                }
+
+                if length.is_none() {
+                    return Err(serde::de::Error::missing_field("length"));
+                }
+                if stiffness.is_none() {
+                    return Err(serde::de::Error::missing_field("stiffness"));
+                }
+                Ok(Self::Value {
+                    length: length.unwrap(),
+                    stiffness: stiffness.unwrap(),
+                })
+            }
+        }
+
+        deserializer.deserialize_struct("spring", &["length", "stiffness"], SpringVisitor::new())
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Clone)]
-pub enum RodOrSprings<T: IntervalBasis> {
-    Rod(Stack<T>),
-    #[serde(rename_all = "kebab-case")]
-    Springs {
-        trim_order: u8,
-        #[serde(deserialize_with = "deserialize_nonempty_springs")]
-        options: Vec<Spring<T>>,
-    },
+pub struct Springs<T: IntervalBasis> {
+    trim_order: u8,
+    #[serde(deserialize_with = "deserialize_nonempty_springs")]
+    options: Vec<Spring<T>>,
 }
 
-fn deserialize_nonempty_springs<
-    'de,
-    D: serde::Deserializer<'de>,
-    T: IntervalBasis + serde::Deserialize<'de>,
->(
+fn deserialize_nonempty_springs<'de, D: serde::Deserializer<'de>, T: IntervalBasis>(
     deserializer: D,
 ) -> Result<Vec<Spring<T>>, D::Error> {
     deserialize_nonempty("expected a non-empty list of springs", deserializer)
@@ -71,7 +144,7 @@ fn deserialize_nonempty_springs<
 pub enum HarmonySpringsProvider<T: IntervalBasis> {
     #[serde(rename_all = "kebab-case")]
     Mod12 {
-        by_class: [RodOrSprings<T>; 12],
+        by_class: [Springs<T>; 11],
         octave: Stack<T>,
     },
 }
@@ -148,37 +221,24 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
             HarmonySpringsProvider::Mod12 { by_class, octave } => {
                 let n = keys.len();
 
+                let mut is_rod_end = vec![false; n];
+
                 rods.clear();
 
                 for i in 0..n {
                     for j in (i + 1)..n {
                         let d = keys[j] as i8 - keys[i] as i8;
-                        let rem = d.rem_euclid(12) as usize;
-                        match &by_class[rem] {
-                            RodOrSprings::Rod(stack) => {
-                                let quot = d.div_euclid(12) as StackCoeff;
-                                let mut rod = stack.clone();
-                                rod.scaled_add(quot, octave);
-                                rods.insert((i, j), rod);
-                            }
-                            _ => {}
+                        if d.rem_euclid(12) == 0 {
+                            let quot = d.div_euclid(12) as StackCoeff;
+                            let mut rod = octave.clone();
+                            rod.scale(quot);
+                            rods.insert((i, j), rod);
+                            is_rod_end[j] = true;
                         }
                     }
                 }
 
                 normalize_rods(n, rods);
-
-                // if the node is a rod end, what's the rod's start node?
-                //
-                // This is useful to check if a spring can be ommited between two nodes.
-                //
-                // Note that normalize_rods made it so that there are a no "chains" of rods; there
-                // are a number of "base" nodes, and all non-base nodes that are connected to a
-                // rod are connected directly to a base node.
-                let mut rod_start: Vec<Option<usize>> = vec![None {}; n];
-                for (i, j) in rods.keys() {
-                    rod_start[*j] = Some(*i);
-                }
 
                 // wrapped in an Option because it may very well overflow...
                 let mut n_options: Option<usize> = Some(1);
@@ -190,48 +250,51 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
                     for j in (i + 1)..n {
                         let d = keys[j] as i8 - keys[i] as i8;
                         let rem = d.rem_euclid(12) as usize;
-                        match &by_class[rem] {
-                            RodOrSprings::Springs {
-                                options,
-                                trim_order,
-                                ..
-                            } => {
-                                if rod_start[i].is_none() || rod_start[i] != rod_start[j] {
-                                    springs.insert(
-                                        (i, j),
-                                        SpringInfo {
-                                            current_candidate_index: 0,
-                                            memo_key: d,
-                                            solver_length_index: 0, // dummy initialisation; will be overwritten!
-                                        },
-                                    );
-                                    tmp.push((*trim_order, (i, j), options.len()));
-                                    n_options =
-                                        n_options.and_then(|o| o.checked_mul(options.len()));
-                                }
-                            }
-                            _ => {}
+                        if rem == 0 {
+                            continue;
+                        }
+
+                        let Springs {
+                            options,
+                            trim_order,
+                            ..
+                        } = &by_class[rem - 1];
+                        // octaves are the only rods. Hence, we'll only need to add springs if
+                        // *both* nodes are not the end of a rod.
+                        if !is_rod_end[i] && !is_rod_end[j] {
+                            springs.insert(
+                                (i, j),
+                                SpringInfo {
+                                    current_candidate_index: 0,
+                                    memo_key: d,
+                                    solver_length_index: 0, // dummy initialisation; will be overwritten!
+                                },
+                            );
+                            tmp.push((*trim_order, (i, j), options.len()));
+                            n_options = n_options.and_then(|o| o.checked_mul(options.len()));
                         }
                     }
                 }
 
                 if let Some(mut n_options) = n_options {
-                    if lower_notes_are_more_stable {
-                        tmp.sort_by(|a, b| b.1.cmp(&a.1));
-                    } else {
-                        tmp.sort_by(|a, b| a.1.cmp(&b.1));
+                    if n_options > max_tries {
+                        if lower_notes_are_more_stable {
+                            tmp.sort_by(|a, b| b.1.cmp(&a.1));
+                        } else {
+                            tmp.sort_by(|a, b| a.1.cmp(&b.1));
+                        }
+                        tmp.sort_by(|a, b| a.0.cmp(&b.0));
+
+                        let mut i = 0;
+                        while n_options > max_tries && i < tmp.len() {
+                            println!("{} {} {:?}", springs.len(), n_options, tmp[i].1);
+                            springs.remove(&tmp[i].1);
+                            n_options /= tmp[i].2;
+                            i += 1;
+                        }
                     }
-                    tmp.sort_by(|a, b| a.0.cmp(&b.0));
 
                     let mut i = 0;
-                    while n_options > max_tries && i < tmp.len() {
-                        println!("{} {} {:?}", springs.len(), n_options, tmp[i].1);
-                        springs.remove(&tmp[i].1);
-                        n_options /= tmp[i].2;
-                        i += 1;
-                    }
-
-                    i = 0;
                     for (_, info) in springs.iter_mut() {
                         info.solver_length_index = i;
                         i += 1;
@@ -251,27 +314,24 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
         match self {
             HarmonySpringsProvider::Mod12 { by_class, octave } => {
                 let rem = d.rem_euclid(12) as usize;
-                match &by_class[rem] {
-                    RodOrSprings::Rod(_) => panic!("cannot compute candidate_springs for rod"),
-                    RodOrSprings::Springs {
-                        options: springs, ..
-                    } => {
-                        let quot = d.div_euclid(12) as StackCoeff;
-                        springs
-                            .iter()
-                            .map(
-                                |Spring {
-                                     length: stack,
-                                     stiffness,
-                                 }| {
-                                    let mut shifted_stack = stack.clone();
-                                    shifted_stack.scaled_add(quot, octave);
-                                    (shifted_stack, *stiffness)
-                                },
-                            )
-                            .collect()
-                    }
+                if rem == 0 {
+                    panic!("cannot compute candidate_springs for rod")
                 }
+                let Springs { options, .. } = &by_class[rem - 1];
+                let quot = d.div_euclid(12) as StackCoeff;
+                options
+                    .iter()
+                    .map(
+                        |Spring {
+                             length: stack,
+                             stiffness,
+                         }| {
+                            let mut shifted_stack = stack.clone();
+                            shifted_stack.scaled_add(quot, octave);
+                            (shifted_stack, *stiffness)
+                        },
+                    )
+                    .collect()
             }
         }
     }
@@ -773,7 +833,6 @@ impl<T: StackType> ExtractConfig<HarmonyStrategyConfig<T>> for HarmonySprings<T>
 
 #[cfg(test)]
 mod test {
-    use approx::abs_diff_eq;
     use midi_msg::Channel;
     use ndarray::{arr1, arr2};
     use pretty_assertions::assert_eq;
@@ -785,8 +844,7 @@ mod test {
     fn mock_provider() -> HarmonySpringsProvider<MockFiveLimitStackType> {
         HarmonySpringsProvider::Mod12 {
             by_class: [
-                RodOrSprings::Rod(Stack::from_target(vec![0, 0, 0])),
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![
                         Spring {
@@ -799,7 +857,7 @@ mod test {
                         },
                     ],
                 },
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![
                         Spring {
@@ -812,28 +870,28 @@ mod test {
                         },
                     ],
                 },
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![0, 1, (-1)]), // minor third
                         stiffness: Ratio::new(1, 5),
                     }],
                 },
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![0, 0, 1]), // major third
                         stiffness: Ratio::new(1, 5),
                     }],
                 },
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![1, (-1), 0]), // fourth
                         stiffness: Ratio::new(1, 3),
                     }],
                 },
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![
                         Spring {
@@ -846,21 +904,21 @@ mod test {
                         },
                     ],
                 },
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![0, 1, 0]), // fifth
                         stiffness: Ratio::new(1, 3),
                     }],
                 },
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![1, 0, (-1)]), // minor sixth
                         stiffness: Ratio::new(1, 5),
                     }],
                 },
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![
                         Spring {
@@ -873,7 +931,7 @@ mod test {
                         },
                     ],
                 },
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![
                         Spring {
@@ -886,7 +944,7 @@ mod test {
                         },
                     ],
                 },
-                RodOrSprings::Springs {
+                Springs {
                     trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![0, 1, 1]), // major seventh as fifth plus major third
@@ -1097,69 +1155,69 @@ mod test {
             ])
         );
 
-        // 69 chord with rods for fifhts
-        match &mut ws.provider {
-            HarmonySpringsProvider::Mod12 { by_class, .. } => {
-                by_class[7] = RodOrSprings::Rod(Stack::from_pure_interval(1, 1));
-            }
-        }
-        ws.solve(&keys);
-        assert!(ws.energy > epsilon);
-        assert!(!ws.relaxed);
-
-        let mut solution = vec![];
-        ws.solution_neighbourhood
-            .borrow()
-            .for_each_stack(|_, stack| solution.push(stack.clone()));
-
-        // C-G fifth
-        assert_eq!(solution[0], Stack::new_zero());
-        assert_eq!(solution[3], Stack::from_pure_interval(1, 1));
-
-        // D-A fifth
-        let mut delta = solution[4].clone();
-        delta.scaled_add(-1, &solution[1]);
-        // note that the target is maybe of a different shape, e.g. if we're considering the
-        // "fifth" D..A, and not D..A+
-        assert_eq!(delta.actual, arr1(&[0.into(), 1.into(), 0.into()]));
-
-        // the D is between a minor and a major tone higher than C:
-        let majortone = 12.0 * (9.0 as Semitones / 8.0).log2();
-        let minortone = 12.0 * (10.0 as Semitones / 9.0).log2();
-        assert!(solution[1].semitones() < majortone);
-        assert!(solution[1].semitones() > minortone);
-
-        // the interval D..E is also between a major and a minor tone
-        assert!(solution[2].semitones() - solution[1].semitones() < majortone);
-        assert!(solution[2].semitones() - solution[1].semitones() > minortone);
-
-        // the distance between C and D is the same as between G and A:
-        let _ = abs_diff_eq!(
-            solution[1].semitones() - solution[0].semitones(),
-            solution[4].semitones() - solution[3].semitones(),
-            epsilon = epsilon
-        );
-
-        // 69 chord with rods for fifhts (set above) and fourths. This forces a pythagorean third.
-        match &mut ws.provider {
-            HarmonySpringsProvider::Mod12 { by_class, .. } => {
-                by_class[5] = RodOrSprings::Rod(Stack::from_target(arr1(&[1, -1, 0])))
-            }
-        }
-        ws.solve(&keys);
-        assert!(ws.energy > epsilon);
-        assert!(!ws.relaxed);
-        assert_eq!(
-            *ws.solution_neighbourhood.borrow(),
-            SomeNeighbourhood::Partial({
-                let mut n = Partial::new();
-                n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
-                n.insert(&Stack::from_target(arr1(&[-1, 2, 0])));
-                n.insert(&Stack::from_target(arr1(&[-2, 4, 0])));
-                n.insert(&Stack::from_target(arr1(&[0, 1, 0])));
-                n.insert(&Stack::from_target(arr1(&[-1, 3, 0])));
-                n
-            }),
-        );
+        // // 69 chord with rods for fifhts
+        // match &mut ws.provider {
+        //     HarmonySpringsProvider::Mod12 { by_class, .. } => {
+        //         by_class[7] = RodOrSprings::Rod(Stack::from_pure_interval(1, 1));
+        //     }
+        // }
+        // ws.solve(&keys);
+        // assert!(ws.energy > epsilon);
+        // assert!(!ws.relaxed);
+        //
+        // let mut solution = vec![];
+        // ws.solution_neighbourhood
+        //     .borrow()
+        //     .for_each_stack(|_, stack| solution.push(stack.clone()));
+        //
+        // // C-G fifth
+        // assert_eq!(solution[0], Stack::new_zero());
+        // assert_eq!(solution[3], Stack::from_pure_interval(1, 1));
+        //
+        // // D-A fifth
+        // let mut delta = solution[4].clone();
+        // delta.scaled_add(-1, &solution[1]);
+        // // note that the target is maybe of a different shape, e.g. if we're considering the
+        // // "fifth" D..A, and not D..A+
+        // assert_eq!(delta.actual, arr1(&[0.into(), 1.into(), 0.into()]));
+        //
+        // // the D is between a minor and a major tone higher than C:
+        // let majortone = 12.0 * (9.0 as Semitones / 8.0).log2();
+        // let minortone = 12.0 * (10.0 as Semitones / 9.0).log2();
+        // assert!(solution[1].semitones() < majortone);
+        // assert!(solution[1].semitones() > minortone);
+        //
+        // // the interval D..E is also between a major and a minor tone
+        // assert!(solution[2].semitones() - solution[1].semitones() < majortone);
+        // assert!(solution[2].semitones() - solution[1].semitones() > minortone);
+        //
+        // // the distance between C and D is the same as between G and A:
+        // let _ = abs_diff_eq!(
+        //     solution[1].semitones() - solution[0].semitones(),
+        //     solution[4].semitones() - solution[3].semitones(),
+        //     epsilon = epsilon
+        // );
+        //
+        // // 69 chord with rods for fifhts (set above) and fourths. This forces a pythagorean third.
+        // match &mut ws.provider {
+        //     HarmonySpringsProvider::Mod12 { by_class, .. } => {
+        //         by_class[5] = RodOrSprings::Rod(Stack::from_target(arr1(&[1, -1, 0])))
+        //     }
+        // }
+        // ws.solve(&keys);
+        // assert!(ws.energy > epsilon);
+        // assert!(!ws.relaxed);
+        // assert_eq!(
+        //     *ws.solution_neighbourhood.borrow(),
+        //     SomeNeighbourhood::Partial({
+        //         let mut n = Partial::new();
+        //         n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
+        //         n.insert(&Stack::from_target(arr1(&[-1, 2, 0])));
+        //         n.insert(&Stack::from_target(arr1(&[-2, 4, 0])));
+        //         n.insert(&Stack::from_target(arr1(&[0, 1, 0])));
+        //         n.insert(&Stack::from_target(arr1(&[-1, 3, 0])));
+        //         n
+        //     }),
+        // );
     }
 }
