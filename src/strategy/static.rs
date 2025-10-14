@@ -3,7 +3,6 @@ use std::{collections::VecDeque, time::Instant};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::{ExtractConfig, StrategyConfig},
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
@@ -257,87 +256,88 @@ impl<T: StackType> StaticTuning<T> {
         msg: ToStrategy<T>,
         forward: &mut VecDeque<FromStrategy<T>>,
     ) -> Option<Instant> {
-        match msg {
-            ToStrategy::Consider {
-                stack: considered_stack,
-                time,
-            } => {
-                if let Some(cni) = self.curr_neighbourhood_index {
-                    let inserted_stack = self.neighbourhoods[cni].insert(&considered_stack).clone();
-                    forward.push_back(FromStrategy::Consider {
-                        stack: inserted_stack,
-                    });
-
-                    Some(time)
-                } else {
-                    None {}
-                }
-            }
-            ToStrategy::ApplyTemperamentToNeighbourhood {
-                temperament,
-                neighbourhood,
-                time,
-            } => {
-                if Some(neighbourhood) == self.curr_neighbourhood_index {
-                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
-                        stack.apply_temperament(temperament);
-                        forward.push_back(FromStrategy::Consider {
-                            stack: stack.clone(),
-                        });
-                    });
-                    Some(time)
-                } else {
-                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
-                        stack.apply_temperament(temperament);
-                    });
-                    None {}
-                }
-            }
-            ToStrategy::MakeNeighbourhoodPure {
-                time,
-                neighbourhood,
-            } => {
-                if Some(neighbourhood) == self.curr_neighbourhood_index {
-                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
-                        stack.make_pure();
-                        forward.push_back(FromStrategy::Consider {
-                            stack: stack.clone(),
-                        });
-                    });
-                    Some(time)
-                } else {
-                    self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
-                        stack.make_pure();
-                    });
-                    None {}
-                }
-            }
-            ToStrategy::SetTuningReference { reference, time } => {
-                self.tuning_reference.clone_from(&reference);
-                forward.push_back(FromStrategy::SetTuningReference { reference });
-                Some(time)
-            }
-            ToStrategy::SetReference { reference, time } => {
-                self.reference.clone_from(&reference);
-                forward.push_back(FromStrategy::SetReference { stack: reference });
-                Some(time)
-            }
-            ToStrategy::Action { action, time } => {
-                self.handle_action(keys, tunings, action, time, forward)
-            }
-            ToStrategy::NeighbourhoodListAction { action, time } => {
-                action.apply_to(
-                    |x| x.clone(),
-                    &mut self.neighbourhoods,
-                    &mut self.curr_neighbourhood_index,
-                );
-                self.start_but_dont_retune(forward);
-                Some(time)
-            }
-            ToStrategy::ToHarmonyStrategy(_, _)
-            | ToStrategy::ReanchorOnMatch { .. }
-            | ToStrategy::SetGroupMs { .. } => unreachable!(),
-        }
+        todo!()
+        // match msg {
+        //     ToStrategy::Consider {
+        //         stack: considered_stack,
+        //         time,
+        //     } => {
+        //         if let Some(cni) = self.curr_neighbourhood_index {
+        //             let inserted_stack = self.neighbourhoods[cni].insert(&considered_stack).clone();
+        //             forward.push_back(FromStrategy::Consider {
+        //                 stack: inserted_stack,
+        //             });
+        //
+        //             Some(time)
+        //         } else {
+        //             None {}
+        //         }
+        //     }
+        //     ToStrategy::ApplyTemperamentToNeighbourhood {
+        //         temperament,
+        //         neighbourhood,
+        //         time,
+        //     } => {
+        //         if Some(neighbourhood) == self.curr_neighbourhood_index {
+        //             self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
+        //                 stack.apply_temperament(temperament);
+        //                 forward.push_back(FromStrategy::Consider {
+        //                     stack: stack.clone(),
+        //                 });
+        //             });
+        //             Some(time)
+        //         } else {
+        //             self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
+        //                 stack.apply_temperament(temperament);
+        //             });
+        //             None {}
+        //         }
+        //     }
+        //     ToStrategy::MakeNeighbourhoodPure {
+        //         time,
+        //         neighbourhood,
+        //     } => {
+        //         if Some(neighbourhood) == self.curr_neighbourhood_index {
+        //             self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
+        //                 stack.make_pure();
+        //                 forward.push_back(FromStrategy::Consider {
+        //                     stack: stack.clone(),
+        //                 });
+        //             });
+        //             Some(time)
+        //         } else {
+        //             self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
+        //                 stack.make_pure();
+        //             });
+        //             None {}
+        //         }
+        //     }
+        //     ToStrategy::SetTuningReference { reference, time } => {
+        //         self.tuning_reference.clone_from(&reference);
+        //         forward.push_back(FromStrategy::SetTuningReference { reference });
+        //         Some(time)
+        //     }
+        //     ToStrategy::SetReference { reference, time } => {
+        //         self.reference.clone_from(&reference);
+        //         forward.push_back(FromStrategy::SetReference { stack: reference });
+        //         Some(time)
+        //     }
+        //     ToStrategy::Action { action, time } => {
+        //         self.handle_action(keys, tunings, action, time, forward)
+        //     }
+        //     ToStrategy::NeighbourhoodListAction { action, time } => {
+        //         action.apply_to(
+        //             |x| x.clone(),
+        //             &mut self.neighbourhoods,
+        //             &mut self.curr_neighbourhood_index,
+        //         );
+        //         self.start_but_dont_retune(forward);
+        //         Some(time)
+        //     }
+        //     ToStrategy::ToHarmonyStrategy(_, _)
+        //     | ToStrategy::ReanchorOnMatch { .. }
+        //     | ToStrategy::SetGroupMs { .. } => unreachable!(),
+        // }
     }
 }
 
@@ -390,15 +390,5 @@ impl<T: StackType> Strategy<T> for StaticTuning<T> {
     ) {
         self.start_but_dont_retune(forward);
         self.update_all_tunings_and_send(keys, tunings, time, forward);
-    }
-}
-
-impl<T: StackType> ExtractConfig<StrategyConfig<T>> for StaticTuning<T> {
-    fn extract_config(&self) -> StrategyConfig<T> {
-        StrategyConfig::StaticTuning(StaticTuningConfig {
-            neighbourhoods: self.neighbourhoods.clone(),
-            tuning_reference: self.tuning_reference.clone(),
-            reference: self.reference.clone(),
-        })
     }
 }

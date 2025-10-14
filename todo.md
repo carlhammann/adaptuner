@@ -14,3 +14,10 @@
 - coordination of zoom and scroll
 - flattening the grid layout to increase space for keyboard
 - multi-touch keyboard
+
+
+
+# Config redesign 
+
+- initialise with some tag from the global config.
+- update with some tag(s)

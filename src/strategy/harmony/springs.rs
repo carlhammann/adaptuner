@@ -12,7 +12,6 @@ use num_rational::Ratio;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::{ExtractConfig, HarmonyStrategyConfig},
     custom_serde::common::{deserialize_nonempty, deserialize_ratio, serialize_ratio},
     interval::{
         base::Semitones,
@@ -65,6 +64,7 @@ impl<'de, T: IntervalBasis> serde::Deserialize<'de> for Spring<T> {
             Stiffness,
         }
 
+        // TODO: This type should disappear.
         #[derive(Deserialize)]
         struct WrappedRatio(#[serde(deserialize_with = "deserialize_ratio")] Ratio<StackCoeff>);
 
@@ -816,18 +816,6 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
             StrategyAction::ToggleReanchor => {}
             StrategyAction::Reset => todo!(),
         }
-    }
-}
-
-impl<T: StackType> ExtractConfig<HarmonyStrategyConfig<T>> for HarmonySprings<T> {
-    fn extract_config(&self) -> HarmonyStrategyConfig<T> {
-        HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
-            memo_springs: self.memo_springs,
-            min_keys: self.min_keys,
-            max_tries: self.max_tries,
-            lower_notes_are_more_stable: self.lower_notes_are_more_stable,
-            provider: self.provider.clone(),
-        })
     }
 }
 

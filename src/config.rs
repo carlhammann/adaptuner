@@ -7,8 +7,9 @@ use crate::{
     bindable::{BindableEvent, BindableProcessAction, BindableStrategyAction},
     gui::lattice::LatticeWindowConfig,
     interval::{
+        base::Semitones,
         stack::Stack,
-        stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
+        stacktype::r#trait::{IntervalBasis, NamedInterval},
         temperament::TemperamentDefinition,
     },
     notename::NoteNameStyle,

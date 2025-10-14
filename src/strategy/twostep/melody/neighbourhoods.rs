@@ -4,7 +4,6 @@ use std::{
 };
 
 use crate::{
-    config::{ExtractConfig, MelodyStrategyConfig, StrategyConfig},
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
@@ -214,21 +213,6 @@ impl<T: StackType> MelodyStrategy<T> for Neighbourhoods<T> {
                     .handle_action(keys, tunings, action, time, forward);
                 self.solve(keys, tunings, harmony, time, forward)
             }
-        }
-    }
-}
-
-impl<T: StackType> ExtractConfig<MelodyStrategyConfig<T>> for Neighbourhoods<T> {
-    fn extract_config(&self) -> MelodyStrategyConfig<T> {
-        match self.inner.extract_config() {
-            StrategyConfig::StaticTuning(c) => {
-                MelodyStrategyConfig::Neighbourhoods(NeighbourhoodsConfig {
-                    fixed: self.fixed,
-                    inner: c,
-                    group_ms: self.group_duration.as_millis() as u64,
-                })
-            }
-            _ => unreachable!(),
         }
     }
 }

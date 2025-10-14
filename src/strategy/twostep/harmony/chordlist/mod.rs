@@ -1,9 +1,8 @@
-use std::{collections::VecDeque, cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::{ExtractConfig, HarmonyStrategyConfig},
     interval::{
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, StackCoeff, StackType},
@@ -244,21 +243,6 @@ impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
     }
 }
 
-impl<T: StackType> ExtractConfig<PatternConfig<T>> for Pattern<T> {
-    fn extract_config(&self) -> PatternConfig<T> {
-        let Pattern {
-            key_shape,
-            neighbourhood,
-            allow_extra_high_notes,
-        } = self;
-        PatternConfig {
-            key_shape: key_shape.clone(),
-            neighbourhood: neighbourhood.borrow().clone(),
-            allow_extra_high_notes: *allow_extra_high_notes,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
@@ -344,14 +328,5 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
             }
             _ => {}
         }
-    }
-}
-
-impl<T: StackType> ExtractConfig<HarmonyStrategyConfig<T>> for ChordList<T> {
-    fn extract_config(&self) -> HarmonyStrategyConfig<T> {
-        HarmonyStrategyConfig::ChordList(ChordListConfig {
-            enable: self.enable,
-            patterns: self.patterns.iter().map(|p| p.extract_config()).collect(),
-        })
     }
 }

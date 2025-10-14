@@ -395,6 +395,9 @@ where
                     let _ = self.send(FromProcess::MidiParseErr(e.to_string()));
                 }
             },
+            ToProcess::ToStrategy(msg) => {
+                let _ = self.to_strategy_tx.send(msg);
+            }
             ToProcess::NoteOn {
                 channel,
                 note,

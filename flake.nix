@@ -146,7 +146,7 @@
                   # dev-y
                   (latestRust pkgs).rust-analyzer
                   (latestRust pkgs).rustfmt
-		  rustDocOpen
+                  rustDocOpen
                   bacon
 
                   pandoc

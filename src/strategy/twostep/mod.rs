@@ -1,10 +1,8 @@
 use std::{cell::RefCell, collections::VecDeque, rc::Rc, time::Instant};
 
-use harmony::{chordlist::ChordList, springs::HarmonySprings};
-use melody::neighbourhoods::Neighbourhoods;
 
 use crate::{
-    config::{ExtractConfig, HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
+    config::{HarmonyStrategyConfig, MelodyStrategyConfig},
     interval::{
         base::Semitones,
         stack::Stack,
@@ -27,13 +25,13 @@ pub struct Harmony<T: IntervalBasis> {
     pub reference: StackCoeff,
 }
 
-pub trait HarmonyStrategy<T: StackType>: ExtractConfig<HarmonyStrategyConfig<T>> {
+pub trait HarmonyStrategy<T: StackType> {
     fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>);
     fn handle_msg(&mut self, msg: ToHarmonyStrategy<T>) -> bool;
     fn handle_action(&mut self, action: StrategyAction, forward: &mut VecDeque<FromStrategy<T>>);
 }
 
-pub trait MelodyStrategy<T: StackType>: ExtractConfig<MelodyStrategyConfig<T>> {
+pub trait MelodyStrategy<T: StackType> {
     /// returns a boolean signalling success and an optional stack that is the tuning of the
     /// `harmony.reference`
     fn solve(
@@ -86,15 +84,16 @@ impl<T: StackType> TwoStep<T> {
         harmony_config: HarmonyStrategyConfig<T>,
         melody_config: MelodyStrategyConfig<T>,
     ) -> Self {
-        Self {
-            harmony: match harmony_config {
-                HarmonyStrategyConfig::ChordList(c) => Box::new(ChordList::new(c)),
-                HarmonyStrategyConfig::Springs(c) => Box::new(HarmonySprings::new(c)),
-            },
-            melody: match melody_config {
-                MelodyStrategyConfig::Neighbourhoods(c) => Box::new(Neighbourhoods::new(c)),
-            },
-        }
+        todo!()
+        // Self {
+        //     harmony: match harmony_config {
+        //         HarmonyStrategyConfig::ChordList(c) => Box::new(ChordList::new(c)),
+        //         HarmonyStrategyConfig::Springs(c) => Box::new(HarmonySprings::new(c)),
+        //     },
+        //     melody: match melody_config {
+        //         MelodyStrategyConfig::Neighbourhoods(c) => Box::new(Neighbourhoods::new(c)),
+        //     },
+        // }
     }
 
     fn solve(
@@ -196,11 +195,5 @@ impl<T: StackType> Strategy<T> for TwoStep<T> {
             pattern_index,
             reference,
         });
-    }
-}
-
-impl<T: StackType> ExtractConfig<StrategyConfig<T>> for TwoStep<T> {
-    fn extract_config(&self) -> StrategyConfig<T> {
-        StrategyConfig::TwoStep(self.harmony.extract_config(), self.melody.extract_config())
     }
 }
