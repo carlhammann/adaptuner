@@ -230,20 +230,18 @@ fn activation_color<T: StackType>(
 }
 
 fn text_rect<T: StackType>(ui: &egui::Ui, text: &str, controls: &LatticeWindowControls<T>) -> Rect {
-    // Zugriff auf die Schriftmetriken
     let fonts = ui.fonts(|f| f.clone());
 
-    // Layout erstellen – kein Zeilenumbruch
+    // Create galley layout for measuring dimensions
     let galley = fonts.layout_no_wrap(
         text.to_owned(),
         egui::FontId::proportional(controls.zoom * FONT_SIZE),
         egui::Color32::WHITE,
     );
 
-    // Galley enthält bereits die Größe
     let size: Vec2 = galley.size();
 
-    // Wir erzeugen ein Rect von (0,0) bis (width,height)
+    // Create the rect surrounding the text 
     Rect::from_min_size(egui::Pos2::ZERO, size)
 }
 
