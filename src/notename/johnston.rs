@@ -129,25 +129,33 @@ pub mod fivelimit {
 
             let sf = self.accidental.sharpflat;
             if sf > 0 {
-                for _ in 0..sf {
-                    write!(f, "#")?;
+                if sf == 2 {
+                    write!(f, "\u{1D12A}")?; // double sharp
+                } else {
+                    for _ in 0..sf {
+                        write!(f, "\u{266F}")?; // sharp
+                    }
                 }
             }
             if sf < 0 {
-                for _ in 0..-sf {
-                    write!(f, "b")?;
+                if sf == -2 {
+                    write!(f, "\u{1D12B}")?; // double flat
+                } else {
+                    for _ in 0..-sf {
+                        write!(f, "\u{266D}")?; // flat
+                    }
                 }
             }
 
             let pm = self.accidental.plusminus;
             if pm > 0 {
                 for _ in 0..pm {
-                    write!(f, "+")?;
+                    write!(f, "\u{EE5C}")?; // plus
                 }
             }
             if pm < 0 {
                 for _ in 0..-pm {
-                    write!(f, "-")?;
+                    write!(f, "\u{EE5D}")?; // minus
                 }
             }
 

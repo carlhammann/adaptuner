@@ -104,6 +104,21 @@ where
     }
 }
 
+fn setup_fonts(ctx: &egui::Context) {
+    use egui::{FontData, FontDefinitions, FontFamily};
+
+    let mut fonts = FontDefinitions::default();
+
+    fonts.font_data.insert(
+        "inter_music".to_owned(),
+        FontData::from_static(include_bytes!("../assets/InterMusic.ttf")).into(),
+    );
+
+    fonts.families.get_mut(&FontFamily::Proportional).unwrap().insert(0, "inter_music".to_owned());
+
+    ctx.set_fonts(fonts);
+}
+
 fn start_gui<T, H, NH>(
     new_gui: NH,
     rx: mpsc::Receiver<ToUi<T>>,
@@ -139,6 +154,10 @@ where
         },
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
+
+            // load fonts
+            setup_fonts(&cc.egui_ctx);
+
             let gui = new_gui(&cc.egui_ctx, tx.clone());
             Ok(Box::new(GuiWithConnections::new(
                 cc,
