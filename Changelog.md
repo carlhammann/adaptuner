@@ -6,6 +6,10 @@
 
 - No more crashes on startup on MacOS because of the icon file
 
+### Improved
+
+- Use custom font for user interface, which supports music symbols
+
 ## [0.2.0] - 2025-08-22
 
 - Removed the terminal user interface, added a graphical user interface.
