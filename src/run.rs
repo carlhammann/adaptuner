@@ -110,16 +110,11 @@ fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
 
     fonts.font_data.insert(
-        "inter".to_owned(),
-        FontData::from_static(include_bytes!("../assets/Inter.ttf")).into(),
-    );
-    fonts.font_data.insert(
-        "bravura".to_owned(),
-        FontData::from_static(include_bytes!("../assets/Bravura.otf")).into(),
+        "inter_music".to_owned(),
+        FontData::from_static(include_bytes!("../assets/InterMusic.ttf")).into(),
     );
 
-    fonts.families.get_mut(&FontFamily::Proportional).unwrap().insert(0, "inter".to_owned());
-    fonts.families.get_mut(&FontFamily::Proportional).unwrap().insert(1, "bravura".to_owned());
+    fonts.families.get_mut(&FontFamily::Proportional).unwrap().insert(0, "inter_music".to_owned());
 
     ctx.set_fonts(fonts);
 }
