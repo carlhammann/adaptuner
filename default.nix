@@ -4,7 +4,7 @@
   stdenv,
   pkg-config,
   alsa-lib,
-  darwin,
+  apple-sdk,
   ...
 }:
 craneLib.buildPackage {
@@ -23,6 +23,6 @@ craneLib.buildPackage {
       alsa-lib
     ])
     ++ (lib.optionals stdenv.hostPlatform.isDarwin [
-      darwin.apple_sdk.frameworks.CoreMIDI
+      apple-sdk
     ]);
 }

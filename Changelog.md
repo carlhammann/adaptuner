@@ -1,14 +1,13 @@
 # Changelog
 
-## [unreleased]
-
-### Fixed
-
-- No more crashes on startup on MacOS because of the icon file
-
-### Improved
+## [0.2.2] - 2025-10-03
 
 - Use custom font for user interface, which supports music symbols
+- nix flake update
+
+## [0.2.1] - 2025-08-22
+
+- No more crashes on startup on MacOS because of the icon file
 
 ## [0.2.0] - 2025-08-22
 
