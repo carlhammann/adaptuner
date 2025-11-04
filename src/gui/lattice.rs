@@ -40,6 +40,8 @@ const FONT_SIZE: f32 = 2.0;
 const FAINT_GRID_LINE_THICKNESS: f32 = MARKER_THICKNESS;
 const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
 
+const MAX_ZOOM: f32 = 50.0;
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
@@ -147,6 +149,8 @@ pub struct LatticeWindow<T: StackType> {
     draw_state: OneNodeDrawState<T>,
     tmp_stack: Stack<T>,
     other_tmp_stack: Stack<T>,
+    
+    last_available_size: Option<egui::Vec2>
 }
 
 struct PureStacksAround<'a, T: StackType> {
@@ -462,6 +466,7 @@ impl<T: StackType> LatticeWindow<T> {
                 background_high: vec![0; T::num_intervals()],
             },
             controls: config.to_controls(correction_system_chooser),
+            last_available_size: Some(vec2(0.0, 0.0))
         }
     }
 
@@ -617,7 +622,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         state: &KeysAndTunings<T>,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
-        let bottom = self.positions.bottom;
+        //let bottom = self.positions.bottom;
+        let bottom = ui.max_rect().center_bottom().y;
         let left = self.positions.left;
         let zoom = self.controls.zoom;
         let white_key_width = zoom * OCTAVE_WIDTH / 7.0;
@@ -627,6 +633,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         );
 
         let active_color = ui.style().visuals.selection.bg_fill;
+        let white = ui.style().visuals.window_fill;
 
         let steps = [2, 2, 1, 2, 2, 2, 1];
         let mut key_number: u8 = 0;
@@ -642,9 +649,10 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                     egui::StrokeKind::Middle,
                 );
             } else {
-                ui.painter().rect_stroke(
+                ui.painter().rect(
                     rect,
                     egui::CornerRadius::default(),
+                    white,
                     egui::Stroke::new(zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
                     egui::StrokeKind::Middle,
                 );
@@ -662,7 +670,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         state: &KeysAndTunings<T>,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
-        let bottom = self.positions.bottom;
+        //let bottom = self.positions.bottom;
+        let bottom = ui.max_rect().center_bottom().y;
         let left = self.positions.left;
         let zoom = self.controls.zoom;
         let key_number_steps = [2, 3, 2, 2, 3];
@@ -707,7 +716,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     }
 
     fn draw_ruler(&self, ui: &mut egui::Ui) {
-        let bottom = self.positions.bottom;
+        //let bottom = self.positions.bottom;
+        let bottom = ui.max_rect().center_bottom().y;
         let zoom = self.controls.zoom;
         let mut x = self.positions.left + self.controls.zoom / 2.0;
         let y = egui::Rangef {
@@ -1045,6 +1055,12 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         self.draw_note_names_and_interaction_zones(ui, state, forward);
     }
 
+    fn lattice_width(&self) -> f32 {
+        let span_units = (self.positions.background_high[0] - self.positions.background_low[0]).abs() as f32 + 1.0;
+        let semitone_factor = T::intervals()[0].semitones as f32;
+        span_units * semitone_factor * self.controls.zoom
+    }
+
     fn keyboard_height(&self) -> f32 {
         self.controls.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH)
     }
@@ -1055,6 +1071,24 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
 }
 
 impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
+    fn min_zoom(&self, ui: &egui::Ui) -> f32 {
+        let total_width = (self.positions.background_high[0] - self.positions.background_low[0]).abs() as f32 + 1.0;
+        let total_height = self.positions.background_high.iter()
+            .zip(&self.positions.background_low)
+            .map(|(hi, lo)| (hi - lo).abs() as f32)
+            .sum::<f32>() + 1.0;
+
+        let available_width = ui.available_width();
+        let available_height = ui.available_height();
+
+        let keyboard_and_space = WHITE_KEY_LENGTH + MARKER_LENGTH + FREE_SPACE_ABOVE_KEYBOARD;
+
+        // Minimaler Zoom so, dass das Lattice gerade noch ins Fenster passt
+        (available_width / (total_width * 12.0))
+            .min(available_height / ((total_height + keyboard_and_space) * 4.0))
+            .max(0.05)
+    }
+
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -1063,6 +1097,14 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
         show_side_panel: &mut bool,
         forward: &mpsc::Sender<FromUi<T>>,
     ) {
+        let current_size = ui.available_size();
+
+        // resize event
+        if self.last_available_size != Some(current_size) {
+            self.reset_position = true;
+            self.last_available_size = Some(current_size);
+        }
+
         let r = ui.interact(
             ui.max_rect(),
             egui::Id::new("global_grid_interaction"),
@@ -1071,8 +1113,22 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
 
         if r.dragged() {
             let egui::Vec2 { x, y } = r.drag_delta();
-            self.positions.left += x;
-            self.positions.bottom = (self.positions.bottom + y).max(ui.max_rect().bottom());
+            //self.positions.left += x;
+            //self.positions.bottom = (self.positions.bottom + y).max(ui.max_rect().bottom());
+
+            let new_left = self.positions.left + x;
+            let new_bottom = self.positions.bottom + y;
+
+            let max_rect = ui.max_rect();
+
+            // Linke Position clampen
+            let max_left = 0.0;
+            let min_left = self.lattice_width() - max_rect.right();
+            self.positions.left = new_left.clamp(min_left, max_left);
+
+            //self.positions.bottom = new_bottom.max(max_rect.bottom()).min(max_rect.top());
+            self.positions.bottom = new_bottom;
+
             self.reset_position = false;
         }
         if r.double_clicked() {
@@ -1087,9 +1143,40 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
             self.positions.left = center - self.c4_offset(state);
             self.positions.bottom = bottom;
         }
+
+        self.draw_lattice(ui, state, forward);
         self.keyboard_hover_interaction(ui, forward);
         self.draw_keyboard(ui, state, forward);
-        self.draw_lattice(ui, state, forward);
+
+        ui.input(|i| {
+            let scroll_y = if i.smooth_scroll_delta.y != 0.0 {
+                i.smooth_scroll_delta.y
+            } else {
+                i.raw_scroll_delta.y
+            };
+
+            if scroll_y.abs() > 0.0 {
+                let sensitivity = if i.modifiers.ctrl || i.modifiers.command {
+                    0.0001
+                } else {
+                    0.001
+                };
+
+                let screen_center = ui.max_rect().center();
+                let before_zoom_to_center = (screen_center.x - self.positions.left, screen_center.y - self.positions.bottom);
+
+                let min_zoom = self.min_zoom(ui);
+
+                let old_zoom = self.controls.zoom;
+                self.controls.zoom = (self.controls.zoom * (1.0 + scroll_y * sensitivity)).clamp(min_zoom, MAX_ZOOM);
+
+                let zoom_ratio = self.controls.zoom / old_zoom;
+                self.positions.left -= before_zoom_to_center.0 * (zoom_ratio - 1.0);
+                self.positions.bottom -= before_zoom_to_center.1 * (zoom_ratio - 1.0);
+
+                self.reset_position = false;
+            }
+        });
 
         ui.horizontal(|ui| {
             if !*show_side_panel {
@@ -1103,10 +1190,11 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
             }
 
             if ui.button("🔍+").clicked() {
-                self.controls.zoom *= 1.1;
+                self.controls.zoom = (self.controls.zoom * 1.1).min(MAX_ZOOM);
             }
             if ui.button("🔍-").clicked() {
-                self.controls.zoom /= 1.1;
+                let min_zoom = self.min_zoom(ui);
+                self.controls.zoom = (self.controls.zoom / 1.1).max(min_zoom);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                 latency.show(ui);
