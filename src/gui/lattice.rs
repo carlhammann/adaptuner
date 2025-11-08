@@ -1,6 +1,6 @@
 use std::{cell::RefCell, hash::Hash, rc::Rc, sync::mpsc, time::Instant};
 
-use eframe::egui::{self, pos2, vec2};
+use eframe::egui::{self, pos2, vec2, Vec2, Rect};
 use midi_msg::Channel;
 use serde_derive::{Deserialize, Serialize};
 
@@ -229,6 +229,22 @@ fn activation_color<T: StackType>(
     .into()
 }
 
+fn text_rect<T: StackType>(ui: &egui::Ui, text: &str, controls: &LatticeWindowControls<T>) -> Rect {
+    let fonts = ui.fonts(|f| f.clone());
+
+    // Create galley layout for measuring dimensions
+    let galley = fonts.layout_no_wrap(
+        text.to_owned(),
+        egui::FontId::proportional(controls.zoom * FONT_SIZE),
+        egui::Color32::WHITE,
+    );
+
+    let size: Vec2 = galley.size();
+
+    // Create the rect surrounding the text 
+    Rect::from_min_size(egui::Pos2::ZERO, size)
+}
+
 impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
     /// returns a rect that may not be as wide as the complete note name, but that is as high as it.
     fn draw_corrected_note_name(
@@ -393,19 +409,20 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
     ) where
         T: Hash,
     {
+        let text = stack.notename(&controls.notenamestyle);
+        let text_rect_untranslated = text_rect(ui, &text, controls);
+        let padding = controls.zoom * 0.1 * FONT_SIZE;
+
+        let rect = text_rect_untranslated.expand(padding).translate(vec2(pos.x - text_rect_untranslated.width() / 2.0, pos.y - text_rect_untranslated.height() / 2.0));
+
         let draw_activation_circle = |active: bool| {
             if active {
-                ui.painter().circle_filled(
-                    pos,
-                    controls.zoom * FONT_SIZE,
+                ui.painter().rect_filled(
+                    rect.scale_from_center(1.4), 4,
                     activation_color(ui, controls, stack),
                 );
             } else {
-                ui.painter().circle_filled(
-                    pos,
-                    controls.zoom * 0.6 * FONT_SIZE,
-                    ui.style().visuals.window_fill,
-                );
+                ui.painter().rect_filled(rect, 4, ui.style().visuals.window_fill);
             }
         };
 
@@ -1071,6 +1088,7 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
 
         if r.dragged() {
             let egui::Vec2 { x, y } = r.drag_delta();
+            
             self.positions.left += x;
             self.positions.bottom = (self.positions.bottom + y).max(ui.max_rect().bottom());
             self.reset_position = false;
