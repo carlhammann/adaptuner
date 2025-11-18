@@ -1,6 +1,6 @@
 use std::{cell::RefCell, hash::Hash, rc::Rc, sync::mpsc, time::Instant};
 
-use eframe::egui::{self, pos2, vec2};
+use eframe::egui::{self, pos2, vec2, Popup, PopupCloseBehavior};
 use midi_msg::Channel;
 use serde_derive::{Deserialize, Serialize};
 
@@ -332,7 +332,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
             for b in self.tmp_temperaments.iter_mut() {
                 *b = false;
             }
-            ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+            Popup::toggle_id(ui.ctx(), popup_id);
             self.tmp_relative_stack.clone_from(stack);
             self.tmp_relative_stack.scaled_add(-1, reference);
 
@@ -346,13 +346,11 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                 self.tmp_correction.reset_to_zero();
             }
         }
-        egui::popup::popup_below_widget(
-            ui,
-            popup_id,
-            &response,
-            egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-            |ui| {
-                if temperament_applier(
+        Popup::menu(&response)
+            .id(popup_id)
+            .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
+            if temperament_applier(
                     Some(&format!(
                         "make pure relative to {}",
                         reference.corrected_notename(
@@ -377,8 +375,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                         time: Instant::now(),
                     });
                 }
-            },
-        );
+        });
     }
 
     fn draw_note_and_interaction_zone(
