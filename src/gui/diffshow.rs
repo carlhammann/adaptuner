@@ -34,7 +34,7 @@ impl DiffShow {
     pub fn update(&mut self, left: &str, right: &str, ui: &egui::Ui) {
         let diff = TextDiff::from_lines(left, right);
 
-        let format_both = egui::text::TextFormat {
+        let format_both = egui::TextFormat {
             font_id: DIFF_FONT_ID,
             extra_letter_spacing: 0.0,
             line_height: None {},
@@ -44,6 +44,7 @@ impl DiffShow {
             underline: egui::Stroke::NONE,
             strikethrough: egui::Stroke::NONE,
             valign: egui::Align::Min,
+            expand_bg: 1.0
         };
 
         let format_right = egui::TextFormat {
@@ -84,7 +85,7 @@ impl DiffShow {
         }
 
         if !self.first_lines_of_changed_blocks.is_empty() {
-            self.galley = Some(ui.ctx().fonts(|f| f.layout_job(layout_job)));
+            self.galley = Some(ui.ctx().fonts_mut(|f| f.layout_job(layout_job)));
             self.show_line = self.first_lines_of_changed_blocks[0];
             self.change_block_index = 0;
         } else {
@@ -146,7 +147,7 @@ impl DiffShow {
                         ui.label(egui::RichText::from(&self.position_pointer).font(DIFF_FONT_ID));
                         let text_rect = ui.label(galley.clone()).rect;
                         if self.scroll_to_line {
-                            let row_height = ui.ctx().fonts(|f| f.row_height(&DIFF_FONT_ID));
+                            let row_height = ui.ctx().fonts_mut(|f| f.row_height(&DIFF_FONT_ID));
                             let line_rect = egui::Rect::from_min_size(
                                 pos2(
                                     text_rect.left(),

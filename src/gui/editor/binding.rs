@@ -1,6 +1,6 @@
 use std::sync::mpsc;
 
-use eframe::egui;
+use eframe::egui::{self, Popup};
 
 use crate::{
     bindable::{Bindable, Bindings, MidiBindable},
@@ -116,7 +116,8 @@ pub fn bindable_selector(
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .selected_text(format!("{tmp_bindable}"))
         .show_ui(ui, |ui| {
-            let close_popup = |ui: &mut egui::Ui| ui.memory_mut(|m| m.close_popup());
+            let popup_id = ui.id();
+            let close_popup = |ui: &mut egui::Ui| Popup::close_id(ui.ctx(), popup_id);
 
             for (bindable, description) in [
                 (
@@ -207,9 +208,8 @@ pub fn strategy_action_selector(
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .selected_text(tmp_strategy_action.map_or("".into(), |action| format!("{action}")))
         .show_ui(ui, |ui| {
-            let close_popup = |ui: &mut egui::Ui| {
-                ui.memory_mut(|m| m.close_popup());
-            };
+            let popup_id = ui.id();
+            let close_popup = |ui: &mut egui::Ui| Popup::close_id(ui.ctx(), popup_id);
 
             if strategy_kind.action_allowed(&StrategyAction::IncrementNeighbourhoodIndex(0)) {
                 ui.horizontal(|ui| {
