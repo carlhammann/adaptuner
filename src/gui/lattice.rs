@@ -332,7 +332,6 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
             for b in self.tmp_temperaments.iter_mut() {
                 *b = false;
             }
-            Popup::toggle_id(ui.ctx(), popup_id);
             self.tmp_relative_stack.clone_from(stack);
             self.tmp_relative_stack.scaled_add(-1, reference);
 
