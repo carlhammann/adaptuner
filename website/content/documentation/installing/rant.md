@@ -19,7 +19,7 @@ essentially impossible to create a binary that will run on a Mac without using
 a Mac. I don't own a Mac, and I'm only able to create MacOS binaries using the
 compute that GitHub provides to public repositories.)
 
-(GitHub is of course a can of worms in it's own right: It's the world's biggest
+(GitHub is of course a can of worms in its own right: It's the world's biggest
 source code host. If your project isn't on GitHub, it might as well not exist.
 Microsoft acquired GitHub in 2018, which means that the world's largest
 repository of open-source and free software is owned by a company whose stance
