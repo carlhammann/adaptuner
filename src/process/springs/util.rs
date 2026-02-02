@@ -107,9 +107,9 @@ impl<'a, T: StackType + Eq + std::fmt::Debug> Solutions<'a, T> {
         }
     }
 
-    pub fn next(
-        &mut self,
-    ) -> Result<Option<(ArrayView2<Ratio<StackCoeff>>, bool, Energy)>, lu::LUErr> {
+    pub fn next<'x>(
+        &'x mut self,
+    ) -> Result<Option<(ArrayView2<'x, Ratio<StackCoeff>>, bool, Energy)>, lu::LUErr> {
         if !self.next_try_prepared {
             self.next_try = self.workspace.prepare_next_candidate();
         }
@@ -214,9 +214,9 @@ impl<'a, T: StackType + Eq + std::fmt::Debug> IntervalSolutions<'a, T> {
         }
     }
 
-    pub fn next(
-        &mut self,
-    ) -> Result<Option<(ArrayView2<Ratio<StackCoeff>>, bool, Energy)>, lu::LUErr> {
+    pub fn next<'x>(
+        &'x mut self,
+    ) -> Result<Option<(ArrayView2<'x, Ratio<StackCoeff>>, bool, Energy)>, lu::LUErr> {
         if !self.next_try_prepared {
             self.next_try = self.workspace.prepare_next_spring_candidate();
         }
@@ -1566,9 +1566,7 @@ mod test {
                 provide_candidate_springs,
                 provide_candidate_anchors,
                 |s| match s[..] {
-                    [(7, n)] => {
-                        Stack::from_pure_interval(MockFiveLimitStackType::fifth_index(), n)
-                    }
+                    [(7, n)] => Stack::from_pure_interval(MockFiveLimitStackType::fifth_index(), n),
                     _ => unreachable!(),
                 },
                 &mut solver,

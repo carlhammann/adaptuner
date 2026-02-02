@@ -47,7 +47,7 @@ where
 {
     /// The error "tempered out" by the `i`-th interval, given as (the coefficients of) a rational
     /// combination of pure intervals.
-    pub fn comma(&self, i: usize) -> ArrayView1<Ratio<I>> {
+    pub fn comma<'a>(&'a self, i: usize) -> ArrayView1<'a, Ratio<I>> {
         self.adjustments.slice(s![i, ..])
     }
 

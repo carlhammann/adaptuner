@@ -108,11 +108,11 @@ impl<T: IntervalBasis> Stack<T> {
         }
     }
 
-    pub fn target_coefficients(&self) -> ArrayView1<StackCoeff> {
+    pub fn target_coefficients<'a>(&'a self) -> ArrayView1<'a, StackCoeff> {
         self.target.view()
     }
 
-    pub fn actual_coefficients(&self) -> ArrayView1<Ratio<StackCoeff>> {
+    pub fn actual_coefficients<'a>(&'a self) -> ArrayView1<'a, Ratio<StackCoeff>> {
         self.actual.view()
     }
 
