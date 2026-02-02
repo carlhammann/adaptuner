@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub trait HandleMsg<I, O> {
-    fn handle_msg(&mut self, msg: I, forward: &mpsc::Sender<O>);
+    fn handle_msg(&mut self, msg:I, forward: &mpsc::Sender<O>);
 }
 
 pub trait ReceiveMsg<I> {
@@ -25,6 +25,10 @@ pub trait ReceiveMsg<I> {
 
 pub trait ReceiveMsgRef<I> {
     fn receive_msg_ref(&mut self, msg: &I);
+}
+
+pub trait SendMsg<O> {
+    fn send_msg(&self, msg: O) -> bool;
 }
 
 /// Convention: the handler wil handle a 'stop' message, and immediately after that the thread will exit.

@@ -15,11 +15,40 @@ use crate::{
     interval::stacktype::r#trait::StackType,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
-        FromBackend, FromMidiIn, FromMidiOut, FromProcess, FromUi, HandleMsg, HasStop,
-        MessageTranslate, MessageTranslate2, MessageTranslate3, MessageTranslate4, ReceiveMsg,
-        ToBackend, ToMidiIn, ToMidiOut, ToProcess, ToUi,
+        FromBackend, FromProcess, FromUi, HandleMsg, HasStop, MessageTranslate, MessageTranslate2,
+        MessageTranslate3, MessageTranslate4, ReceiveMsg, SendMsg, ToBackend, ToMidiIn, ToMidiOut,
+        ToProcess, ToUi,
     },
 };
+
+fn start_receiver_thread<I, H, C, NH>(
+    new_state: NH,
+    rx: mpsc::Receiver<I>,
+) -> thread::JoinHandle<(C, mpsc::Receiver<I>)>
+where
+    H: ReceiveMsg<I>,
+    H: ExtractConfig<C>,
+    I: HasStop + Send + 'static,
+    NH: FnOnce() -> H + Send + 'static,
+    C: Send + 'static,
+{
+    thread::spawn(move || {
+        let mut state = new_state();
+        loop {
+            match rx.recv() {
+                Ok(msg) => {
+                    let stop = msg.is_stop();
+                    state.receive_msg(msg);
+                    if stop {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        (state.extract_config(), rx)
+    })
+}
 
 fn start_handler_thread<I, O, H, C, NH>(
     new_state: NH,
@@ -114,7 +143,11 @@ fn setup_fonts(ctx: &egui::Context) {
         FontData::from_static(include_bytes!("../assets/InterMusic.ttf")).into(),
     );
 
-    fonts.families.get_mut(&FontFamily::Proportional).unwrap().insert(0, "inter_music".to_owned());
+    fonts
+        .families
+        .get_mut(&FontFamily::Proportional)
+        .unwrap()
+        .insert(0, "inter_music".to_owned());
 
     ctx.set_fonts(fonts);
 }
@@ -323,26 +356,14 @@ where
 }
 
 pub struct RunState<T: StackType> {
-    midi_input: thread::JoinHandle<(
-        MidiInputConfig,
-        mpsc::Receiver<ToMidiIn>,
-        mpsc::Sender<FromMidiIn>,
-    )>,
-    midi_output: thread::JoinHandle<(
-        MidiOutputConfig,
-        mpsc::Receiver<ToMidiOut>,
-        mpsc::Sender<FromMidiOut>,
-    )>,
+    midi_input: thread::JoinHandle<(MidiInputConfig, mpsc::Receiver<ToMidiIn>)>,
+    midi_output: thread::JoinHandle<(MidiOutputConfig, mpsc::Receiver<ToMidiOut>)>,
     process: thread::JoinHandle<(
         ProcessConfig<T>,
         mpsc::Receiver<ToProcess<T>>,
         mpsc::Sender<FromProcess<T>>,
     )>,
-    backend: thread::JoinHandle<(
-        BackendConfig,
-        mpsc::Receiver<ToBackend>,
-        mpsc::Sender<FromBackend>,
-    )>,
+    backend: thread::JoinHandle<(BackendConfig, mpsc::Receiver<ToBackend>)>,
     to_process_tx: mpsc::Sender<ToProcess<T>>,
     to_backend_tx: mpsc::Sender<ToBackend>,
     to_midi_input_tx: mpsc::Sender<ToMidiIn>,
@@ -386,9 +407,10 @@ impl<T: StackType> RunState<T> {
         P: HandleMsg<ToProcess<T>, FromProcess<T>>
             + ExtractConfig<ProcessConfig<T>>
             + FromConfigAndState<ProcessConfig<T>, ()>,
-        B: HandleMsg<ToBackend, FromBackend>
+        B: ReceiveMsg<ToBackend>
+            + SendMsg<FromBackend>
             + ExtractConfig<BackendConfig>
-            + FromConfigAndState<BackendConfig, ()>,
+            + FromConfigAndState<BackendConfig, mpsc::Sender<FromBackend>>,
         U: ReceiveMsg<ToUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
         NU: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> U + Send + 'static,
     {
@@ -398,7 +420,7 @@ impl<T: StackType> RunState<T> {
 
         let (to_midi_output_tx, to_midi_output_rx) = mpsc::channel();
         let (from_midi_output_tx, from_midi_output_rx) = mpsc::channel();
-        let midi_output = MidiOutputOrConnection::new(midi_out);
+        let midi_output = MidiOutputOrConnection::new(midi_out, from_midi_output_tx);
 
         let (to_process_tx, to_process_rx) = mpsc::channel();
         let (from_process_tx, from_process_rx) = mpsc::channel::<FromProcess<T>>();
@@ -431,21 +453,16 @@ impl<T: StackType> RunState<T> {
         );
 
         let res = Self {
-            midi_input: start_handler_thread(|| midi_input, to_midi_input_rx, from_midi_input_tx),
-            midi_output: start_handler_thread(
-                || midi_output,
-                to_midi_output_rx,
-                from_midi_output_tx,
-            ),
+            midi_input: start_receiver_thread(|| midi_input, to_midi_input_rx),
+            midi_output: start_receiver_thread(|| midi_output, to_midi_output_rx),
             process: start_handler_thread(
                 || P::initialise(process_config, ()),
                 to_process_rx,
                 from_process_tx,
             ),
-            backend: start_handler_thread(
-                || B::initialise(backend_config, ()),
+            backend: start_receiver_thread(
+                || B::initialise(backend_config, from_backend_tx),
                 to_backend_rx,
-                from_backend_tx,
             ),
             to_process_tx: to_process_tx.clone(),
             to_backend_tx,
@@ -484,17 +501,17 @@ impl<T: StackType> RunState<T> {
         };
 
         let _ = self.to_backend_tx.send(ToBackend::Stop);
-        let Ok((backend_config, _, _)) = self.backend.join() else {
+        let Ok((backend_config, _)) = self.backend.join() else {
             return Err(JoinError::Backend);
         };
 
         let _ = self.to_midi_input_tx.send(ToMidiIn::Stop);
-        let Ok((midi_input_config, _, _)) = self.midi_input.join() else {
+        let Ok((midi_input_config, _)) = self.midi_input.join() else {
             return Err(JoinError::MidiInput);
         };
 
         let _ = self.to_midi_output_tx.send(ToMidiOut::Stop);
-        let Ok((midi_output_config, _, _)) = self.midi_output.join() else {
+        let Ok((midi_output_config, _)) = self.midi_output.join() else {
             return Err(JoinError::MidiOutput);
         };
 
