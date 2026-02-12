@@ -1,7 +1,5 @@
-use std::{collections::VecDeque, rc::Rc, time::Instant};
+use std::{rc::Rc, sync::mpsc, time::Instant};
 
-use harmony::chordlist::ChordList;
-use melody::neighbourhoods::Neighbourhoods;
 
 use crate::{
     config::{ExtractConfig, HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
@@ -15,7 +13,7 @@ use crate::{
     neighbourhood::SomeNeighbourhood,
 };
 
-use super::r#trait::{Strategy, StrategyAction};
+use super::r#trait::StrategyAction;
 
 pub mod harmony;
 pub mod melody;
@@ -30,48 +28,28 @@ pub struct Harmony<T: IntervalBasis> {
 pub trait HarmonyStrategy<T: StackType>: ExtractConfig<HarmonyStrategyConfig<T>> {
     fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>);
     fn handle_msg(&mut self, msg: ToHarmonyStrategy<T>) -> bool;
-    fn handle_action(&mut self, action: StrategyAction, forward: &mut VecDeque<FromStrategy<T>>);
+    fn handle_action(&mut self, action: StrategyAction, forward: &mpsc::Sender<FromStrategy<T>>);
 }
 
 pub trait MelodyStrategy<T: StackType>: ExtractConfig<MelodyStrategyConfig<T>> {
     /// returns a boolean signalling success and an optional stack that is the tuning of the
     /// `harmony.reference`
-    fn solve(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        harmony: Option<Harmony<T>>,
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> (bool, Option<Stack<T>>);
+    fn solve(&mut self, harmony: Option<Harmony<T>>, time: Instant) -> (bool, Option<Stack<T>>);
 
     fn handle_msg(
         &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
         harmony: Option<Harmony<T>>,
         msg: ToStrategy<T>,
-        forward: &mut VecDeque<FromStrategy<T>>,
     ) -> (bool, Option<Stack<T>>);
 
     fn handle_action(
         &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
         harmony: Option<Harmony<T>>,
         action: StrategyAction,
         time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
     ) -> (bool, Option<Stack<T>>);
 
-    fn start(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        harmony: Option<Harmony<T>>,
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> Option<Stack<T>>;
+    fn start(&mut self, harmony: Option<Harmony<T>>, time: Instant) -> Option<Stack<T>>;
 
     fn absolute_semitones(&self, stack: &Stack<T>) -> Semitones;
 }
@@ -82,121 +60,126 @@ pub struct TwoStep<T: StackType> {
 }
 
 impl<T: StackType> TwoStep<T> {
-    pub fn new(
-        harmony_config: HarmonyStrategyConfig<T>,
-        melody_config: MelodyStrategyConfig<T>,
-    ) -> Self {
-        Self {
-            harmony: match harmony_config {
-                HarmonyStrategyConfig::ChordList(c) => Box::new(ChordList::new(c)),
-            },
-            melody: match melody_config {
-                MelodyStrategyConfig::Neighbourhoods(c) => Box::new(Neighbourhoods::new(c)),
-            },
-        }
-    }
-
-    fn solve(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> bool {
-        let (pattern_index, harmony) = self.harmony.solve(keys);
-        let (success, reference) = self.melody.solve(keys, tunings, harmony, time, forward);
-        forward.push_back(FromStrategy::CurrentHarmony {
-            pattern_index,
-            reference,
-        });
-        success
-    }
+    // pub fn new(
+    //     harmony_config: HarmonyStrategyConfig<T>,
+    //     melody_config: MelodyStrategyConfig<T>,
+    //     forward: mpsc::Sender<FromStrategy<T>>,
+    //     key_states: Reader<[KeyState; 128]>,
+    //     tunings: ReaderWriter<[Stack<T>; 128]>,
+    // ) -> Self {
+    //     Self {
+    //         harmony: match harmony_config {
+    //             HarmonyStrategyConfig::ChordList(c) => Box::new(ChordList::new(c)),
+    //         },
+    //         melody: match melody_config {
+    //             MelodyStrategyConfig::Neighbourhoods(c) => {
+    //                 Box::new(Neighbourhoods::new(c, forward, key_states, tunings))
+    //             }
+    //         },
+    //     }
+    // }
+    //
+    // fn solve(
+    //     &mut self,
+    //     keys: &[KeyState; 128],
+    //     tunings: &mut [Stack<T>; 128],
+    //     time: Instant,
+    //     forward: &mpsc::Sender<FromStrategy<T>>,
+    // ) -> bool {
+    //     let (pattern_index, harmony) = self.harmony.solve();
+    //     let (success, reference) = self.melody.solve(harmony, time);
+    //     forward.send(FromStrategy::CurrentHarmony {
+    //         pattern_index,
+    //         reference,
+    //     });
+    //     success
+    // }
 }
 
-impl<T: StackType> Strategy<T> for TwoStep<T> {
-    fn note_on<'a>(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &'a mut [Stack<T>; 128],
-        note: u8,
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> Option<(Semitones, &'a Stack<T>)> {
-        if self.solve(keys, tunings, time, forward) {
-            let stack = &tunings[note as usize];
-            Some((self.melody.absolute_semitones(stack), stack))
-        } else {
-            None {}
-        }
-    }
-
-    fn note_off(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        _note: u8,
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> bool {
-        self.solve(keys, tunings, time, forward)
-    }
-
-    fn handle_msg(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        msg: ToStrategy<T>,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> bool {
-        match msg {
-            ToStrategy::ToHarmonyStrategy(msg, time) => {
-                if self.harmony.handle_msg(msg) {
-                    self.solve(keys, tunings, time, forward)
-                } else {
-                    false
-                }
-            }
-
-            ToStrategy::Action { action, time } => {
-                self.harmony.handle_action(action, forward);
-                let (pattern_index, harmony) = self.harmony.solve(keys);
-                let (success, reference) = self
-                    .melody
-                    .handle_action(keys, tunings, harmony, action, time, forward);
-                forward.push_back(FromStrategy::CurrentHarmony {
-                    pattern_index,
-                    reference,
-                });
-                success
-            }
-
-            _ => {
-                let (pattern_index, harmony) = self.harmony.solve(keys);
-                let (success, reference) =
-                    self.melody.handle_msg(keys, tunings, harmony, msg, forward);
-                forward.push_back(FromStrategy::CurrentHarmony {
-                    pattern_index,
-                    reference,
-                });
-                success
-            }
-        }
-    }
-
-    fn start(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) {
-        let (pattern_index, harmony) = self.harmony.solve(keys);
-        let reference = self.melody.start(keys, tunings, harmony, time, forward);
-        forward.push_back(FromStrategy::CurrentHarmony {
-            pattern_index,
-            reference,
-        });
-    }
+impl<T: StackType> TwoStep<T> {
+    // fn note_on<'a>(
+    //     &mut self,
+    //     keys: &[KeyState; 128],
+    //     tunings: &'a mut [Stack<T>; 128],
+    //     note: u8,
+    //     time: Instant,
+    //     forward: &mpsc::Sender<FromStrategy<T>>,
+    // ) -> Option<Semitones> {
+    //     if self.solve(keys, tunings, time, forward) {
+    //         let stack = &tunings[note as usize];
+    //         Some(self.melody.absolute_semitones(stack))
+    //     } else {
+    //         None {}
+    //     }
+    // }
+    //
+    // fn note_off(
+    //     &mut self,
+    //     keys: &[KeyState; 128],
+    //     tunings: &mut [Stack<T>; 128],
+    //     _note: u8,
+    //     time: Instant,
+    //     forward: &mpsc::Sender<FromStrategy<T>>,
+    // ) -> bool {
+    //     self.solve(keys, tunings, time, forward)
+    // }
+    //
+    // fn handle_msg(
+    //     &mut self,
+    //     keys: &[KeyState; 128],
+    //     tunings: &mut [Stack<T>; 128],
+    //     msg: ToStrategy<T>,
+    //     forward: &mpsc::Sender<FromStrategy<T>>,
+    // ) -> bool {
+    //     match msg {
+    //         ToStrategy::ToHarmonyStrategy(msg, time) => {
+    //             if self.harmony.handle_msg(msg) {
+    //                 self.solve(keys, tunings, time, forward)
+    //             } else {
+    //                 false
+    //             }
+    //         }
+    //
+    //         ToStrategy::Action { action, time } => {
+    //             self.harmony.handle_action(action, forward);
+    //             let (pattern_index, harmony) = self.harmony.solve(keys);
+    //             let (success, reference) = self
+    //                 .melody
+    //                 .handle_action(keys, tunings, harmony, action, time, forward);
+    //             forward.send(FromStrategy::CurrentHarmony {
+    //                 pattern_index,
+    //                 reference,
+    //             });
+    //             success
+    //         }
+    //
+    //         _ => {
+    //             let (pattern_index, harmony) = self.harmony.solve(keys);
+    //             let (success, reference) =
+    //                 self.melody.handle_msg(keys, tunings, harmony, msg, forward);
+    //             forward.send(FromStrategy::CurrentHarmony {
+    //                 pattern_index,
+    //                 reference,
+    //             });
+    //             success
+    //         }
+    //     }
+    // }
+    //
+    // fn start(
+    //     &mut self,
+    //     keys: &[KeyState; 128],
+    //     tunings: &mut [Stack<T>; 128],
+    //     time: Instant,
+    //     forward: &mpsc::Sender<FromStrategy<T>>,
+    // ) {
+    //     let (pattern_index, harmony) = self.harmony.solve(keys);
+    //     let reference = self.melody.start(keys, tunings, harmony, time, forward);
+    //     forward.send(FromStrategy::CurrentHarmony {
+    //         pattern_index,
+    //         reference,
+    //     });
+    // }
 }
 
 impl<T: StackType> ExtractConfig<StrategyConfig<T>> for TwoStep<T> {

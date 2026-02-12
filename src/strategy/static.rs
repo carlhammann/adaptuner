@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, time::Instant};
+use std::{sync::mpsc, time::Instant};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -10,20 +10,30 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
-    msg::{FromStrategy, ToStrategy},
+    msg::{FromStrategy, ReceiveMsg, SendMsg, ToStrategy},
     neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
     reference::Reference,
     strategy::r#trait::Strategy,
+    util::readerwriter::{Reader, ReaderWriter},
 };
 
 use super::r#trait::StrategyAction;
 
-pub struct StaticTuning<T: IntervalBasis> {
+pub struct StaticTuning<T: StackType> {
     neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
     curr_neighbourhood_index: Option<usize>,
     pub tuning_reference: Reference<T>,
     pub reference: Stack<T>,
     tuning_up_to_date: [bool; 128],
+
+    // the next three are public to enable the definition of helper functions in
+    // strategy::twostep::melody::neighbourhoods.
+    //
+    // It would be better for them to be private to this module, which would require a slight
+    // refactoring.
+    pub forward: mpsc::Sender<FromStrategy<T>>,
+    pub key_states: Reader<[KeyState; 128]>,
+    pub tunings: ReaderWriter<[Stack<T>; 128]>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -35,14 +45,22 @@ pub struct StaticTuningConfig<T: IntervalBasis> {
     pub reference: Stack<T>,
 }
 
-impl<T: IntervalBasis> StaticTuning<T> {
-    pub fn new(config: StaticTuningConfig<T>) -> Self {
+impl<T: StackType> StaticTuning<T> {
+    pub fn new(
+        config: StaticTuningConfig<T>,
+        forward: mpsc::Sender<FromStrategy<T>>,
+        key_states: Reader<[KeyState; 128]>,
+        tunings: ReaderWriter<[Stack<T>; 128]>,
+    ) -> Self {
         Self {
             neighbourhoods: config.neighbourhoods,
             curr_neighbourhood_index: Some(0),
             tuning_reference: config.tuning_reference,
             reference: config.reference,
             tuning_up_to_date: [false; 128],
+            forward,
+            key_states,
+            tunings,
         }
     }
 }
@@ -65,14 +83,15 @@ impl<T: StackType> StaticTuning<T> {
     /// long as there's a selected neighbourhood),
     ///
     /// `Some(true)` means the tuning wasn't previously up to date.
-    pub fn update_tuning(&mut self, tunings: &mut [Stack<T>; 128], note: u8) -> Option<bool> {
+    pub fn update_tuning(&mut self, note: u8) -> Option<bool> {
         if let Some(cni) = self.curr_neighbourhood_index {
             if !self.tuning_up_to_date[note as usize] {
                 self.neighbourhoods[cni].write_relative_stack(
-                    tunings.get_mut(note as usize).unwrap(),
+                    self.tunings.write().get_mut(note as usize).unwrap(),
                     note as StackCoeff - self.reference.key_number(),
                 );
-                tunings
+                self.tunings
+                    .write()
                     .get_mut(note as usize)
                     .unwrap()
                     .scaled_add(1, &self.reference);
@@ -94,20 +113,14 @@ impl<T: StackType> StaticTuning<T> {
         self.tuning_up_to_date.iter_mut().for_each(|b| *b = false);
     }
 
-    fn update_tuning_and_send(
-        &mut self,
-        tunings: &mut [Stack<T>; 128],
-        note: u8,
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> bool {
-        if let Some(changed) = self.update_tuning(tunings, note) {
+    fn update_tuning_and_send(&mut self, note: u8, time: Instant) -> bool {
+        if let Some(changed) = self.update_tuning(note) {
             if changed {
-                forward.push_back(FromStrategy::Retune {
+                let _ = self.forward.send(FromStrategy::Retune {
                     note,
-                    tuning: tunings[note as usize]
+                    tuning: self.tunings.read()[note as usize]
                         .absolute_semitones(self.tuning_reference.c4_semitones()),
-                    tuning_stack: tunings[note as usize].clone(),
+                    tuning_stack: self.tunings.read()[note as usize].clone(),
                     time,
                 });
             }
@@ -119,19 +132,13 @@ impl<T: StackType> StaticTuning<T> {
 
     /// returns the index of the highest note that was either successfully tuned or silent: 128
     /// means full successs, -1 means no note was tuned.
-    pub fn update_all_tunings_and_send(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> isize {
+    pub fn update_all_tunings_and_send(&mut self, time: Instant) -> isize {
         for b in self.tuning_up_to_date.iter_mut() {
             *b = false;
         }
         for note in 0..128 {
-            if keys[note as usize].is_sounding() {
-                if !self.update_tuning_and_send(tunings, note, time, forward) {
+            if self.key_states.read()[note as usize].is_sounding() {
+                if !self.update_tuning_and_send(note, time) {
                     return note as isize - 1;
                 }
             }
@@ -139,19 +146,21 @@ impl<T: StackType> StaticTuning<T> {
         128
     }
 
-    pub fn start_but_dont_retune(&mut self, forward: &mut VecDeque<FromStrategy<T>>) {
+    pub fn start_but_dont_retune(&mut self) {
         if let Some(cni) = self.curr_neighbourhood_index {
-            forward.push_back(FromStrategy::SetTuningReference {
+            let _ = self.forward.send(FromStrategy::SetTuningReference {
                 reference: self.tuning_reference.clone(),
             });
 
-            forward.push_back(FromStrategy::SetReference {
+            let _ = self.forward.send(FromStrategy::SetReference {
                 stack: self.reference.clone(),
             });
 
-            forward.push_back(FromStrategy::CurrentNeighbourhoodIndex { index: cni });
+            let _ = self
+                .forward
+                .send(FromStrategy::CurrentNeighbourhoodIndex { index: cni });
             self.neighbourhoods[cni].for_each_stack(|_, stack| {
-                forward.push_back(FromStrategy::Consider {
+                let _ = self.forward.send(FromStrategy::Consider {
                     stack: stack.clone(),
                 });
             });
@@ -159,24 +168,11 @@ impl<T: StackType> StaticTuning<T> {
     }
 
     /// returns a time at which a re-tune would be necessary, or None if no re-tune is nescessary
-    pub fn handle_action(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &[Stack<T>; 128],
-        action: StrategyAction,
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> Option<Instant> {
+    pub fn handle_action(&mut self, action: StrategyAction, time: Instant) -> Option<Instant> {
         if match action {
-            StrategyAction::IncrementNeighbourhoodIndex(inc) => {
-                self.increment_neighbourhood(inc, forward)
-            }
-            StrategyAction::SetReferenceToLowest => {
-                self.set_reference(false, keys, tunings, forward)
-            }
-            StrategyAction::SetReferenceToHighest => {
-                self.set_reference(true, keys, tunings, forward)
-            }
+            StrategyAction::IncrementNeighbourhoodIndex(inc) => self.increment_neighbourhood(inc),
+            StrategyAction::SetReferenceToLowest => self.set_reference(false),
+            StrategyAction::SetReferenceToHighest => self.set_reference(true),
             StrategyAction::Reset => {
                 self.curr_neighbourhood_index = if self.neighbourhoods.is_empty() {
                     None {}
@@ -184,7 +180,7 @@ impl<T: StackType> StaticTuning<T> {
                     Some(0)
                 };
                 self.reference = Stack::new_zero();
-                self.start_but_dont_retune(forward);
+                self.start_but_dont_retune();
                 true
             }
             _ => false,
@@ -195,11 +191,7 @@ impl<T: StackType> StaticTuning<T> {
         }
     }
 
-    fn increment_neighbourhood(
-        &mut self,
-        increment: isize,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> bool {
+    fn increment_neighbourhood(&mut self, increment: isize) -> bool {
         if let Some(cni) = self.curr_neighbourhood_index {
             let old_index = cni;
             let new_index =
@@ -207,7 +199,7 @@ impl<T: StackType> StaticTuning<T> {
             if old_index != new_index {
                 self.curr_neighbourhood_index = Some(new_index);
                 self.tuning_up_to_date.iter_mut().for_each(|b| *b = false);
-                self.start_but_dont_retune(forward);
+                self.start_but_dont_retune();
                 true
             } else {
                 false
@@ -217,46 +209,38 @@ impl<T: StackType> StaticTuning<T> {
         }
     }
 
-    fn set_reference(
-        &mut self,
-        to_highest: bool,
-        keys: &[KeyState; 128],
-        tunings: &[Stack<T>; 128],
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> bool {
+    fn set_reference(&mut self, to_highest: bool) -> bool {
         let range: Box<dyn Iterator<Item = usize>> = if to_highest {
             Box::new((0..128).rev())
         } else {
             Box::new(0..128)
         };
         for i in range {
-            if keys[i].is_sounding() {
-                self.set_reference_to(&tunings[i], forward);
+            if self.key_states.read()[i].is_sounding() {
+                self.set_reference_to_index(i);
                 return true;
             }
         }
         false
     }
 
-    pub fn set_reference_to(
-        &mut self,
-        new_reference: &Stack<T>,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) {
-        self.reference.clone_from(&new_reference);
-        forward.push_back(FromStrategy::SetReference {
+    fn set_reference_to_index(&mut self, new_reference_index: usize) {
+        self.reference
+            .clone_from(&self.tunings.read()[new_reference_index]);
+        let _ = self.forward.send(FromStrategy::SetReference {
+            stack: self.tunings.read()[new_reference_index].clone(),
+        });
+    }
+
+    pub fn set_reference_to(&mut self, new_reference: &Stack<T>) {
+        self.reference.clone_from(new_reference);
+        let _ = self.forward.send(FromStrategy::SetReference {
             stack: new_reference.clone(),
         });
     }
 
     /// returns `Some(x)` iff the message was successfully handled and a retune at time `x` is necessary
-    pub fn handle_msg_but_dont_retune(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &[Stack<T>; 128],
-        msg: ToStrategy<T>,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> Option<Instant> {
+    pub fn handle_msg_but_dont_retune(&mut self, msg: ToStrategy<T>) -> Option<Instant> {
         match msg {
             ToStrategy::Consider {
                 stack: considered_stack,
@@ -264,7 +248,7 @@ impl<T: StackType> StaticTuning<T> {
             } => {
                 if let Some(cni) = self.curr_neighbourhood_index {
                     let inserted_stack = self.neighbourhoods[cni].insert(&considered_stack).clone();
-                    forward.push_back(FromStrategy::Consider {
+                    let _ = self.forward.send(FromStrategy::Consider {
                         stack: inserted_stack,
                     });
 
@@ -281,7 +265,7 @@ impl<T: StackType> StaticTuning<T> {
                 if Some(neighbourhood) == self.curr_neighbourhood_index {
                     self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
                         stack.apply_temperament(temperament);
-                        forward.push_back(FromStrategy::Consider {
+                        let _ = self.forward.send(FromStrategy::Consider {
                             stack: stack.clone(),
                         });
                     });
@@ -300,7 +284,7 @@ impl<T: StackType> StaticTuning<T> {
                 if Some(neighbourhood) == self.curr_neighbourhood_index {
                     self.neighbourhoods[neighbourhood].for_each_stack_mut(|_, stack| {
                         stack.make_pure();
-                        forward.push_back(FromStrategy::Consider {
+                        let _ = self.forward.send(FromStrategy::Consider {
                             stack: stack.clone(),
                         });
                     });
@@ -314,83 +298,51 @@ impl<T: StackType> StaticTuning<T> {
             }
             ToStrategy::SetTuningReference { reference, time } => {
                 self.tuning_reference.clone_from(&reference);
-                forward.push_back(FromStrategy::SetTuningReference { reference });
+                let _ = self
+                    .forward
+                    .send(FromStrategy::SetTuningReference { reference });
                 Some(time)
             }
             ToStrategy::SetReference { reference, time } => {
                 self.reference.clone_from(&reference);
-                forward.push_back(FromStrategy::SetReference { stack: reference });
+                let _ = self
+                    .forward
+                    .send(FromStrategy::SetReference { stack: reference });
                 Some(time)
             }
-            ToStrategy::Action { action, time } => {
-                self.handle_action(keys, tunings, action, time, forward)
-            }
+            ToStrategy::Action { action, time } => self.handle_action(action, time),
             ToStrategy::NeighbourhoodListAction { action, time } => {
                 action.apply_to(
                     |x| x.clone(),
                     &mut self.neighbourhoods,
                     &mut self.curr_neighbourhood_index,
                 );
-                self.start_but_dont_retune(forward);
+                self.start_but_dont_retune();
                 Some(time)
             }
             ToStrategy::ToHarmonyStrategy(_, _)
             | ToStrategy::ReanchorOnMatch { .. }
-            | ToStrategy::SetGroupMs { .. } => unreachable!(),
+            | ToStrategy::SetGroupMs { .. }
+            | ToStrategy::Start { .. }
+            | ToStrategy::Stop { .. }
+            | ToStrategy::NoteOn { .. }
+            | ToStrategy::NoteOff { .. } => unreachable!(),
         }
     }
-}
 
-impl<T: StackType> Strategy<T> for StaticTuning<T> {
-    fn note_on<'a>(
-        &mut self,
-        _keys: &[KeyState; 128],
-        tunings: &'a mut [Stack<T>; 128],
-        note: u8,
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> Option<(Semitones, &'a Stack<T>)> {
-        self.update_tuning_and_send(tunings, note, time, forward);
-        let stack = &tunings[note as usize];
-        Some((
-            stack.absolute_semitones(self.tuning_reference.c4_semitones()),
-            stack,
-        ))
+    fn note_on<'a>(&mut self, note: u8, time: Instant) -> Option<Semitones> {
+        self.update_tuning_and_send(note, time);
+        let stack = &self.tunings.read()[note as usize];
+        Some(stack.absolute_semitones(self.tuning_reference.c4_semitones()))
     }
 
-    fn note_off(
-        &mut self,
-        _keys: &[KeyState; 128],
-        _tunings: &mut [Stack<T>; 128],
-        _note: u8,
-        _time: Instant,
-        _forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> bool {
+    fn note_off(&mut self, _note: u8, _time: Instant) -> bool {
         true
     }
 
-    fn handle_msg(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        msg: ToStrategy<T>,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> bool {
-        if let Some(time) = self.handle_msg_but_dont_retune(keys, tunings, msg, forward) {
-            self.update_all_tunings_and_send(keys, tunings, time, forward);
-        }
-        true
-    }
-
-    fn start(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) {
-        self.start_but_dont_retune(forward);
-        self.update_all_tunings_and_send(keys, tunings, time, forward);
+    fn start(&mut self, time: Instant) {
+        self.start_but_dont_retune();
+        self.update_all_tunings_and_send(time);
     }
 }
 
@@ -403,3 +355,31 @@ impl<T: StackType> ExtractConfig<StrategyConfig<T>> for StaticTuning<T> {
         })
     }
 }
+
+impl<T: StackType> ReceiveMsg<ToStrategy<T>> for StaticTuning<T> {
+    fn receive_msg(&mut self, msg: ToStrategy<T>) {
+        match msg {
+            ToStrategy::Start { time } => self.start(time),
+            ToStrategy::Stop { .. } => {}
+            ToStrategy::NoteOn { note, time } => {
+                let _ = self.note_on(note, time);
+            }
+            ToStrategy::NoteOff { note, time } => {
+                let _ = self.note_off(note, time);
+            }
+            _ => {
+                if let Some(retune_time) = self.handle_msg_but_dont_retune(msg) {
+                    self.update_all_tunings_and_send(retune_time);
+                }
+            }
+        }
+    }
+}
+
+impl<T: StackType> SendMsg<FromStrategy<T>> for StaticTuning<T> {
+    fn send_msg(&self, msg: FromStrategy<T>) -> bool {
+        self.forward.send(msg).is_ok()
+    }
+}
+
+impl<T: StackType> Strategy<T> for StaticTuning<T> {}

@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, rc::Rc};
+use std::{rc::Rc, sync::mpsc};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -334,11 +334,11 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         }
     }
 
-    fn handle_action(&mut self, action: StrategyAction, forward: &mut VecDeque<FromStrategy<T>>) {
+    fn handle_action(&mut self, action: StrategyAction, forward: &mpsc::Sender<FromStrategy<T>>) {
         match action {
             StrategyAction::ToggleChordMatching => {
                 self.enable = !self.enable;
-                forward.push_back(FromStrategy::EnableChordList {
+                let _ = forward.send(FromStrategy::EnableChordList {
                     enable: self.enable,
                 });
             }

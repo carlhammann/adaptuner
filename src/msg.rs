@@ -15,10 +15,6 @@ use crate::{
     util::list_action::ListAction,
 };
 
-pub trait HandleMsg<I, O> {
-    fn handle_msg(&mut self, msg:I, forward: &mpsc::Sender<O>);
-}
-
 pub trait ReceiveMsg<I> {
     fn receive_msg(&mut self, msg: I);
 }
@@ -149,6 +145,21 @@ pub enum ToHarmonyStrategy<T: StackType> {
 }
 
 pub enum ToStrategy<T: StackType> {
+    Start {
+        time: Instant,
+    },
+    Stop {
+        time: Instant,
+    },
+    NoteOn {
+        note: u8,
+        time: Instant,
+    },
+    NoteOff {
+        note: u8,
+        time: Instant,
+    },
+
     Consider {
         stack: Stack<T>,
         time: Instant,

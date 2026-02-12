@@ -1,12 +1,11 @@
-use std::{collections::VecDeque, fmt, time::Instant};
+use std::fmt;
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     config::{ExtractConfig, StrategyConfig},
-    interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
-    keystate::KeyState,
-    msg::{FromStrategy, ToStrategy},
+    interval::stacktype::r#trait::StackType,
+    msg::{FromStrategy, ReceiveMsg, SendMsg, ToStrategy},
 };
 
 /// Why these are not simply variants of [ToStrategy]: I want to expose them to users, to construct
@@ -41,51 +40,15 @@ impl fmt::Display for StrategyAction {
                 write!(f, "set reference to current chord's reference")
             }
             StrategyAction::ToggleChordMatching => write!(f, "toggle chord matching"),
-            StrategyAction::ToggleReanchor => write!(f, "toggle re-setting of the reference on chord match"),
+            StrategyAction::ToggleReanchor => {
+                write!(f, "toggle re-setting of the reference on chord match")
+            }
             StrategyAction::Reset => write!(f, "reset"),
         }
     }
 }
 
-pub trait Strategy<T: StackType>: ExtractConfig<StrategyConfig<T>> {
-    /// expects the effect of the "note on" event to be already reflected in `keys`.
-    ///
-    /// Returns the tuning of the note that was turned on, if it was successfully tuned.
-    fn note_on<'a>(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &'a mut [Stack<T>; 128],
-        note: u8,
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> Option<(Semitones, &'a Stack<T>)>;
-
-    /// expects the effect of the "note off" event to be alead reflected in `keys`
-    ///
-    /// returns true iff the note off event was successfully handled
-    fn note_off(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        note: u8,
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> bool;
-
-    /// returns true iff the message was successfully handled
-    fn handle_msg(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        msg: ToStrategy<T>,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    ) -> bool;
-
-    fn start(
-        &mut self,
-        keys: &[KeyState; 128],
-        tunings: &mut [Stack<T>; 128],
-        time: Instant,
-        forward: &mut VecDeque<FromStrategy<T>>,
-    );
+pub trait Strategy<T: StackType>:
+    ReceiveMsg<ToStrategy<T>> + SendMsg<FromStrategy<T>> + ExtractConfig<StrategyConfig<T>>
+{
 }

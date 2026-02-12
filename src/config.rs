@@ -1,3 +1,5 @@
+use std::sync::mpsc;
+
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
@@ -14,6 +16,8 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
     },
+    keystate::KeyState,
+    msg::FromStrategy,
     neighbourhood::{SomeCompleteNeighbourhood, SomeNeighbourhood},
     reference::Reference,
     strategy::{
@@ -22,9 +26,9 @@ use crate::{
         twostep::{
             harmony::chordlist::{keyshape::KeyShape, ChordListConfig, PatternConfig},
             melody::neighbourhoods::NeighbourhoodsConfig,
-            TwoStep,
         },
     },
+    util::readerwriter::{Reader, ReaderWriter},
 };
 
 pub trait FromConfigAndState<C, S> {
@@ -52,10 +56,21 @@ pub enum StrategyConfig<T: IntervalBasis> {
 }
 
 impl<T: StackType> StrategyConfig<T> {
-    pub fn realize(self) -> Box<dyn Strategy<T>> {
+    pub fn realize(
+        &self,
+        forward: mpsc::Sender<FromStrategy<T>>,
+        key_states: Reader<[KeyState; 128]>,
+        tunings: ReaderWriter<[Stack<T>; 128]>,
+    ) -> Box<dyn Strategy<T>> {
         match self {
-            StrategyConfig::StaticTuning(config) => Box::new(StaticTuning::new(config)),
-            StrategyConfig::TwoStep(harmony, melody) => Box::new(TwoStep::new(harmony, melody)),
+            StrategyConfig::StaticTuning(config) => Box::new(StaticTuning::new(
+                config.clone(),
+                forward,
+                key_states,
+                tunings,
+            )),
+            // StrategyConfig::TwoStep(harmony_strategy_config, melody_strategy_config) => todo!(),
+            _ => todo!()
         }
     }
 }

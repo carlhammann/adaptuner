@@ -15,7 +15,7 @@ use crate::{
     interval::stacktype::r#trait::StackType,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
-        FromBackend, FromProcess, FromUi, HandleMsg, HasStop, MessageTranslate, MessageTranslate2,
+        FromBackend, FromProcess, FromUi, HasStop, MessageTranslate, MessageTranslate2,
         MessageTranslate3, MessageTranslate4, ReceiveMsg, SendMsg, ToBackend, ToMidiIn, ToMidiOut,
         ToProcess, ToUi,
     },
@@ -47,37 +47,6 @@ where
             }
         }
         (state.extract_config(), rx)
-    })
-}
-
-fn start_handler_thread<I, O, H, C, NH>(
-    new_state: NH,
-    rx: mpsc::Receiver<I>,
-    tx: mpsc::Sender<O>,
-) -> thread::JoinHandle<(C, mpsc::Receiver<I>, mpsc::Sender<O>)>
-where
-    H: HandleMsg<I, O>,
-    H: ExtractConfig<C>,
-    I: HasStop + Send + 'static,
-    O: Send + 'static,
-    NH: FnOnce() -> H + Send + 'static,
-    C: Send + 'static,
-{
-    thread::spawn(move || {
-        let mut state = new_state();
-        loop {
-            match rx.recv() {
-                Ok(msg) => {
-                    let stop = msg.is_stop();
-                    state.handle_msg(msg, &tx);
-                    if stop {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        (state.extract_config(), rx, tx)
     })
 }
 
@@ -358,11 +327,7 @@ where
 pub struct RunState<T: StackType> {
     midi_input: thread::JoinHandle<(MidiInputConfig, mpsc::Receiver<ToMidiIn>)>,
     midi_output: thread::JoinHandle<(MidiOutputConfig, mpsc::Receiver<ToMidiOut>)>,
-    process: thread::JoinHandle<(
-        ProcessConfig<T>,
-        mpsc::Receiver<ToProcess<T>>,
-        mpsc::Sender<FromProcess<T>>,
-    )>,
+    process: thread::JoinHandle<(ProcessConfig<T>, mpsc::Receiver<ToProcess<T>>)>,
     backend: thread::JoinHandle<(BackendConfig, mpsc::Receiver<ToBackend>)>,
     to_process_tx: mpsc::Sender<ToProcess<T>>,
     to_backend_tx: mpsc::Sender<ToBackend>,
@@ -404,9 +369,10 @@ impl<T: StackType> RunState<T> {
     ) -> Result<Self, eframe::Error>
     where
         T: Send + 'static,
-        P: HandleMsg<ToProcess<T>, FromProcess<T>>
+        P: ReceiveMsg<ToProcess<T>>
+            + SendMsg<FromProcess<T>>
             + ExtractConfig<ProcessConfig<T>>
-            + FromConfigAndState<ProcessConfig<T>, ()>,
+            + FromConfigAndState<ProcessConfig<T>, mpsc::Sender<FromProcess<T>>>,
         B: ReceiveMsg<ToBackend>
             + SendMsg<FromBackend>
             + ExtractConfig<BackendConfig>
@@ -455,10 +421,9 @@ impl<T: StackType> RunState<T> {
         let res = Self {
             midi_input: start_receiver_thread(|| midi_input, to_midi_input_rx),
             midi_output: start_receiver_thread(|| midi_output, to_midi_output_rx),
-            process: start_handler_thread(
-                || P::initialise(process_config, ()),
+            process: start_receiver_thread(
+                || P::initialise(process_config, from_process_tx),
                 to_process_rx,
-                from_process_tx,
             ),
             backend: start_receiver_thread(
                 || B::initialise(backend_config, from_backend_tx),
@@ -496,7 +461,7 @@ impl<T: StackType> RunState<T> {
         JoinError,
     > {
         let _ = self.to_process_tx.send(ToProcess::Stop);
-        let Ok((process_config, _, _)) = self.process.join() else {
+        let Ok((process_config, _)) = self.process.join() else {
             return Err(JoinError::Process);
         };
 
