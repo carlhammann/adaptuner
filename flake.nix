@@ -133,24 +133,30 @@
         devShells = pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           wayland = pkgs.mkShell {
             inputsFrom = [packages.adaptuner-bin];
-            packages = with pkgs;
-              [
-                fluidsynth
-                vmpk
+            packages = let
+              rustDocOpen = pkgs.writeShellScriptBin "rust-doc" ''
+                xdg-open '${(latestStableRust pkgs).default}/share/doc/rust/html/index.html'
+              '';
+            in
+              with pkgs;
+                [
+                  fluidsynth
+                  vmpk
 
-                # dev-y
-                (latestStableRust pkgs).rust-analyzer
-                (latestStableRust pkgs).rustfmt
-                bacon
+                  # dev-y
+                  (latestStableRust pkgs).rust-analyzer
+                  (latestStableRust pkgs).rustfmt
+		  rustDocOpen
+                  bacon
 
-                quickemu
-                wineWowPackages.staging
-                winetricks
+                  quickemu
+                  wineWowPackages.staging
+                  winetricks
 
-                pandoc
-                ffmpeg
-              ]
-              ++ lib.optionals stdenv.isLinux [alsa-utils];
+                  pandoc
+                  ffmpeg
+                ]
+                ++ lib.optionals stdenv.isLinux [alsa-utils];
 
             LD_LIBRARY_PATH = waylandPath pkgs;
           };
