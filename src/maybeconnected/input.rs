@@ -5,7 +5,7 @@ use midir::{MidiInput, MidiInputConnection, MidiInputPort};
 use crate::{
     config::{ExtractConfig, MidiInputConfig},
     maybeconnected::common::MaybeConnected,
-    msg::{FromMidiIn, ReceiveMsg, SendMsg, ToMidiIn},
+    msg::{FromMidiIn, ReceiveMsg, ToMidiIn},
     util::update_cell::UpdateCell,
 };
 
@@ -106,12 +106,12 @@ impl MidiInputOrConnection {
     pub fn new(midi_input: MidiInput, tx: mpsc::Sender<FromMidiIn>) -> Self {
         Self {
             internal: UpdateCell::new(MidiInputOrConnectionInternal::new(midi_input, tx.clone())),
-            forward: tx
+            forward: tx,
         }
     }
 }
 
-impl SendMsg<FromMidiIn> for MidiInputOrConnection {
+impl MidiInputOrConnection {
     fn send_msg(&self, msg: FromMidiIn) -> bool {
         self.forward.send(msg).is_ok()
     }

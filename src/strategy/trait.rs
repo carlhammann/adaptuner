@@ -1,11 +1,14 @@
-use std::fmt;
+use std::{fmt, sync::mpsc, time::Instant};
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::{ExtractConfig, StrategyConfig},
-    interval::stacktype::r#trait::StackType,
-    msg::{FromStrategy, ReceiveMsg, SendMsg, ToStrategy},
+    config::{ExtractConfig, IsStrategyConfig},
+    interval::{stack::Stack, stacktype::r#trait::StackType},
+    keystate::KeyState,
+    msg::{FromStrategy, ReceiveMsg, ToStrategy},
+    reference::Reference,
+    util::readerwriter::{Reader, ReaderWriter},
 };
 
 /// Why these are not simply variants of [ToStrategy]: I want to expose them to users, to construct
@@ -48,7 +51,41 @@ impl fmt::Display for StrategyAction {
     }
 }
 
-pub trait Strategy<T: StackType>:
-    ReceiveMsg<ToStrategy<T>> + SendMsg<FromStrategy<T>> + ExtractConfig<StrategyConfig<T>>
-{
+pub trait Strategy<T: StackType>: ReceiveMsg<Self::Msg> + ExtractConfig<Self::Config> {
+    type Msg;
+
+    type Config: IsStrategyConfig<T, Realized = Self>;
+
+    fn new(
+        config: Self::Config,
+        forward: mpsc::Sender<FromStrategy<T>>,
+        key_states: Reader<[KeyState; 128]>,
+        tunings: ReaderWriter<[Stack<T>; 128]>,
+    ) -> Self;
+
+    fn note_on(&mut self, note: u8, time: Instant);
+    fn note_off(&mut self, note: u8, time: Instant);
+    fn start(&mut self, time: Instant);
+    fn stop(&mut self, time: Instant);
+    fn set_tuning_reference(&mut self, reference: Reference<T>, time: Instant);
+
+    /// should filter out the "custom messages" for this strategy.
+    fn filter_to_strategy(msg: ToStrategy<T>) -> Option<Self::Msg>;
+
+    fn receive_to_strategy(&mut self, msg: ToStrategy<T>) {
+        match msg {
+            ToStrategy::Start { time } => self.start(time),
+            ToStrategy::Stop { time } => self.stop(time),
+            ToStrategy::NoteOn { note, time } => self.note_on(note, time),
+            ToStrategy::NoteOff { note, time } => self.note_off(note, time),
+            ToStrategy::SetTuningReference { reference, time } => {
+                self.set_tuning_reference(reference, time)
+            }
+            _ => {
+                if let Some(x) = Self::filter_to_strategy(msg) {
+                    self.receive_msg(x);
+                }
+            }
+        }
+    }
 }

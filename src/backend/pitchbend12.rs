@@ -12,7 +12,7 @@ use crate::{
     custom_serde::common::{deserialize_channel, serialize_channel},
     interval::base::Semitones,
     keystate::KeyState,
-    msg::{self, FromBackend, ReceiveMsg, SendMsg, ToBackend},
+    msg::{self, FromBackend, ReceiveMsg, ToBackend},
 };
 
 pub struct Pitchbend12 {
@@ -67,6 +67,10 @@ pub struct Pitchbend12Config {
 }
 
 impl Pitchbend12 {
+    fn send_msg(&self, msg: FromBackend) -> bool {
+        self.forward.send(msg).is_ok()
+    }
+
     pub fn new(config: Pitchbend12Config, forward: mpsc::Sender<FromBackend>) -> Self {
         let now = Instant::now();
         Self {
@@ -160,12 +164,6 @@ impl Pitchbend12 {
                 time,
             );
         }
-    }
-}
-
-impl SendMsg<FromBackend> for Pitchbend12 {
-    fn send_msg(&self, msg: FromBackend) -> bool {
-        self.forward.send(msg).is_ok()
     }
 }
 

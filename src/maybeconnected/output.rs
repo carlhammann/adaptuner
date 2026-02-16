@@ -5,7 +5,7 @@ use midir::*;
 use crate::{
     config::{ExtractConfig, MidiOutputConfig},
     maybeconnected::common::MaybeConnected,
-    msg::{FromMidiOut, ReceiveMsg, SendMsg, ToMidiOut},
+    msg::{FromMidiOut, ReceiveMsg, ToMidiOut},
     util::update_cell::UpdateCell,
 };
 
@@ -99,7 +99,7 @@ impl MidiOutputOrConnection {
     }
 }
 
-impl SendMsg<FromMidiOut> for MidiOutputOrConnection {
+impl MidiOutputOrConnection {
     fn send_msg(&self, msg: FromMidiOut) -> bool {
         self.forward.send(msg).is_ok()
     }

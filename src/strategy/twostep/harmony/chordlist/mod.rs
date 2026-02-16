@@ -1,24 +1,21 @@
-use std::{rc::Rc, sync::mpsc};
+use std::{rc::Rc, time::Instant};
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::{ExtractConfig, HarmonyStrategyConfig},
+    config::{ExtractConfig, HarmonyStrategyConfig, IsHarmonyStrategyConfig},
     interval::{
         stack::{ScaledAdd, Stack},
-        stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, StackCoeff, StackType},
+        stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, StackType},
     },
     keystate::KeyState,
-    msg::{FromStrategy, ToHarmonyStrategy},
+    msg::{ReceiveMsg, ToHarmony},
     neighbourhood::{Neighbourhood, Partial, PeriodicPartial, SomeNeighbourhood},
-    strategy::{
-        r#trait::StrategyAction,
-        twostep::{Harmony, HarmonyStrategy},
-    },
+    strategy::twostep::{Harmony, HarmonyStrategy},
 };
 
 pub mod keyshape;
-use keyshape::{first_complete_fit_or_best, HasActivationStatus, KeyShape};
+use keyshape::{HasActivationStatus, KeyShape};
 
 #[derive(Debug, Clone, PartialEq)]
 struct Pattern<T: StackType> {
@@ -281,70 +278,125 @@ impl<T: StackType> ChordList<T> {
     }
 }
 
+impl<T: StackType> ReceiveMsg<ToHarmony<T>> for ChordList<T> {
+    fn receive_msg(&mut self, msg: ToHarmony<T>) {
+        todo!()
+    }
+}
+
+impl<T: StackType> ExtractConfig<ChordListConfig<T>> for ChordList<T> {
+    fn extract_config(&self) -> ChordListConfig<T> {
+        todo!()
+    }
+}
+
+impl<T: StackType> IsHarmonyStrategyConfig<T> for ChordListConfig<T> {
+    type Realized = ChordList<T>;
+
+    fn as_harmony_strategy_config(self) -> HarmonyStrategyConfig<T> {
+        HarmonyStrategyConfig::ChordList(self)
+    }
+}
+
 impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
-    fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>) {
-        if !self.enable || self.patterns.is_empty() {
-            return (None {}, None {});
-        }
+    type Config = ChordListConfig<T>;
 
-        let (index, fit) =
-            first_complete_fit_or_best(keys, self.patterns.iter().map(|p| &p.key_shape));
-
-        let selected = &self.patterns[index];
-
-        if selected.allow_extra_high_notes {
-            if fit.matches_nothing() {
-                return (None {}, None {});
-            }
-        } else if !fit.is_complete() {
-            return (None {}, None {});
-        }
-
-        (
-            Some(index),
-            Some(Harmony {
-                neighbourhood: selected.neighbourhood.clone(),
-                reference: fit.reference() as StackCoeff,
-            }),
-        )
+    fn new(config: ChordListConfig<T>) -> Self {
+        todo!()
     }
 
-    fn handle_msg(&mut self, msg: crate::msg::ToHarmonyStrategy<T>) -> bool {
-        match msg {
-            ToHarmonyStrategy::ChordListAction { action } => {
-                let mut dummy = Some(0);
-                action.apply_to(|p| p.clone(), &mut self.patterns, &mut dummy);
-                true
-            }
-            ToHarmonyStrategy::PushNewChord { pattern } => {
-                self.patterns.push(Pattern::new(pattern));
-                true
-            }
-            ToHarmonyStrategy::AllowExtraHighNotes {
-                pattern_index,
-                allow,
-            } => {
-                self.patterns[pattern_index].allow_extra_high_notes = allow;
-                true
-            }
-            ToHarmonyStrategy::EnableChordList { enable } => {
-                self.enable = enable;
-                true
-            }
-        }
+    fn new_solve(
+        &mut self,
+        time: Instant,
+        keys: &crate::util::readerwriter::Reader<[KeyState; 128]>,
+        harmony: &crate::util::readerwriter::ReaderWriter<Harmony<T>>,
+    ) {
+        todo!()
     }
 
-    fn handle_action(&mut self, action: StrategyAction, forward: &mpsc::Sender<FromStrategy<T>>) {
-        match action {
-            StrategyAction::ToggleChordMatching => {
-                self.enable = !self.enable;
-                let _ = forward.send(FromStrategy::EnableChordList {
-                    enable: self.enable,
-                });
-            }
-            _ => {}
-        }
+    fn step(
+        &mut self,
+        keys: &crate::util::readerwriter::Reader<[KeyState; 128]>,
+        harmony: &crate::util::readerwriter::ReaderWriter<Harmony<T>>,
+    ) -> bool {
+        todo!()
     }
+
+    fn is_finished(&self) -> bool {
+        todo!()
+    }
+
+    fn start(&mut self, time: Instant) {
+        todo!()
+    }
+
+    fn stop(&mut self, time: Instant) {
+        todo!()
+    }
+
+    // fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>) {
+    //     if !self.enable || self.patterns.is_empty() {
+    //         return (None {}, None {});
+    //     }
+    //
+    //     let (index, fit) =
+    //         first_complete_fit_or_best(keys, self.patterns.iter().map(|p| &p.key_shape));
+    //
+    //     let selected = &self.patterns[index];
+    //
+    //     if selected.allow_extra_high_notes {
+    //         if fit.matches_nothing() {
+    //             return (None {}, None {});
+    //         }
+    //     } else if !fit.is_complete() {
+    //         return (None {}, None {});
+    //     }
+    //
+    //     (
+    //         Some(index),
+    //         Some(Harmony {
+    //             neighbourhood: selected.neighbourhood.clone(),
+    //             reference: fit.reference() as StackCoeff,
+    //         }),
+    //     )
+    // }
+    //
+    // fn handle_msg(&mut self, msg: crate::msg::ToHarmonyStrategy<T>) -> bool {
+    //     match msg {
+    //         ToHarmonyStrategy::ChordListAction { action } => {
+    //             let mut dummy = Some(0);
+    //             action.apply_to(|p| p.clone(), &mut self.patterns, &mut dummy);
+    //             true
+    //         }
+    //         ToHarmonyStrategy::PushNewChord { pattern } => {
+    //             self.patterns.push(Pattern::new(pattern));
+    //             true
+    //         }
+    //         ToHarmonyStrategy::AllowExtraHighNotes {
+    //             pattern_index,
+    //             allow,
+    //         } => {
+    //             self.patterns[pattern_index].allow_extra_high_notes = allow;
+    //             true
+    //         }
+    //         ToHarmonyStrategy::EnableChordList { enable } => {
+    //             self.enable = enable;
+    //             true
+    //         }
+    //     }
+    // }
+    //
+    // fn handle_action(&mut self, action: StrategyAction, forward: &mpsc::Sender<FromStrategy<T>>) {
+    //     match action {
+    //         StrategyAction::ToggleChordMatching => {
+    //             self.enable = !self.enable;
+    //             let _ = forward.send(FromStrategy::EnableChordList {
+    //                 enable: self.enable,
+    //             });
+    //         }
+    //         _ => {}
+    //     }
+    // }
 }
 
 impl<T: StackType> ExtractConfig<HarmonyStrategyConfig<T>> for ChordList<T> {

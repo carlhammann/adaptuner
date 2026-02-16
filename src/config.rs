@@ -21,11 +21,12 @@ use crate::{
     neighbourhood::{SomeCompleteNeighbourhood, SomeNeighbourhood},
     reference::Reference,
     strategy::{
-        r#static::{StaticTuning, StaticTuningConfig},
         r#trait::{Strategy, StrategyAction},
+        staticneighbourhoods::StaticNeighbourhoodsConfig,
         twostep::{
             harmony::chordlist::{keyshape::KeyShape, ChordListConfig, PatternConfig},
-            melody::neighbourhoods::NeighbourhoodsConfig,
+            melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
+            HarmonyStrategy, MelodyStrategy,
         },
     },
     util::readerwriter::{Reader, ReaderWriter},
@@ -46,33 +47,42 @@ pub enum HarmonyStrategyConfig<T: IntervalBasis> {
 
 #[derive(Clone)]
 pub enum MelodyStrategyConfig<T: IntervalBasis> {
-    Neighbourhoods(NeighbourhoodsConfig<T>),
+    Neighbourhoods(StaticNeighbourhoodsAsMelodyConfig<T>),
 }
 
 #[derive(Clone)]
 pub enum StrategyConfig<T: IntervalBasis> {
-    StaticTuning(StaticTuningConfig<T>),
+    StaticTuning(StaticNeighbourhoodsConfig<T>),
     TwoStep(HarmonyStrategyConfig<T>, MelodyStrategyConfig<T>),
 }
 
-impl<T: StackType> StrategyConfig<T> {
-    pub fn realize(
-        &self,
+/// Marker trait for strategy configurations.
+pub trait IsStrategyConfig<T: StackType> {
+    type Realized: Strategy<T, Config = Self>;
+
+    fn as_strategy_config(self) -> StrategyConfig<T>;
+
+    fn realize(
+        self,
         forward: mpsc::Sender<FromStrategy<T>>,
         key_states: Reader<[KeyState; 128]>,
         tunings: ReaderWriter<[Stack<T>; 128]>,
-    ) -> Box<dyn Strategy<T>> {
-        match self {
-            StrategyConfig::StaticTuning(config) => Box::new(StaticTuning::new(
-                config.clone(),
-                forward,
-                key_states,
-                tunings,
-            )),
-            // StrategyConfig::TwoStep(harmony_strategy_config, melody_strategy_config) => todo!(),
-            _ => todo!()
-        }
+    ) -> Self::Realized
+    where
+        Self: Sized,
+    {
+        Self::Realized::new(self, forward, key_states, tunings)
     }
+}
+
+pub trait IsHarmonyStrategyConfig<T: StackType> {
+    type Realized: HarmonyStrategy<T, Config = Self>;
+    fn as_harmony_strategy_config(self) -> HarmonyStrategyConfig<T>;
+}
+
+pub trait IsMelodyStrategyConfig<T: StackType> {
+    type Realized: MelodyStrategy<T, Config = Self>;
+    fn as_melody_strategy_config(self) -> MelodyStrategyConfig<T>;
 }
 
 #[derive(Clone)]
@@ -463,7 +473,13 @@ impl<T: IntervalBasis> StrategyNames<T> {
 }
 
 impl<T: IntervalBasis> ExtendedStaticTuningConfig<T> {
-    fn split(&self) -> (StaticTuningConfig<T>, Bindings<Bindable>, Vec<String>) {
+    fn split(
+        &self,
+    ) -> (
+        StaticNeighbourhoodsConfig<T>,
+        Bindings<Bindable>,
+        Vec<String>,
+    ) {
         let ExtendedStaticTuningConfig {
             bindings,
             neighbourhoods,
@@ -476,7 +492,7 @@ impl<T: IntervalBasis> ExtendedStaticTuningConfig<T> {
         let neighbourhoods: Vec<SomeCompleteNeighbourhood<T>> =
             neighbourhoods.iter().map(|x| x.inner()).collect();
         (
-            StaticTuningConfig {
+            StaticNeighbourhoodsConfig {
                 neighbourhoods,
                 tuning_reference: tuning_reference.clone(),
                 reference: reference.clone(),
@@ -487,11 +503,11 @@ impl<T: IntervalBasis> ExtendedStaticTuningConfig<T> {
     }
 
     fn join(
-        strat: StaticTuningConfig<T>,
+        strat: StaticNeighbourhoodsConfig<T>,
         bindings: Bindings<Bindable>,
         mut neighbourhood_names: Vec<String>,
     ) -> Self {
-        let StaticTuningConfig {
+        let StaticNeighbourhoodsConfig {
             mut neighbourhoods,
             tuning_reference,
             reference,
@@ -578,10 +594,10 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
                 let neighbourhoods: Vec<SomeCompleteNeighbourhood<T>> =
                     neighbourhoods.iter().map(|x| x.inner()).collect();
                 (
-                    MelodyStrategyConfig::Neighbourhoods(NeighbourhoodsConfig {
+                    MelodyStrategyConfig::Neighbourhoods(StaticNeighbourhoodsAsMelodyConfig {
                         fixed: *fixed,
                         group_ms: *group_ms,
-                        inner: StaticTuningConfig {
+                        inner: StaticNeighbourhoodsConfig {
                             neighbourhoods,
                             tuning_reference: tuning_reference.clone(),
                             reference: reference.clone(),
@@ -600,11 +616,11 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
     fn join(strat: MelodyStrategyConfig<T>, names: MelodyStrategyNames) -> Self {
         match (strat, names) {
             (
-                MelodyStrategyConfig::Neighbourhoods(NeighbourhoodsConfig {
+                MelodyStrategyConfig::Neighbourhoods(StaticNeighbourhoodsAsMelodyConfig {
                     fixed,
                     group_ms,
                     inner:
-                        StaticTuningConfig {
+                        StaticNeighbourhoodsConfig {
                             mut neighbourhoods,
                             tuning_reference,
                             reference,

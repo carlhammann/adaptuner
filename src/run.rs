@@ -16,7 +16,7 @@ use crate::{
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
         FromBackend, FromProcess, FromUi, HasStop, MessageTranslate, MessageTranslate2,
-        MessageTranslate3, MessageTranslate4, ReceiveMsg, SendMsg, ToBackend, ToMidiIn, ToMidiOut,
+        MessageTranslate3, MessageTranslate4, ReceiveMsg, ToBackend, ToMidiIn, ToMidiOut,
         ToProcess, ToUi,
     },
 };
@@ -370,11 +370,9 @@ impl<T: StackType> RunState<T> {
     where
         T: Send + 'static,
         P: ReceiveMsg<ToProcess<T>>
-            + SendMsg<FromProcess<T>>
             + ExtractConfig<ProcessConfig<T>>
             + FromConfigAndState<ProcessConfig<T>, mpsc::Sender<FromProcess<T>>>,
         B: ReceiveMsg<ToBackend>
-            + SendMsg<FromBackend>
             + ExtractConfig<BackendConfig>
             + FromConfigAndState<BackendConfig, mpsc::Sender<FromBackend>>,
         U: ReceiveMsg<ToUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,

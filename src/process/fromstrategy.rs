@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    sync::{mpsc, Arc, RwLock},
+    sync::mpsc,
     thread,
     time::Instant,
 };
@@ -8,16 +8,17 @@ use std::{
 use midi_msg::{
     Channel,
     ChannelVoiceMsg::*,
-    ControlChange::{Hold, SoftPedal, Sostenuto},
+    ControlChange::Hold,
     MidiMsg,
 };
 
 use crate::{
     bindable::{Bindings, MidiBindable},
-    config::{ExtractConfig, FromConfigAndState, ProcessConfig, StrategyConfig},
+    config::{ExtractConfig, FromConfigAndState, IsStrategyConfig, ProcessConfig, StrategyConfig},
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
-    msg::{FromProcess, FromStrategy, ReceiveMsg, SendMsg, ToProcess, ToStrategy},
+    msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
+    strategy::r#trait::Strategy,
     util::readerwriter::{Reader, ReaderWriter},
 };
 
@@ -32,7 +33,7 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
     fn start(
         time: Instant,
         index: usize,
-        config: StrategyConfig<T>,
+        config: impl IsStrategyConfig<T> + Send + 'static,
         from_strategy_tx: mpsc::Sender<FromStrategy<T>>,
         key_states: Reader<[KeyState; 128]>,
         tunings: ReaderWriter<[Stack<T>; 128]>,
@@ -42,26 +43,22 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
         let strategy_thread = thread::spawn(move || {
             let mut strategy = config.realize(from_strategy_tx, key_states, tunings);
 
-            strategy.receive_msg(ToStrategy::Start { time });
+            strategy.start(time);
 
             loop {
                 match to_strategy_rx.recv() {
                     Ok(msg) => {
-                        let stop = if let ToStrategy::Stop { .. } = &msg {
-                            true
-                        } else {
-                            false
-                        };
-                        let _ = strategy.receive_msg(msg);
-                        if stop {
+                        if let ToStrategy::Stop { time } = &msg {
+                            strategy.stop(*time);
                             break;
                         }
+                        strategy.receive_to_strategy(msg);
                     }
                     Err(_) => break,
                 }
             }
 
-            strategy.extract_config()
+            strategy.extract_config().as_strategy_config()
         });
 
         Self {
@@ -84,8 +81,8 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
 
 pub struct ProcessFromStrategy<T: StackType> {
     strategies: Vec<(StrategyConfig<T>, Bindings<MidiBindable>)>,
-    key_states: Arc<RwLock<[KeyState; 128]>>,
-    tunings: Arc<RwLock<[Stack<T>; 128]>>,
+    key_states: ReaderWriter<[KeyState; 128]>,
+    tunings: ReaderWriter<[Stack<T>; 128]>,
     pedal_hold: [bool; 16],
     sostenuto_hold: [bool; 16],
     soft_hold: [bool; 16],
@@ -107,8 +104,8 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
         }
 
         let now = Instant::now();
-        let key_states = Arc::new(RwLock::new(core::array::from_fn(|_| KeyState::new(now))));
-        let tunings = Arc::new(RwLock::new(core::array::from_fn(|_| Stack::new_zero())));
+        let key_states = ReaderWriter::new(core::array::from_fn(|_| KeyState::new(now)));
+        let tunings = ReaderWriter::new(core::array::from_fn(|_| Stack::new_zero()));
 
         let (from_strategy_tx, from_strategy_rx) = mpsc::channel();
 
@@ -141,6 +138,10 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
 }
 
 impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
+    fn send_msg(&self, msg: FromProcess<T>) -> bool {
+        self.forward.send(msg).is_ok()
+    }
+
     fn send_to_strategy(&self, msg: ToStrategy<T>) {
         if let Some(RunningStrategy { to_strategy_tx, .. }) = &self.current_strategy {
             let _ = to_strategy_tx.send(msg);
@@ -177,55 +178,55 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
                 },
             } => self.handle_pedal_hold(time, channel, value),
 
-            MidiMsg::ChannelVoice {
-                channel,
-                msg:
-                    ControlChange {
-                        control: Sostenuto(value),
-                    },
-            } => {
-                if let Some(csi) = self.current_strategy_index() {
-                    let (_, ref bindings) = self.strategies[csi];
-                    let was_down = self.sostenuto_hold.iter().any(|b| *b);
-                    self.sostenuto_hold[channel as usize] = value > 0;
-                    let is_down = self.sostenuto_hold.iter().any(|b| *b);
-                    let action = match (was_down, is_down) {
-                        (false, true) => bindings.get(&MidiBindable::SostenutoPedalDown),
-                        (true, false) => bindings.get(&MidiBindable::SostenutoPedalUp),
-                        _ => None {},
-                    };
-                    if let Some(&action) = action {
-                        let _ = self.send_to_strategy(ToStrategy::Action { action, time });
-                    } else {
-                        self.send_msg(untouched_midi());
-                    }
-                }
-            }
+            // MidiMsg::ChannelVoice {
+            //     channel,
+            //     msg:
+            //         ControlChange {
+            //             control: Sostenuto(value),
+            //         },
+            // } => {
+            //     if let Some(csi) = self.current_strategy_index() {
+            //         let (_, ref bindings) = self.strategies[csi];
+            //         let was_down = self.sostenuto_hold.iter().any(|b| *b);
+            //         self.sostenuto_hold[channel as usize] = value > 0;
+            //         let is_down = self.sostenuto_hold.iter().any(|b| *b);
+            //         let action = match (was_down, is_down) {
+            //             (false, true) => bindings.get(&MidiBindable::SostenutoPedalDown),
+            //             (true, false) => bindings.get(&MidiBindable::SostenutoPedalUp),
+            //             _ => None {},
+            //         };
+            //         if let Some(&action) = action {
+            //             let _ = self.send_to_strategy(ToStrategy::Action { action, time });
+            //         } else {
+            //             self.send_msg(untouched_midi());
+            //         }
+            //     }
+            // }
 
-            MidiMsg::ChannelVoice {
-                channel,
-                msg:
-                    ControlChange {
-                        control: SoftPedal(value),
-                    },
-            } => {
-                if let Some(csi) = self.current_strategy_index() {
-                    let (_, ref bindings) = self.strategies[csi];
-                    let was_down = self.soft_hold.iter().any(|b| *b);
-                    self.soft_hold[channel as usize] = value > 0;
-                    let is_down = self.soft_hold.iter().any(|b| *b);
-                    let action = match (was_down, is_down) {
-                        (false, true) => bindings.get(&MidiBindable::SoftPedalDown),
-                        (true, false) => bindings.get(&MidiBindable::SoftPedalUp),
-                        _ => None {},
-                    };
-                    if let Some(&action) = action {
-                        let _ = self.send_to_strategy(ToStrategy::Action { action, time });
-                    } else {
-                        self.send_msg(untouched_midi());
-                    }
-                }
-            }
+            // MidiMsg::ChannelVoice {
+            //     channel,
+            //     msg:
+            //         ControlChange {
+            //             control: SoftPedal(value),
+            //         },
+            // } => {
+            //     if let Some(csi) = self.current_strategy_index() {
+            //         let (_, ref bindings) = self.strategies[csi];
+            //         let was_down = self.soft_hold.iter().any(|b| *b);
+            //         self.soft_hold[channel as usize] = value > 0;
+            //         let is_down = self.soft_hold.iter().any(|b| *b);
+            //         let action = match (was_down, is_down) {
+            //             (false, true) => bindings.get(&MidiBindable::SoftPedalDown),
+            //             (true, false) => bindings.get(&MidiBindable::SoftPedalUp),
+            //             _ => None {},
+            //         };
+            //         if let Some(&action) = action {
+            //             let _ = self.send_to_strategy(ToStrategy::Action { action, time });
+            //         } else {
+            //             self.send_msg(untouched_midi());
+            //         }
+            //     }
+            // }
 
             MidiMsg::ChannelVoice {
                 channel,
@@ -246,7 +247,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
 
     fn handle_note_on(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.key_states.write().unwrap()[note as usize].note_on(channel, time) {
+            if self.key_states.write()[note as usize].note_on(channel, time) {
                 let _ = self.send_to_strategy(ToStrategy::NoteOn { note, time });
             }
             let _ = self.send_msg(FromProcess::NoteOn {
@@ -260,7 +261,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
 
     fn handle_note_off(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.key_states.write().unwrap()[note as usize].note_off(
+            if self.key_states.write()[note as usize].note_off(
                 channel,
                 self.pedal_hold[channel as usize],
                 time,
@@ -283,7 +284,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
             } else {
                 self.pedal_hold[channel as usize] = false;
                 for i in 0..128 {
-                    let changed = self.key_states.write().unwrap()[i].pedal_off(channel, time);
+                    let changed = self.key_states.write()[i].pedal_off(channel, time);
                     if changed {
                         let _ = self.send_to_strategy(ToStrategy::NoteOff {
                             note: i as u8,
@@ -316,26 +317,23 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
         if self.current_strategy.is_some() {
             self.stop(time);
         }
-        self.current_strategy = Some(RunningStrategy::start(
-            time,
-            index,
-            self.strategies[index].0.clone(),
-            self.from_strategy_tx.clone(),
-            Reader::new(self.key_states.clone()),
-            ReaderWriter::new(self.tunings.clone()),
-        ));
+        self.current_strategy = Some(match &self.strategies[index].0 {
+            StrategyConfig::TwoStep(harmony, melody) => todo!(),
+            StrategyConfig::StaticTuning(conf) => RunningStrategy::start(
+                time,
+                index,
+                conf.clone(),
+                self.from_strategy_tx.clone(),
+                self.key_states.clone().into_reader(),
+                self.tunings.clone(),
+            ),
+        });
     }
 
     /// Will start strategy 0 if there's no running strategy at the moment.
     fn restart(&mut self, time: Instant) {
         let index = self.stop(time).unwrap_or(0);
         self.start(time, index);
-    }
-}
-
-impl<T: StackType> SendMsg<FromProcess<T>> for ProcessFromStrategy<T> {
-    fn send_msg(&self, msg: FromProcess<T>) -> bool {
-        self.forward.send(msg).is_ok()
     }
 }
 
