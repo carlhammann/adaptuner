@@ -24,7 +24,10 @@ use crate::{
         harmony::{
             chordlist::{keyshape::KeyShape, ChordListConfig, PatternConfig},
             r#trait::HarmonyStrategy,
-        }, melody::{neighbourhoods::StaticNeighbourhoodsAsMelodyConfig, r#trait::MelodyStrategy}, staticneighbourhoods::StaticNeighbourhoodsConfig, r#trait::{Strategy, StrategyAction}
+        },
+        melody::{neighbourhoods::StaticNeighbourhoodsAsMelodyConfig, r#trait::MelodyStrategy},
+        r#trait::{Strategy, StrategyAction},
+        staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
     util::readerwriter::{Reader, ReaderWriter},
 };
@@ -59,16 +62,11 @@ pub trait IsStrategyConfig<T: StackType> {
 
     fn as_strategy_config(self) -> StrategyConfig<T>;
 
-    fn realize(
-        self,
-        forward: mpsc::Sender<FromStrategy<T>>,
-        key_states: Reader<[KeyState; 128]>,
-        tunings: ReaderWriter<[Stack<T>; 128]>,
-    ) -> Self::Realized
+    fn realize(self) -> Self::Realized
     where
         Self: Sized,
     {
-        Self::Realized::new(self, forward, key_states, tunings)
+        Self::Realized::new(self)
     }
 }
 

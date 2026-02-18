@@ -103,113 +103,158 @@ where
     M::Config: Send + 'static,
 {
     type Msg = ToTwoStep<T>;
+
     type Config = (H::Config, M::Config);
 
-    fn new(
-        config: (H::Config, M::Config),
-        forward: mpsc::Sender<FromStrategy<T>>,
-        key_states: Reader<[KeyState; 128]>,
-        tunings: ReaderWriter<[Stack<T>; 128]>,
-    ) -> Self {
-        let (harmony_config, melody_config) = config;
-
-        let harmony = ReaderWriter::new(Harmony::new_dummy());
-
-        let (to_harmony_tx, to_harmony_rx) = mpsc::channel();
-        let (from_harmony_tx, from_harmony_rx) = mpsc::channel();
-
-        let key_states_clone = key_states.clone();
-        let harmony_clone = harmony.clone();
-        let harmony_thread = thread::spawn(move || {
-            let mut harmony_strategy = H::new(harmony_config);
-            harmony_strategy.receive_solve_loop(
-                to_harmony_rx,
-                from_harmony_tx,
-                &key_states_clone,
-                &harmony_clone,
-            )
-        });
-
-        let (to_melody_tx, to_melody_rx) = mpsc::channel();
-        let to_melody_tx_clone = to_melody_tx.clone();
-
-        let from_harmony_to_melody = thread::spawn(move || loop {
-            match from_harmony_rx.recv() {
-                Ok(HarmonyResult::StartSolve { .. }) => {}
-                Ok(HarmonyResult::StepNoProgress { time })
-                | Ok(HarmonyResult::FinishedNoResult { time }) => {
-                    let _ = to_melody_tx_clone.send(ToMelody::TuneNoHarmony { time });
-                }
-                Ok(HarmonyResult::StepWithProgress { time })
-                | Ok(HarmonyResult::FinishedWithResult { time }) => {
-                    let _ = to_melody_tx_clone.send(ToMelody::TuneWithHarmony { time });
-                }
-                Err(_) => break,
-            }
-        });
-
-        let tunings_clone = tunings.clone();
-        let harmony_reader = harmony.clone().into_reader();
-        let melody_thread = thread::spawn(move || {
-            let mut melody_strategy = M::new(melody_config);
-            loop {
-                match to_melody_rx.recv() {
-                    Ok(msg) => {
-                        let stop = melody_strategy.handle_to_melody(
-                            msg,
-                            &harmony_reader,
-                            &tunings_clone,
-                            &forward,
-                        );
-                        if stop {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-            melody_strategy.extract_config()
-        });
-
-        Self {
-            _phantom: PhantomData,
-            harmony_thread,
-            to_harmony_tx,
-            harmony,
-            _from_harmony_to_melody: from_harmony_to_melody,
-            melody_thread,
-            to_melody_tx,
-            key_states,
-            tunings,
-        }
+    fn new(config: Self::Config) -> Self {
+        todo!()
     }
 
-    fn note_on(&mut self, _note: u8, time: Instant) {
-        self.solve(time);
+    fn start(&mut self, time: Instant, adaptor: &impl super::r#trait::StrategyAdaptor<T>) -> bool {
+        todo!()
     }
 
-    fn note_off(&mut self, _note: u8, time: Instant) {
-        self.solve(time);
+    fn stop(&mut self, time: Instant, adaptor: &impl super::r#trait::StrategyAdaptor<T>) {
+        todo!()
     }
 
-    fn start(&mut self, time: Instant) {
-        self.send_to_harmony(ToHarmony::Start { time });
-        self.send_to_melody(ToMelody::Start { time });
+    fn note_on(&mut self, note: u8, time: Instant, adaptor: &impl super::r#trait::StrategyAdaptor<T>) -> bool {
+        todo!()
     }
 
-    fn stop(&mut self, time: Instant) {
-        self.send_to_harmony(ToHarmony::Stop { time });
-        self.send_to_melody(ToMelody::Stop { time });
+    fn note_off(&mut self, note: u8, time: Instant, adaptor: &impl super::r#trait::StrategyAdaptor<T>) -> bool {
+        todo!()
     }
 
-    fn set_tuning_reference(&mut self, reference: Reference<T>, time: Instant) {
-        self.send_to_melody(ToMelody::SetTuningReference { reference, time });
+    fn set_tuning_reference(
+        &mut self,
+        reference: Reference<T>,
+        time: Instant,
+        adaptor: &impl super::r#trait::StrategyAdaptor<T>,
+    ) -> bool {
+        todo!()
+    }
+
+    fn receive_msg(&mut self, msg: Self::Msg, adaptor: &impl super::r#trait::StrategyAdaptor<T>) -> bool {
+        todo!()
+    }
+
+    fn step(&mut self, adaptor: &impl super::r#trait::StrategyAdaptor<T>) -> bool {
+        todo!()
     }
 
     fn filter_to_strategy(msg: ToStrategy<T>) -> Option<Self::Msg> {
-        match msg {
-            ToStrategy::TwoStep(msg) => Some(msg),
-            _ => None {},
-        }
+        todo!()
     }
 }
+//     type Msg = ToTwoStep<T>;
+//     type Config = (H::Config, M::Config);
+//
+//     fn new(
+//         config: (H::Config, M::Config),
+//         forward: mpsc::Sender<FromStrategy<T>>,
+//         key_states: Reader<[KeyState; 128]>,
+//         tunings: ReaderWriter<[Stack<T>; 128]>,
+//     ) -> Self {
+//         let (harmony_config, melody_config) = config;
+//
+//         let harmony = ReaderWriter::new(Harmony::new_dummy());
+//
+//         let (to_harmony_tx, to_harmony_rx) = mpsc::channel();
+//         let (from_harmony_tx, from_harmony_rx) = mpsc::channel();
+//
+//         let key_states_clone = key_states.clone();
+//         let harmony_clone = harmony.clone();
+//         let harmony_thread = thread::spawn(move || {
+//             let mut harmony_strategy = H::new(harmony_config);
+//             harmony_strategy.receive_solve_loop(
+//                 to_harmony_rx,
+//                 from_harmony_tx,
+//                 &key_states_clone,
+//                 &harmony_clone,
+//             )
+//         });
+//
+//         let (to_melody_tx, to_melody_rx) = mpsc::channel();
+//         let to_melody_tx_clone = to_melody_tx.clone();
+//
+//         let from_harmony_to_melody = thread::spawn(move || loop {
+//             match from_harmony_rx.recv() {
+//                 Ok(HarmonyResult::StartSolve { .. }) => {}
+//                 Ok(HarmonyResult::StepNoProgress { time })
+//                 | Ok(HarmonyResult::FinishedNoResult { time }) => {
+//                     let _ = to_melody_tx_clone.send(ToMelody::TuneNoHarmony { time });
+//                 }
+//                 Ok(HarmonyResult::StepWithProgress { time })
+//                 | Ok(HarmonyResult::FinishedWithResult { time }) => {
+//                     let _ = to_melody_tx_clone.send(ToMelody::TuneWithHarmony { time });
+//                 }
+//                 Err(_) => break,
+//             }
+//         });
+//
+//         let tunings_clone = tunings.clone();
+//         let harmony_reader = harmony.clone().into_reader();
+//         let melody_thread = thread::spawn(move || {
+//             let mut melody_strategy = M::new(melody_config);
+//             loop {
+//                 match to_melody_rx.recv() {
+//                     Ok(msg) => {
+//                         let stop = melody_strategy.handle_to_melody(
+//                             msg,
+//                             &harmony_reader,
+//                             &tunings_clone,
+//                             &forward,
+//                         );
+//                         if stop {
+//                             break;
+//                         }
+//                     }
+//                     Err(_) => break,
+//                 }
+//             }
+//             melody_strategy.extract_config()
+//         });
+//
+//         Self {
+//             _phantom: PhantomData,
+//             harmony_thread,
+//             to_harmony_tx,
+//             harmony,
+//             _from_harmony_to_melody: from_harmony_to_melody,
+//             melody_thread,
+//             to_melody_tx,
+//             key_states,
+//             tunings,
+//         }
+//     }
+//
+//     fn note_on(&mut self, _note: u8, time: Instant) {
+//         self.solve(time);
+//     }
+//
+//     fn note_off(&mut self, _note: u8, time: Instant) {
+//         self.solve(time);
+//     }
+//
+//     fn start(&mut self, time: Instant) {
+//         self.send_to_harmony(ToHarmony::Start { time });
+//         self.send_to_melody(ToMelody::Start { time });
+//     }
+//
+//     fn stop(&mut self, time: Instant) {
+//         self.send_to_harmony(ToHarmony::Stop { time });
+//         self.send_to_melody(ToMelody::Stop { time });
+//     }
+//
+//     fn set_tuning_reference(&mut self, reference: Reference<T>, time: Instant) {
+//         self.send_to_melody(ToMelody::SetTuningReference { reference, time });
+//     }
+//
+//     fn filter_to_strategy(msg: ToStrategy<T>) -> Option<Self::Msg> {
+//         match msg {
+//             ToStrategy::TwoStep(msg) => Some(msg),
+//             _ => None {},
+//         }
+//     }
+// }

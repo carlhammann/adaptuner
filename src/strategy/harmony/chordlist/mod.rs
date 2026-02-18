@@ -414,7 +414,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         }
     }
 
-    fn msg_requires_solve_at_time(msg: &Self::Msg) -> Option<Instant> {
+    fn requires_solve_at_time(msg: &Self::Msg) -> Option<Instant> {
         match msg {
             ToChordList::ChordListAction { time, .. }
             | ToChordList::PushNewChord { time, .. }

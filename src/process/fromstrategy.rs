@@ -8,7 +8,7 @@ use crate::{
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
-    strategy::r#trait::Strategy,
+    strategy::r#trait::{ConcreteStrategyAdaptor, Strategy},
     util::readerwriter::{Reader, ReaderWriter},
 };
 
@@ -24,30 +24,18 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
         time: Instant,
         index: usize,
         config: impl IsStrategyConfig<T> + Send + 'static,
-        from_strategy_tx: mpsc::Sender<FromStrategy<T>>,
-        key_states: Reader<[KeyState; 128]>,
-        tunings: ReaderWriter<[Stack<T>; 128]>,
+        adaptor: ConcreteStrategyAdaptor<T>,
     ) -> Self {
         let (to_strategy_tx, to_strategy_rx) = mpsc::channel();
 
         let strategy_thread = thread::spawn(move || {
-            let mut strategy = config.realize(from_strategy_tx, key_states, tunings);
+            let mut strategy = config.realize();
 
-            strategy.start(time);
+            strategy.start(time, &adaptor);
 
-            loop {
-                match to_strategy_rx.recv() {
-                    Ok(msg) => {
-                        let stop = strategy.receive_to_strategy(msg);
-                        if stop {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-
-            strategy.extract_config().as_strategy_config()
+            strategy
+                .receive_solve_loop(to_strategy_rx, &adaptor)
+                .as_strategy_config()
         });
 
         Self {
@@ -70,8 +58,6 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
 
 pub struct ProcessFromStrategy<T: StackType> {
     strategies: Vec<(StrategyConfig<T>, Bindings<MidiBindable>)>,
-    key_states: ReaderWriter<[KeyState; 128]>,
-    tunings: ReaderWriter<[Stack<T>; 128]>,
     pedal_hold: [bool; 16],
     sostenuto_hold: [bool; 16],
     soft_hold: [bool; 16],
@@ -80,6 +66,8 @@ pub struct ProcessFromStrategy<T: StackType> {
     _message_forward_thread: thread::JoinHandle<mpsc::Receiver<FromStrategy<T>>>,
 
     current_strategy: Option<RunningStrategy<T>>,
+    key_states: ReaderWriter<[KeyState; 128]>,
+    tunings: ReaderWriter<[Stack<T>; 128]>,
     from_strategy_tx: mpsc::Sender<FromStrategy<T>>,
 }
 
@@ -113,8 +101,6 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
 
         Self {
             strategies,
-            key_states,
-            tunings,
             pedal_hold: [false; 16],
             sostenuto_hold: [false; 16],
             soft_hold: [false; 16],
@@ -122,6 +108,8 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
             current_strategy: None {},
             _message_forward_thread: message_forward_thread,
             from_strategy_tx,
+            key_states,
+            tunings,
         }
     }
 }
@@ -311,9 +299,11 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
                 time,
                 index,
                 conf.clone(),
-                self.from_strategy_tx.clone(),
-                self.key_states.clone().into_reader(),
-                self.tunings.clone(),
+                ConcreteStrategyAdaptor {
+                    forward: self.from_strategy_tx.clone(),
+                    key_states: self.key_states.clone().into_reader(),
+                    tunings: self.tunings.clone(),
+                },
             ),
         });
     }

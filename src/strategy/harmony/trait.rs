@@ -82,7 +82,7 @@ pub trait HarmonyStrategy<T: StackType>:
 
     /// Should return the time of a [HarmonyStrategy::start_solve] that should be triggered by the
     /// message, if necessary.
-    fn msg_requires_solve_at_time(msg: &Self::Msg) -> Option<Instant>;
+    fn requires_solve_at_time(msg: &Self::Msg) -> Option<Instant>;
 
     /// This is intended to run in its own thread.
     fn receive_solve_loop(
@@ -128,7 +128,7 @@ pub trait HarmonyStrategy<T: StackType>:
                 }
                 Some(msg) => {
                     if let Some(x) = Self::filter_to_harmony(msg) {
-                        let time = Self::msg_requires_solve_at_time(&x);
+                        let time = Self::requires_solve_at_time(&x);
                         self.receive_msg(x);
                         if let Some(t) = time {
                             let res = self.start_solve(t, &keys, &harmony);
