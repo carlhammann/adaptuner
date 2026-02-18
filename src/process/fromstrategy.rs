@@ -1,16 +1,6 @@
-use std::{
-    fmt,
-    sync::mpsc,
-    thread,
-    time::Instant,
-};
+use std::{fmt, sync::mpsc, thread, time::Instant};
 
-use midi_msg::{
-    Channel,
-    ChannelVoiceMsg::*,
-    ControlChange::Hold,
-    MidiMsg,
-};
+use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
 
 use crate::{
     bindable::{Bindings, MidiBindable},
@@ -48,11 +38,10 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
             loop {
                 match to_strategy_rx.recv() {
                     Ok(msg) => {
-                        if let ToStrategy::Stop { time } = &msg {
-                            strategy.stop(*time);
+                        let stop = strategy.receive_to_strategy(msg);
+                        if stop {
                             break;
                         }
-                        strategy.receive_to_strategy(msg);
                     }
                     Err(_) => break,
                 }
@@ -227,7 +216,6 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
             //         }
             //     }
             // }
-
             MidiMsg::ChannelVoice {
                 channel,
                 msg: ProgramChange { program },

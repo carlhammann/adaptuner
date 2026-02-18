@@ -11,10 +11,7 @@ use crate::{
     config::{BackendConfig, ProcessConfig},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     reference::Reference,
-    strategy::{
-        r#trait::StrategyAction,
-        twostep::harmony::chordlist::PatternConfig,
-    },
+    strategy::{harmony::chordlist::PatternConfig, r#trait::StrategyAction},
     util::list_action::ListAction,
 };
 
@@ -141,10 +138,23 @@ pub enum FromProcess<T: StackType> {
 }
 
 pub enum ToChordList<T: StackType> {
-    ChordListAction { action: ListAction },
-    PushNewChord { pattern: PatternConfig<T> },
-    AllowExtraHighNotes { pattern_index: usize, allow: bool },
-    EnableChordList { enable: bool },
+    ChordListAction {
+        action: ListAction,
+        time: Instant,
+    },
+    PushNewChord {
+        pattern: PatternConfig<T>,
+        time: Instant,
+    },
+    AllowExtraHighNotes {
+        pattern_index: usize,
+        allow: bool,
+        time: Instant,
+    },
+    EnableChordList {
+        enable: bool,
+        time: Instant,
+    },
 }
 
 pub enum ToStaticNeighbourhoods<T: StackType> {
@@ -185,19 +195,38 @@ pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
     Basic(ToStaticNeighbourhoods<T>),
     SetReferenceToCurrent { time: Instant },
     ReanchorOnMatch { reanchor: bool },
-}
-
-pub enum ToTwoStep<T: StackType> {
-    ToHarmonyStrategy(ToHarmony<T>, Instant),
-    ToMelodystrategy(ToMelody<T>, Instant),
-}
-
-pub enum ToMelody<T: StackType> {
-    StaticNeighbourhoods(ToStaticNeighbourhoods<T>),
     SetGroupMs { group_ms: u64 },
 }
 
+pub enum ToTwoStep<T: StackType> {
+    ToHarmonyStrategy(ToHarmony<T>),
+    ToMelodystrategy(ToMelody<T>),
+}
+
+pub enum ToMelody<T: StackType> {
+    Start {
+        time: Instant,
+    },
+    Stop {
+        time: Instant,
+    },
+    TuneWithHarmony {
+        time: Instant,
+    },
+    TuneNoHarmony {
+        time: Instant,
+    },
+    SetTuningReference {
+        reference: Reference<T>,
+        time: Instant,
+    },
+    StaticNeighbourhoods(ToStaticNeighbourhoodsAsMelody<T>),
+}
+
 pub enum ToHarmony<T: StackType> {
+    Start { time: Instant },
+    Stop { time: Instant },
+    Solve { time: Instant },
     ChordList(ToChordList<T>),
 }
 
@@ -966,10 +995,9 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             ),
             FromUi::ChordListAction { action, time } => (
                 Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
-                    ToTwoStep::ToHarmonyStrategy(
-                        ToHarmony::ChordList(ToChordList::ChordListAction { action }),
-                        time,
-                    ),
+                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(
+                        ToChordList::ChordListAction { action, time },
+                    )),
                 ))),
                 None {},
                 None {},
@@ -977,10 +1005,10 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             ),
             FromUi::PushNewChord { pattern, time } => (
                 Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
-                    ToTwoStep::ToHarmonyStrategy(
-                        ToHarmony::ChordList(ToChordList::PushNewChord { pattern }),
+                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(ToChordList::PushNewChord {
+                        pattern,
                         time,
-                    ),
+                    })),
                 ))),
                 None {},
                 None {},

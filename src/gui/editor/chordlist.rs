@@ -15,7 +15,7 @@ use crate::{
     msg::{FromUi, ReceiveMsgRef, ToUi},
     neighbourhood::{Neighbourhood, SomeNeighbourhood},
     notename::{HasNoteNames, NoteNameStyle},
-    strategy::twostep::harmony::chordlist::{keyshape::KeyShape, PatternConfig},
+    strategy::harmony::chordlist::{keyshape::KeyShape, PatternConfig},
 };
 
 pub struct ChordListEditor<T: StackType> {

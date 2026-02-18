@@ -72,10 +72,15 @@ pub trait Strategy<T: StackType>: ReceiveMsg<Self::Msg> + ExtractConfig<Self::Co
     /// should filter out the "custom messages" for this strategy.
     fn filter_to_strategy(msg: ToStrategy<T>) -> Option<Self::Msg>;
 
-    fn receive_to_strategy(&mut self, msg: ToStrategy<T>) {
+    /// returns true iff the input message was [ToStrategy::Stop]. In that case, you should stop
+    /// receiving messages.
+    fn receive_to_strategy(&mut self, msg: ToStrategy<T>) -> bool {
         match msg {
             ToStrategy::Start { time } => self.start(time),
-            ToStrategy::Stop { time } => self.stop(time),
+            ToStrategy::Stop { time } => {
+                self.stop(time);
+                return true;
+            }
             ToStrategy::NoteOn { note, time } => self.note_on(note, time),
             ToStrategy::NoteOff { note, time } => self.note_off(note, time),
             ToStrategy::SetTuningReference { reference, time } => {
@@ -87,5 +92,6 @@ pub trait Strategy<T: StackType>: ReceiveMsg<Self::Msg> + ExtractConfig<Self::Co
                 }
             }
         }
+        false
     }
 }

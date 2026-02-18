@@ -21,13 +21,10 @@ use crate::{
     neighbourhood::{SomeCompleteNeighbourhood, SomeNeighbourhood},
     reference::Reference,
     strategy::{
-        r#trait::{Strategy, StrategyAction},
-        staticneighbourhoods::StaticNeighbourhoodsConfig,
-        twostep::{
-            harmony::chordlist::{keyshape::KeyShape, ChordListConfig, PatternConfig},
-            melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
-            HarmonyStrategy, MelodyStrategy,
-        },
+        harmony::{
+            chordlist::{keyshape::KeyShape, ChordListConfig, PatternConfig},
+            r#trait::HarmonyStrategy,
+        }, melody::{neighbourhoods::StaticNeighbourhoodsAsMelodyConfig, r#trait::MelodyStrategy}, staticneighbourhoods::StaticNeighbourhoodsConfig, r#trait::{Strategy, StrategyAction}
     },
     util::readerwriter::{Reader, ReaderWriter},
 };
@@ -595,7 +592,7 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
                     neighbourhoods.iter().map(|x| x.inner()).collect();
                 (
                     MelodyStrategyConfig::Neighbourhoods(StaticNeighbourhoodsAsMelodyConfig {
-                        fixed: *fixed,
+                        reanchor: *fixed,
                         group_ms: *group_ms,
                         inner: StaticNeighbourhoodsConfig {
                             neighbourhoods,
@@ -617,7 +614,7 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
         match (strat, names) {
             (
                 MelodyStrategyConfig::Neighbourhoods(StaticNeighbourhoodsAsMelodyConfig {
-                    fixed,
+                    reanchor: fixed,
                     group_ms,
                     inner:
                         StaticNeighbourhoodsConfig {

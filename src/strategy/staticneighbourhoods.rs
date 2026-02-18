@@ -16,8 +16,6 @@ use crate::{
     util::readerwriter::{Reader, ReaderWriter},
 };
 
-use super::r#trait::StrategyAction;
-
 pub struct StaticNeighbourhoods<T: StackType> {
     neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
     curr_neighbourhood_index: Option<usize>,
@@ -288,29 +286,6 @@ impl<T: StackType> StaticNeighbourhoods<T> {
                     None {}
                 }
             }
-        }
-    }
-
-    pub fn handle_action(&mut self, action: StrategyAction, time: Instant) -> Option<Instant> {
-        if match action {
-            StrategyAction::IncrementNeighbourhoodIndex(inc) => self.increment_neighbourhood(inc),
-            StrategyAction::SetReferenceToLowest => self.set_reference(false),
-            StrategyAction::SetReferenceToHighest => self.set_reference(true),
-            StrategyAction::Reset => {
-                self.curr_neighbourhood_index = if self.neighbourhoods.is_empty() {
-                    None {}
-                } else {
-                    Some(0)
-                };
-                self.reference = Stack::new_zero();
-                self.start_but_dont_retune();
-                true
-            }
-            _ => false,
-        } {
-            Some(time)
-        } else {
-            None {}
         }
     }
 }
