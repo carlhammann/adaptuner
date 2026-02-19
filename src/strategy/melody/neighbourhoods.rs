@@ -1,20 +1,20 @@
-use std::{
-    sync::mpsc,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use crate::{
     config::{ExtractConfig, IsMelodyStrategyConfig, MelodyStrategyConfig},
     interval::{
-        stack::Stack,
-        stacktype::r#trait::{IntervalBasis, StackType},
+        base::Semitones,
+        stack::{ScaledAdd, Stack},
+        stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
-    msg::{FromStrategy, HandleMsg, ToMelody, ToStaticNeighbourhoodsAsMelody},
+    msg::{FromStrategy, ToMelody, ToStaticNeighbourhoodsAsMelody},
+    neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
     reference::Reference,
     strategy::{
-        harmony::r#trait::Harmony, melody::r#trait::MelodyStrategy, staticneighbourhoods::{StaticNeighbourhoods, StaticNeighbourhoodsConfig}
+        harmony::r#trait::Harmony, melody::r#trait::MelodyStrategy, r#trait::StrategyAdaptor,
+        staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
-    util::readerwriter::{Reader, ReaderWriter},
+    util::readerwriter::Reader,
 };
 
 #[derive(Clone)]
@@ -24,12 +24,34 @@ pub struct StaticNeighbourhoodsAsMelodyConfig<T: IntervalBasis> {
     pub group_ms: u64,
 }
 
+/// The first three fields are exacly the same as for
+/// [crate::strategy::staticneighbourhoods::StaticNeighbourhoods]
 pub struct StaticNeighbourhoodsAsMelody<T: StackType> {
+    /// This Vec must never be empty
+    neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
+    curr_neighbourhood_index: usize,
+    tuning_reference: Reference<T>,
+    reference: Stack<T>,
+
     reanchor: bool,
     last_solve: Instant,
     group_start_reference: Stack<T>,
     group_duration: Duration,
-    inner: StaticNeighbourhoods<T>,
+
+    tmp_stack: Stack<T>,
+}
+
+impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
+    fn tuning_for_stack(&self, stack: &Stack<T>) -> Semitones {
+        stack.absolute_semitones(self.tuning_reference.c4_semitones())
+    }
+
+    /// calculate the tuning of note 'i' from the current neighbourhood and add it to the 'stack'
+    fn add_reference_tuning(&self, stack: &mut Stack<T>, i: StackCoeff) {
+        self.neighbourhoods[self.curr_neighbourhood_index]
+            .increment_by_relative_stack(stack, i - self.reference.key_number());
+        stack.scaled_add(1, &self.reference);
+    }
 }
 
 impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyConfig<T> {
@@ -46,29 +68,12 @@ impl<T: StackType> ExtractConfig<StaticNeighbourhoodsAsMelodyConfig<T>>
     fn extract_config(&self) -> StaticNeighbourhoodsAsMelodyConfig<T> {
         StaticNeighbourhoodsAsMelodyConfig {
             reanchor: self.reanchor,
-            inner: self.inner.extract_config(),
             group_ms: self.group_duration.as_millis() as u64,
-        }
-    }
-}
-
-impl<T: StackType> HandleMsg<ToStaticNeighbourhoodsAsMelody<T>, FromStrategy<T>>
-    for StaticNeighbourhoodsAsMelody<T>
-{
-    fn handle_msg(
-        &mut self,
-        msg: ToStaticNeighbourhoodsAsMelody<T>,
-        forward: &mpsc::Sender<FromStrategy<T>>,
-    ) {
-        match msg {
-            ToStaticNeighbourhoodsAsMelody::Basic(msg) => todo!(),
-            ToStaticNeighbourhoodsAsMelody::SetReferenceToCurrent { time } => todo!(),
-            ToStaticNeighbourhoodsAsMelody::ReanchorOnMatch { reanchor } => {
-                self.reanchor = reanchor;
-            }
-            ToStaticNeighbourhoodsAsMelody::SetGroupMs { group_ms } => {
-                self.group_duration = Duration::from_millis(group_ms);
-            }
+            inner: StaticNeighbourhoodsConfig {
+                neighbourhoods: self.neighbourhoods.clone(),
+                tuning_reference: self.tuning_reference.clone(),
+                reference: self.reference.clone(),
+            },
         }
     }
 }
@@ -79,41 +84,145 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
     type Msg = ToStaticNeighbourhoodsAsMelody<T>;
 
     fn new(config: Self::Config) -> Self {
-        todo!()
+        Self {
+            neighbourhoods: config.inner.neighbourhoods,
+            curr_neighbourhood_index: 0,
+            tuning_reference: config.inner.tuning_reference,
+            reference: config.inner.reference,
+            reanchor: config.reanchor,
+            last_solve: Instant::now(),
+            group_start_reference: Stack::new_zero(),
+            group_duration: Duration::from_millis(config.group_ms),
+            tmp_stack: Stack::new_zero(),
+        }
     }
 
     fn tune_with_harmony(
         &mut self,
         time: Instant,
-        harmony: &Reader<Harmony<T>>,
-        tunings: &ReaderWriter<[Stack<T>; 128]>,
-        forward: &mpsc::Sender<FromStrategy<T>>,
+        adaptor: &impl StrategyAdaptor<T>,
+        harmony: &impl Reader<Harmony<T>>,
+        harmony_is_valid: bool,
     ) {
-        todo!()
+        // if self.reanchor {
+        //     todo!()
+        // } else {
+        if harmony_is_valid {
+            let Harmony {
+                neighbourhood: harmony_neighbourhood,
+                reference: harmony_reference,
+            } = &*harmony.read();
+            for i in 0..128 {
+                if adaptor.read_key_states()[i].is_sounding() {
+                    let mut tunings = adaptor.write_tunings();
+                    self.tmp_stack.clone_from(&tunings[i]);
+                    if harmony_neighbourhood.try_write_relative_stack(
+                        &mut tunings[i],
+                        i as StackCoeff - *harmony_reference,
+                    ) {
+                        self.add_reference_tuning(
+                            &mut tunings[i],
+                            *harmony_reference as StackCoeff,
+                        );
+                    } else {
+                        tunings[i].reset_to_zero();
+                        self.add_reference_tuning(&mut tunings[i], i as StackCoeff);
+                    }
+                    if self.tmp_stack != tunings[i] {
+                        adaptor.send(FromStrategy::Retune {
+                            note: i as u8,
+                            tuning: self.tuning_for_stack(&tunings[i]),
+                            tuning_stack: tunings[i].clone(),
+                            time,
+                        });
+                    }
+                }
+            }
+        } else {
+            for i in 0..128 {
+                if adaptor.read_key_states()[i].is_sounding() {
+                    let mut tunings = adaptor.write_tunings();
+                    self.tmp_stack.clone_from(&tunings[i]);
+                    tunings[i].reset_to_zero();
+                    self.add_reference_tuning(&mut tunings[i], i as StackCoeff);
+                    if self.tmp_stack != tunings[i] {
+                        adaptor.send(FromStrategy::Retune {
+                            note: i as u8,
+                            tuning: self.tuning_for_stack(&tunings[i]),
+                            tuning_stack: tunings[i].clone(),
+                            time,
+                        });
+                    }
+                }
+            }
+        }
     }
 
-    fn tune_no_harmony(
+    fn stop(&mut self, _time: Instant, _adaptor: &impl StrategyAdaptor<T>) {}
+
+    fn start(
         &mut self,
         time: Instant,
-        tunings: &ReaderWriter<[Stack<T>; 128]>,
-        forward: &mpsc::Sender<FromStrategy<T>>,
+        adaptor: &impl StrategyAdaptor<T>,
+        harmony: &impl Reader<Harmony<T>>,
+        harmony_is_valid: bool,
     ) {
-        todo!()
+        adaptor.send(FromStrategy::SetTuningReference {
+            reference: self.tuning_reference.clone(),
+        });
+        adaptor.send(FromStrategy::SetReference {
+            stack: self.reference.clone(),
+        });
+        adaptor.send(FromStrategy::CurrentNeighbourhoodIndex {
+            index: self.curr_neighbourhood_index,
+        });
+        self.neighbourhoods[self.curr_neighbourhood_index].for_each_stack(|_, stack| {
+            adaptor.send(FromStrategy::Consider {
+                stack: stack.clone(),
+            });
+        });
+
+        self.tune_with_harmony(time, adaptor, harmony, harmony_is_valid);
     }
 
-    fn stop(&mut self, time: Instant, forward: &mpsc::Sender<FromStrategy<T>>) {
-        todo!()
+    fn set_tuning_reference(
+        &mut self,
+        reference: Reference<T>,
+        time: Instant,
+        adaptor: &impl StrategyAdaptor<T>,
+        _harmony: &impl Reader<Harmony<T>>,
+        _harmony_is_valid: bool,
+    ) {
+        adaptor.send(FromStrategy::SetTuningReference {
+            reference: reference.clone(),
+        });
+
+        self.tuning_reference = reference;
+        for (i, state) in adaptor.read_key_states().iter().enumerate() {
+            if state.is_sounding() {
+                adaptor.send(FromStrategy::Retune {
+                    note: i as u8,
+                    tuning: self.tuning_for_stack(&adaptor.read_tunings()[i]),
+                    tuning_stack: adaptor.read_tunings()[i].clone(),
+                    time,
+                });
+            }
+        }
     }
 
-    fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromStrategy<T>>) {
-        todo!()
-    }
-
-    fn set_tuning_reference(&mut self, reference: Reference<T>, time: Instant) {
+    fn receive_msg(
+        &mut self,
+        msg: Self::Msg,
+        adaptor: &impl StrategyAdaptor<T>,
+        harmony: &impl Reader<Harmony<T>>,
+        harmony_is_valid: bool,
+    ) {
         todo!()
     }
 
     fn filter_to_melody(msg: ToMelody<T>) -> Option<Self::Msg> {
-        todo!()
+        match msg {
+            ToMelody::StaticNeighbourhoods(msg) => Some(msg),
+        }
     }
 }

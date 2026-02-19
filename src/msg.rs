@@ -1,7 +1,4 @@
-use std::{
-    sync::mpsc,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use midi_msg::Channel;
 use midir::{MidiInputPort, MidiOutputPort};
@@ -14,10 +11,6 @@ use crate::{
     strategy::{harmony::chordlist::PatternConfig, r#trait::StrategyAction},
     util::list_action::ListAction,
 };
-
-pub trait HandleMsg<I, O> {
-    fn handle_msg(&mut self, msg: I, forward: &mpsc::Sender<O>);
-}
 
 pub trait ReceiveMsg<I> {
     fn receive_msg(&mut self, msg: I);
@@ -204,29 +197,10 @@ pub enum ToTwoStep<T: StackType> {
 }
 
 pub enum ToMelody<T: StackType> {
-    Start {
-        time: Instant,
-    },
-    Stop {
-        time: Instant,
-    },
-    TuneWithHarmony {
-        time: Instant,
-    },
-    TuneNoHarmony {
-        time: Instant,
-    },
-    SetTuningReference {
-        reference: Reference<T>,
-        time: Instant,
-    },
     StaticNeighbourhoods(ToStaticNeighbourhoodsAsMelody<T>),
 }
 
 pub enum ToHarmony<T: StackType> {
-    Start { time: Instant },
-    Stop { time: Instant },
-    Solve { time: Instant },
     ChordList(ToChordList<T>),
 }
 

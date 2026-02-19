@@ -81,7 +81,7 @@ impl<T: IntervalBasis> PeriodicNeighbourhood<T> for PeriodicPartial<T> {}
 
 impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
     fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
-        let n = self.period_keys(); 
+        let n = self.period_keys();
         let quot = stack.key_distance().div_euclid(n);
         let rem = stack.key_distance().rem_euclid(n) as usize;
         self.stacks[rem].0.clone_from(stack);
@@ -122,6 +122,19 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
         let n = self.period_keys();
         let rem = offset.rem_euclid(n) as usize;
         self.stacks[rem].1
+    }
+
+    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+        let n = self.period_keys();
+        let quot = offset.div_euclid(n);
+        let rem = offset.rem_euclid(n) as usize;
+        if self.stacks[rem].1 {
+            target.scaled_add(1, &self.stacks[rem].0);
+            target.scaled_add(quot, &self.period);
+            true
+        } else {
+            false
+        }
     }
 
     fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
@@ -188,6 +201,9 @@ pub trait Neighbourhood<T: IntervalBasis> {
     ///
     /// Must return `true` for every `offset` in the case of [CompleteNeigbourhood]s.
     fn has_tuning_for(&self, offset: StackCoeff) -> bool;
+
+    /// Like [Neighbourhood::try_write_relative_stack], but adding to the output argument.
+    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool;
 
     /// Like [Neighbourhood::try_get_relative_stack], but with an output argument `target`, which
     /// must remain unchanged if it returns `false`.
@@ -273,6 +289,18 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
+    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => {
+                x.try_increment_by_relative_stack(target, offset)
+            }
+            SomeNeighbourhood::PeriodicPartial(x) => {
+                x.try_increment_by_relative_stack(target, offset)
+            }
+            SomeNeighbourhood::Partial(x) => x.try_increment_by_relative_stack(target, offset),
+        }
+    }
+
     fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.try_write_relative_stack(target, offset),
@@ -329,6 +357,14 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
     fn has_tuning_for(&self, offset: StackCoeff) -> bool {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.has_tuning_for(offset),
+        }
+    }
+
+    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+        match self {
+            SomeCompleteNeighbourhood::PeriodicComplete(n) => {
+                n.try_increment_by_relative_stack(target, offset)
+            }
         }
     }
 
@@ -392,6 +428,15 @@ impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
         self.stacks.contains_key(&offset)
     }
 
+    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+        if let Some(stack) = self.stacks.get(&offset) {
+            target.scaled_add(1, stack);
+            true
+        } else {
+            false
+        }
+    }
+
     fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         if let Some(stack) = self.stacks.get(&offset) {
             target.clone_from(stack);
@@ -446,6 +491,15 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
         true
     }
 
+    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+        let n = self.period_keys();
+        let quot = offset.div_euclid(n);
+        let rem = offset.rem_euclid(n) as usize;
+        target.scaled_add(1, &self.stacks[rem]);
+        target.scaled_add(quot, &self.period);
+        true
+    }
+
     fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         let n = self.period_keys();
         let quot = offset.div_euclid(n);
@@ -468,6 +522,10 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
 pub trait CompleteNeigbourhood<T: IntervalBasis>: Neighbourhood<T> {
     fn write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) {
         self.try_write_relative_stack(target, offset);
+    }
+
+    fn increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) {
+        self.try_increment_by_relative_stack(target, offset);
     }
 
     fn get_relative_stack(&self, offset: StackCoeff) -> Stack<T> {

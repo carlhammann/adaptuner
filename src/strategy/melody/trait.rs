@@ -1,79 +1,62 @@
-use std::{sync::mpsc, time::Instant};
+use std::time::Instant;
 
 use crate::{
     config::{ExtractConfig, IsMelodyStrategyConfig},
-    interval::{stack::Stack, stacktype::r#trait::StackType},
-    msg::{FromStrategy, HandleMsg, ToMelody},
+    interval::stacktype::r#trait::StackType,
+    msg::ToMelody,
     reference::Reference,
-    strategy::harmony::r#trait::Harmony,
-    util::readerwriter::{Reader, ReaderWriter},
+    strategy::{harmony::r#trait::Harmony, r#trait::StrategyAdaptor},
+    util::readerwriter::Reader,
 };
 
-pub trait MelodyStrategy<T: StackType>:
-    HandleMsg<Self::Msg, FromStrategy<T>> + ExtractConfig<Self::Config>
-{
+pub trait MelodyStrategy<T: StackType>: ExtractConfig<Self::Config> {
     type Config: IsMelodyStrategyConfig<T, Realized = Self>;
 
     type Msg;
 
     fn new(config: Self::Config) -> Self;
 
-    /// Implementation of [ToMelody::TuneWithHarmony].
+    /// Implementation of [ToMelody::TuneWithHarmony] and of [ToMelody::TuneNoHarmony], depending
+    /// on the 'harmony_is_valid' argument.
     fn tune_with_harmony(
         &mut self,
         time: Instant,
-        harmony: &Reader<Harmony<T>>,
-        tunings: &ReaderWriter<[Stack<T>; 128]>,
-        forward: &mpsc::Sender<FromStrategy<T>>,
-    );
-
-    /// Implementation of [ToMelody::TuneNoHarmony].
-    fn tune_no_harmony(
-        &mut self,
-        time: Instant,
-        tunings: &ReaderWriter<[Stack<T>; 128]>,
-        forward: &mpsc::Sender<FromStrategy<T>>,
+        adaptor: &impl StrategyAdaptor<T>,
+        harmony: &impl Reader<Harmony<T>>,
+        harmony_is_valid: bool
     );
 
     /// Implementation of [ToMelody::Stop]
-    fn stop(&mut self, time: Instant, forward: &mpsc::Sender<FromStrategy<T>>);
+    fn stop(&mut self, time: Instant, adaptor: &impl StrategyAdaptor<T>);
 
-    /// Implementation of [ToMelody::Start]
-    fn start(&mut self, time: Instant, forward: &mpsc::Sender<FromStrategy<T>>);
+    /// Implementation of [ToMelody::Start].
+    ///
+    /// The 'with_harmony' argument schould be true iff the 'harmony' is already initialised.
+    fn start(
+        &mut self,
+        time: Instant,
+        adaptor: &impl StrategyAdaptor<T>,
+        harmony: &impl Reader<Harmony<T>>,
+        harmony_is_valid: bool,
+    );
 
     /// Implementation of [ToMelody::SetTuningReference]
-    fn set_tuning_reference(&mut self, reference: Reference<T>, time: Instant);
+    fn set_tuning_reference(
+        &mut self,
+        reference: Reference<T>,
+        time: Instant,
+        adaptor: &impl StrategyAdaptor<T>,
+        harmony: &impl Reader<Harmony<T>>,
+        harmony_is_valid: bool,
+    );
+
+    fn receive_msg(
+        &mut self,
+        msg: Self::Msg,
+        adaptor: &impl StrategyAdaptor<T>,
+        harmony: &impl Reader<Harmony<T>>,
+        harmony_is_valid: bool,
+    );
 
     fn filter_to_melody(msg: ToMelody<T>) -> Option<Self::Msg>;
-
-    /// returns true iff the input message was [ToMelody::Stop]. In that case, you should stop
-    /// receiving messages.
-    fn handle_to_melody(
-        &mut self,
-        msg: ToMelody<T>,
-        harmony: &Reader<Harmony<T>>,
-        tunings: &ReaderWriter<[Stack<T>; 128]>,
-        forward: &mpsc::Sender<FromStrategy<T>>,
-    ) -> bool {
-        match msg {
-            ToMelody::Start { time } => self.start(time, forward),
-            ToMelody::Stop { time } => {
-                self.stop(time, forward);
-                return true;
-            }
-            ToMelody::TuneWithHarmony { time } => {
-                self.tune_with_harmony(time, harmony, tunings, forward)
-            }
-            ToMelody::TuneNoHarmony { time } => self.tune_no_harmony(time, tunings, forward),
-            ToMelody::SetTuningReference { reference, time } => {
-                self.set_tuning_reference(reference, time)
-            }
-            _ => {
-                if let Some(x) = Self::filter_to_melody(msg) {
-                    self.handle_msg(x, forward);
-                }
-            }
-        }
-        false
-    }
 }

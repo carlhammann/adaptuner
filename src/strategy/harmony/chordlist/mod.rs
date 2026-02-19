@@ -12,6 +12,7 @@ use crate::{
     msg::{ReceiveMsg, ToChordList, ToHarmony},
     neighbourhood::{Neighbourhood, Partial, PeriodicPartial, SomeNeighbourhood},
     strategy::harmony::r#trait::{Harmony, HarmonyResult, HarmonyStrategy},
+    util::readerwriter::{Reader, ReaderWriter},
 };
 
 pub mod keyshape;
@@ -329,36 +330,56 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         }
     }
 
+    fn start(
+        &mut self,
+        time: Instant,
+        keys: &impl Reader<[KeyState; 128]>,
+        harmony: &impl ReaderWriter<Harmony<T>>,
+    ) -> HarmonyResult {
+        self.start_solve(time, keys, harmony)
+    }
+
+    fn stop(
+        &mut self,
+        _time: Instant,
+        _keys: &impl Reader<[KeyState; 128]>,
+        _harmony: &impl ReaderWriter<Harmony<T>>,
+    ) {
+    }
+
     fn start_solve(
         &mut self,
         time: Instant,
-        keys: &crate::util::readerwriter::Reader<[KeyState; 128]>,
-        _harmony: &crate::util::readerwriter::ReaderWriter<Harmony<T>>,
+        keys: &impl Reader<[KeyState; 128]>,
+        _harmony: &impl ReaderWriter<Harmony<T>>,
     ) -> HarmonyResult {
         if self.enable {
             self.next_pattern_to_try = 0;
             self.best_fit = (0, Fit::Failed);
             self.solve_start = time;
             self.active_code = active_code(&keys.read());
-            HarmonyResult::StartSolve { time }
-        } else {
-            HarmonyResult::FinishedNoResult { time }
+        }
+        HarmonyResult {
+            finished: !self.enable,
+            progress: false,
         }
     }
 
     fn step(
         &mut self,
-        _keys: &crate::util::readerwriter::Reader<[KeyState; 128]>,
-        harmony: &crate::util::readerwriter::ReaderWriter<Harmony<T>>,
+        _keys: &impl Reader<[KeyState; 128]>,
+        harmony: &impl ReaderWriter<Harmony<T>>,
     ) -> HarmonyResult {
         if self.next_pattern_to_try >= self.patterns.len() {
             if self.best_fit.1.matches_nothing() {
-                return HarmonyResult::FinishedNoResult {
-                    time: self.solve_start,
+                return HarmonyResult {
+                    finished: true,
+                    progress: false,
                 };
             } else {
-                return HarmonyResult::FinishedWithResult {
-                    time: self.solve_start,
+                return HarmonyResult {
+                    finished: true,
+                    progress: true,
                 };
             }
         }
@@ -381,8 +402,9 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
             self.best_fit = (self.next_pattern_to_try, fit);
             self.next_pattern_to_try = self.patterns.len(); // we won't look at more patterns.
 
-            return HarmonyResult::FinishedWithResult {
-                time: self.solve_start,
+            return HarmonyResult {
+                finished: true,
+                progress: true,
             };
         }
 
@@ -392,20 +414,18 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
             self.best_fit = (self.next_pattern_to_try, fit);
             self.next_pattern_to_try += 1;
 
-            return HarmonyResult::StepWithProgress {
-                time: self.solve_start,
+            return HarmonyResult {
+                finished: false,
+                progress: true,
             };
         }
 
         self.next_pattern_to_try += 1;
-        HarmonyResult::StepNoProgress {
-            time: self.solve_start,
+        HarmonyResult {
+            finished: false,
+            progress: false,
         }
     }
-
-    fn start(&mut self, _time: Instant) {}
-
-    fn stop(&mut self, _time: Instant) {}
 
     fn filter_to_harmony(msg: ToHarmony<T>) -> Option<Self::Msg> {
         match msg {
@@ -414,21 +434,19 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         }
     }
 
-    fn requires_solve_at_time(msg: &Self::Msg) -> Option<Instant> {
-        match msg {
+    fn receive_msg(
+        &mut self,
+        msg: Self::Msg,
+        keys: &impl Reader<[KeyState; 128]>,
+        harmony: &impl ReaderWriter<Harmony<T>>,
+    ) -> Option<Instant> {
+        let time = match &msg {
             ToChordList::ChordListAction { time, .. }
             | ToChordList::PushNewChord { time, .. }
             | ToChordList::AllowExtraHighNotes { time, .. }
-            | ToChordList::EnableChordList { time, .. } => Some(*time),
-        }
-    }
-}
+            | ToChordList::EnableChordList { time, .. } => *time,
+        };
 
-impl<T: StackType> ExtractConfig<HarmonyStrategyConfig<T>> for ChordList<T> {
-    fn extract_config(&self) -> HarmonyStrategyConfig<T> {
-        HarmonyStrategyConfig::ChordList(ChordListConfig {
-            enable: self.enable,
-            patterns: self.patterns.iter().map(|p| p.extract_config()).collect(),
-        })
+        Some(time)
     }
 }

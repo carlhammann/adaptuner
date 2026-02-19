@@ -13,7 +13,7 @@ use crate::{
     keystate::KeyState,
     msg::{FromStrategy, ReceiveMsg, ToStrategy},
     reference::Reference,
-    util::readerwriter::{Reader, ReaderWriter},
+    util::readerwriter::{ConcreteReader, ConcreteReaderWriter, Reader, ReaderWriter},
 };
 
 /// Why these are not simply variants of [ToStrategy]: I want to expose them to users, to construct
@@ -56,35 +56,49 @@ impl fmt::Display for StrategyAction {
     }
 }
 
-pub trait StrategyAdaptor<T: StackType>: Clone {
+pub trait StrategyAdaptor<T: StackType>:
+    Reader<[KeyState; 128]> + ReaderWriter<[Stack<T>; 128]>
+{
     fn send(&self, msg: FromStrategy<T>) -> bool;
-    fn read_key_states(&self) -> impl Deref<Target = [KeyState; 128]>;
-    fn read_tunings(&self) -> impl Deref<Target = [Stack<T>; 128]>;
-    fn write_tunings(&self) -> impl DerefMut<Target = [Stack<T>; 128]>;
+    fn read_key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
+        <Self as Reader<[KeyState; 128]>>::read(self)
+    }
+    fn read_tunings(&self) -> impl Deref<Target = [Stack<T>; 128]> {
+        <Self as Reader<[Stack<T>; 128]>>::read(self)
+    }
+    fn write_tunings(&self) -> impl DerefMut<Target = [Stack<T>; 128]> {
+        <Self as ReaderWriter<[Stack<T>; 128]>>::write(self)
+    }
 }
 
 #[derive(Clone)]
 pub struct ConcreteStrategyAdaptor<T: StackType> {
     pub forward: mpsc::Sender<FromStrategy<T>>,
-    pub key_states: Reader<[KeyState; 128]>,
-    pub tunings: ReaderWriter<[Stack<T>; 128]>,
+    pub key_states: ConcreteReader<[KeyState; 128]>,
+    pub tunings: ConcreteReaderWriter<[Stack<T>; 128]>,
+}
+
+impl<T: StackType> Reader<[KeyState; 128]> for ConcreteStrategyAdaptor<T> {
+    fn read(&self) -> impl Deref<Target = [KeyState; 128]> {
+        self.key_states.read()
+    }
+}
+
+impl<T: StackType> Reader<[Stack<T>; 128]> for ConcreteStrategyAdaptor<T> {
+    fn read(&self) -> impl Deref<Target = [Stack<T>; 128]> {
+        self.tunings.read()
+    }
+}
+
+impl<T: StackType> ReaderWriter<[Stack<T>; 128]> for ConcreteStrategyAdaptor<T> {
+    fn write(&self) -> impl DerefMut<Target = [Stack<T>; 128]> {
+        self.tunings.write()
+    }
 }
 
 impl<T: StackType> StrategyAdaptor<T> for ConcreteStrategyAdaptor<T> {
     fn send(&self, msg: FromStrategy<T>) -> bool {
         self.forward.send(msg).is_ok()
-    }
-
-    fn read_key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
-        self.key_states.read()
-    }
-
-    fn read_tunings(&self) -> impl Deref<Target = [Stack<T>; 128]> {
-        self.tunings.read()
-    }
-
-    fn write_tunings(&self) -> impl DerefMut<Target = [Stack<T>; 128]> {
-        self.tunings.write()
     }
 }
 

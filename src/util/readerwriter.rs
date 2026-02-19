@@ -3,52 +3,66 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-pub struct Reader<X>(Arc<RwLock<X>>);
+pub trait Reader<X>: Clone {
+    fn read(&self) -> impl Deref<Target = X>;
+}
 
-impl<X> Clone for Reader<X> {
+pub trait ReaderWriter<X>: Reader<X> {
+    fn write(&self) -> impl DerefMut<Target = X>;
+}
+
+pub struct ConcreteReader<X>(Arc<RwLock<X>>);
+
+impl<X> Clone for ConcreteReader<X> {
     fn clone(&self) -> Self {
-        let Reader(x) = self;
-        Reader(x.clone())
+        let ConcreteReader(x) = self;
+        ConcreteReader(x.clone())
     }
 }
 
-impl<X> Reader<X> {
+impl<X> ConcreteReader<X> {
     pub fn new(x: X) -> Self {
-        Reader(Arc::new(RwLock::new(x)))
+        ConcreteReader(Arc::new(RwLock::new(x)))
     }
+}
 
-    pub fn read(&self) -> impl Deref<Target = X> + use<'_, X> {
-        let Reader(x) = self;
+impl<X> Reader<X> for ConcreteReader<X> {
+    fn read(&self) -> impl Deref<Target = X> + use<'_, X> {
+        let ConcreteReader(x) = self;
         x.read().unwrap()
     }
 }
 
-pub struct ReaderWriter<X>(Arc<RwLock<X>>);
+pub struct ConcreteReaderWriter<X>(Arc<RwLock<X>>);
 
-impl<X> Clone for ReaderWriter<X> {
+impl<X> Clone for ConcreteReaderWriter<X> {
     fn clone(&self) -> Self {
-        let ReaderWriter(x) = self;
-        ReaderWriter(x.clone())
+        let ConcreteReaderWriter(x) = self;
+        ConcreteReaderWriter(x.clone())
     }
 }
 
-impl<X> ReaderWriter<X> {
+impl<X> ConcreteReaderWriter<X> {
     pub fn new(x: X) -> Self {
-        ReaderWriter(Arc::new(RwLock::new(x)))
+        ConcreteReaderWriter(Arc::new(RwLock::new(x)))
     }
 
-    pub fn write(&self) -> impl DerefMut<Target = X> + use<'_, X> {
-        let ReaderWriter(x) = self;
+    pub fn into_reader(self) -> ConcreteReader<X> {
+        let ConcreteReaderWriter(x) = self;
+        ConcreteReader(x)
+    }
+}
+
+impl<X> Reader<X> for ConcreteReaderWriter<X> {
+    fn read(&self) -> impl Deref<Target = X> + use<'_, X> {
+        let ConcreteReaderWriter(x) = self;
+        x.read().unwrap()
+    }
+}
+
+impl<X> ReaderWriter<X> for ConcreteReaderWriter<X> {
+    fn write(&self) -> impl DerefMut<Target = X> + use<'_, X> {
+        let ConcreteReaderWriter(x) = self;
         x.write().unwrap()
-    }
-
-    pub fn read(&self) -> impl Deref<Target = X> + use<'_, X> {
-        let ReaderWriter(x) = self;
-        x.read().unwrap()
-    }
-
-    pub fn into_reader(self) -> Reader<X> {
-        let ReaderWriter(x) = self;
-        Reader(x)
     }
 }

@@ -1,4 +1,3 @@
-use std::sync::mpsc;
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -16,8 +15,6 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
     },
-    keystate::KeyState,
-    msg::FromStrategy,
     neighbourhood::{SomeCompleteNeighbourhood, SomeNeighbourhood},
     reference::Reference,
     strategy::{

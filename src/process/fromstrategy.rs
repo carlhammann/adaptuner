@@ -4,12 +4,15 @@ use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
 
 use crate::{
     bindable::{Bindings, MidiBindable},
-    config::{ExtractConfig, FromConfigAndState, IsStrategyConfig, ProcessConfig, StrategyConfig},
+    config::{
+        ExtractConfig, FromConfigAndState, HarmonyStrategyConfig, IsStrategyConfig,
+        MelodyStrategyConfig, ProcessConfig, StrategyConfig,
+    },
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
     strategy::r#trait::{ConcreteStrategyAdaptor, Strategy},
-    util::readerwriter::{Reader, ReaderWriter},
+    util::readerwriter::{ConcreteReaderWriter, ReaderWriter},
 };
 
 struct RunningStrategy<T: StackType> {
@@ -66,8 +69,8 @@ pub struct ProcessFromStrategy<T: StackType> {
     _message_forward_thread: thread::JoinHandle<mpsc::Receiver<FromStrategy<T>>>,
 
     current_strategy: Option<RunningStrategy<T>>,
-    key_states: ReaderWriter<[KeyState; 128]>,
-    tunings: ReaderWriter<[Stack<T>; 128]>,
+    key_states: ConcreteReaderWriter<[KeyState; 128]>,
+    tunings: ConcreteReaderWriter<[Stack<T>; 128]>,
     from_strategy_tx: mpsc::Sender<FromStrategy<T>>,
 }
 
@@ -81,8 +84,8 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
         }
 
         let now = Instant::now();
-        let key_states = ReaderWriter::new(core::array::from_fn(|_| KeyState::new(now)));
-        let tunings = ReaderWriter::new(core::array::from_fn(|_| Stack::new_zero()));
+        let key_states = ConcreteReaderWriter::new(core::array::from_fn(|_| KeyState::new(now)));
+        let tunings = ConcreteReaderWriter::new(core::array::from_fn(|_| Stack::new_zero()));
 
         let (from_strategy_tx, from_strategy_rx) = mpsc::channel();
 
@@ -294,7 +297,19 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
             self.stop(time);
         }
         self.current_strategy = Some(match &self.strategies[index].0 {
-            StrategyConfig::TwoStep(harmony, melody) => todo!(),
+            StrategyConfig::TwoStep(
+                HarmonyStrategyConfig::ChordList(harmony),
+                MelodyStrategyConfig::Neighbourhoods(melody),
+            ) => RunningStrategy::start(
+                time,
+                index,
+                (harmony.clone(), melody.clone()),
+                ConcreteStrategyAdaptor {
+                    forward: self.from_strategy_tx.clone(),
+                    key_states: self.key_states.clone().into_reader(),
+                    tunings: self.tunings.clone(),
+                },
+            ),
             StrategyConfig::StaticTuning(conf) => RunningStrategy::start(
                 time,
                 index,
