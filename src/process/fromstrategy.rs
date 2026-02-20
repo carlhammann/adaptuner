@@ -8,11 +8,10 @@ use crate::{
         ExtractConfig, FromConfigAndState, HarmonyStrategyConfig, IsStrategyConfig,
         MelodyStrategyConfig, ProcessConfig, StrategyConfig,
     },
-    interval::{stack::Stack, stacktype::r#trait::StackType},
-    keystate::KeyState,
+    interval::stacktype::r#trait::StackType,
     msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
+    process::r#trait::{ConcreteProcessAdaptor, ProcessAdaptor},
     strategy::r#trait::{ConcreteStrategyAdaptor, Strategy},
-    util::readerwriter::{ConcreteReaderWriter, ReaderWriter},
 };
 
 struct RunningStrategy<T: StackType> {
@@ -65,31 +64,26 @@ pub struct ProcessFromStrategy<T: StackType> {
     sostenuto_hold: [bool; 16],
     soft_hold: [bool; 16],
 
-    forward: mpsc::Sender<FromProcess<T>>,
     _message_forward_thread: thread::JoinHandle<mpsc::Receiver<FromStrategy<T>>>,
 
     current_strategy: Option<RunningStrategy<T>>,
-    key_states: ConcreteReaderWriter<[KeyState; 128]>,
-    tunings: ConcreteReaderWriter<[Stack<T>; 128]>,
     from_strategy_tx: mpsc::Sender<FromStrategy<T>>,
+
+    adaptor: ConcreteProcessAdaptor<T>,
 }
 
 impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
     pub fn new(
         strategies: Vec<(StrategyConfig<T>, Bindings<MidiBindable>)>,
-        forward: mpsc::Sender<FromProcess<T>>,
+        adaptor: ConcreteProcessAdaptor<T>,
     ) -> Self {
         if strategies.len() <= 0 {
             panic!("Cannot start process from empty list of strategies");
         }
 
-        let now = Instant::now();
-        let key_states = ConcreteReaderWriter::new(core::array::from_fn(|_| KeyState::new(now)));
-        let tunings = ConcreteReaderWriter::new(core::array::from_fn(|_| Stack::new_zero()));
-
         let (from_strategy_tx, from_strategy_rx) = mpsc::channel();
 
-        let forward_clone = forward.clone();
+        let forward_clone = adaptor.forward.clone();
         let message_forward_thread = thread::spawn(move || {
             loop {
                 match from_strategy_rx.recv() {
@@ -107,19 +101,17 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
             pedal_hold: [false; 16],
             sostenuto_hold: [false; 16],
             soft_hold: [false; 16],
-            forward,
             current_strategy: None {},
             _message_forward_thread: message_forward_thread,
             from_strategy_tx,
-            key_states,
-            tunings,
+            adaptor,
         }
     }
 }
 
 impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
     fn send_msg(&self, msg: FromProcess<T>) -> bool {
-        self.forward.send(msg).is_ok()
+        self.adaptor.send(msg)
     }
 
     fn send_to_strategy(&self, msg: ToStrategy<T>) {
@@ -226,7 +218,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
 
     fn handle_note_on(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.key_states.write()[note as usize].note_on(channel, time) {
+            if self.adaptor.write_key_state(note as usize).note_on(channel, time) {
                 let _ = self.send_to_strategy(ToStrategy::NoteOn { note, time });
             }
             let _ = self.send_msg(FromProcess::NoteOn {
@@ -240,7 +232,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
 
     fn handle_note_off(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.key_states.write()[note as usize].note_off(
+            if self.adaptor.write_key_state(note as usize).note_off(
                 channel,
                 self.pedal_hold[channel as usize],
                 time,
@@ -263,7 +255,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
             } else {
                 self.pedal_hold[channel as usize] = false;
                 for i in 0..128 {
-                    let changed = self.key_states.write()[i].pedal_off(channel, time);
+                    let changed = self.adaptor.write_key_state(i).pedal_off(channel, time);
                     if changed {
                         let _ = self.send_to_strategy(ToStrategy::NoteOff {
                             note: i as u8,
@@ -306,8 +298,8 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
                 (harmony.clone(), melody.clone()),
                 ConcreteStrategyAdaptor {
                     forward: self.from_strategy_tx.clone(),
-                    key_states: self.key_states.clone().into_reader(),
-                    tunings: self.tunings.clone(),
+                    key_states: self.adaptor.key_states.clone().into_reader(),
+                    tunings: self.adaptor.tunings.clone(),
                 },
             ),
             StrategyConfig::StaticTuning(conf) => RunningStrategy::start(
@@ -316,8 +308,8 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
                 conf.clone(),
                 ConcreteStrategyAdaptor {
                     forward: self.from_strategy_tx.clone(),
-                    key_states: self.key_states.clone().into_reader(),
-                    tunings: self.tunings.clone(),
+                    key_states: self.adaptor.key_states.clone().into_reader(),
+                    tunings: self.adaptor.tunings.clone(),
                 },
             ),
         });
@@ -390,13 +382,13 @@ impl<T: StackType + fmt::Debug + Send + Sync> ReceiveMsg<ToProcess<T>> for Proce
             }
             ToProcess::RestartWithConfig { config, time } => {
                 *self =
-                    <Self as FromConfigAndState<_, _>>::initialise(config, self.forward.clone());
+                    <Self as FromConfigAndState<_, _>>::initialise(config, self.adaptor.clone());
                 self.start(time, 0); // start strategy 0 by default
             }
             ToProcess::RestartWithCurrentConfig { time } => {
                 *self = <Self as FromConfigAndState<_, _>>::initialise(
                     self.extract_config(),
-                    self.forward.clone(),
+                    self.adaptor.clone(),
                 );
                 self.start(time, 0); // start strategy 0 by default
             }
@@ -416,11 +408,11 @@ impl<T: StackType> ExtractConfig<ProcessConfig<T>> for ProcessFromStrategy<T> {
     }
 }
 
-impl<T: StackType + Send + Sync> FromConfigAndState<ProcessConfig<T>, mpsc::Sender<FromProcess<T>>>
+impl<T: StackType + Send + Sync> FromConfigAndState<ProcessConfig<T>, ConcreteProcessAdaptor<T>>
     for ProcessFromStrategy<T>
 {
-    fn initialise(config: ProcessConfig<T>, forward: mpsc::Sender<FromProcess<T>>) -> Self {
+    fn initialise(config: ProcessConfig<T>, adaptor: ConcreteProcessAdaptor<T>) -> Self {
         let ProcessConfig { strategies } = config;
-        Self::new(strategies, forward)
+        Self::new(strategies, adaptor)
     }
 }

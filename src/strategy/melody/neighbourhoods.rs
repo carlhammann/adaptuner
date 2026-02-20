@@ -34,6 +34,7 @@ pub struct StaticNeighbourhoodsAsMelody<T: StackType> {
     reference: Stack<T>,
 
     reanchor: bool,
+
     last_solve: Instant,
     group_start_reference: Stack<T>,
     group_duration: Duration,
@@ -51,6 +52,12 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         self.neighbourhoods[self.curr_neighbourhood_index]
             .increment_by_relative_stack(stack, i - self.reference.key_number());
         stack.scaled_add(1, &self.reference);
+    }
+
+    fn reference_tuning(&self, i: StackCoeff) -> Stack<T> {
+        let mut res = Stack::new_zero();
+        self.add_reference_tuning(&mut res, i);
+        res
     }
 }
 
@@ -111,28 +118,38 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
             let Harmony {
                 neighbourhood: harmony_neighbourhood,
                 reference: harmony_reference,
+                pattern_index,
             } = &*harmony.read();
+            adaptor.send(FromStrategy::CurrentHarmony {
+                pattern_index: *pattern_index,
+                reference: Some(self.reference_tuning(*harmony_reference as StackCoeff)),
+            });
             for i in 0..128 {
-                if adaptor.read_key_states()[i].is_sounding() {
-                    let mut tunings = adaptor.write_tunings();
-                    self.tmp_stack.clone_from(&tunings[i]);
+                if adaptor.read_key_state(i).is_sounding() {
+                    self.tmp_stack.clone_from(&adaptor.read_tuning(i).stack);
                     if harmony_neighbourhood.try_write_relative_stack(
-                        &mut tunings[i],
+                        &mut adaptor.write_tuning(i).stack,
                         i as StackCoeff - *harmony_reference,
                     ) {
                         self.add_reference_tuning(
-                            &mut tunings[i],
+                            &mut adaptor.write_tuning(i).stack,
                             *harmony_reference as StackCoeff,
                         );
                     } else {
-                        tunings[i].reset_to_zero();
-                        self.add_reference_tuning(&mut tunings[i], i as StackCoeff);
+                        adaptor.write_tuning(i).stack.reset_to_zero();
+                        self.add_reference_tuning(
+                            &mut adaptor.write_tuning(i).stack,
+                            i as StackCoeff,
+                        );
                     }
-                    if self.tmp_stack != tunings[i] {
+                    if self.tmp_stack != adaptor.read_tuning(i).stack {
+                        // It's important to lock the entry only once, and not use 'read_tuning'
+                        // and 'write_tuning' in the same assigment. Otherwise, whichever lock is
+                        // acquired first keeps the other open indefinitely...
+                        let mut x = adaptor.write_tuning(i);
+                        x.tuning = self.tuning_for_stack(&x.stack);
                         adaptor.send(FromStrategy::Retune {
                             note: i as u8,
-                            tuning: self.tuning_for_stack(&tunings[i]),
-                            tuning_stack: tunings[i].clone(),
                             time,
                         });
                     }
@@ -140,16 +157,15 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
             }
         } else {
             for i in 0..128 {
-                if adaptor.read_key_states()[i].is_sounding() {
-                    let mut tunings = adaptor.write_tunings();
-                    self.tmp_stack.clone_from(&tunings[i]);
-                    tunings[i].reset_to_zero();
-                    self.add_reference_tuning(&mut tunings[i], i as StackCoeff);
-                    if self.tmp_stack != tunings[i] {
+                if adaptor.read_key_state(i).is_sounding() {
+                    self.tmp_stack.clone_from(&adaptor.read_tuning(i).stack);
+                    adaptor.write_tuning(i).stack.reset_to_zero();
+                    self.add_reference_tuning(&mut adaptor.write_tuning(i).stack, i as StackCoeff);
+                    if self.tmp_stack != adaptor.read_tuning(i).stack {
+                        let mut x = adaptor.write_tuning(i);
+                        x.tuning = self.tuning_for_stack(&x.stack);
                         adaptor.send(FromStrategy::Retune {
                             note: i as u8,
-                            tuning: self.tuning_for_stack(&tunings[i]),
-                            tuning_stack: tunings[i].clone(),
                             time,
                         });
                     }
@@ -198,12 +214,13 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
         });
 
         self.tuning_reference = reference;
-        for (i, state) in adaptor.read_key_states().iter().enumerate() {
+        for i in 0..128 {
+            let state = adaptor.read_key_state(i);
             if state.is_sounding() {
+                let mut x = adaptor.write_tuning(i);
+                x.tuning = self.tuning_for_stack(&x.stack);
                 adaptor.send(FromStrategy::Retune {
                     note: i as u8,
-                    tuning: self.tuning_for_stack(&adaptor.read_tunings()[i]),
-                    tuning_stack: adaptor.read_tunings()[i].clone(),
                     time,
                 });
             }

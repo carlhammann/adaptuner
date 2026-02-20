@@ -26,13 +26,14 @@ fn run() -> Result<(), Box<dyn Error>> {
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
 
-    let _runstate = RunState::new::<ProcessFromStrategy<TheFiveLimitStackType>, Pitchbend12, _, _>(
-        midi_in,
-        midi_out,
-        process_config,
-        backend_config,
-        move |ctx, tx| Toplevel::new(gui_config, ctx, tx),
-    )?;
+    let _runstate =
+        RunState::new::<ProcessFromStrategy<TheFiveLimitStackType>, Pitchbend12<_>, _, _>(
+            midi_in,
+            midi_out,
+            process_config,
+            backend_config,
+            move |ctx, adaptor| Toplevel::new(gui_config, ctx, adaptor),
+        )?;
 
     Ok(())
 }

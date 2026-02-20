@@ -26,7 +26,6 @@ use crate::{
         r#trait::{Strategy, StrategyAction},
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
-    util::readerwriter::{Reader, ReaderWriter},
 };
 
 pub trait FromConfigAndState<C, S> {

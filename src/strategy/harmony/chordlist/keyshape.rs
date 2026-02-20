@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, std::hash::Hash)]
@@ -142,7 +144,7 @@ impl KeyShape {
     }
 }
 
-pub fn active_code<N: HasActivationStatus>(notes: &[N; 128]) -> u128 {
+pub fn active_code<N: HasActivationStatus>(notes: impl Deref<Target = [N; 128]>) -> u128 {
     let mut active_code: u128 = 0;
     for (i, n) in notes.iter().enumerate() {
         if n.active() {

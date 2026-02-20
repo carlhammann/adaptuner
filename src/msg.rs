@@ -96,14 +96,6 @@ pub enum FromProcess<T: StackType> {
         time: Instant,
     },
     FromStrategy(FromStrategy<T>),
-    TunedNoteOn {
-        channel: Channel,
-        note: u8,
-        velocity: u8,
-        tuning: Semitones,
-        tuning_stack: Stack<T>,
-        time: Instant,
-    },
     NoteOn {
         channel: Channel,
         note: u8,
@@ -144,8 +136,7 @@ pub enum ToChordList<T: StackType> {
         allow: bool,
         time: Instant,
     },
-    EnableChordList {
-        enable: bool,
+    ToggleEnable {
         time: Instant,
     },
 }
@@ -187,7 +178,7 @@ pub enum ToStaticNeighbourhoods<T: StackType> {
 pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
     Basic(ToStaticNeighbourhoods<T>),
     SetReferenceToCurrent { time: Instant },
-    ReanchorOnMatch { reanchor: bool },
+    ToggleReanchor { time: Instant },
     SetGroupMs { group_ms: u64 },
 }
 
@@ -211,6 +202,9 @@ pub enum ToStrategy<T: StackType> {
     Stop {
         time: Instant,
     },
+    Reset {
+        time: Instant,
+    },
     NoteOn {
         note: u8,
         time: Instant,
@@ -231,8 +225,6 @@ pub enum ToStrategy<T: StackType> {
 pub enum FromStrategy<T: StackType> {
     Retune {
         note: u8,
-        tuning: Semitones,
-        tuning_stack: Stack<T>,
         time: Instant,
     },
     SetReference {
@@ -275,13 +267,6 @@ pub enum ToBackend {
         time: Instant,
     },
     Stop,
-    TunedNoteOn {
-        channel: Channel,
-        note: u8,
-        velocity: u8,
-        tuning: Semitones,
-        time: Instant,
-    },
     NoteOn {
         channel: Channel,
         note: u8,
@@ -290,7 +275,6 @@ pub enum ToBackend {
     },
     Retune {
         note: u8,
-        tuning: Semitones,
         time: Instant,
     },
     NoteOff {
@@ -337,12 +321,6 @@ pub enum ToUi<T: StackType> {
     Notify {
         line: String,
     },
-    TunedNoteOn {
-        channel: Channel,
-        note: u8,
-        tuning_stack: Stack<T>,
-        time: Instant,
-    },
     NoteOn {
         channel: Channel,
         note: u8,
@@ -350,7 +328,6 @@ pub enum ToUi<T: StackType> {
     },
     Retune {
         note: u8,
-        tuning_stack: Stack<T>,
     },
     NoteOff {
         channel: Channel,
@@ -520,12 +497,11 @@ pub enum FromUi<T: StackType> {
         allow: bool,
         time: Instant,
     },
-    EnableChordList {
-        enable: bool,
+    ToggleChordList {
         time: Instant,
     },
-    ReanchorOnMatch {
-        reanchor: bool,
+    ToggleReanchorOnMatch {
+        time: Instant,
     },
     SetGroupMs {
         group_ms: u64,
@@ -601,29 +577,6 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
                 None {},
                 Some(ToMidiOut::OutgoingMidi { time, bytes }),
                 None {},
-            ),
-            FromProcess::TunedNoteOn {
-                channel,
-                note,
-                velocity,
-                tuning,
-                tuning_stack,
-                time,
-            } => (
-                Some(ToBackend::TunedNoteOn {
-                    channel,
-                    note,
-                    velocity,
-                    tuning,
-                    time,
-                }),
-                None {},
-                Some(ToUi::TunedNoteOn {
-                    channel,
-                    note,
-                    tuning_stack,
-                    time,
-                }),
             ),
             FromProcess::FromStrategy(msg) => {
                 let (to_backend, to_ui) = msg.translate2();
@@ -710,14 +663,9 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
 impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
     fn translate2(self) -> (Option<ToBackend>, Option<ToUi<T>>) {
         match self {
-            FromStrategy::Retune {
-                note,
-                tuning,
-                tuning_stack,
-                time,
-            } => (
-                Some(ToBackend::Retune { note, tuning, time }),
-                Some(ToUi::Retune { note, tuning_stack }),
+            FromStrategy::Retune { note, time } => (
+                Some(ToBackend::Retune { note, time }),
+                Some(ToUi::Retune { note }),
             ),
             FromStrategy::SetReference { stack } => (None {}, Some(ToUi::SetReference { stack })),
             FromStrategy::Consider { stack } => (None {}, Some(ToUi::Consider { stack })),
@@ -894,10 +842,22 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                     StrategyAction::SetReferenceToHighest => ToStrategy::StaticNeighbourhoods(
                         ToStaticNeighbourhoods::SetReferenceToHighest { time },
                     ),
-                    StrategyAction::SetReferenceToCurrent => todo!(),
-                    StrategyAction::ToggleChordMatching => todo!(),
-                    StrategyAction::ToggleReanchor => todo!(),
-                    StrategyAction::Reset => todo!(),
+                    StrategyAction::SetReferenceToCurrent => ToStrategy::TwoStep(
+                        ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
+                            ToStaticNeighbourhoodsAsMelody::SetReferenceToCurrent { time },
+                        )),
+                    ),
+                    StrategyAction::ToggleChordMatching => {
+                        ToStrategy::TwoStep(ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(
+                            ToChordList::ToggleEnable { time },
+                        )))
+                    }
+                    StrategyAction::ToggleReanchor => ToStrategy::TwoStep(
+                        ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
+                            ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time },
+                        )),
+                    ),
+                    StrategyAction::Reset => ToStrategy::Reset { time },
                 })),
                 None {},
                 None {},
@@ -988,45 +948,54 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            _ => todo!(), // FromUi::AllowExtraHighNotes {
-                          //     pattern_index,
-                          //     allow,
-                          //     time,
-                          // } => (
-                          //     Some(ToProcess::ToStrategy(ToStrategy::ToHarmonyStrategy(
-                          //         ToHarmonyStrategy::AllowExtraHighNotes {
-                          //             pattern_index,
-                          //             allow,
-                          //         },
-                          //         time,
-                          //     ))),
-                          //     None {},
-                          //     None {},
-                          //     None {},
-                          // ),
-                          // FromUi::EnableChordList { enable, time } => (
-                          //     Some(ToProcess::ToStrategy(ToStrategy::ToHarmonyStrategy(
-                          //         ToHarmonyStrategy::EnableChordList { enable },
-                          //         time,
-                          //     ))),
-                          //     None {},
-                          //     None {},
-                          //     None {},
-                          // ),
-                          // FromUi::ReanchorOnMatch { reanchor } => (
-                          //     Some(ToProcess::ToStrategy(ToStrategy::ReanchorOnMatch {
-                          //         reanchor,
-                          //     })),
-                          //     None {},
-                          //     None {},
-                          //     None {},
-                          // ),
-                          // FromUi::SetGroupMs { group_ms } => (
-                          //     Some(ToProcess::ToStrategy(ToStrategy::SetGroupMs { group_ms })),
-                          //     None {},
-                          //     None {},
-                          //     None {},
-                          // ),
+            FromUi::AllowExtraHighNotes {
+                pattern_index,
+                allow,
+                time,
+            } => (
+                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
+                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(
+                        ToChordList::AllowExtraHighNotes {
+                            pattern_index,
+                            allow,
+                            time,
+                        },
+                    )),
+                ))),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::ToggleChordList { time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
+                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(ToChordList::ToggleEnable {
+                        time,
+                    })),
+                ))),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::ToggleReanchorOnMatch { time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
+                    ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
+                        ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time },
+                    )),
+                ))),
+                None {},
+                None {},
+                None {},
+            ),
+            FromUi::SetGroupMs { group_ms } => (
+                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
+                    ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
+                        ToStaticNeighbourhoodsAsMelody::SetGroupMs { group_ms },
+                    )),
+                ))),
+                None {},
+                None {},
+                None {},
+            ),
         }
     }
 }

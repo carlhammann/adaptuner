@@ -9,11 +9,12 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     config::{ExtractConfig, IsStrategyConfig},
-    interval::{stack::Stack, stacktype::r#trait::StackType},
+    interval::stacktype::r#trait::StackType,
     keystate::KeyState,
-    msg::{FromStrategy, ReceiveMsg, ToStrategy},
+    msg::{FromStrategy, ToStrategy},
+    process::r#trait::StackWithTuning,
     reference::Reference,
-    util::readerwriter::{ConcreteReader, ConcreteReaderWriter, Reader, ReaderWriter},
+    util::readerwriter::{ConcreteReader128, ConcreteReaderWriter128, Reader128, ReaderWriter128},
 };
 
 /// Why these are not simply variants of [ToStrategy]: I want to expose them to users, to construct
@@ -57,42 +58,54 @@ impl fmt::Display for StrategyAction {
 }
 
 pub trait StrategyAdaptor<T: StackType>:
-    Reader<[KeyState; 128]> + ReaderWriter<[Stack<T>; 128]>
+    Reader128<KeyState> + ReaderWriter128<StackWithTuning<T>>
 {
     fn send(&self, msg: FromStrategy<T>) -> bool;
-    fn read_key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
-        <Self as Reader<[KeyState; 128]>>::read(self)
+    fn read_key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
+        <Self as Reader128<KeyState>>::read(self, i)
     }
-    fn read_tunings(&self) -> impl Deref<Target = [Stack<T>; 128]> {
-        <Self as Reader<[Stack<T>; 128]>>::read(self)
+    fn read_tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
+        <Self as Reader128<StackWithTuning<T>>>::read(self, i)
     }
-    fn write_tunings(&self) -> impl DerefMut<Target = [Stack<T>; 128]> {
-        <Self as ReaderWriter<[Stack<T>; 128]>>::write(self)
+    fn write_tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+        <Self as ReaderWriter128<StackWithTuning<T>>>::write(self, i)
     }
 }
 
 #[derive(Clone)]
 pub struct ConcreteStrategyAdaptor<T: StackType> {
     pub forward: mpsc::Sender<FromStrategy<T>>,
-    pub key_states: ConcreteReader<[KeyState; 128]>,
-    pub tunings: ConcreteReaderWriter<[Stack<T>; 128]>,
+    pub key_states: ConcreteReader128<KeyState>,
+    pub tunings: ConcreteReaderWriter128<StackWithTuning<T>>,
 }
 
-impl<T: StackType> Reader<[KeyState; 128]> for ConcreteStrategyAdaptor<T> {
-    fn read(&self) -> impl Deref<Target = [KeyState; 128]> {
-        self.key_states.read()
+impl<T: StackType> Reader128<KeyState> for ConcreteStrategyAdaptor<T> {
+    fn read(&self, i: usize) -> impl Deref<Target = KeyState> {
+        self.key_states.read(i)
+    }
+
+    fn read_all(&self) -> impl Deref<Target = [KeyState; 128]> {
+        self.key_states.read_all()
     }
 }
 
-impl<T: StackType> Reader<[Stack<T>; 128]> for ConcreteStrategyAdaptor<T> {
-    fn read(&self) -> impl Deref<Target = [Stack<T>; 128]> {
-        self.tunings.read()
+impl<T: StackType> Reader128<StackWithTuning<T>> for ConcreteStrategyAdaptor<T> {
+    fn read(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
+        self.tunings.read(i)
+    }
+
+    fn read_all(&self) -> impl Deref<Target = [StackWithTuning<T>; 128]> {
+        self.tunings.read_all()
     }
 }
 
-impl<T: StackType> ReaderWriter<[Stack<T>; 128]> for ConcreteStrategyAdaptor<T> {
-    fn write(&self) -> impl DerefMut<Target = [Stack<T>; 128]> {
-        self.tunings.write()
+impl<T: StackType> ReaderWriter128<StackWithTuning<T>> for ConcreteStrategyAdaptor<T> {
+    fn write(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+        self.tunings.write(i)
+    }
+
+    fn write_all(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
+        self.tunings.write_all()
     }
 }
 
@@ -113,6 +126,8 @@ pub trait Strategy<T: StackType>: ExtractConfig<Self::Config> {
     fn start(&mut self, time: Instant, adaptor: &impl StrategyAdaptor<T>) -> bool;
 
     fn stop(&mut self, time: Instant, adaptor: &impl StrategyAdaptor<T>);
+
+    fn reset(&mut self, time: Instant, adaptor: &impl StrategyAdaptor<T>) -> bool;
 
     /// returns true iff further [Strategy::step]s are needed.
     fn note_on(&mut self, note: u8, time: Instant, adaptor: &impl StrategyAdaptor<T>) -> bool;

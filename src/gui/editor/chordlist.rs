@@ -16,6 +16,7 @@ use crate::{
     neighbourhood::{Neighbourhood, SomeNeighbourhood},
     notename::{HasNoteNames, NoteNameStyle},
     strategy::harmony::chordlist::{keyshape::KeyShape, PatternConfig},
+    util::readerwriter::Reader128,
 };
 
 pub struct ChordListEditor<T: StackType> {
@@ -169,78 +170,78 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
     }
 
     fn recompute_simple(&mut self, state: &KeysAndTunings<T>) {
-        if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
-            self.new_config = match (self.match_transpositions, self.match_voicings) {
-                (true, true) => Some((
-                    PatternConfig::classes_relative_from_current(
-                        &state.active_notes,
-                        &state.tunings,
-                        lowest_sounding,
-                        self.allow_extra_high_notes,
-                    ),
-                    state.tunings[lowest_sounding].clone(),
-                )),
-                (false, true) => Some((
-                    PatternConfig::classes_fixed_from_current(
-                        &state.active_notes,
-                        &state.tunings,
-                        lowest_sounding,
-                        self.allow_extra_high_notes,
-                    ),
-                    state.tunings[lowest_sounding].clone(),
-                )),
-                (false, false) => Some((
-                    PatternConfig::exact_fixed_from_current(
-                        &state.active_notes,
-                        &state.tunings,
-                        lowest_sounding,
-                        self.allow_extra_high_notes,
-                    ),
-                    state.tunings[lowest_sounding].clone(),
-                )),
-                (true, false) => Some((
-                    PatternConfig::exact_relative_from_current(
-                        &state.active_notes,
-                        &state.tunings,
-                        lowest_sounding,
-                        self.allow_extra_high_notes,
-                    ),
-                    state.tunings[lowest_sounding].clone(),
-                )),
-            };
-        } else {
-            self.new_config = None {};
-        }
+        // if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
+        //     self.new_config = match (self.match_transpositions, self.match_voicings) {
+        //         (true, true) => Some((
+        //             PatternConfig::classes_relative_from_current(
+        //                 &state.active_notes,
+        //                 &state.tunings,
+        //                 lowest_sounding,
+        //                 self.allow_extra_high_notes,
+        //             ),
+        //             state.tunings.read(lowest_sounding).stack.clone(),
+        //         )),
+        //         (false, true) => Some((
+        //             PatternConfig::classes_fixed_from_current(
+        //                 &state.active_notes,
+        //                 &state.tunings,
+        //                 lowest_sounding,
+        //                 self.allow_extra_high_notes,
+        //             ),
+        //             state.tunings.read(lowest_sounding).stack.clone(),
+        //         )),
+        //         (false, false) => Some((
+        //             PatternConfig::exact_fixed_from_current(
+        //                 &state.active_notes,
+        //                 &state.tunings,
+        //                 lowest_sounding,
+        //                 self.allow_extra_high_notes,
+        //             ),
+        //             state.tunings.read(lowest_sounding).stack.clone(),
+        //         )),
+        //         (true, false) => Some((
+        //             PatternConfig::exact_relative_from_current(
+        //                 &state.active_notes,
+        //                 &state.tunings,
+        //                 lowest_sounding,
+        //                 self.allow_extra_high_notes,
+        //             ),
+        //             state.tunings.read(lowest_sounding).stack.clone(),
+        //         )),
+        //     };
+        // } else {
+        //     self.new_config = None {};
+        // }
     }
 
     fn recompute_block(&mut self, state: &KeysAndTunings<T>) {
-        if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
-            self.new_config = if self.match_transpositions {
-                Some((
-                    PatternConfig::block_voicing_relative_from_current(
-                        &self.block_sizes,
-                        &state.active_notes,
-                        &state.tunings,
-                        lowest_sounding,
-                        self.allow_extra_high_notes,
-                    ),
-                    state.tunings[lowest_sounding].clone(),
-                ))
-            } else {
-                Some((
-                    PatternConfig::block_voicing_fixed_from_current(
-                        &self.block_sizes,
-                        &state.active_notes,
-                        &state.tunings,
-                        lowest_sounding,
-                        self.allow_extra_high_notes,
-                    ),
-                    state.tunings[lowest_sounding].clone(),
-                ))
-            }
-        } else {
-            self.new_config = None {};
-        }
+        // if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
+        //     self.new_config = if self.match_transpositions {
+        //         Some((
+        //             PatternConfig::block_voicing_relative_from_current(
+        //                 &self.block_sizes,
+        //                 &state.active_notes,
+        //                 &state.tunings,
+        //                 lowest_sounding,
+        //                 self.allow_extra_high_notes,
+        //             ),
+        //             state.tunings.read(lowest_sounding).stack.clone(),
+        //         ))
+        //     } else {
+        //         Some((
+        //             PatternConfig::block_voicing_fixed_from_current(
+        //                 &self.block_sizes,
+        //                 &state.active_notes,
+        //                 &state.tunings,
+        //                 lowest_sounding,
+        //                 self.allow_extra_high_notes,
+        //             ),
+        //             state.tunings.read(lowest_sounding).stack.clone(),
+        //         ))
+        //     }
+        // } else {
+        //     self.new_config = None {};
+        // }
     }
 
     fn recompute_new_config(&mut self, state: &KeysAndTunings<T>) {
@@ -344,8 +345,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
                 .clicked()
             {
                 self.enabled = !self.enabled;
-                let _ = forward.send(FromUi::EnableChordList {
-                    enable: self.enabled,
+                let _ = forward.send(FromUi::ToggleChordList {
                     time: Instant::now(),
                 });
             }
@@ -525,7 +525,6 @@ impl<T: StackType> ReceiveMsgRef<ToUi<T>> for ChordListEditor<T> {
             }
 
             ToUi::NoteOn { .. }
-            | ToUi::TunedNoteOn { .. }
             | ToUi::NoteOff { .. }
             | ToUi::PedalHold { .. }
             | ToUi::Retune { .. } => {

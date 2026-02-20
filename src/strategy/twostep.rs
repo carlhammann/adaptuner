@@ -62,6 +62,7 @@ where
         let res = self
             .harmony_strategy
             .start_solve(time, adaptor, &self.harmony);
+        self.solve_start = time;
         self.solving_harmony = !res.finished;
         self.found_harmony = res.progress;
 
@@ -112,6 +113,11 @@ where
     fn stop(&mut self, time: Instant, adaptor: &impl StrategyAdaptor<T>) {
         self.harmony_strategy.stop(time, adaptor, &self.harmony);
         self.melody_strategy.stop(time, adaptor);
+    }
+
+    fn reset(&mut self, time: Instant, adaptor: &impl StrategyAdaptor<T>) -> bool {
+        todo!()
+        // self.start(time, adaptor)
     }
 
     fn note_on(&mut self, _note: u8, time: Instant, adaptor: &impl StrategyAdaptor<T>) -> bool {

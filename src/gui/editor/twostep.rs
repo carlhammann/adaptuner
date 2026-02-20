@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::{sync::mpsc, time::Instant};
 
 use eframe::egui;
 
@@ -33,7 +33,9 @@ impl TwoStepEditor {
                     .radio_value(fixed, true, "do not move the reference on chord matches")
                     .clicked()
                 {
-                    let _ = forward.send(FromUi::ReanchorOnMatch { reanchor: !*fixed });
+                    let _ = forward.send(FromUi::ToggleReanchorOnMatch {
+                        time: Instant::now(),
+                    });
                 }
 
                 if ui
@@ -45,7 +47,9 @@ impl TwoStepEditor {
                     )
                     .clicked()
                 {
-                    let _ = forward.send(FromUi::ReanchorOnMatch { reanchor: !*fixed });
+                    let _ = forward.send(FromUi::ToggleReanchorOnMatch {
+                        time: Instant::now(),
+                    });
                 }
 
                 if !*fixed {

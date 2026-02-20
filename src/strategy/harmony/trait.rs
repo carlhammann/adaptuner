@@ -6,7 +6,7 @@ use crate::{
     keystate::KeyState,
     msg::ToHarmony,
     neighbourhood::{Partial, SomeNeighbourhood},
-    util::readerwriter::{Reader, ReaderWriter},
+    util::readerwriter::{Reader, Reader128, ReaderWriter},
 };
 
 #[derive(Clone)]
@@ -14,6 +14,7 @@ pub struct Harmony<T: IntervalBasis> {
     pub neighbourhood: SomeNeighbourhood<T>,
     /// MIDI key number of the reference note, but may be outside the MIDI range
     pub reference: StackCoeff,
+    pub pattern_index: Option<usize>,
 }
 
 impl<T: IntervalBasis> Harmony<T> {
@@ -21,6 +22,7 @@ impl<T: IntervalBasis> Harmony<T> {
         Self {
             neighbourhood: SomeNeighbourhood::Partial(Partial::new()),
             reference: 0,
+            pattern_index: None {},
         }
     }
 }
@@ -39,27 +41,27 @@ pub trait HarmonyStrategy<T: StackType>: ExtractConfig<Self::Config> {
     fn start(
         &mut self,
         time: Instant,
-        keys: &impl Reader<[KeyState; 128]>,
+        keys: &impl Reader128<KeyState>,
         harmony: &impl ReaderWriter<Harmony<T>>,
     ) -> HarmonyResult;
 
     fn start_solve(
         &mut self,
         time: Instant,
-        keys: &impl Reader<[KeyState; 128]>,
+        keys: &impl Reader128<KeyState>,
         harmony: &impl ReaderWriter<Harmony<T>>,
     ) -> HarmonyResult;
 
     fn step(
         &mut self,
-        keys: &impl Reader<[KeyState; 128]>,
+        keys: &impl Reader128<KeyState>,
         harmony: &impl ReaderWriter<Harmony<T>>,
     ) -> HarmonyResult;
 
     fn stop(
         &mut self,
         time: Instant,
-        keys: &impl Reader<[KeyState; 128]>,
+        keys: &impl Reader128<KeyState>,
         harmony: &impl ReaderWriter<Harmony<T>>,
     );
 
@@ -70,7 +72,7 @@ pub trait HarmonyStrategy<T: StackType>: ExtractConfig<Self::Config> {
     fn receive_msg(
         &mut self,
         msg: Self::Msg,
-        keys: &impl Reader<[KeyState; 128]>,
+        keys: &impl Reader128<KeyState>,
         harmony: &impl ReaderWriter<Harmony<T>>,
     ) -> Option<Instant>;
 }

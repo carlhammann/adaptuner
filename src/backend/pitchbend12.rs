@@ -2,35 +2,30 @@
 //! [OctavePeriodicStackType].
 //!
 
-use std::{sync::mpsc, time::Instant};
+use std::time::Instant;
 
-use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
+use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    backend::r#trait::{BackendAdaptor, ConcreteBackendAdaptor},
     config::{BackendConfig, ExtractConfig, FromConfigAndState},
     custom_serde::common::{deserialize_channel, serialize_channel},
-    interval::base::Semitones,
-    keystate::KeyState,
+    interval::{base::Semitones, stacktype::r#trait::StackType},
     msg::{self, FromBackend, ReceiveMsg, ToBackend},
 };
 
-pub struct Pitchbend12 {
+pub struct Pitchbend12<T: StackType> {
     /// the channels to use. Exlude CH10 for GM compatibility
     channels: [Channel; 12],
 
     /// invariant: the bend pertaining to `channels[i]` is in `bends[i]`
     bends: [u16; 12],
 
-    key_state: [KeyState; 128],
-
-    /// is the sustain pedal held at the moment? (for each channel)
-    pedal_hold: [bool; 16],
-
     /// the current bend range
     bend_range: Semitones,
 
-    forward: mpsc::Sender<FromBackend>,
+    adaptor: ConcreteBackendAdaptor<T>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -66,20 +61,17 @@ pub struct Pitchbend12Config {
     pub channels: [WrappedChannel; 12],
 }
 
-impl Pitchbend12 {
+impl<T: StackType> Pitchbend12<T> {
     fn send_msg(&self, msg: FromBackend) -> bool {
-        self.forward.send(msg).is_ok()
+        self.adaptor.send(msg)
     }
 
-    pub fn new(config: Pitchbend12Config, forward: mpsc::Sender<FromBackend>) -> Self {
-        let now = Instant::now();
+    pub fn new(config: Pitchbend12Config, adaptor: ConcreteBackendAdaptor<T>) -> Self {
         Self {
             channels: core::array::from_fn(|i| config.channels[i].into()),
             bends: [8192; 12],
-            key_state: core::array::from_fn(|_| KeyState::new(now)),
-            pedal_hold: [false; 16],
             bend_range: config.bend_range,
-            forward,
+            adaptor,
         }
     }
 
@@ -93,29 +85,38 @@ impl Pitchbend12 {
         (bend as Semitones - 8192.0) / 8191.0 * self.bend_range
     }
 
-    fn handle_retune(&mut self, note: u8, tuning: Semitones, time: Instant) {
-        let send_midi = |msg: MidiMsg, original_time: Instant| {
-            let _ = self.forward.send(msg::FromBackend::OutgoingMidi {
-                time: original_time,
-                bytes: msg.to_midi(),
-            });
-        };
+    fn handle_note_on(&mut self, note: u8, velocity: u8, time: Instant) {
+        self.handle_retune(note, time);
+
+        let _ = self.adaptor.send(msg::FromBackend::OutgoingMidi {
+            time,
+            bytes: (MidiMsg::ChannelVoice {
+                channel: self.channels[note as usize % 12],
+                msg: ChannelVoiceMsg::NoteOn { note, velocity },
+            })
+            .to_midi(),
+        });
+    }
+
+    fn handle_retune(&mut self, note: u8, time: Instant) {
+        let tuning = self.adaptor.read_tuning(note as usize).tuning;
 
         let channel_index = note as usize % 12;
         let desired_bend = self.bend_from_semitones(tuning - note as Semitones);
         let current_bend = self.bends[channel_index];
         if current_bend != desired_bend {
-            send_midi(
-                MidiMsg::ChannelVoice {
+            let _ = self.adaptor.send(msg::FromBackend::OutgoingMidi {
+                time,
+                bytes: (MidiMsg::ChannelVoice {
                     channel: self.channels[channel_index],
                     msg: ChannelVoiceMsg::PitchBend { bend: desired_bend },
-                },
-                time,
-            );
+                })
+                .to_midi(),
+            });
             self.bends[channel_index] = desired_bend;
         }
         if (tuning - note as Semitones).abs() > self.bend_range {
-            let _ = self.forward.send(FromBackend::DetunedNote {
+            let _ = self.send_msg(FromBackend::DetunedNote {
                 note,
                 actual: note as Semitones + self.semitones_from_bend(desired_bend),
                 should_be: tuning,
@@ -126,16 +127,14 @@ impl Pitchbend12 {
 
     fn reset(&mut self, time: Instant) {
         let send_midi = |msg: MidiMsg, original_time: Instant| {
-            let _ = self.forward.send(msg::FromBackend::OutgoingMidi {
+            let _ = self.adaptor.send(msg::FromBackend::OutgoingMidi {
                 time: original_time,
                 bytes: msg.to_midi(),
             });
         };
 
-        // the same initialisations as in [Pitchbend12::new].
+        // the same initialisation as in [Pitchbend12::new].
         self.bends = [8192; 12];
-        self.key_state = core::array::from_fn(|_| KeyState::new(time));
-        self.pedal_hold = [false; 16];
 
         for (i, &channel) in self.channels.iter().enumerate() {
             send_midi(
@@ -147,27 +146,11 @@ impl Pitchbend12 {
                 },
                 time,
             );
-            send_midi(
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::ControlChange {
-                        control: ControlChange::Hold(0),
-                    },
-                },
-                time,
-            );
-            send_midi(
-                MidiMsg::ChannelMode {
-                    channel,
-                    msg: ChannelModeMsg::AllSoundOff,
-                },
-                time,
-            );
         }
     }
 }
 
-impl ReceiveMsg<ToBackend> for Pitchbend12 {
+impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
     fn receive_msg(&mut self, msg: ToBackend) {
         let as_midi = |msg: MidiMsg, original_time: Instant| msg::FromBackend::OutgoingMidi {
             time: original_time,
@@ -183,26 +166,18 @@ impl ReceiveMsg<ToBackend> for Pitchbend12 {
 
             ToBackend::NoteOn {
                 time,
-                channel,
                 note,
                 velocity,
+                ..
             } => {
-                self.send_msg(as_midi(
-                    MidiMsg::ChannelVoice {
-                        channel: self.channels[note as usize % 12],
-                        msg: ChannelVoiceMsg::NoteOn { note, velocity },
-                    },
-                    time,
-                ));
-
-                self.key_state[note as usize].note_on(channel, time);
+                self.handle_note_on(note, velocity, time);
             }
 
             ToBackend::NoteOff {
-                channel,
                 note,
                 velocity,
                 time,
+                ..
             } => {
                 self.send_msg(as_midi(
                     MidiMsg::ChannelVoice {
@@ -211,19 +186,9 @@ impl ReceiveMsg<ToBackend> for Pitchbend12 {
                     },
                     time,
                 ));
-
-                self.key_state[note as usize].note_off(
-                    channel,
-                    self.pedal_hold[channel as usize],
-                    time,
-                );
             }
 
-            ToBackend::PedalHold {
-                channel,
-                value,
-                time,
-            } => {
+            ToBackend::PedalHold { value, time, .. } => {
                 for channel in self.channels {
                     self.send_msg(as_midi(
                         MidiMsg::ChannelVoice {
@@ -235,21 +200,9 @@ impl ReceiveMsg<ToBackend> for Pitchbend12 {
                         time,
                     ));
                 }
-
-                self.pedal_hold[channel as usize] = value != 0;
-
-                if value == 0 {
-                    for s in self.key_state.iter_mut() {
-                        s.pedal_off(channel, time);
-                    }
-                }
             }
 
-            ToBackend::ProgramChange {
-                channel: _,
-                program,
-                time,
-            } => {
+            ToBackend::ProgramChange { program, time, .. } => {
                 for channel in self.channels {
                     let _ = self.send_msg(as_midi(
                         MidiMsg::ChannelVoice {
@@ -261,27 +214,8 @@ impl ReceiveMsg<ToBackend> for Pitchbend12 {
                 }
             }
 
-            ToBackend::Retune { note, tuning, time } => {
-                self.handle_retune(note, tuning, time);
-            }
-
-            ToBackend::TunedNoteOn {
-                channel,
-                note,
-                velocity,
-                tuning,
-                time,
-            } => {
-                self.send_msg(as_midi(
-                    MidiMsg::ChannelVoice {
-                        channel: self.channels[note as usize % 12],
-                        msg: ChannelVoiceMsg::NoteOn { note, velocity },
-                    },
-                    time,
-                ));
-                self.handle_retune(note, tuning, time);
-
-                self.key_state[note as usize].note_on(channel, time);
+            ToBackend::Retune { note, time } => {
+                self.handle_retune(note, time);
             }
 
             ToBackend::BendRange { range, time } => {
@@ -300,19 +234,17 @@ impl ReceiveMsg<ToBackend> for Pitchbend12 {
                 self.reset(time);
             }
             ToBackend::GetCurrentConfig => {
-                let _ = self
-                    .forward
-                    .send(FromBackend::CurrentConfig(self.extract_config()));
+                let _ = self.send_msg(FromBackend::CurrentConfig(self.extract_config()));
             }
             ToBackend::RestartWithConfig { config, time } => {
                 *self =
-                    <Self as FromConfigAndState<_, _>>::initialise(config, self.forward.clone());
+                    <Self as FromConfigAndState<_, _>>::initialise(config, self.adaptor.clone());
                 self.reset(time);
             }
             ToBackend::RestartWithCurrentConfig { time } => {
                 *self = <Self as FromConfigAndState<_, _>>::initialise(
                     self.extract_config(),
-                    self.forward.clone(),
+                    self.adaptor.clone(),
                 );
                 self.reset(time);
             }
@@ -320,7 +252,7 @@ impl ReceiveMsg<ToBackend> for Pitchbend12 {
     }
 }
 
-impl ExtractConfig<BackendConfig> for Pitchbend12 {
+impl<T: StackType> ExtractConfig<BackendConfig> for Pitchbend12<T> {
     fn extract_config(&self) -> BackendConfig {
         BackendConfig::Pitchbend12(Pitchbend12Config {
             bend_range: self.bend_range,
@@ -329,10 +261,10 @@ impl ExtractConfig<BackendConfig> for Pitchbend12 {
     }
 }
 
-impl FromConfigAndState<BackendConfig, mpsc::Sender<FromBackend>> for Pitchbend12 {
-    fn initialise(config: BackendConfig, forward: mpsc::Sender<FromBackend>) -> Self {
+impl<T: StackType> FromConfigAndState<BackendConfig, ConcreteBackendAdaptor<T>> for Pitchbend12<T> {
+    fn initialise(config: BackendConfig, adaptor: ConcreteBackendAdaptor<T>) -> Self {
         match config {
-            BackendConfig::Pitchbend12(config) => Self::new(config, forward),
+            BackendConfig::Pitchbend12(config) => Self::new(config, adaptor),
         }
     }
 }
