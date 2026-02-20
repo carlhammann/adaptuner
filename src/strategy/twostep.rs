@@ -173,13 +173,21 @@ where
             self.found_harmony |= res.progress;
 
             if res.progress {
-                self.melody_strategy
-                    .tune_with_harmony(self.solve_start, adaptor, &self.harmony, true);
+                self.melody_strategy.tune_with_harmony(
+                    self.solve_start,
+                    adaptor,
+                    &self.harmony,
+                    true,
+                );
             }
 
             if !self.found_harmony & res.finished {
-                self.melody_strategy
-                    .tune_with_harmony(self.solve_start, adaptor, &self.harmony, false);
+                self.melody_strategy.tune_with_harmony(
+                    self.solve_start,
+                    adaptor,
+                    &self.harmony,
+                    false,
+                );
             }
         }
         self.solving_harmony

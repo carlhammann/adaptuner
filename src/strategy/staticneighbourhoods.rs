@@ -41,7 +41,8 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         stack.absolute_semitones(self.tuning_reference.c4_semitones())
     }
 
-    /// Returns true iff the tuning stack, as accessed through the adaptor, changed.
+    /// Returns true iff the tuning stack or tuning semitones, as accessed through the adaptor,
+    /// changed.
     fn update_tuning(
         &mut self,
         note: u8,
@@ -53,13 +54,20 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         );
         self.tmp_stack.scaled_add(1, &self.reference);
 
+        let mut changed = false;
+
         if tuning.stack != self.tmp_stack {
             tuning.stack.clone_from(&self.tmp_stack);
-            tuning.tuning = self.tuning_for_stack(&tuning.stack);
-            true
-        } else {
-            false
+            changed = true;
         }
+
+        let the_tuning = self.tuning_for_stack(&self.tmp_stack);
+        if the_tuning != tuning.tuning {
+            tuning.tuning = the_tuning;
+            changed = true;
+        }
+
+        changed
     }
 
     /// Only does something iff the tuning stack, as accessed through the adaptor, changes. That
@@ -207,6 +215,9 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
         for i in 0..128 {
             let state = adaptor.read_key_state(i);
             if state.is_sounding() {
+                // do it like this to avoid double-locking 'adaptor.tunings'
+                let mut x = adaptor.write_tuning(i);
+                x.tuning = self.tuning_for_stack(&x.stack);
                 adaptor.send(FromStrategy::Retune {
                     note: i as u8,
                     time,

@@ -142,12 +142,14 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
                             i as StackCoeff,
                         );
                     }
-                    if self.tmp_stack != adaptor.read_tuning(i).stack {
-                        // It's important to lock the entry only once, and not use 'read_tuning'
-                        // and 'write_tuning' in the same assigment. Otherwise, whichever lock is
-                        // acquired first keeps the other open indefinitely...
-                        let mut x = adaptor.write_tuning(i);
-                        x.tuning = self.tuning_for_stack(&x.stack);
+
+                    let mut retune = self.tmp_stack != adaptor.read_tuning(i).stack;
+                    let the_tuning = self.tuning_for_stack(&adaptor.read_tuning(i).stack);
+                    if the_tuning != adaptor.read_tuning(i).tuning {
+                        adaptor.write_tuning(i).tuning = the_tuning;
+                        retune = true;
+                    }
+                    if retune {
                         adaptor.send(FromStrategy::Retune {
                             note: i as u8,
                             time,
@@ -161,9 +163,14 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
                     self.tmp_stack.clone_from(&adaptor.read_tuning(i).stack);
                     adaptor.write_tuning(i).stack.reset_to_zero();
                     self.add_reference_tuning(&mut adaptor.write_tuning(i).stack, i as StackCoeff);
-                    if self.tmp_stack != adaptor.read_tuning(i).stack {
-                        let mut x = adaptor.write_tuning(i);
-                        x.tuning = self.tuning_for_stack(&x.stack);
+
+                    let mut retune = self.tmp_stack != adaptor.read_tuning(i).stack;
+                    let the_tuning = self.tuning_for_stack(&adaptor.read_tuning(i).stack);
+                    if the_tuning != adaptor.read_tuning(i).tuning {
+                        adaptor.write_tuning(i).tuning = the_tuning;
+                        retune = true;
+                    }
+                    if retune {
                         adaptor.send(FromStrategy::Retune {
                             note: i as u8,
                             time,
@@ -217,6 +224,7 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
         for i in 0..128 {
             let state = adaptor.read_key_state(i);
             if state.is_sounding() {
+                // do it like this to avoid double-locking 'adaptor.tunings'
                 let mut x = adaptor.write_tuning(i);
                 x.tuning = self.tuning_for_stack(&x.stack);
                 adaptor.send(FromStrategy::Retune {
