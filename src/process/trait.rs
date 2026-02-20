@@ -11,7 +11,7 @@ use crate::{
     },
     keystate::KeyState,
     msg::FromProcess,
-    util::readerwriter::{ConcreteReader128, ConcreteReaderWriter128, Reader128, ReaderWriter128},
+    util::readerwriter::{ConcreteReaderWriter128, Reader128, ReaderWriter128},
 };
 
 pub struct StackWithTuning<T: IntervalBasis> {
@@ -19,11 +19,23 @@ pub struct StackWithTuning<T: IntervalBasis> {
     pub tuning: Semitones,
 }
 
-// impl<T: IntervalBasis> Reader<Stack<T>> for ConcreteReader128<StackWithTuning<T>> {
-//     fn read(&self, i: usize) -> impl Deref<Target = Stack<T>> {
-//        <Self as Reader<StackWithTuning<T>>>::read(self, i).stack
-//     }
-// }
+impl<T: IntervalBasis> AsRef<Stack<T>> for StackWithTuning<T> {
+    fn as_ref(&self) -> &Stack<T> {
+        &self.stack
+    }
+}
+
+impl<T: IntervalBasis> AsRef<StackWithTuning<T>> for StackWithTuning<T> {
+    fn as_ref(&self) -> &StackWithTuning<T> {
+        self
+    }
+}
+
+impl<T: IntervalBasis> AsMut<StackWithTuning<T>> for StackWithTuning<T> {
+    fn as_mut(&mut self) -> &mut StackWithTuning<T> {
+        self
+    }
+}
 
 #[derive(Clone)]
 pub struct ConcreteProcessAdaptor<T: StackType> {

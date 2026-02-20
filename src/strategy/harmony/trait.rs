@@ -6,7 +6,7 @@ use crate::{
     keystate::KeyState,
     msg::ToHarmony,
     neighbourhood::{Partial, SomeNeighbourhood},
-    util::readerwriter::{Reader, Reader128, ReaderWriter},
+    util::readerwriter::{Reader128, ReaderWriter},
 };
 
 #[derive(Clone)]

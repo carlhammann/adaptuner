@@ -172,7 +172,7 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
             ui.label(format!(
                 "note {} not tuned correctly: should be \
                 {should_be:.02}, but is {actual:.02}: {explanation}",
-                state.tunings.read(*note as usize).stack.corrected_notename(
+                <_ as Reader128<Stack<T>>>::read(&state.tunings, *note as usize).corrected_notename(
                     &NoteNameStyle::Full,
                     self.correction_system_chooser.borrow().preference_order(),
                     self.correction_system_chooser.borrow().use_cent_values,

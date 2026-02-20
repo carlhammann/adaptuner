@@ -84,7 +84,7 @@ impl<T: StackType> Reader128<KeyState> for ConcreteStrategyAdaptor<T> {
         self.key_states.read(i)
     }
 
-    fn read_all(&self) -> impl Deref<Target = [KeyState; 128]> {
+    fn read_all(&self) -> impl Deref<Target = [impl AsRef<KeyState>; 128]> {
         self.key_states.read_all()
     }
 }
@@ -94,7 +94,7 @@ impl<T: StackType> Reader128<StackWithTuning<T>> for ConcreteStrategyAdaptor<T> 
         self.tunings.read(i)
     }
 
-    fn read_all(&self) -> impl Deref<Target = [StackWithTuning<T>; 128]> {
+    fn read_all(&self) -> impl Deref<Target = [impl AsRef<StackWithTuning<T>>; 128]> {
         self.tunings.read_all()
     }
 }
@@ -104,7 +104,7 @@ impl<T: StackType> ReaderWriter128<StackWithTuning<T>> for ConcreteStrategyAdapt
         self.tunings.write(i)
     }
 
-    fn write_all(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
+    fn write_all(&self) -> impl DerefMut<Target = [impl AsMut<StackWithTuning<T>>; 128]> {
         self.tunings.write_all()
     }
 }

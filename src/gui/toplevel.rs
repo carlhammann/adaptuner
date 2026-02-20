@@ -4,10 +4,18 @@ use eframe::{self, egui};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::{BackendConfig, ExtractConfig, GuiConfig, ProcessConfig}, gui::r#trait::ConcreteUiAdaptor, interval::{
+    config::{BackendConfig, ExtractConfig, GuiConfig, ProcessConfig},
+    gui::r#trait::ConcreteUiAdaptor,
+    interval::{
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, OctavePeriodicStackType, Reloadable, StackType},
-    }, keystate::KeyState, msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi}, notename::HasNoteNames, process::r#trait::StackWithTuning, reference::Reference, util::readerwriter::ConcreteReader128
+    },
+    keystate::KeyState,
+    msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi},
+    notename::HasNoteNames,
+    process::r#trait::StackWithTuning,
+    reference::Reference,
+    util::readerwriter::ConcreteReader128,
 };
 
 use super::{
@@ -32,7 +40,7 @@ pub struct KeysAndTunings<T: IntervalBasis> {
     pub tuning_reference: Reference<T>,
 }
 
-impl<T: IntervalBasis> KeysAndTunings<T> {
+impl<T: IntervalBasis + 'static> KeysAndTunings<T> {
     fn new(time: Instant, tunings: ConcreteReader128<StackWithTuning<T>>) -> Self {
         Self {
             active_notes: core::array::from_fn(|_| KeyState::new(time)),

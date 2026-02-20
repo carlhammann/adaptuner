@@ -42,12 +42,12 @@ impl<X> ReaderWriter<X> for ConcreteReaderWriter<X> {
 
 pub trait Reader128<X>: Clone {
     fn read(&self, i: usize) -> impl Deref<Target = X>;
-    fn read_all(&self) -> impl Deref<Target = [X; 128]>;
+    fn read_all(&self) -> impl Deref<Target = [impl AsRef<X>; 128]>;
 }
 
 pub trait ReaderWriter128<X>: Reader128<X> {
     fn write(&self, i: usize) -> impl DerefMut<Target = X>;
-    fn write_all(&self) -> impl DerefMut<Target = [X; 128]>;
+    fn write_all(&self) -> impl DerefMut<Target = [impl AsMut<X>; 128]>;
 }
 
 pub struct ConcreteReader128<X>(Arc<RwLock<[X; 128]>>);
@@ -65,13 +65,13 @@ impl<X> ConcreteReader128<X> {
     }
 }
 
-impl<X> Reader128<X> for ConcreteReader128<X> {
+impl<X: 'static, Y: AsRef<X>> Reader128<X> for ConcreteReader128<Y> {
     fn read(&self, i: usize) -> impl Deref<Target = X> {
         let Self(x) = self;
-        RwLockReadGuard::map(x.read().unwrap(), |v: &[X; 128]| &v[i])
+        RwLockReadGuard::map(x.read().unwrap(), |v: &[Y; 128]| v[i].as_ref())
     }
 
-    fn read_all(&self) -> impl Deref<Target = [X; 128]> {
+    fn read_all(&self) -> impl Deref<Target = [impl AsRef<X>; 128]> {
         let Self(x) = self;
         x.read().unwrap()
     }
@@ -97,25 +97,25 @@ impl<X> ConcreteReaderWriter128<X> {
     }
 }
 
-impl<X> Reader128<X> for ConcreteReaderWriter128<X> {
+impl<X: 'static, Y: AsRef<X>> Reader128<X> for ConcreteReaderWriter128<Y> {
     fn read(&self, i: usize) -> impl Deref<Target = X> {
         let Self(x) = self;
-        RwLockReadGuard::map(x.read().unwrap(), |v: &[X; 128]| &v[i])
+        RwLockReadGuard::map(x.read().unwrap(), |v: &[Y; 128]| v[i].as_ref())
     }
 
-    fn read_all(&self) -> impl Deref<Target = [X; 128]> {
+    fn read_all(&self) -> impl Deref<Target = [impl AsRef<X>; 128]> {
         let Self(x) = self;
         x.read().unwrap()
     }
 }
 
-impl<X> ReaderWriter128<X> for ConcreteReaderWriter128<X> {
+impl<X: 'static, Y: AsRef<X> + AsMut<X>> ReaderWriter128<X> for ConcreteReaderWriter128<Y> {
     fn write(&self, i: usize) -> impl DerefMut<Target = X> {
         let Self(x) = self;
-        RwLockWriteGuard::map(x.write().unwrap(), |v: &mut [X; 128]| &mut v[i])
+        RwLockWriteGuard::map(x.write().unwrap(), |v: &mut [Y; 128]| v[i].as_mut())
     }
 
-    fn write_all(&self) -> impl DerefMut<Target = [X; 128]> {
+    fn write_all(&self) -> impl DerefMut<Target = [impl AsMut<X>; 128]> {
         let Self(x) = self;
         x.write().unwrap()
     }

@@ -12,7 +12,7 @@ use crate::{
     msg::{ToChordList, ToHarmony},
     neighbourhood::{Neighbourhood, Partial, PeriodicPartial, SomeNeighbourhood},
     strategy::harmony::r#trait::{Harmony, HarmonyResult, HarmonyStrategy},
-    util::readerwriter::{Reader128, ReaderWriter, ReaderWriter128},
+    util::readerwriter::{Reader128, ReaderWriter},
 };
 
 pub mod keyshape;
@@ -35,9 +35,9 @@ impl<T: StackType> Pattern<T> {
     }
 }
 
-impl HasActivationStatus for KeyState {
+impl<X: AsRef<KeyState>> HasActivationStatus for X {
     fn active(&self) -> bool {
-        self.is_sounding()
+        self.as_ref().is_sounding()
     }
 }
 
@@ -70,7 +70,8 @@ impl<T: IntervalBasis> PatternConfig<T> {
             neighbourhood: SomeNeighbourhood::Partial({
                 let mut neigh = Partial::new();
                 let mut tmp = Stack::new_zero();
-                for (i, stack) in tunings.read_all().iter().enumerate() {
+                for i in 0..128 {
+                    let stack = &tunings.read(i);
                     if keys[i].is_sounding() {
                         tmp.clone_from(stack);
                         tmp.scaled_add(-1, tunings.read(lowest_sounding));
@@ -101,7 +102,8 @@ impl<T: IntervalBasis> PatternConfig<T> {
             neighbourhood: SomeNeighbourhood::Partial({
                 let mut neigh = Partial::new();
                 let mut tmp = Stack::new_zero();
-                for (i, stack) in tunings.read_all().iter().enumerate() {
+                for i in 0..128 {
+                    let stack = &tunings.read(i);
                     if keys[i].is_sounding() {
                         tmp.clone_from(stack);
                         tmp.scaled_add(-1, tunings.read(lowest_sounding));
@@ -125,7 +127,8 @@ fn sounding_neighbourhood<T: OctavePeriodicIntervalBasis>(
     SomeNeighbourhood::PeriodicPartial({
         let mut neigh = PeriodicPartial::new_from_period_index(T::period_index());
         let mut tmp = Stack::new_zero();
-        for (i, stack) in tunings.read_all().iter().enumerate() {
+        for i in 0..128 {
+            let stack = &tunings.read(i);
             if keys[i].is_sounding() {
                 tmp.clone_from(stack);
                 tmp.scaled_add(-1, tunings.read(lowest_sounding));

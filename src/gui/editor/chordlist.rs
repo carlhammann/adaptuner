@@ -170,78 +170,66 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
     }
 
     fn recompute_simple(&mut self, state: &KeysAndTunings<T>) {
-        // if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
-        //     self.new_config = match (self.match_transpositions, self.match_voicings) {
-        //         (true, true) => Some((
-        //             PatternConfig::classes_relative_from_current(
-        //                 &state.active_notes,
-        //                 &state.tunings,
-        //                 lowest_sounding,
-        //                 self.allow_extra_high_notes,
-        //             ),
-        //             state.tunings.read(lowest_sounding).stack.clone(),
-        //         )),
-        //         (false, true) => Some((
-        //             PatternConfig::classes_fixed_from_current(
-        //                 &state.active_notes,
-        //                 &state.tunings,
-        //                 lowest_sounding,
-        //                 self.allow_extra_high_notes,
-        //             ),
-        //             state.tunings.read(lowest_sounding).stack.clone(),
-        //         )),
-        //         (false, false) => Some((
-        //             PatternConfig::exact_fixed_from_current(
-        //                 &state.active_notes,
-        //                 &state.tunings,
-        //                 lowest_sounding,
-        //                 self.allow_extra_high_notes,
-        //             ),
-        //             state.tunings.read(lowest_sounding).stack.clone(),
-        //         )),
-        //         (true, false) => Some((
-        //             PatternConfig::exact_relative_from_current(
-        //                 &state.active_notes,
-        //                 &state.tunings,
-        //                 lowest_sounding,
-        //                 self.allow_extra_high_notes,
-        //             ),
-        //             state.tunings.read(lowest_sounding).stack.clone(),
-        //         )),
-        //     };
-        // } else {
-        //     self.new_config = None {};
-        // }
+        if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
+            self.new_config = Some((
+                match (self.match_transpositions, self.match_voicings) {
+                    (true, true) => PatternConfig::classes_relative_from_current(
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    ),
+                    (false, true) => PatternConfig::classes_fixed_from_current(
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    ),
+                    (false, false) => PatternConfig::exact_fixed_from_current(
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    ),
+                    (true, false) => PatternConfig::exact_relative_from_current(
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    ),
+                },
+                <_ as Reader128<Stack<T>>>::read(&state.tunings, lowest_sounding).clone(),
+            ));
+        } else {
+            self.new_config = None {};
+        }
     }
 
     fn recompute_block(&mut self, state: &KeysAndTunings<T>) {
-        // if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
-        //     self.new_config = if self.match_transpositions {
-        //         Some((
-        //             PatternConfig::block_voicing_relative_from_current(
-        //                 &self.block_sizes,
-        //                 &state.active_notes,
-        //                 &state.tunings,
-        //                 lowest_sounding,
-        //                 self.allow_extra_high_notes,
-        //             ),
-        //             state.tunings.read(lowest_sounding).stack.clone(),
-        //         ))
-        //     } else {
-        //         Some((
-        //             PatternConfig::block_voicing_fixed_from_current(
-        //                 &self.block_sizes,
-        //                 &state.active_notes,
-        //                 &state.tunings,
-        //                 lowest_sounding,
-        //                 self.allow_extra_high_notes,
-        //             ),
-        //             state.tunings.read(lowest_sounding).stack.clone(),
-        //         ))
-        //     }
-        // } else {
-        //     self.new_config = None {};
-        // }
+        if let Some(lowest_sounding) = state.active_notes.iter().position(|k| k.is_sounding()) {
+            self.new_config = Some((
+                if self.match_transpositions {
+                    PatternConfig::block_voicing_relative_from_current(
+                        &self.block_sizes,
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    )
+                } else {
+                    PatternConfig::block_voicing_fixed_from_current(
+                        &self.block_sizes,
+                        &state.active_notes,
+                        &state.tunings,
+                        lowest_sounding,
+                        self.allow_extra_high_notes,
+                    )
+                },
+                <_ as Reader128<Stack<T>>>::read(&state.tunings, lowest_sounding).clone(),
+            ));
+        } else {
+            self.new_config = None {};
+        }
     }
 
     fn recompute_new_config(&mut self, state: &KeysAndTunings<T>) {

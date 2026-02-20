@@ -8,6 +8,18 @@ pub struct KeyState {
     held_channels: u16,
 }
 
+impl AsRef<KeyState> for KeyState {
+    fn as_ref(&self) -> &KeyState {
+        self
+    }
+}
+
+impl AsMut<KeyState> for KeyState {
+    fn as_mut(&mut self) -> &mut KeyState {
+        self
+    }
+}
+
 impl KeyState {
     pub fn new(time: Instant) -> Self {
         Self {
