@@ -426,6 +426,8 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
             | ToChordList::ToggleEnable { time, .. } => *time,
         };
 
+        todo!();
+
         Some(time)
     }
 }

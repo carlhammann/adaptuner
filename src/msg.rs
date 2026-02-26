@@ -176,10 +176,48 @@ pub enum ToStaticNeighbourhoods<T: StackType> {
 }
 
 pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
-    Basic(ToStaticNeighbourhoods<T>),
-    SetReferenceToCurrent { time: Instant },
-    ToggleReanchor { time: Instant },
-    SetGroupMs { group_ms: u64 },
+    Consider {
+        stack: Stack<T>,
+        time: Instant,
+    },
+    ApplyTemperamentToNeighbourhood {
+        neighbourhood: usize,
+        temperament: usize,
+        time: Instant,
+    },
+    MakeNeighbourhoodPure {
+        neighbourhood: usize,
+        time: Instant,
+    },
+    NeighbourhoodListAction {
+        action: ListAction,
+        time: Instant,
+    },
+    IncrementNeighbourhoodIndex {
+        increment: isize,
+        time: Instant,
+    },
+
+    SetReferenceToLowest {
+        time: Instant,
+    },
+    SetReferenceToHighest {
+        time: Instant,
+    },
+    SetReference {
+        reference: Stack<T>,
+        time: Instant,
+    },
+    SetReferenceToCurrent {
+        time: Instant,
+    },
+
+    ToggleReanchor {
+        time: Instant,
+    },
+    SetGroupMs {
+        group_ms: u64,
+    },
 }
 
 pub enum ToTwoStep<T: StackType> {

@@ -93,7 +93,7 @@ impl<T: StackType> StaticNeighbourhoods<T> {
     }
 
     /// Returns true iff the reference changed. In that case, a re-tuning using
-    /// [Self::update_all_tunings_and_send] well become necessary.
+    /// [Self::update_all_tunings_and_send] will become necessary.
     fn set_reference_to_extreme(
         &mut self,
         to_highest: bool,

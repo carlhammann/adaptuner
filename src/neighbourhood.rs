@@ -221,6 +221,58 @@ pub trait Neighbourhood<T: IntervalBasis> {
         }
     }
 
+    /// Like [Neighbourhood::try_write_absolute_stack], but adding to the output argument.
+    fn try_increment_by_absolute_stack(
+        &self,
+        target: &mut Stack<T>,
+        key_number: StackCoeff,
+        reference: &Stack<T>,
+    ) -> bool {
+        let offset = key_number - reference.key_number();
+        if self.has_tuning_for(offset) {
+            target.scaled_add(1, reference);
+            let _ = self.try_increment_by_relative_stack(target, offset); // we know this is true
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Like [Neighbourhood::try_get_absolute_stack], only with an output argument.
+    fn try_write_absolute_stack(
+        &self,
+        target: &mut Stack<T>,
+        key_number: StackCoeff,
+        reference: &Stack<T>,
+    ) -> bool {
+        let offset = key_number - reference.key_number();
+        if self.has_tuning_for(offset) {
+            target.clone_from(reference);
+            let _ = self.try_increment_by_relative_stack(target, offset); // we know this is true
+            true
+        } else {
+            false
+        }
+    }
+
+    /// If we have the 'reference' Stack, return the [Stack] descibing the absolute note at the
+    /// 'key_number'. Must return `Some` iff [Neighbourhood::has_tuning_for] returns true for the same
+    /// offset.
+    fn try_get_absolute_stack(
+        &self,
+        key_number: StackCoeff,
+        reference: &Stack<T>,
+    ) -> Option<Stack<T>> {
+        let offset = key_number - reference.key_number();
+        if self.has_tuning_for(offset) {
+            let mut res = reference.clone();
+            let _ = self.try_increment_by_relative_stack(&mut res, offset); // we know this is true
+            Some(res)
+        } else {
+            None {}
+        }
+    }
+
     /// Must return `Some` for an implementation of [PeriodicNeighbourhood] to be valid.
     fn try_period(&self) -> Option<&Stack<T>>;
 
@@ -520,6 +572,28 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
 
 /// Marker trait of neighbourhoods that can return a note for every offset.
 pub trait CompleteNeigbourhood<T: IntervalBasis>: Neighbourhood<T> {
+    fn write_absolute_stack(
+        &self,
+        target: &mut Stack<T>,
+        key_number: StackCoeff,
+        reference: &Stack<T>,
+    ) {
+        self.try_write_absolute_stack(target, key_number, reference);
+    }
+
+    fn increment_by_absolute_stack(
+        &self,
+        target: &mut Stack<T>,
+        key_number: StackCoeff,
+        reference: &Stack<T>,
+    ) {
+        self.try_increment_by_absolute_stack(target, key_number, reference);
+    }
+
+    fn get_absolute_stack(&self, key_number: StackCoeff, reference: &Stack<T>) -> Stack<T> {
+        self.try_get_absolute_stack(key_number, reference).expect("This should neve happen: CompleteNeigbourhood doesn't have tuning for an abolute stack")
+    }
+
     fn write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) {
         self.try_write_relative_stack(target, offset);
     }
@@ -530,7 +604,7 @@ pub trait CompleteNeigbourhood<T: IntervalBasis>: Neighbourhood<T> {
 
     fn get_relative_stack(&self, offset: StackCoeff) -> Stack<T> {
         self.try_get_relative_stack(offset).expect(
-            "This should never happen: CompleteNeigbourhood doesn't have a tuning for an offset!",
+            "This should never happen: CompleteNeigbourhood doesn't have a tuning for a relative stack",
         )
     }
 }

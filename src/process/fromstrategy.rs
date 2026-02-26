@@ -313,6 +313,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
                 },
             ),
         });
+        self.adaptor.send(FromProcess::CurrentStrategyIndex(Some(index)));
     }
 
     /// Will start strategy 0 if there's no running strategy at the moment.

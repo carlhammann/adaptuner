@@ -586,7 +586,7 @@ impl<T: IntervalBasis> ExtendedMelodyStrategyConfig<T> {
                     neighbourhoods.iter().map(|x| x.inner()).collect();
                 (
                     MelodyStrategyConfig::Neighbourhoods(StaticNeighbourhoodsAsMelodyConfig {
-                        reanchor: *fixed,
+                        reanchor: !*fixed,
                         group_ms: *group_ms,
                         inner: StaticNeighbourhoodsConfig {
                             neighbourhoods,
