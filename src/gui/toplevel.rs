@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     config::{BackendConfig, ExtractConfig, GuiConfig, ProcessConfig},
+    gui::r#trait::ConcreteUiAdaptor,
     interval::{
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, OctavePeriodicStackType, Reloadable, StackType},
@@ -12,7 +13,9 @@ use crate::{
     keystate::KeyState,
     msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi},
     notename::HasNoteNames,
+    process::r#trait::StackWithTuning,
     reference::Reference,
+    util::readerwriter::ConcreteReader128,
 };
 
 use super::{
@@ -32,17 +35,17 @@ use super::{
 pub struct KeysAndTunings<T: IntervalBasis> {
     pub active_notes: [KeyState; 128],
     pub pedal_hold: [bool; 16],
-    pub tunings: [Stack<T>; 128],
+    pub tunings: ConcreteReader128<StackWithTuning<T>>,
     pub reference: Stack<T>,
     pub tuning_reference: Reference<T>,
 }
 
-impl<T: IntervalBasis> KeysAndTunings<T> {
-    fn new(time: Instant) -> Self {
+impl<T: IntervalBasis + 'static> KeysAndTunings<T> {
+    fn new(time: Instant, tunings: ConcreteReader128<StackWithTuning<T>>) -> Self {
         Self {
             active_notes: core::array::from_fn(|_| KeyState::new(time)),
             pedal_hold: [false; 16],
-            tunings: core::array::from_fn(|_| Stack::new_zero()),
+            tunings,
             reference: Stack::new_zero(),
             tuning_reference: Reference {
                 stack: Stack::new_zero(),
@@ -91,14 +94,14 @@ pub struct Toplevel<T: StackType> {
 
 /// [OctavePeriodicStackType] is needed for the [ChordListEditor]
 impl<T: OctavePeriodicStackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
-    pub fn new(config: GuiConfig<T>, _ctx: &egui::Context, tx: mpsc::Sender<FromUi<T>>) -> Self {
+    pub fn new(config: GuiConfig<T>, _ctx: &egui::Context, adaptor: ConcreteUiAdaptor<T>) -> Self {
         let correction_system_chooser = Rc::new(RefCell::new(CorrectionSystemChooser::new(
             "correction_system_chooser",
             config.use_cent_values,
         )));
 
         Self {
-            state: KeysAndTunings::new(Instant::now()),
+            state: KeysAndTunings::new(Instant::now(), adaptor.tunings),
 
             show_side_panel: false,
 
@@ -125,7 +128,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
             latency: LatencyWindow::new(config.latency_mean_over),
             // notes: NoteWindow::new(ctx),
             // note_window: SmallFloatingWindow::new(egui::Id::new("note_window")),
-            tx,
+            tx: adaptor.forward,
             current_config: config,
             current_backend_config: None {},
             current_process_config: None {},
@@ -150,7 +153,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
             config.use_cent_values,
         )));
 
-        self.state = KeysAndTunings::new(time);
+        self.state = KeysAndTunings::new(time, self.state.tunings.clone());
 
         self.lattice
             .restart_from_config(config.lattice_window, correction_system_chooser.clone());
@@ -220,19 +223,7 @@ impl<T: StackType + Serialize> ReceiveMsg<ToUi<T>> for Toplevel<T> {
                 }
             }
 
-            ToUi::Retune { note, tuning_stack } => {
-                self.state.tunings[note as usize] = tuning_stack;
-            }
-
-            ToUi::TunedNoteOn {
-                time,
-                channel,
-                note,
-                tuning_stack,
-            } => {
-                self.state.active_notes[note as usize].note_on(channel, time);
-                self.state.tunings[note as usize] = tuning_stack;
-            }
+            ToUi::Retune { .. } => {}
 
             ToUi::SetReference { stack } => {
                 self.state.reference = stack;
@@ -294,10 +285,7 @@ where
                     self.current_config = self.extract_config();
                     self.temperament_editor = TemperamentEditor::new();
                 }
-                if self
-                    .comma_editor_window
-                    .show_hide_button(ui, "commas")
-                {
+                if self.comma_editor_window.show_hide_button(ui, "commas") {
                     self.current_config = self.extract_config();
                     self.comma_editor = CommaEditor::new();
                 }

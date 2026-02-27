@@ -1,7 +1,4 @@
-use std::{
-    sync::mpsc,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use midi_msg::Channel;
 use midir::{MidiInputPort, MidiOutputPort};
@@ -11,13 +8,9 @@ use crate::{
     config::{BackendConfig, ProcessConfig},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     reference::Reference,
-    strategy::{r#trait::StrategyAction, twostep::harmony::chordlist::PatternConfig},
+    strategy::{harmony::chordlist::PatternConfig, r#trait::StrategyAction},
     util::list_action::ListAction,
 };
-
-pub trait HandleMsg<I, O> {
-    fn handle_msg(&mut self, msg: I, forward: &mpsc::Sender<O>);
-}
 
 pub trait ReceiveMsg<I> {
     fn receive_msg(&mut self, msg: I);
@@ -103,14 +96,6 @@ pub enum FromProcess<T: StackType> {
         time: Instant,
     },
     FromStrategy(FromStrategy<T>),
-    TunedNoteOn {
-        channel: Channel,
-        note: u8,
-        velocity: u8,
-        tuning: Semitones,
-        tuning_stack: Stack<T>,
-        time: Instant,
-    },
     NoteOn {
         channel: Channel,
         note: u8,
@@ -137,14 +122,26 @@ pub enum FromProcess<T: StackType> {
     CurrentConfig(ProcessConfig<T>),
 }
 
-pub enum ToHarmonyStrategy<T: StackType> {
-    ChordListAction { action: ListAction },
-    PushNewChord { pattern: PatternConfig<T> },
-    AllowExtraHighNotes { pattern_index: usize, allow: bool },
-    EnableChordList { enable: bool },
+pub enum ToChordList<T: StackType> {
+    ChordListAction {
+        action: ListAction,
+        time: Instant,
+    },
+    PushNewChord {
+        pattern: PatternConfig<T>,
+        time: Instant,
+    },
+    AllowExtraHighNotes {
+        pattern_index: usize,
+        allow: bool,
+        time: Instant,
+    },
+    ToggleEnable {
+        time: Instant,
+    },
 }
 
-pub enum ToStrategy<T: StackType> {
+pub enum ToStaticNeighbourhoods<T: StackType> {
     Consider {
         stack: Stack<T>,
         time: Instant,
@@ -162,32 +159,110 @@ pub enum ToStrategy<T: StackType> {
         action: ListAction,
         time: Instant,
     },
-    SetTuningReference {
-        reference: Reference<T>,
+    SetReference {
+        reference: Stack<T>,
+        time: Instant,
+    },
+    IncrementNeighbourhoodIndex {
+        increment: isize,
+        time: Instant,
+    },
+    SetReferenceToLowest {
+        time: Instant,
+    },
+    SetReferenceToHighest {
+        time: Instant,
+    },
+}
+
+pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
+    Consider {
+        stack: Stack<T>,
+        time: Instant,
+    },
+    ApplyTemperamentToNeighbourhood {
+        neighbourhood: usize,
+        temperament: usize,
+        time: Instant,
+    },
+    MakeNeighbourhoodPure {
+        neighbourhood: usize,
+        time: Instant,
+    },
+    NeighbourhoodListAction {
+        action: ListAction,
+        time: Instant,
+    },
+    IncrementNeighbourhoodIndex {
+        increment: isize,
+        time: Instant,
+    },
+
+    SetReferenceToLowest {
+        time: Instant,
+    },
+    SetReferenceToHighest {
         time: Instant,
     },
     SetReference {
         reference: Stack<T>,
         time: Instant,
     },
-    Action {
-        action: StrategyAction,
+    SetReferenceToCurrent {
         time: Instant,
     },
-    ToHarmonyStrategy(ToHarmonyStrategy<T>, Instant),
-    ReanchorOnMatch {
-        reanchor: bool,
+
+    ToggleReanchor {
+        time: Instant,
     },
     SetGroupMs {
         group_ms: u64,
     },
 }
 
+pub enum ToTwoStep<T: StackType> {
+    ToHarmonyStrategy(ToHarmony<T>),
+    ToMelodystrategy(ToMelody<T>),
+}
+
+pub enum ToMelody<T: StackType> {
+    StaticNeighbourhoods(ToStaticNeighbourhoodsAsMelody<T>),
+}
+
+pub enum ToHarmony<T: StackType> {
+    ChordList(ToChordList<T>),
+}
+
+pub enum ToStrategy<T: StackType> {
+    Start {
+        time: Instant,
+    },
+    Stop {
+        time: Instant,
+    },
+    Reset {
+        time: Instant,
+    },
+    NoteOn {
+        note: u8,
+        time: Instant,
+    },
+    NoteOff {
+        note: u8,
+        time: Instant,
+    },
+    SetTuningReference {
+        reference: Reference<T>,
+        time: Instant,
+    },
+
+    TwoStep(ToTwoStep<T>),
+    StaticNeighbourhoods(ToStaticNeighbourhoods<T>),
+}
+
 pub enum FromStrategy<T: StackType> {
     Retune {
         note: u8,
-        tuning: Semitones,
-        tuning_stack: Stack<T>,
         time: Instant,
     },
     SetReference {
@@ -230,13 +305,6 @@ pub enum ToBackend {
         time: Instant,
     },
     Stop,
-    TunedNoteOn {
-        channel: Channel,
-        note: u8,
-        velocity: u8,
-        tuning: Semitones,
-        time: Instant,
-    },
     NoteOn {
         channel: Channel,
         note: u8,
@@ -245,7 +313,6 @@ pub enum ToBackend {
     },
     Retune {
         note: u8,
-        tuning: Semitones,
         time: Instant,
     },
     NoteOff {
@@ -292,12 +359,6 @@ pub enum ToUi<T: StackType> {
     Notify {
         line: String,
     },
-    TunedNoteOn {
-        channel: Channel,
-        note: u8,
-        tuning_stack: Stack<T>,
-        time: Instant,
-    },
     NoteOn {
         channel: Channel,
         note: u8,
@@ -305,7 +366,6 @@ pub enum ToUi<T: StackType> {
     },
     Retune {
         note: u8,
-        tuning_stack: Stack<T>,
     },
     NoteOff {
         channel: Channel,
@@ -475,12 +535,11 @@ pub enum FromUi<T: StackType> {
         allow: bool,
         time: Instant,
     },
-    EnableChordList {
-        enable: bool,
+    ToggleChordList {
         time: Instant,
     },
-    ReanchorOnMatch {
-        reanchor: bool,
+    ToggleReanchorOnMatch {
+        time: Instant,
     },
     SetGroupMs {
         group_ms: u64,
@@ -556,29 +615,6 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
                 None {},
                 Some(ToMidiOut::OutgoingMidi { time, bytes }),
                 None {},
-            ),
-            FromProcess::TunedNoteOn {
-                channel,
-                note,
-                velocity,
-                tuning,
-                tuning_stack,
-                time,
-            } => (
-                Some(ToBackend::TunedNoteOn {
-                    channel,
-                    note,
-                    velocity,
-                    tuning,
-                    time,
-                }),
-                None {},
-                Some(ToUi::TunedNoteOn {
-                    channel,
-                    note,
-                    tuning_stack,
-                    time,
-                }),
             ),
             FromProcess::FromStrategy(msg) => {
                 let (to_backend, to_ui) = msg.translate2();
@@ -665,14 +701,9 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
 impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
     fn translate2(self) -> (Option<ToBackend>, Option<ToUi<T>>) {
         match self {
-            FromStrategy::Retune {
-                note,
-                tuning,
-                tuning_stack,
-                time,
-            } => (
-                Some(ToBackend::Retune { note, tuning, time }),
-                Some(ToUi::Retune { note, tuning_stack }),
+            FromStrategy::Retune { note, time } => (
+                Some(ToBackend::Retune { note, time }),
+                Some(ToUi::Retune { note }),
             ),
             FromStrategy::SetReference { stack } => (None {}, Some(ToUi::SetReference { stack })),
             FromStrategy::Consider { stack } => (None {}, Some(ToUi::Consider { stack })),
@@ -713,7 +744,9 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
     ) {
         match self {
             FromUi::Consider { stack, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::Consider { stack, time })),
+                Some(ToProcess::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                    ToStaticNeighbourhoods::Consider { stack, time },
+                ))),
                 None {},
                 None {},
                 None {},
@@ -723,13 +756,13 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 neighbourhood,
                 time,
             } => (
-                Some(ToProcess::ToStrategy(
-                    ToStrategy::ApplyTemperamentToNeighbourhood {
+                Some(ToProcess::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                    ToStaticNeighbourhoods::ApplyTemperamentToNeighbourhood {
                         temperament,
                         neighbourhood,
                         time,
                     },
-                )),
+                ))),
                 None {},
                 None {},
                 None {},
@@ -812,10 +845,9 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
             ),
             FromUi::SetReference { reference, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::SetReference {
-                    reference,
-                    time,
-                })),
+                Some(ToProcess::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                    ToStaticNeighbourhoods::SetReference { reference, time },
+                ))),
                 None {},
                 None {},
                 None {},
@@ -833,7 +865,38 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
             ),
             FromUi::Action { action, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::Action { action, time })),
+                Some(ToProcess::ToStrategy(match action {
+                    StrategyAction::IncrementNeighbourhoodIndex(index) => {
+                        ToStrategy::StaticNeighbourhoods(
+                            ToStaticNeighbourhoods::IncrementNeighbourhoodIndex {
+                                increment: index,
+                                time,
+                            },
+                        )
+                    }
+                    StrategyAction::SetReferenceToLowest => ToStrategy::StaticNeighbourhoods(
+                        ToStaticNeighbourhoods::SetReferenceToLowest { time },
+                    ),
+                    StrategyAction::SetReferenceToHighest => ToStrategy::StaticNeighbourhoods(
+                        ToStaticNeighbourhoods::SetReferenceToHighest { time },
+                    ),
+                    StrategyAction::SetReferenceToCurrent => ToStrategy::TwoStep(
+                        ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
+                            ToStaticNeighbourhoodsAsMelody::SetReferenceToCurrent { time },
+                        )),
+                    ),
+                    StrategyAction::ToggleChordMatching => {
+                        ToStrategy::TwoStep(ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(
+                            ToChordList::ToggleEnable { time },
+                        )))
+                    }
+                    StrategyAction::ToggleReanchor => ToStrategy::TwoStep(
+                        ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
+                            ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time },
+                        )),
+                    ),
+                    StrategyAction::Reset => ToStrategy::Reset { time },
+                })),
                 None {},
                 None {},
                 None {},
@@ -842,10 +905,12 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 time,
                 neighbourhood,
             } => (
-                Some(ToProcess::ToStrategy(ToStrategy::MakeNeighbourhoodPure {
-                    time,
-                    neighbourhood,
-                })),
+                Some(ToProcess::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                    ToStaticNeighbourhoods::MakeNeighbourhoodPure {
+                        time,
+                        neighbourhood,
+                    },
+                ))),
                 None {},
                 None {},
                 None {},
@@ -863,10 +928,9 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
             ),
             FromUi::NeighbourhoodListAction { action, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::NeighbourhoodListAction {
-                    action,
-                    time,
-                })),
+                Some(ToProcess::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                    ToStaticNeighbourhoods::NeighbourhoodListAction { action, time },
+                ))),
                 None {},
                 None {},
                 None {},
@@ -902,18 +966,21 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
             ),
             FromUi::ChordListAction { action, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::ToHarmonyStrategy(
-                    ToHarmonyStrategy::ChordListAction { action },
-                    time,
+                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
+                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(
+                        ToChordList::ChordListAction { action, time },
+                    )),
                 ))),
                 None {},
                 None {},
                 None {},
             ),
             FromUi::PushNewChord { pattern, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::ToHarmonyStrategy(
-                    ToHarmonyStrategy::PushNewChord { pattern },
-                    time,
+                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
+                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(ToChordList::PushNewChord {
+                        pattern,
+                        time,
+                    })),
                 ))),
                 None {},
                 None {},
@@ -924,36 +991,45 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 allow,
                 time,
             } => (
-                Some(ToProcess::ToStrategy(ToStrategy::ToHarmonyStrategy(
-                    ToHarmonyStrategy::AllowExtraHighNotes {
-                        pattern_index,
-                        allow,
-                    },
-                    time,
+                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
+                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(
+                        ToChordList::AllowExtraHighNotes {
+                            pattern_index,
+                            allow,
+                            time,
+                        },
+                    )),
                 ))),
                 None {},
                 None {},
                 None {},
             ),
-            FromUi::EnableChordList { enable, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::ToHarmonyStrategy(
-                    ToHarmonyStrategy::EnableChordList { enable },
-                    time,
+            FromUi::ToggleChordList { time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
+                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(ToChordList::ToggleEnable {
+                        time,
+                    })),
                 ))),
                 None {},
                 None {},
                 None {},
             ),
-            FromUi::ReanchorOnMatch { reanchor } => (
-                Some(ToProcess::ToStrategy(ToStrategy::ReanchorOnMatch {
-                    reanchor,
-                })),
+            FromUi::ToggleReanchorOnMatch { time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
+                    ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
+                        ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time },
+                    )),
+                ))),
                 None {},
                 None {},
                 None {},
             ),
             FromUi::SetGroupMs { group_ms } => (
-                Some(ToProcess::ToStrategy(ToStrategy::SetGroupMs { group_ms })),
+                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
+                    ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
+                        ToStaticNeighbourhoodsAsMelody::SetGroupMs { group_ms },
+                    )),
+                ))),
                 None {},
                 None {},
                 None {},

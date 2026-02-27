@@ -5,7 +5,7 @@ use midir::*;
 use crate::{
     config::{ExtractConfig, MidiOutputConfig},
     maybeconnected::common::MaybeConnected,
-    msg::{FromMidiOut, HandleMsg, ToMidiOut},
+    msg::{FromMidiOut, ReceiveMsg, ToMidiOut},
     util::update_cell::UpdateCell,
 };
 
@@ -87,24 +87,32 @@ impl MaybeConnected<MidiOutput> for MidiOutputOrConnectionInternal {
 
 pub struct MidiOutputOrConnection {
     internal: UpdateCell<MidiOutputOrConnectionInternal>,
+    forward: mpsc::Sender<FromMidiOut>,
 }
 
 impl MidiOutputOrConnection {
-    pub fn new(midi_output: MidiOutput) -> Self {
+    pub fn new(midi_output: MidiOutput, forward: mpsc::Sender<FromMidiOut>) -> Self {
         Self {
             internal: UpdateCell::new(MidiOutputOrConnectionInternal::new(midi_output)),
+            forward,
         }
     }
 }
 
-impl HandleMsg<ToMidiOut, FromMidiOut> for MidiOutputOrConnection {
-    fn handle_msg(&mut self, msg: ToMidiOut, forward: &mpsc::Sender<FromMidiOut>) {
+impl MidiOutputOrConnection {
+    fn send_msg(&self, msg: FromMidiOut) -> bool {
+        self.forward.send(msg).is_ok()
+    }
+}
+
+impl ReceiveMsg<ToMidiOut> for MidiOutputOrConnection {
+    fn receive_msg(&mut self, msg: ToMidiOut) {
         match msg {
             ToMidiOut::OutgoingMidi { time, bytes } => match &mut *self.internal.borrow_mut() {
                 MidiOutputOrConnectionInternal::Connected { connection, .. } => {
                     let _ = connection.send(&bytes);
                     let now = Instant::now();
-                    let _ = forward.send(FromMidiOut::EventLatency {
+                    let _ = self.send_msg(FromMidiOut::EventLatency {
                         since_input: now.duration_since(time),
                     });
                 }
@@ -114,11 +122,11 @@ impl HandleMsg<ToMidiOut, FromMidiOut> for MidiOutputOrConnection {
                 self.internal
                     .update(|old| match old.connect(port, &portname) {
                         Ok(new) => {
-                            let _ = forward.send(FromMidiOut::Connected { portname });
+                            let _ = self.send_msg(FromMidiOut::Connected { portname });
                             new
                         }
                         Err((reason, new)) => {
-                            let _ = forward.send(FromMidiOut::ConnectionError { reason });
+                            let _ = self.send_msg(FromMidiOut::ConnectionError { reason });
                             new
                         }
                     });
@@ -136,7 +144,7 @@ impl HandleMsg<ToMidiOut, FromMidiOut> for MidiOutputOrConnection {
                         })
                         .filter(|(_, name)| !name.contains("adaptuner input"))
                         .collect();
-                    let _ = forward.send(FromMidiOut::Disconnected {
+                    let _ = self.send_msg(FromMidiOut::Disconnected {
                         available_ports: ports,
                     });
 

@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, std::hash::Hash)]
@@ -57,7 +59,7 @@ impl Fit {
         }
     }
 
-    fn is_better_than(&self, other: &Self) -> bool {
+    pub fn is_better_than(&self, other: &Self) -> bool {
         match (self, other) {
             (Fit::Failed, _) => false,
             (_, Fit::Failed) => true,
@@ -124,8 +126,11 @@ impl KeyShape {
         }
     }
 
-    /// Only use this on an active_code that you know is nonzero
-    fn fit_code(&self, active_code: u128) -> Fit {
+    /// Use this with an active_code computed by [active_code].
+    pub fn fit_code(&self, active_code: u128) -> Fit {
+        if active_code == 0 {
+            return Fit::Failed;
+        }
         match self {
             Self::ClassesFixed { classes } => fit_classes_fixed(classes, 0, active_code),
             Self::ClassesRelative { classes } => fit_classes_relative(classes, active_code),
@@ -139,32 +144,14 @@ impl KeyShape {
     }
 }
 
-
-/// returns the index of either the first [Fit::Complete] fit or the best [Fit::Partial] fit.
-pub fn first_complete_fit_or_best<'a, N: HasActivationStatus>(
-    notes: &[N; 128],
-    shapes: impl Iterator<Item = &'a KeyShape>,
-) -> (usize, Fit) {
+pub fn active_code<N: HasActivationStatus>(notes: impl Deref<Target = [N; 128]>) -> u128 {
     let mut active_code: u128 = 0;
     for (i, n) in notes.iter().enumerate() {
         if n.active() {
             active_code |= 1 << i;
         }
     }
-    if active_code == 0 {
-        return (0, Fit::Failed);
-    }
-    let mut best = (0, Fit::Failed);
-    for (i, shape) in shapes.enumerate() {
-        let new = shape.fit_code(active_code);
-        if new.is_complete() {
-            return (i, new);
-        }
-        if new.is_better_than(&best.1) {
-            best = (i, new);
-        }
-    }
-    best
+    active_code
 }
 
 /// Assumes that the `keys` argument is nonemtpy (it comes from [KeyShape::ExactFixed])

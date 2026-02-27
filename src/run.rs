@@ -8,29 +8,31 @@ use eframe::egui;
 use midir::{MidiInput, MidiOutput};
 
 use crate::{
+    backend::r#trait::ConcreteBackendAdaptor,
     config::{
         BackendConfig, ExtractConfig, FromConfigAndState, GuiConfig, MidiInputConfig,
         MidiOutputConfig, ProcessConfig,
     },
-    interval::stacktype::r#trait::StackType,
+    gui::r#trait::ConcreteUiAdaptor,
+    interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
+    keystate::KeyState,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
-        FromBackend, FromMidiIn, FromMidiOut, FromProcess, FromUi, HandleMsg, HasStop,
-        MessageTranslate, MessageTranslate2, MessageTranslate3, MessageTranslate4, ReceiveMsg,
-        ToBackend, ToMidiIn, ToMidiOut, ToProcess, ToUi,
+        FromProcess, HasStop, MessageTranslate, MessageTranslate2, MessageTranslate3,
+        MessageTranslate4, ReceiveMsg, ToBackend, ToMidiIn, ToMidiOut, ToProcess, ToUi,
     },
+    process::r#trait::{ConcreteProcessAdaptor, StackWithTuning},
+    util::readerwriter::ConcreteReaderWriter128,
 };
 
-fn start_handler_thread<I, O, H, C, NH>(
+fn start_receiver_thread<I, H, C, NH>(
     new_state: NH,
     rx: mpsc::Receiver<I>,
-    tx: mpsc::Sender<O>,
-) -> thread::JoinHandle<(C, mpsc::Receiver<I>, mpsc::Sender<O>)>
+) -> thread::JoinHandle<(C, mpsc::Receiver<I>)>
 where
-    H: HandleMsg<I, O>,
+    H: ReceiveMsg<I>,
     H: ExtractConfig<C>,
     I: HasStop + Send + 'static,
-    O: Send + 'static,
     NH: FnOnce() -> H + Send + 'static,
     C: Send + 'static,
 {
@@ -40,7 +42,7 @@ where
             match rx.recv() {
                 Ok(msg) => {
                     let stop = msg.is_stop();
-                    state.handle_msg(msg, &tx);
+                    state.receive_msg(msg);
                     if stop {
                         break;
                     }
@@ -48,7 +50,7 @@ where
                 Err(_) => break,
             }
         }
-        (state.extract_config(), rx, tx)
+        (state.extract_config(), rx)
     })
 }
 
@@ -114,7 +116,11 @@ fn setup_fonts(ctx: &egui::Context) {
         FontData::from_static(include_bytes!("../assets/InterMusic.ttf")).into(),
     );
 
-    fonts.families.get_mut(&FontFamily::Proportional).unwrap().insert(0, "inter_music".to_owned());
+    fonts
+        .families
+        .get_mut(&FontFamily::Proportional)
+        .unwrap()
+        .insert(0, "inter_music".to_owned());
 
     ctx.set_fonts(fonts);
 }
@@ -122,12 +128,12 @@ fn setup_fonts(ctx: &egui::Context) {
 fn start_gui<T, H, NH>(
     new_gui: NH,
     rx: mpsc::Receiver<ToUi<T>>,
-    tx: mpsc::Sender<FromUi<T>>,
+    adaptor: ConcreteUiAdaptor<T>,
     config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
 ) -> Result<(), eframe::Error>
 where
     H: ReceiveMsg<ToUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
-    NH: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> H + Send + 'static,
+    NH: FnOnce(&egui::Context, ConcreteUiAdaptor<T>) -> H + Send + 'static,
     T: StackType + Send + 'static,
 {
     // create icon.rgba using something like
@@ -158,7 +164,7 @@ where
             // load fonts
             setup_fonts(&cc.egui_ctx);
 
-            let gui = new_gui(&cc.egui_ctx, tx.clone());
+            let gui = new_gui(&cc.egui_ctx, adaptor);
             Ok(Box::new(GuiWithConnections::new(
                 cc,
                 gui,
@@ -323,26 +329,10 @@ where
 }
 
 pub struct RunState<T: StackType> {
-    midi_input: thread::JoinHandle<(
-        MidiInputConfig,
-        mpsc::Receiver<ToMidiIn>,
-        mpsc::Sender<FromMidiIn>,
-    )>,
-    midi_output: thread::JoinHandle<(
-        MidiOutputConfig,
-        mpsc::Receiver<ToMidiOut>,
-        mpsc::Sender<FromMidiOut>,
-    )>,
-    process: thread::JoinHandle<(
-        ProcessConfig<T>,
-        mpsc::Receiver<ToProcess<T>>,
-        mpsc::Sender<FromProcess<T>>,
-    )>,
-    backend: thread::JoinHandle<(
-        BackendConfig,
-        mpsc::Receiver<ToBackend>,
-        mpsc::Sender<FromBackend>,
-    )>,
+    midi_input: thread::JoinHandle<(MidiInputConfig, mpsc::Receiver<ToMidiIn>)>,
+    midi_output: thread::JoinHandle<(MidiOutputConfig, mpsc::Receiver<ToMidiOut>)>,
+    process: thread::JoinHandle<(ProcessConfig<T>, mpsc::Receiver<ToProcess<T>>)>,
+    backend: thread::JoinHandle<(BackendConfig, mpsc::Receiver<ToBackend>)>,
     to_process_tx: mpsc::Sender<ToProcess<T>>,
     to_backend_tx: mpsc::Sender<ToBackend>,
     to_midi_input_tx: mpsc::Sender<ToMidiIn>,
@@ -382,15 +372,15 @@ impl<T: StackType> RunState<T> {
         new_ui_state: NU,
     ) -> Result<Self, eframe::Error>
     where
-        T: Send + 'static,
-        P: HandleMsg<ToProcess<T>, FromProcess<T>>
+        T: Send + Sync + 'static,
+        P: ReceiveMsg<ToProcess<T>>
             + ExtractConfig<ProcessConfig<T>>
-            + FromConfigAndState<ProcessConfig<T>, ()>,
-        B: HandleMsg<ToBackend, FromBackend>
+            + FromConfigAndState<ProcessConfig<T>, ConcreteProcessAdaptor<T>>,
+        B: ReceiveMsg<ToBackend>
             + ExtractConfig<BackendConfig>
-            + FromConfigAndState<BackendConfig, ()>,
+            + FromConfigAndState<BackendConfig, ConcreteBackendAdaptor<T>>,
         U: ReceiveMsg<ToUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
-        NU: FnOnce(&egui::Context, mpsc::Sender<FromUi<T>>) -> U + Send + 'static,
+        NU: FnOnce(&egui::Context, ConcreteUiAdaptor<T>) -> U + Send + 'static,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();
         let (from_midi_input_tx, from_midi_input_rx) = mpsc::channel();
@@ -398,7 +388,7 @@ impl<T: StackType> RunState<T> {
 
         let (to_midi_output_tx, to_midi_output_rx) = mpsc::channel();
         let (from_midi_output_tx, from_midi_output_rx) = mpsc::channel();
-        let midi_output = MidiOutputOrConnection::new(midi_out);
+        let midi_output = MidiOutputOrConnection::new(midi_out, from_midi_output_tx);
 
         let (to_process_tx, to_process_rx) = mpsc::channel();
         let (from_process_tx, from_process_rx) = mpsc::channel::<FromProcess<T>>();
@@ -430,22 +420,38 @@ impl<T: StackType> RunState<T> {
             &to_midi_output_tx,
         );
 
+        let now = Instant::now();
+
+        let process_adaptor = ConcreteProcessAdaptor {
+            forward: from_process_tx,
+            tunings: ConcreteReaderWriter128::new(core::array::from_fn(|i| StackWithTuning {
+                stack: Stack::new_zero(),
+                tuning: i as Semitones,
+            })),
+            key_states: ConcreteReaderWriter128::new(core::array::from_fn(|_| KeyState::new(now))),
+        };
+
+        let gui_adaptor = ConcreteUiAdaptor {
+            forward: from_ui_tx,
+            tunings: process_adaptor.tunings.clone().into_reader(),
+        };
+
+        let backend_adaptor = ConcreteBackendAdaptor {
+            forward: from_backend_tx,
+            tunings: process_adaptor.tunings.clone().into_reader(),
+            key_states: process_adaptor.key_states.clone().into_reader(),
+        };
+
         let res = Self {
-            midi_input: start_handler_thread(|| midi_input, to_midi_input_rx, from_midi_input_tx),
-            midi_output: start_handler_thread(
-                || midi_output,
-                to_midi_output_rx,
-                from_midi_output_tx,
-            ),
-            process: start_handler_thread(
-                || P::initialise(process_config, ()),
+            midi_input: start_receiver_thread(|| midi_input, to_midi_input_rx),
+            midi_output: start_receiver_thread(|| midi_output, to_midi_output_rx),
+            process: start_receiver_thread(
+                || P::initialise(process_config, process_adaptor),
                 to_process_rx,
-                from_process_tx,
             ),
-            backend: start_handler_thread(
-                || B::initialise(backend_config, ()),
+            backend: start_receiver_thread(
+                || B::initialise(backend_config, backend_adaptor),
                 to_backend_rx,
-                from_backend_tx,
             ),
             to_process_tx: to_process_tx.clone(),
             to_backend_tx,
@@ -461,7 +467,7 @@ impl<T: StackType> RunState<T> {
         });
         // TODO: send more start messages?
 
-        start_gui(new_ui_state, to_ui_rx, from_ui_tx, gui_config_return)?;
+        start_gui(new_ui_state, to_ui_rx, gui_adaptor, gui_config_return)?;
 
         Ok(res)
     }
@@ -479,22 +485,22 @@ impl<T: StackType> RunState<T> {
         JoinError,
     > {
         let _ = self.to_process_tx.send(ToProcess::Stop);
-        let Ok((process_config, _, _)) = self.process.join() else {
+        let Ok((process_config, _)) = self.process.join() else {
             return Err(JoinError::Process);
         };
 
         let _ = self.to_backend_tx.send(ToBackend::Stop);
-        let Ok((backend_config, _, _)) = self.backend.join() else {
+        let Ok((backend_config, _)) = self.backend.join() else {
             return Err(JoinError::Backend);
         };
 
         let _ = self.to_midi_input_tx.send(ToMidiIn::Stop);
-        let Ok((midi_input_config, _, _)) = self.midi_input.join() else {
+        let Ok((midi_input_config, _)) = self.midi_input.join() else {
             return Err(JoinError::MidiInput);
         };
 
         let _ = self.to_midi_output_tx.send(ToMidiOut::Stop);
-        let Ok((midi_output_config, _, _)) = self.midi_output.join() else {
+        let Ok((midi_output_config, _)) = self.midi_output.join() else {
             return Err(JoinError::MidiOutput);
         };
 

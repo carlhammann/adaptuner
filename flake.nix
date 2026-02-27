@@ -10,7 +10,7 @@
   };
 
   outputs = inputs @ {flake-parts, ...}: let
-    latestStableRust = pkgs: pkgs.rust-bin.stable.latest;
+    latestRust = pkgs: pkgs.rust-bin.nightly.latest;
     waylandPath = pkgs:
       with pkgs;
         lib.makeLibraryPath [
@@ -35,7 +35,7 @@
           adaptuner-bin = pkgs.callPackage ./. {
             craneLib =
               (inputs.crane.mkLib pkgs).overrideToolchain (p:
-                (latestStableRust p).minimal);
+                (latestRust p).minimal);
           };
         in
           {
@@ -43,7 +43,7 @@
             adaptuner-mingw = let
               craneLib = (inputs.crane.mkLib pkgs.pkgsCross.mingwW64).overrideToolchain (
                 p:
-                  (latestStableRust p).minimal.override {
+                  (latestRust p).minimal.override {
                     targets = ["x86_64-pc-windows-gnu"];
                   }
               );
@@ -133,24 +133,26 @@
         devShells = pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           wayland = pkgs.mkShell {
             inputsFrom = [packages.adaptuner-bin];
-            packages = with pkgs;
-              [
-                fluidsynth
-                vmpk
+            packages = let
+              rustDocOpen = pkgs.writeShellScriptBin "rust-doc" ''
+                xdg-open '${(latestRust pkgs).default}/share/doc/rust/html/index.html'
+              '';
+            in
+              with pkgs;
+                [
+                  fluidsynth
+                  vmpk
 
-                # dev-y
-                (latestStableRust pkgs).rust-analyzer
-                (latestStableRust pkgs).rustfmt
-                bacon
+                  # dev-y
+                  (latestRust pkgs).rust-analyzer
+                  (latestRust pkgs).rustfmt
+		  rustDocOpen
+                  bacon
 
-                quickemu
-                wineWowPackages.staging
-                winetricks
-
-                pandoc
-                ffmpeg
-              ]
-              ++ lib.optionals stdenv.isLinux [alsa-utils];
+                  pandoc
+                  ffmpeg
+                ]
+                ++ lib.optionals stdenv.isLinux [alsa-utils];
 
             LD_LIBRARY_PATH = waylandPath pkgs;
           };

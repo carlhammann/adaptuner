@@ -15,6 +15,7 @@ use crate::{
     msg::{FromUi, ReceiveMsgRef, ToUi},
     neighbourhood::{Neighbourhood, Partial},
     notename::{correction::Correction, HasNoteNames, NoteNameStyle},
+    util::readerwriter::Reader128,
 };
 
 use super::{
@@ -349,7 +350,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
             .id(popup_id)
             .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| {
-            if temperament_applier(
+                if temperament_applier(
                     Some(&format!(
                         "make pure relative to {}",
                         reference.corrected_notename(
@@ -374,7 +375,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                         time: Instant::now(),
                     });
                 }
-        });
+            });
     }
 
     fn draw_note_and_interaction_zone(
@@ -763,7 +764,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             }
         }
 
-        for (j, stack) in state.tunings.iter().enumerate() {
+        for (j, tuning) in state.tunings.read_all().iter().enumerate() {
+            let stack: &Stack<T> = tuning.as_ref();
             if state.active_notes[j].is_sounding() {
                 for i in 0..T::num_intervals() {
                     if i == self.controls.project_dimension {
@@ -873,15 +875,16 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 if d == 0 {
                     continue;
                 }
-                let p = self.pos(stack);
+                let p = self.pos(&stack);
                 // draw_circle(p);
                 let _ = draw_limb(i, d < 0, p);
             }
         }
 
-        for (i, stack) in state.tunings.iter().enumerate() {
+        for (i, tuning) in state.tunings.read_all().iter().enumerate() {
+            let stack: &Stack<T> = tuning.as_ref();
             if state.active_notes[i].is_sounding() {
-                let mut pos = self.projected_pos(stack);
+                let mut pos = self.projected_pos(&stack);
                 let d = stack.target[self.controls.project_dimension]
                     - self.grid_reference.target[self.controls.project_dimension];
                 for _ in 0..d.abs() {
@@ -894,7 +897,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
 
     fn draw_down_lines(&self, ui: &egui::Ui, state: &KeysAndTunings<T>) {
         let bottom = self.keyboard_top();
-        for (i, stack) in state.tunings.iter().enumerate() {
+        for (i, tuning) in state.tunings.read_all().iter().enumerate() {
+            let stack: &Stack<T> = tuning.as_ref();
             if state.active_notes[i].is_sounding() {
                 let ppos = self.projected_pos(stack);
                 ui.painter().vline(
@@ -958,13 +962,15 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             let draw_this = self.considered_notes.iter().all(|(_, considered)| {
                 write_considered_stack_to_draw(considered, &mut self.tmp_stack);
                 self.tmp_stack.target != stack.target
-            }) && state.tunings.iter().enumerate().all(|(i, sounding)| {
-                if !state.active_notes[i].is_sounding() {
-                    return true;
-                }
-                write_sounding_stack_to_draw(sounding, &mut self.tmp_stack);
-                self.tmp_stack.target != stack.target
-            });
+            }) && state.tunings.read_all().iter().enumerate().all(
+                |(i, sounding)| {
+                    if !state.active_notes[i].is_sounding() {
+                        return true;
+                    }
+                    write_sounding_stack_to_draw(sounding.as_ref(), &mut self.tmp_stack);
+                    self.tmp_stack.target != stack.target
+                },
+            );
             if draw_this {
                 self.draw_state.draw_note_and_interaction_zone(
                     ui,
@@ -980,13 +986,18 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
 
         for (_, stack) in self.considered_notes.iter() {
             write_considered_stack_to_draw(stack, &mut self.tmp_stack);
-            let draw_this = state.tunings.iter().enumerate().all(|(i, sounding)| {
-                if !state.active_notes[i].is_sounding() {
-                    return true;
-                }
-                write_sounding_stack_to_draw(sounding, &mut self.other_tmp_stack);
-                self.tmp_stack.target != self.other_tmp_stack.target
-            });
+            let draw_this = state
+                .tunings
+                .read_all()
+                .iter()
+                .enumerate()
+                .all(|(i, sounding)| {
+                    if !state.active_notes[i].is_sounding() {
+                        return true;
+                    }
+                    write_sounding_stack_to_draw(sounding.as_ref(), &mut self.other_tmp_stack);
+                    self.tmp_stack.target != self.other_tmp_stack.target
+                });
             if draw_this {
                 self.draw_state.draw_note_and_interaction_zone(
                     ui,
@@ -1000,7 +1011,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             }
         }
 
-        for (i, stack) in state.tunings.iter().enumerate() {
+        for (i, tuning) in state.tunings.read_all().iter().enumerate() {
+            let stack: &Stack<T> = tuning.as_ref();
             if state.active_notes[i].is_sounding() {
                 write_sounding_stack_to_draw(stack, &mut self.tmp_stack);
                 self.draw_state.draw_note_and_interaction_zone(

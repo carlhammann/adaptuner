@@ -135,7 +135,7 @@ impl Solver {
         end_row[length] = Ratio::from_integer(1);
     }
 
-    pub fn solve(&mut self) -> Result<ArrayView2<Ratio<StackCoeff>>, lu::LUErr> {
+    pub fn solve<'a> (&'a mut self) -> Result<ArrayView2<'a, Ratio<StackCoeff>>, lu::LUErr> {
         //println!("{}", self.a);
 
         // Make bl the product b.l

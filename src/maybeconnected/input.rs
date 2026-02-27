@@ -5,7 +5,7 @@ use midir::{MidiInput, MidiInputConnection, MidiInputPort};
 use crate::{
     config::{ExtractConfig, MidiInputConfig},
     maybeconnected::common::MaybeConnected,
-    msg::{FromMidiIn, HandleMsg, ToMidiIn},
+    msg::{FromMidiIn, ReceiveMsg, ToMidiIn},
     util::update_cell::UpdateCell,
 };
 
@@ -99,28 +99,36 @@ impl MaybeConnected<MidiInput> for MidiInputOrConnectionInternal {
 
 pub struct MidiInputOrConnection {
     internal: UpdateCell<MidiInputOrConnectionInternal>,
+    forward: mpsc::Sender<FromMidiIn>,
 }
 
 impl MidiInputOrConnection {
     pub fn new(midi_input: MidiInput, tx: mpsc::Sender<FromMidiIn>) -> Self {
         Self {
-            internal: UpdateCell::new(MidiInputOrConnectionInternal::new(midi_input, tx)),
+            internal: UpdateCell::new(MidiInputOrConnectionInternal::new(midi_input, tx.clone())),
+            forward: tx,
         }
     }
 }
 
-impl HandleMsg<ToMidiIn, FromMidiIn> for MidiInputOrConnection {
-    fn handle_msg(&mut self, msg: ToMidiIn, forward: &mpsc::Sender<FromMidiIn>) {
+impl MidiInputOrConnection {
+    fn send_msg(&self, msg: FromMidiIn) -> bool {
+        self.forward.send(msg).is_ok()
+    }
+}
+
+impl ReceiveMsg<ToMidiIn> for MidiInputOrConnection {
+    fn receive_msg(&mut self, msg: ToMidiIn) {
         match msg {
             ToMidiIn::Connect { port, portname } => {
                 self.internal
                     .update(|old| match old.connect(port, &portname) {
                         Ok(new) => {
-                            let _ = forward.send(FromMidiIn::Connected { portname });
+                            let _ = self.send_msg(FromMidiIn::Connected { portname });
                             new
                         }
                         Err((reason, new)) => {
-                            let _ = forward.send(FromMidiIn::ConnectionError { reason });
+                            let _ = self.send_msg(FromMidiIn::ConnectionError { reason });
                             new
                         }
                     })
@@ -137,7 +145,7 @@ impl HandleMsg<ToMidiIn, FromMidiIn> for MidiInputOrConnection {
                     })
                     .filter(|(_, name)| !name.contains("adaptuner output"))
                     .collect();
-                let _ = forward.send(FromMidiIn::Disconnected {
+                let _ = self.send_msg(FromMidiIn::Disconnected {
                     available_ports: ports,
                 });
                 new
