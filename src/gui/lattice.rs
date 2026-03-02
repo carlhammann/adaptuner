@@ -5,7 +5,6 @@ use midi_msg::Channel;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::ExtractConfig,
     custom_serde::common::{deserialize_channel, serialize_channel},
     interval::{
         base::Semitones,
@@ -1136,38 +1135,6 @@ impl<T: StackType> ReceiveMsgRef<ToUi<T>> for LatticeWindow<T> {
             }
 
             _ => {}
-        }
-    }
-}
-
-impl<T: StackType> ExtractConfig<LatticeWindowConfig> for LatticeWindow<T> {
-    fn extract_config(&self) -> LatticeWindowConfig {
-        let LatticeWindowControls {
-            zoom,
-            interval_heights,
-            background_around_reference,
-            background_low,
-            background_high,
-            project_dimension,
-            screen_keyboard_channel,
-            screen_keyboard_velocity,
-            notenamestyle,
-            highlight_playable_keys,
-            color_period_ct: color_period,
-            ..
-        } = &self.controls;
-        LatticeWindowConfig {
-            zoom: *zoom,
-            interval_heights: interval_heights.clone(),
-            background_around_reference: *background_around_reference,
-            background_low: background_low.clone(),
-            background_high: background_high.clone(),
-            project_dimension: *project_dimension,
-            screen_keyboard_channel: *screen_keyboard_channel,
-            screen_keyboard_velocity: *screen_keyboard_velocity,
-            notenamestyle: *notenamestyle,
-            highlight_playable_keys: *highlight_playable_keys,
-            color_period_ct: *color_period,
         }
     }
 }

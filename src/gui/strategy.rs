@@ -4,7 +4,7 @@ use eframe::egui::{self, vec2};
 
 use crate::{
     bindable::{Bindable, Bindings},
-    config::{ExtractConfig, HarmonyStrategyNames, MelodyStrategyNames, StrategyNames},
+    config::{HarmonyStrategyNames, MelodyStrategyNames, StrategyNames},
     interval::stacktype::r#trait::{OctavePeriodicStackType, StackType},
     msg::{FromUi, ReceiveMsgRef, ToUi},
     notename::HasNoteNames,
@@ -309,27 +309,5 @@ impl<'a, T: StackType> AsWindows<'a, T> {
                     super::common::ListEditResult::None => {}
                 }
             });
-    }
-}
-
-impl<T: StackType>
-    ExtractConfig<(
-        Vec<(StrategyNames<T>, Bindings<Bindable>)>,
-        TuningEditorConfig,
-        ReferenceEditorConfig,
-    )> for StrategyWindows<T>
-{
-    fn extract_config(
-        &self,
-    ) -> (
-        Vec<(StrategyNames<T>, Bindings<Bindable>)>,
-        TuningEditorConfig,
-        ReferenceEditorConfig,
-    ) {
-        (
-            self.strategies.elems().into(),
-            self.tuning_editor.extract_config(),
-            self.reference_editor.extract_config(),
-        )
     }
 }

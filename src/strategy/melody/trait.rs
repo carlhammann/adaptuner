@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use crate::{
-    config::{ExtractConfig, IsMelodyStrategyConfig},
+    config::IsMelodyStrategyConfig,
     interval::stacktype::r#trait::StackType,
     msg::ToMelody,
     reference::Reference,
@@ -9,7 +9,7 @@ use crate::{
     util::readerwriter::Reader,
 };
 
-pub trait MelodyStrategy<T: StackType>: ExtractConfig<Self::Config> {
+pub trait MelodyStrategy<T: StackType> {
     type Config: IsMelodyStrategyConfig<T, Realized = Self>;
 
     type Msg;
@@ -23,7 +23,7 @@ pub trait MelodyStrategy<T: StackType>: ExtractConfig<Self::Config> {
         time: Instant,
         adaptor: &impl StrategyAdaptor<T>,
         harmony: &impl Reader<Harmony<T>>,
-        harmony_is_valid: bool
+        harmony_is_valid: bool,
     );
 
     /// Implementation of [ToMelody::Stop]

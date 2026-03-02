@@ -1,10 +1,7 @@
 use std::time::Instant;
 
 use crate::{
-    config::{
-        ExtractConfig, IsHarmonyStrategyConfig, IsMelodyStrategyConfig, IsStrategyConfig,
-        StrategyConfig,
-    },
+    config::{IsHarmonyStrategyConfig, IsMelodyStrategyConfig, IsStrategyConfig, StrategyConfig},
     interval::stacktype::r#trait::StackType,
     msg::{ToStrategy, ToTwoStep},
     reference::Reference,
@@ -23,17 +20,6 @@ pub struct TwoStep<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>> {
     solve_start: Instant,
     solving_harmony: bool,
     found_harmony: bool,
-}
-
-impl<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>>
-    ExtractConfig<(H::Config, M::Config)> for TwoStep<T, H, M>
-{
-    fn extract_config(&self) -> (H::Config, M::Config) {
-        (
-            self.harmony_strategy.extract_config(),
-            self.melody_strategy.extract_config(),
-        )
-    }
 }
 
 impl<T, HC, MC> IsStrategyConfig<T> for (HC, MC)

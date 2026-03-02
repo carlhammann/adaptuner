@@ -4,7 +4,6 @@ use eframe::egui;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::ExtractConfig,
     gui::{
         common::{note_picker, CorrectionSystemChooser},
         r#trait::GuiShow,
@@ -126,14 +125,6 @@ impl<T: StackType> ReceiveMsgRef<ToUi<T>> for TuningEditor<T> {
         match msg {
             ToUi::SetTuningReference { reference } => self.reference = Some(reference.clone()),
             _ => {}
-        }
-    }
-}
-
-impl<T: StackType> ExtractConfig<TuningEditorConfig> for TuningEditor<T> {
-    fn extract_config(&self) -> TuningEditorConfig {
-        TuningEditorConfig {
-            notenamestyle: self.notenamestyle,
         }
     }
 }

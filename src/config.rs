@@ -1,4 +1,3 @@
-
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
@@ -30,10 +29,6 @@ use crate::{
 
 pub trait FromConfigAndState<C, S> {
     fn initialise(config: C, state: S) -> Self;
-}
-
-pub trait ExtractConfig<C> {
-    fn extract_config(&self) -> C;
 }
 
 #[derive(Clone)]
@@ -137,9 +132,9 @@ pub struct Config<T: IntervalBasis> {
     version: AdaptunerVersion,
     pub temperaments: Vec<TemperamentDefinition<T>>,
     pub named_intervals: Vec<NamedInterval<T>>,
-    strategies: Vec<NamedAndDescribed<ExtendedStrategyConfig<T>>>,
-    backend: BackendConfig,
-    gui: GuiConfigWithoutStrategies,
+    pub strategies: Vec<NamedAndDescribed<ExtendedStrategyConfig<T>>>,
+    pub backend: BackendConfig,
+    pub gui: GuiConfigWithoutStrategies,
 }
 
 #[derive(Serialize, Deserialize)]

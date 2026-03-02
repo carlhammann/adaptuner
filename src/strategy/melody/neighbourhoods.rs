@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crate::{
-    config::{ExtractConfig, IsMelodyStrategyConfig, MelodyStrategyConfig},
+    config::{IsMelodyStrategyConfig, MelodyStrategyConfig},
     interval::{
         base::Semitones,
         stack::Stack,
@@ -47,22 +47,6 @@ impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyCon
 
     fn as_melody_strategy_config(self) -> MelodyStrategyConfig<T> {
         MelodyStrategyConfig::Neighbourhoods(self)
-    }
-}
-
-impl<T: StackType> ExtractConfig<StaticNeighbourhoodsAsMelodyConfig<T>>
-    for StaticNeighbourhoodsAsMelody<T>
-{
-    fn extract_config(&self) -> StaticNeighbourhoodsAsMelodyConfig<T> {
-        StaticNeighbourhoodsAsMelodyConfig {
-            reanchor: self.reanchor,
-            group_ms: self.group_duration.as_millis() as u64,
-            inner: StaticNeighbourhoodsConfig {
-                neighbourhoods: self.neighbourhoods.clone(),
-                tuning_reference: self.tuning_reference.clone(),
-                reference: self.reference.clone(),
-            },
-        }
     }
 }
 

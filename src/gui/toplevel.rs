@@ -4,7 +4,7 @@ use eframe::{self, egui};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::{BackendConfig, ExtractConfig, GuiConfig, ProcessConfig},
+    config::{BackendConfig, GuiConfig, ProcessConfig},
     gui::r#trait::ConcreteUiAdaptor,
     interval::{
         stack::Stack,
@@ -450,25 +450,5 @@ where
         // self.note_window.show("notes", ctx, |ui| {
         //     self.notes.show(ui, &self.tx);
         // });
-    }
-}
-
-impl<T: StackType> ExtractConfig<GuiConfig<T>> for Toplevel<T> {
-    fn extract_config(&self) -> GuiConfig<T> {
-        let (strategies, tuning_editor, reference_editor) = self.strategies.extract_config();
-        GuiConfig {
-            strategies,
-            lattice_window: self.lattice.extract_config(),
-            backend_window: self.backend.extract_config(),
-            latency_mean_over: self.latency.extract_config(),
-            tuning_editor,
-            reference_editor,
-            use_cent_values: self
-                .lattice
-                .controls
-                .correction_system_chooser
-                .borrow()
-                .extract_config(),
-        }
     }
 }

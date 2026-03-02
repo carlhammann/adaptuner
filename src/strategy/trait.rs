@@ -8,7 +8,7 @@ use std::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::{ExtractConfig, IsStrategyConfig},
+    config::IsStrategyConfig,
     interval::stacktype::r#trait::StackType,
     keystate::KeyState,
     msg::{FromStrategy, ToStrategy},
@@ -115,7 +115,7 @@ impl<T: StackType> StrategyAdaptor<T> for ConcreteStrategyAdaptor<T> {
     }
 }
 
-pub trait Strategy<T: StackType>: ExtractConfig<Self::Config> {
+pub trait Strategy<T: StackType> {
     type Msg;
 
     type Config: IsStrategyConfig<T, Realized = Self>;
@@ -157,7 +157,7 @@ pub trait Strategy<T: StackType>: ExtractConfig<Self::Config> {
         &mut self,
         to_strategy_rx: mpsc::Receiver<ToStrategy<T>>,
         adaptor: &impl StrategyAdaptor<T>,
-    ) -> Self::Config {
+    ) {
         let mut continue_solving = false;
         let mut last_msg = None {};
         loop {
@@ -197,7 +197,5 @@ pub trait Strategy<T: StackType>: ExtractConfig<Self::Config> {
                 }
             }
         }
-
-        self.extract_config()
     }
 }

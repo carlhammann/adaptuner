@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use crate::{
-    config::ExtractConfig,
     interval::stacktype::r#trait::StackType,
     msg::{self, ReceiveMsgRef, ToUi},
 };
@@ -44,11 +43,5 @@ impl LatencyWindow {
             self.values.len(),
             self.mean
         ));
-    }
-}
-
-impl ExtractConfig<usize> for LatencyWindow {
-    fn extract_config(&self) -> usize {
-        self.values.len()
     }
 }

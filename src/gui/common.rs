@@ -4,7 +4,6 @@ use eframe::egui;
 use num_rational::Ratio;
 
 use crate::{
-    config::ExtractConfig,
     interval::{
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
@@ -427,12 +426,6 @@ pub struct CorrectionSystemChooser<T: IntervalBasis> {
     pub use_cent_values: bool,
     preference_order: OwningListEdit<usize>,
     id_salt: &'static str,
-}
-
-impl<T: IntervalBasis> ExtractConfig<bool> for CorrectionSystemChooser<T> {
-    fn extract_config(&self) -> bool {
-        self.use_cent_values
-    }
 }
 
 impl<T: StackType> CorrectionSystemChooser<T> {

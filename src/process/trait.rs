@@ -4,14 +4,11 @@ use std::{
 };
 
 use crate::{
-    interval::{
+    config::{ExtendedStrategyConfig, NamedAndDescribed}, interval::{
         base::Semitones,
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, StackType},
-    },
-    keystate::KeyState,
-    msg::FromProcess,
-    util::readerwriter::{ConcreteReaderWriter128, Reader128, ReaderWriter128},
+    }, keystate::KeyState, msg::FromProcess, util::readerwriter::{ConcreteReaderWriter, ConcreteReaderWriter128, Reader128, ReaderWriter128}
 };
 
 pub struct StackWithTuning<T: IntervalBasis> {
@@ -42,6 +39,7 @@ pub struct ConcreteProcessAdaptor<T: StackType> {
     pub forward: mpsc::Sender<FromProcess<T>>,
     pub tunings: ConcreteReaderWriter128<StackWithTuning<T>>,
     pub key_states: ConcreteReaderWriter128<KeyState>,
+    strategies: ConcreteReaderWriter<Vec<NamedAndDescribed<ExtendedStrategyConfig<T>>>>,
 }
 
 pub trait ProcessAdaptor<T: StackType>: Clone {

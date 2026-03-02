@@ -4,10 +4,13 @@ use eframe::egui;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::ExtractConfig, gui::{
+    gui::{
         common::{note_picker, CorrectionSystemChooser},
         r#trait::GuiShow,
-    }, interval::{stack::Stack, stacktype::r#trait::StackType}, msg::{FromUi, ReceiveMsgRef, ToUi}, notename::{correction::Correction, HasNoteNames, NoteNameStyle}
+    },
+    interval::{stack::Stack, stacktype::r#trait::StackType},
+    msg::{FromUi, ReceiveMsgRef, ToUi},
+    notename::{correction::Correction, HasNoteNames, NoteNameStyle},
 };
 
 pub struct ReferenceEditor<T: StackType> {
@@ -110,14 +113,6 @@ impl<T: StackType> ReceiveMsgRef<ToUi<T>> for ReferenceEditor<T> {
                 self.reference = Some(stack.clone());
             }
             _ => {}
-        }
-    }
-}
-
-impl<T: StackType> ExtractConfig<ReferenceEditorConfig> for ReferenceEditor<T> {
-    fn extract_config(&self) -> ReferenceEditorConfig {
-        ReferenceEditorConfig {
-            notenamestyle: self.notenamestyle,
         }
     }
 }

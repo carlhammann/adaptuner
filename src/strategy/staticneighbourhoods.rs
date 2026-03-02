@@ -3,7 +3,7 @@ use std::{ops::DerefMut, time::Instant};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::{ExtractConfig, IsStrategyConfig, StrategyConfig},
+    config::{IsStrategyConfig, StrategyConfig},
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
@@ -136,16 +136,6 @@ impl<T: StackType> IsStrategyConfig<T> for StaticNeighbourhoodsConfig<T> {
 
     fn as_strategy_config(self) -> StrategyConfig<T> {
         StrategyConfig::StaticTuning(self)
-    }
-}
-
-impl<T: StackType> ExtractConfig<StaticNeighbourhoodsConfig<T>> for StaticNeighbourhoods<T> {
-    fn extract_config(&self) -> StaticNeighbourhoodsConfig<T> {
-        StaticNeighbourhoodsConfig {
-            neighbourhoods: self.neighbourhoods.clone(),
-            tuning_reference: self.tuning_reference.clone(),
-            reference: self.reference.clone(),
-        }
     }
 }
 

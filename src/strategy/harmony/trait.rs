@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use crate::{
-    config::{ExtractConfig, IsHarmonyStrategyConfig},
+    config::IsHarmonyStrategyConfig,
     interval::stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     keystate::KeyState,
     msg::ToHarmony,
@@ -32,7 +32,7 @@ pub struct HarmonyResult {
     pub progress: bool,
 }
 
-pub trait HarmonyStrategy<T: StackType>: ExtractConfig<Self::Config> {
+pub trait HarmonyStrategy<T: StackType> {
     type Config: IsHarmonyStrategyConfig<T, Realized = Self>;
     type Msg;
 

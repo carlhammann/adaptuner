@@ -5,8 +5,8 @@ use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
 use crate::{
     bindable::{Bindings, MidiBindable},
     config::{
-        ExtractConfig, FromConfigAndState, HarmonyStrategyConfig, IsStrategyConfig,
-        MelodyStrategyConfig, ProcessConfig, StrategyConfig,
+        FromConfigAndState, HarmonyStrategyConfig, IsStrategyConfig, MelodyStrategyConfig,
+        ProcessConfig, StrategyConfig,
     },
     interval::stacktype::r#trait::StackType,
     msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
@@ -18,7 +18,7 @@ struct RunningStrategy<T: StackType> {
     /// The index in the list of strategies
     index: usize,
     to_strategy_tx: mpsc::Sender<ToStrategy<T>>,
-    strategy_thread: thread::JoinHandle<StrategyConfig<T>>,
+    strategy_thread: thread::JoinHandle<()>,
 }
 
 impl<T: StackType + Send + Sync> RunningStrategy<T> {
@@ -35,9 +35,7 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
 
             strategy.start(time, &adaptor);
 
-            strategy
-                .receive_solve_loop(to_strategy_rx, &adaptor)
-                .as_strategy_config()
+            strategy.receive_solve_loop(to_strategy_rx, &adaptor)
         });
 
         Self {
@@ -47,14 +45,15 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
         }
     }
 
-    fn stop(self, time: Instant) -> (usize, StrategyConfig<T>) {
+    /// returns the index of the strategy that was stopped
+    fn stop(self, time: Instant) -> usize {
         let _ = self.to_strategy_tx.send(ToStrategy::Stop { time });
-        (
-            self.index,
-            self.strategy_thread
-                .join()
-                .unwrap_or_else(|_| panic!("Could not join running strategy thread")),
-        )
+
+        self.strategy_thread
+            .join()
+            .unwrap_or_else(|_| panic!("Could not join running strategy thread"));
+
+        self.index
     }
 }
 
@@ -218,7 +217,11 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
 
     fn handle_note_on(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.adaptor.write_key_state(note as usize).note_on(channel, time) {
+            if self
+                .adaptor
+                .write_key_state(note as usize)
+                .note_on(channel, time)
+            {
                 let _ = self.send_to_strategy(ToStrategy::NoteOn { note, time });
             }
             let _ = self.send_msg(FromProcess::NoteOn {
@@ -275,9 +278,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
     /// Returns the index of the previously running strategy, if any.
     fn stop(&mut self, time: Instant) -> Option<usize> {
         if let Some(rs) = self.current_strategy.take() {
-            let (index, config) = rs.stop(time);
-            self.strategies[index].0 = config;
-            Some(index)
+            Some(rs.stop(time))
         } else {
             None {}
         }
@@ -313,7 +314,8 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
                 },
             ),
         });
-        self.adaptor.send(FromProcess::CurrentStrategyIndex(Some(index)));
+        self.adaptor
+            .send(FromProcess::CurrentStrategyIndex(Some(index)));
     }
 
     /// Will start strategy 0 if there's no running strategy at the moment.
@@ -378,33 +380,6 @@ impl<T: StackType + fmt::Debug + Send + Sync> ReceiveMsg<ToProcess<T>> for Proce
                     }
                 }
             }
-            ToProcess::GetCurrentConfig => {
-                let _ = self.send_msg(FromProcess::CurrentConfig(self.extract_config()));
-            }
-            ToProcess::RestartWithConfig { config, time } => {
-                *self =
-                    <Self as FromConfigAndState<_, _>>::initialise(config, self.adaptor.clone());
-                self.start(time, 0); // start strategy 0 by default
-            }
-            ToProcess::RestartWithCurrentConfig { time } => {
-                *self = <Self as FromConfigAndState<_, _>>::initialise(
-                    self.extract_config(),
-                    self.adaptor.clone(),
-                );
-                self.start(time, 0); // start strategy 0 by default
-            }
-        }
-    }
-}
-
-impl<T: StackType> ExtractConfig<ProcessConfig<T>> for ProcessFromStrategy<T> {
-    fn extract_config(&self) -> ProcessConfig<T> {
-        ProcessConfig {
-            strategies: self
-                .strategies
-                .iter()
-                .map(|(s, b)| (s.clone(), b.clone()))
-                .collect(),
         }
     }
 }

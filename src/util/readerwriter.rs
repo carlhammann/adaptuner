@@ -5,10 +5,33 @@ use std::{
 
 pub trait Reader<X>: Clone {
     fn read(&self) -> impl Deref<Target = X>;
+    // fn read_map<'a, Y: 'a>(&'a self, f: impl Fn(&X) -> &Y + 'a) -> impl Deref<Target = Y>;
 }
 
 pub trait ReaderWriter<X>: Reader<X> {
     fn write(&self) -> impl DerefMut<Target = X>;
+}
+
+pub struct ConcreteReader<X>(Arc<RwLock<X>>);
+
+impl<X> ConcreteReader<X> {
+    pub fn new(x: X) -> Self {
+        Self(Arc::new(RwLock::new(x)))
+    }
+}
+
+impl<X> Clone for ConcreteReader<X> {
+    fn clone(&self) -> Self {
+        let Self(x) = self;
+        Self(x.clone())
+    }
+}
+
+impl<X> Reader<X> for ConcreteReader<X> {
+    fn read(&self) -> impl Deref<Target = X> {
+        let Self(x) = self;
+        x.read().unwrap()
+    }
 }
 
 pub struct ConcreteReaderWriter<X>(Arc<RwLock<X>>);
@@ -16,6 +39,11 @@ pub struct ConcreteReaderWriter<X>(Arc<RwLock<X>>);
 impl<X> ConcreteReaderWriter<X> {
     pub fn new(x: X) -> Self {
         Self(Arc::new(RwLock::new(x)))
+    }
+
+    pub fn into_reader(self) -> ConcreteReader<X> {
+        let Self(x) = self;
+        ConcreteReader(x)
     }
 }
 

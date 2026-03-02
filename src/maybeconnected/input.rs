@@ -3,7 +3,7 @@ use std::{sync::mpsc, time::Instant};
 use midir::{MidiInput, MidiInputConnection, MidiInputPort};
 
 use crate::{
-    config::{ExtractConfig, MidiInputConfig},
+    config::MidiInputConfig,
     maybeconnected::common::MaybeConnected,
     msg::{FromMidiIn, ReceiveMsg, ToMidiIn},
     util::update_cell::UpdateCell,
@@ -152,11 +152,5 @@ impl ReceiveMsg<ToMidiIn> for MidiInputOrConnection {
             }),
             ToMidiIn::Stop => {}
         }
-    }
-}
-
-impl ExtractConfig<MidiInputConfig> for MidiInputOrConnection {
-    fn extract_config(&self) -> MidiInputConfig {
-        MidiInputConfig {}
     }
 }

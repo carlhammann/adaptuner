@@ -1,18 +1,11 @@
-use std::{
-    sync::{mpsc, Arc, Mutex},
-    thread,
-    time::Instant,
-};
+use std::{sync::mpsc, thread, time::Instant};
 
 use eframe::egui;
 use midir::{MidiInput, MidiOutput};
 
 use crate::{
     backend::r#trait::ConcreteBackendAdaptor,
-    config::{
-        BackendConfig, ExtractConfig, FromConfigAndState, GuiConfig, MidiInputConfig,
-        MidiOutputConfig, ProcessConfig,
-    },
+    config::{BackendConfig, FromConfigAndState, ProcessConfig},
     gui::r#trait::ConcreteUiAdaptor,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
@@ -25,16 +18,14 @@ use crate::{
     util::readerwriter::ConcreteReaderWriter128,
 };
 
-fn start_receiver_thread<I, H, C, NH>(
+fn start_receiver_thread<I, H, NH>(
     new_state: NH,
     rx: mpsc::Receiver<I>,
-) -> thread::JoinHandle<(C, mpsc::Receiver<I>)>
+) -> thread::JoinHandle<mpsc::Receiver<I>>
 where
     H: ReceiveMsg<I>,
-    H: ExtractConfig<C>,
     I: HasStop + Send + 'static,
     NH: FnOnce() -> H + Send + 'static,
-    C: Send + 'static,
 {
     thread::spawn(move || {
         let mut state = new_state();
@@ -50,23 +41,17 @@ where
                 Err(_) => break,
             }
         }
-        (state.extract_config(), rx)
+        rx
     })
 }
 
 struct GuiWithConnections<T: StackType, G> {
     gui: G,
     rx: mpsc::Receiver<ToUi<T>>,
-    config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
 }
 
 impl<T: StackType + Send, G> GuiWithConnections<T, G> {
-    fn new(
-        cc: &eframe::CreationContext,
-        gui: G,
-        rx: mpsc::Receiver<ToUi<T>>,
-        config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
-    ) -> Self {
+    fn new(cc: &eframe::CreationContext, gui: G, rx: mpsc::Receiver<ToUi<T>>) -> Self {
         let ctx = cc.egui_ctx.clone();
         let (forward_tx, forward_rx) = mpsc::channel::<ToUi<T>>();
 
@@ -85,7 +70,6 @@ impl<T: StackType + Send, G> GuiWithConnections<T, G> {
         Self {
             gui,
             rx: forward_rx,
-            config_return,
         }
     }
 }
@@ -93,16 +77,13 @@ impl<T: StackType + Send, G> GuiWithConnections<T, G> {
 impl<T, G> eframe::App for GuiWithConnections<T, G>
 where
     T: StackType,
-    G: ReceiveMsg<ToUi<T>> + ExtractConfig<GuiConfig<T>> + eframe::App,
+    G: ReceiveMsg<ToUi<T>> + eframe::App,
 {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         for msg in self.rx.try_iter() {
             self.gui.receive_msg(msg);
         }
         self.gui.update(ctx, frame);
-        if ctx.input(|i| i.viewport().close_requested()) {
-            *self.config_return.lock().unwrap() = Some(self.gui.extract_config());
-        }
     }
 }
 
@@ -129,10 +110,9 @@ fn start_gui<T, H, NH>(
     new_gui: NH,
     rx: mpsc::Receiver<ToUi<T>>,
     adaptor: ConcreteUiAdaptor<T>,
-    config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
 ) -> Result<(), eframe::Error>
 where
-    H: ReceiveMsg<ToUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
+    H: ReceiveMsg<ToUi<T>> + eframe::App,
     NH: FnOnce(&egui::Context, ConcreteUiAdaptor<T>) -> H + Send + 'static,
     T: StackType + Send + 'static,
 {
@@ -165,12 +145,7 @@ where
             setup_fonts(&cc.egui_ctx);
 
             let gui = new_gui(&cc.egui_ctx, adaptor);
-            Ok(Box::new(GuiWithConnections::new(
-                cc,
-                gui,
-                rx,
-                config_return,
-            )))
+            Ok(Box::new(GuiWithConnections::new(cc, gui, rx)))
         }),
     )
 }
@@ -329,15 +304,14 @@ where
 }
 
 pub struct RunState<T: StackType> {
-    midi_input: thread::JoinHandle<(MidiInputConfig, mpsc::Receiver<ToMidiIn>)>,
-    midi_output: thread::JoinHandle<(MidiOutputConfig, mpsc::Receiver<ToMidiOut>)>,
-    process: thread::JoinHandle<(ProcessConfig<T>, mpsc::Receiver<ToProcess<T>>)>,
-    backend: thread::JoinHandle<(BackendConfig, mpsc::Receiver<ToBackend>)>,
+    midi_input: thread::JoinHandle<mpsc::Receiver<ToMidiIn>>,
+    midi_output: thread::JoinHandle<mpsc::Receiver<ToMidiOut>>,
+    process: thread::JoinHandle<mpsc::Receiver<ToProcess<T>>>,
+    backend: thread::JoinHandle<mpsc::Receiver<ToBackend>>,
     to_process_tx: mpsc::Sender<ToProcess<T>>,
     to_backend_tx: mpsc::Sender<ToBackend>,
     to_midi_input_tx: mpsc::Sender<ToMidiIn>,
     to_midi_output_tx: mpsc::Sender<ToMidiOut>,
-    gui_config_return: Arc<Mutex<Option<GuiConfig<T>>>>,
 }
 
 #[derive(Debug)]
@@ -374,12 +348,9 @@ impl<T: StackType> RunState<T> {
     where
         T: Send + Sync + 'static,
         P: ReceiveMsg<ToProcess<T>>
-            + ExtractConfig<ProcessConfig<T>>
             + FromConfigAndState<ProcessConfig<T>, ConcreteProcessAdaptor<T>>,
-        B: ReceiveMsg<ToBackend>
-            + ExtractConfig<BackendConfig>
-            + FromConfigAndState<BackendConfig, ConcreteBackendAdaptor<T>>,
-        U: ReceiveMsg<ToUi<T>> + eframe::App + ExtractConfig<GuiConfig<T>>,
+        B: ReceiveMsg<ToBackend> + FromConfigAndState<BackendConfig, ConcreteBackendAdaptor<T>>,
+        U: ReceiveMsg<ToUi<T>> + eframe::App,
         NU: FnOnce(&egui::Context, ConcreteUiAdaptor<T>) -> U + Send + 'static,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();
@@ -398,8 +369,6 @@ impl<T: StackType> RunState<T> {
 
         let (to_ui_tx, to_ui_rx) = mpsc::channel();
         let (from_ui_tx, from_ui_rx) = mpsc::channel();
-
-        let gui_config_return = Arc::new(Mutex::new(None {}));
 
         let _midi_output_forward = start_translate_thread(from_midi_output_rx, &to_ui_tx);
         let _midi_input_forward =
@@ -457,7 +426,6 @@ impl<T: StackType> RunState<T> {
             to_backend_tx,
             to_midi_input_tx: to_midi_input_tx.clone(),
             to_midi_output_tx: to_midi_output_tx.clone(),
-            gui_config_return: gui_config_return.clone(),
         };
 
         let _ = to_midi_input_tx.send(ToMidiIn::Start);
@@ -467,53 +435,8 @@ impl<T: StackType> RunState<T> {
         });
         // TODO: send more start messages?
 
-        start_gui(new_ui_state, to_ui_rx, gui_adaptor, gui_config_return)?;
+        start_gui(new_ui_state, to_ui_rx, gui_adaptor)?;
 
         Ok(res)
-    }
-
-    pub fn stop(
-        self,
-    ) -> Result<
-        (
-            ProcessConfig<T>,
-            BackendConfig,
-            GuiConfig<T>,
-            MidiInputConfig,
-            MidiOutputConfig,
-        ),
-        JoinError,
-    > {
-        let _ = self.to_process_tx.send(ToProcess::Stop);
-        let Ok((process_config, _)) = self.process.join() else {
-            return Err(JoinError::Process);
-        };
-
-        let _ = self.to_backend_tx.send(ToBackend::Stop);
-        let Ok((backend_config, _)) = self.backend.join() else {
-            return Err(JoinError::Backend);
-        };
-
-        let _ = self.to_midi_input_tx.send(ToMidiIn::Stop);
-        let Ok((midi_input_config, _)) = self.midi_input.join() else {
-            return Err(JoinError::MidiInput);
-        };
-
-        let _ = self.to_midi_output_tx.send(ToMidiOut::Stop);
-        let Ok((midi_output_config, _)) = self.midi_output.join() else {
-            return Err(JoinError::MidiOutput);
-        };
-
-        if let Some(gui_config) = self.gui_config_return.lock().unwrap().as_ref() {
-            Ok((
-                process_config,
-                backend_config,
-                gui_config.clone(),
-                midi_input_config,
-                midi_output_config,
-            ))
-        } else {
-            Err(JoinError::Gui)
-        }
     }
 }

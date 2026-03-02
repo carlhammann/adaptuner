@@ -9,7 +9,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     backend::r#trait::{BackendAdaptor, ConcreteBackendAdaptor},
-    config::{BackendConfig, ExtractConfig, FromConfigAndState},
+    config::{BackendConfig, FromConfigAndState},
     custom_serde::common::{deserialize_channel, serialize_channel},
     interval::{base::Semitones, stacktype::r#trait::StackType},
     msg::{self, FromBackend, ReceiveMsg, ToBackend},
@@ -233,31 +233,7 @@ impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
                 }
                 self.reset(time);
             }
-            ToBackend::GetCurrentConfig => {
-                let _ = self.send_msg(FromBackend::CurrentConfig(self.extract_config()));
-            }
-            ToBackend::RestartWithConfig { config, time } => {
-                *self =
-                    <Self as FromConfigAndState<_, _>>::initialise(config, self.adaptor.clone());
-                self.reset(time);
-            }
-            ToBackend::RestartWithCurrentConfig { time } => {
-                *self = <Self as FromConfigAndState<_, _>>::initialise(
-                    self.extract_config(),
-                    self.adaptor.clone(),
-                );
-                self.reset(time);
-            }
         }
-    }
-}
-
-impl<T: StackType> ExtractConfig<BackendConfig> for Pitchbend12<T> {
-    fn extract_config(&self) -> BackendConfig {
-        BackendConfig::Pitchbend12(Pitchbend12Config {
-            bend_range: self.bend_range,
-            channels: core::array::from_fn(|i| WrappedChannel(self.channels[i])),
-        })
     }
 }
 

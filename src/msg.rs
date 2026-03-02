@@ -43,14 +43,6 @@ pub trait MessageTranslate4<B, C, D, E> {
 
 pub enum ToProcess<T: StackType> {
     Stop,
-    GetCurrentConfig,
-    RestartWithConfig {
-        time: Instant,
-        config: ProcessConfig<T>,
-    },
-    RestartWithCurrentConfig {
-        time: Instant,
-    },
     Start {
         time: Instant,
     },
@@ -290,14 +282,6 @@ pub enum FromStrategy<T: StackType> {
 }
 
 pub enum ToBackend {
-    GetCurrentConfig,
-    RestartWithConfig {
-        time: Instant,
-        config: BackendConfig,
-    },
-    RestartWithCurrentConfig {
-        time: Instant,
-    },
     Start {
         time: Instant,
     },
@@ -505,22 +489,6 @@ pub enum FromUi<T: StackType> {
     BindAction {
         action: Option<StrategyAction>,
         bindable: MidiBindable,
-    },
-    GetCurrentProcessConfig,
-    GetCurrentBackendConfig,
-    RestartProcessWithConfig {
-        config: ProcessConfig<T>,
-        time: Instant,
-    },
-    RestartBackendWithConfig {
-        config: BackendConfig,
-        time: Instant,
-    },
-    RestartProcessWithCurrentConfig {
-        time: Instant,
-    },
-    RestartBackendWithCurrentConfig {
-        time: Instant,
     },
     ChordListAction {
         action: ListAction,
@@ -932,36 +900,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                     ToStaticNeighbourhoods::NeighbourhoodListAction { action, time },
                 ))),
                 None {},
-                None {},
-                None {},
-            ),
-            FromUi::GetCurrentProcessConfig => {
-                (Some(ToProcess::GetCurrentConfig), None {}, None {}, None {})
-            }
-            FromUi::GetCurrentBackendConfig => {
-                (None {}, Some(ToBackend::GetCurrentConfig), None {}, None {})
-            }
-            FromUi::RestartProcessWithConfig { config, time } => (
-                Some(ToProcess::RestartWithConfig { time, config }),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::RestartBackendWithConfig { config, time } => (
-                None {},
-                Some(ToBackend::RestartWithConfig { time, config }),
-                None {},
-                None {},
-            ),
-            FromUi::RestartProcessWithCurrentConfig { time } => (
-                Some(ToProcess::RestartWithCurrentConfig { time }),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::RestartBackendWithCurrentConfig { time } => (
-                None {},
-                Some(ToBackend::RestartWithCurrentConfig { time }),
                 None {},
                 None {},
             ),

@@ -3,7 +3,7 @@ use std::{rc::Rc, time::Instant};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::{ExtractConfig, HarmonyStrategyConfig, IsHarmonyStrategyConfig},
+    config::{HarmonyStrategyConfig, IsHarmonyStrategyConfig},
     interval::{
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, StackCoeff, StackType},
@@ -245,21 +245,6 @@ impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
     }
 }
 
-impl<T: StackType> ExtractConfig<PatternConfig<T>> for Pattern<T> {
-    fn extract_config(&self) -> PatternConfig<T> {
-        let Pattern {
-            key_shape,
-            neighbourhood,
-            allow_extra_high_notes,
-        } = self;
-        PatternConfig {
-            key_shape: key_shape.clone(),
-            neighbourhood: (**neighbourhood).clone(),
-            allow_extra_high_notes: *allow_extra_high_notes,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
@@ -275,15 +260,6 @@ pub struct ChordList<T: StackType> {
     best_fit: (usize, Fit),
     solve_start: Instant,
     active_code: u128,
-}
-
-impl<T: StackType> ExtractConfig<ChordListConfig<T>> for ChordList<T> {
-    fn extract_config(&self) -> ChordListConfig<T> {
-        ChordListConfig {
-            enable: self.enable,
-            patterns: self.patterns.iter().map(|p| p.extract_config()).collect(),
-        }
-    }
 }
 
 impl<T: StackType> IsHarmonyStrategyConfig<T> for ChordListConfig<T> {

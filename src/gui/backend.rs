@@ -5,7 +5,7 @@ use midi_msg::Channel;
 
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
-    config::{BackendConfig, ExtractConfig},
+    config::BackendConfig,
     interval::{base::Semitones, stacktype::r#trait::StackType},
     msg::FromUi,
 };
@@ -107,24 +107,5 @@ impl<T: StackType> GuiShow<T> for BackendWindow {
                 }
             }
         });
-    }
-}
-
-impl ExtractConfig<BackendWindowConfig> for BackendWindow {
-    fn extract_config(&self) -> BackendWindowConfig {
-        BackendWindowConfig::Pitchbend12(Pitchbend12Config {
-            bend_range: self.bend_range,
-            channels: {
-                let mut channels = [Channel::Ch1.into(); 12];
-                let mut i = 0;
-                for j in 0..16 {
-                    if self.use_channels[j] {
-                        channels[i] = Channel::from_u8(j as u8).into();
-                        i += 1;
-                    }
-                }
-                channels
-            },
-        })
     }
 }
