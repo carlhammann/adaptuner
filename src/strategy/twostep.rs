@@ -29,13 +29,6 @@ where
     MC: IsMelodyStrategyConfig<T>,
 {
     type Realized = TwoStep<T, HC::Realized, MC::Realized>;
-
-    fn as_strategy_config(self) -> StrategyConfig<T> {
-        StrategyConfig::TwoStep(
-            self.0.as_harmony_strategy_config(),
-            self.1.as_melody_strategy_config(),
-        )
-    }
 }
 
 impl<T, H, M> TwoStep<T, H, M>

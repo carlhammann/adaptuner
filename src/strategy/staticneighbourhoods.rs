@@ -1,9 +1,10 @@
-use std::{ops::DerefMut, time::Instant};
+use std::{collections::BTreeMap, ops::DerefMut, time::Instant};
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    config::{IsStrategyConfig, StrategyConfig},
+    bindable::Bindable,
+    config::{IsStrategyConfig, Named},
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
@@ -13,7 +14,7 @@ use crate::{
     neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
     process::r#trait::StackWithTuning,
     reference::Reference,
-    strategy::r#trait::{Strategy, StrategyAdaptor},
+    strategy::r#trait::{Strategy, StrategyAction, StrategyAdaptor},
 };
 
 pub struct StaticNeighbourhoods<T: StackType> {
@@ -31,9 +32,13 @@ pub struct StaticNeighbourhoods<T: StackType> {
 #[serde(rename_all = "kebab-case")]
 pub struct StaticNeighbourhoodsConfig<T: IntervalBasis> {
     /// this Vec must never be empty
-    pub neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
+    pub neighbourhoods: Vec<Named<SomeCompleteNeighbourhood<T>>>,
     pub tuning_reference: Reference<T>,
     pub reference: Stack<T>,
+
+    pub bindings: BTreeMap<Bindable, StrategyAction>,
+    pub name: String,
+    pub description: String,
 }
 
 impl<T: StackType> StaticNeighbourhoods<T> {
@@ -133,19 +138,15 @@ impl<T: StackType> StaticNeighbourhoods<T> {
 
 impl<T: StackType> IsStrategyConfig<T> for StaticNeighbourhoodsConfig<T> {
     type Realized = StaticNeighbourhoods<T>;
-
-    fn as_strategy_config(self) -> StrategyConfig<T> {
-        StrategyConfig::StaticTuning(self)
-    }
 }
 
 impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
     type Msg = ToStaticNeighbourhoods<T>;
     type Config = StaticNeighbourhoodsConfig<T>;
 
-    fn new(config: StaticNeighbourhoodsConfig<T>) -> Self {
+    fn new(mut config: StaticNeighbourhoodsConfig<T>) -> Self {
         Self {
-            neighbourhoods: config.neighbourhoods,
+            neighbourhoods: config.neighbourhoods.drain(..).map(|n| n.named).collect(),
             curr_neighbourhood_index: 0,
             tuning_reference: config.tuning_reference,
             reference: config.reference,

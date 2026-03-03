@@ -3,15 +3,15 @@ use std::{fmt, sync::mpsc, thread, time::Instant};
 use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
 
 use crate::{
-    bindable::{Bindings, MidiBindable},
     config::{
         FromConfigAndState, HarmonyStrategyConfig, IsStrategyConfig, MelodyStrategyConfig,
-        ProcessConfig, StrategyConfig,
+        StrategyConfig,
     },
     interval::stacktype::r#trait::StackType,
     msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
     process::r#trait::{ConcreteProcessAdaptor, ProcessAdaptor},
     strategy::r#trait::{ConcreteStrategyAdaptor, Strategy},
+    util::readerwriter::{Reader, ReaderWriter},
 };
 
 struct RunningStrategy<T: StackType> {
@@ -58,7 +58,6 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
 }
 
 pub struct ProcessFromStrategy<T: StackType> {
-    strategies: Vec<(StrategyConfig<T>, Bindings<MidiBindable>)>,
     pedal_hold: [bool; 16],
     sostenuto_hold: [bool; 16],
     soft_hold: [bool; 16],
@@ -72,11 +71,8 @@ pub struct ProcessFromStrategy<T: StackType> {
 }
 
 impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
-    pub fn new(
-        strategies: Vec<(StrategyConfig<T>, Bindings<MidiBindable>)>,
-        adaptor: ConcreteProcessAdaptor<T>,
-    ) -> Self {
-        if strategies.len() <= 0 {
+    pub fn new(adaptor: ConcreteProcessAdaptor<T>) -> Self {
+        if adaptor.strategies.read().len() <= 0 {
             panic!("Cannot start process from empty list of strategies");
         }
 
@@ -96,7 +92,6 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
         });
 
         Self {
-            strategies,
             pedal_hold: [false; 16],
             sostenuto_hold: [false; 16],
             soft_hold: [false; 16],
@@ -289,11 +284,12 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
         if self.current_strategy.is_some() {
             self.stop(time);
         }
-        self.current_strategy = Some(match &self.strategies[index].0 {
-            StrategyConfig::TwoStep(
-                HarmonyStrategyConfig::ChordList(harmony),
-                MelodyStrategyConfig::Neighbourhoods(melody),
-            ) => RunningStrategy::start(
+        self.current_strategy = Some(match &self.adaptor.strategies.read()[index] {
+            StrategyConfig::TwoStep {
+                harmony: HarmonyStrategyConfig::ChordList(harmony),
+                melody: MelodyStrategyConfig::StaticNeighbourhoods(melody),
+                ..
+            } => RunningStrategy::start(
                 time,
                 index,
                 (harmony.clone(), melody.clone()),
@@ -303,7 +299,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
                     tunings: self.adaptor.tunings.clone(),
                 },
             ),
-            StrategyConfig::StaticTuning(conf) => RunningStrategy::start(
+            StrategyConfig::StaticNeighbourhoods(conf) => RunningStrategy::start(
                 time,
                 index,
                 conf.clone(),
@@ -360,10 +356,11 @@ impl<T: StackType + fmt::Debug + Send + Sync> ReceiveMsg<ToProcess<T>> for Proce
                 }
             }
             ToProcess::StrategyListAction { action, time } => {
+                todo!();
                 let mut index = self.stop(time);
                 action.apply_to(
-                    |(strat, bind)| (strat.clone(), bind.clone()),
-                    &mut self.strategies,
+                    |c| c.clone(),
+                    &mut self.adaptor.strategies.write(),
                     &mut index,
                 );
                 if let Some(index) = index {
@@ -371,24 +368,16 @@ impl<T: StackType + fmt::Debug + Send + Sync> ReceiveMsg<ToProcess<T>> for Proce
                 }
             }
             ToProcess::BindAction { action, bindable } => {
-                if let Some(csi) = self.current_strategy_index() {
-                    let (_, bindings) = &mut self.strategies[csi];
-                    if let Some(action) = action {
-                        bindings.insert(bindable, action);
-                    } else {
-                        bindings.remove(&bindable);
-                    }
-                }
+                todo!()
+                // if let Some(csi) = self.current_strategy_index() {
+                //     let (_, bindings) = &mut self.strategies[csi];
+                //     if let Some(action) = action {
+                //         bindings.insert(bindable, action);
+                //     } else {
+                //         bindings.remove(&bindable);
+                //     }
+                // }
             }
         }
-    }
-}
-
-impl<T: StackType + Send + Sync> FromConfigAndState<ProcessConfig<T>, ConcreteProcessAdaptor<T>>
-    for ProcessFromStrategy<T>
-{
-    fn initialise(config: ProcessConfig<T>, adaptor: ConcreteProcessAdaptor<T>) -> Self {
-        let ProcessConfig { strategies } = config;
-        Self::new(strategies, adaptor)
     }
 }

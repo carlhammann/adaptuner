@@ -5,17 +5,19 @@ use midir::{MidiInput, MidiOutput};
 
 use crate::{
     backend::r#trait::ConcreteBackendAdaptor,
-    config::{BackendConfig, FromConfigAndState, ProcessConfig},
-    gui::r#trait::ConcreteUiAdaptor,
+    config::{BackendConfig, FromConfigAndState, StrategyConfig},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
-        FromProcess, HasStop, MessageTranslate, MessageTranslate2, MessageTranslate3,
+        FromProcess, FromUi, HasStop, MessageTranslate, MessageTranslate2, MessageTranslate3,
         MessageTranslate4, ReceiveMsg, ToBackend, ToMidiIn, ToMidiOut, ToProcess, ToUi,
     },
-    process::r#trait::{ConcreteProcessAdaptor, StackWithTuning},
-    util::readerwriter::ConcreteReaderWriter128,
+    process::{
+        fromstrategy::ProcessFromStrategy,
+        r#trait::{ConcreteProcessAdaptor, StackWithTuning},
+    },
+    util::readerwriter::{ConcreteReaderWriter, ConcreteReaderWriter128},
 };
 
 fn start_receiver_thread<I, H, NH>(
@@ -104,50 +106,6 @@ fn setup_fonts(ctx: &egui::Context) {
         .insert(0, "inter_music".to_owned());
 
     ctx.set_fonts(fonts);
-}
-
-fn start_gui<T, H, NH>(
-    new_gui: NH,
-    rx: mpsc::Receiver<ToUi<T>>,
-    adaptor: ConcreteUiAdaptor<T>,
-) -> Result<(), eframe::Error>
-where
-    H: ReceiveMsg<ToUi<T>> + eframe::App,
-    NH: FnOnce(&egui::Context, ConcreteUiAdaptor<T>) -> H + Send + 'static,
-    T: StackType + Send + 'static,
-{
-    // create icon.rgba using something like
-    //
-    // magick stream -map rgba -storage-type char icon.png icon.rgba
-    //
-    // you can inspect it using
-    //
-    // magick display -depth 8 -size 512x512 rgba:icon.rgba
-    let icon_bytes = include_bytes!("../assets/icon.rgba");
-    let icon_data = egui::IconData {
-        width: 512,
-        height: 512,
-        rgba: icon_bytes.into(),
-    };
-    eframe::run_native(
-        "com.carlhammann.adaptuner",
-        eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default()
-                .with_icon(icon_data)
-                .with_title("adaptuner")
-                .with_app_id("com.carlhammann.adaptuner"),
-            ..eframe::NativeOptions::default()
-        },
-        Box::new(|cc| {
-            egui_extras::install_image_loaders(&cc.egui_ctx);
-
-            // load fonts
-            setup_fonts(&cc.egui_ctx);
-
-            let gui = new_gui(&cc.egui_ctx, adaptor);
-            Ok(Box::new(GuiWithConnections::new(cc, gui, rx)))
-        }),
-    )
 }
 
 fn start_translate_thread<B, A>(
@@ -338,20 +296,15 @@ impl std::fmt::Display for JoinError {
 impl std::error::Error for JoinError {}
 
 impl<T: StackType> RunState<T> {
-    pub fn new<P, B, U, NU>(
+    pub fn new<B>(
         midi_in: MidiInput,
         midi_out: MidiOutput,
-        process_config: ProcessConfig<T>,
+        strategies: Vec<StrategyConfig<T>>,
         backend_config: BackendConfig,
-        new_ui_state: NU,
     ) -> Result<Self, eframe::Error>
     where
         T: Send + Sync + 'static,
-        P: ReceiveMsg<ToProcess<T>>
-            + FromConfigAndState<ProcessConfig<T>, ConcreteProcessAdaptor<T>>,
         B: ReceiveMsg<ToBackend> + FromConfigAndState<BackendConfig, ConcreteBackendAdaptor<T>>,
-        U: ReceiveMsg<ToUi<T>> + eframe::App,
-        NU: FnOnce(&egui::Context, ConcreteUiAdaptor<T>) -> U + Send + 'static,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();
         let (from_midi_input_tx, from_midi_input_rx) = mpsc::channel();
@@ -368,7 +321,7 @@ impl<T: StackType> RunState<T> {
         let (from_backend_tx, from_backend_rx) = mpsc::channel();
 
         let (to_ui_tx, to_ui_rx) = mpsc::channel();
-        let (from_ui_tx, from_ui_rx) = mpsc::channel();
+        let (from_ui_tx, from_ui_rx) = mpsc::channel::<FromUi<T>>();
 
         let _midi_output_forward = start_translate_thread(from_midi_output_rx, &to_ui_tx);
         let _midi_input_forward =
@@ -398,11 +351,7 @@ impl<T: StackType> RunState<T> {
                 tuning: i as Semitones,
             })),
             key_states: ConcreteReaderWriter128::new(core::array::from_fn(|_| KeyState::new(now))),
-        };
-
-        let gui_adaptor = ConcreteUiAdaptor {
-            forward: from_ui_tx,
-            tunings: process_adaptor.tunings.clone().into_reader(),
+            strategies: ConcreteReaderWriter::new(strategies),
         };
 
         let backend_adaptor = ConcreteBackendAdaptor {
@@ -415,7 +364,7 @@ impl<T: StackType> RunState<T> {
             midi_input: start_receiver_thread(|| midi_input, to_midi_input_rx),
             midi_output: start_receiver_thread(|| midi_output, to_midi_output_rx),
             process: start_receiver_thread(
-                || P::initialise(process_config, process_adaptor),
+                || ProcessFromStrategy::new(process_adaptor),
                 to_process_rx,
             ),
             backend: start_receiver_thread(
@@ -435,7 +384,52 @@ impl<T: StackType> RunState<T> {
         });
         // TODO: send more start messages?
 
-        start_gui(new_ui_state, to_ui_rx, gui_adaptor)?;
+        loop {
+            if let Ok(msg) = to_ui_rx.recv() {
+                match msg {
+                    ToUi::Notify { line } => println!("{line}"),
+                    ToUi::NoteOn {
+                        channel,
+                        note,
+                        time,
+                    } => println!("note on {note}"),
+                    ToUi::Retune { note } => println!("retune {note}"),
+                    ToUi::NoteOff {
+                        channel,
+                        note,
+                        time,
+                    } => println!("note off {note}"),
+                    ToUi::EventLatency { since_input } => println!("latency: {since_input:?}"),
+                    ToUi::InputConnectionError { reason } => {
+                        println!("input connection error: {reason}")
+                    }
+                    ToUi::InputConnected { portname } => println!("input {portname} connected"),
+                    ToUi::InputDisconnected { available_ports } => {
+                        let (port, portname) = &available_ports[0];
+                        let _ = from_ui_tx.send(FromUi::ConnectInput {
+                            port: port.clone(),
+                            portname: portname.clone(),
+                            time: Instant::now(),
+                        });
+                    }
+                    ToUi::OutputConnectionError { reason } => {
+                        println!("output connection error: {reason}")
+                    }
+                    ToUi::OutputConnected { portname } => println!("output {portname} connected"),
+                    ToUi::OutputDisconnected { available_ports } => {
+                        let (port, portname) = &available_ports[1];
+                        let _ = from_ui_tx.send(FromUi::ConnectOutput {
+                            port: port.clone(),
+                            portname: portname.clone(),
+                            time: Instant::now(),
+                        });
+                    }
+                    _ => {}
+                }
+            } else {
+                break;
+            }
+        }
 
         Ok(res)
     }

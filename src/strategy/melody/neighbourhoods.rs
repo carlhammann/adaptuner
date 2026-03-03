@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant};
 
+use serde_derive::{Deserialize, Serialize};
+
 use crate::{
-    config::{IsMelodyStrategyConfig, MelodyStrategyConfig},
+    config::{IsMelodyStrategyConfig, MelodyStrategyConfig, Named},
     interval::{
         base::Semitones,
         stack::Stack,
@@ -12,15 +14,19 @@ use crate::{
     reference::Reference,
     strategy::{
         harmony::r#trait::Harmony, melody::r#trait::MelodyStrategy, r#trait::StrategyAdaptor,
-        staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
     util::readerwriter::Reader,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
 pub struct StaticNeighbourhoodsAsMelodyConfig<T: IntervalBasis> {
+    pub neighbourhoods: Vec<Named<SomeCompleteNeighbourhood<T>>>,
+    pub tuning_reference: Reference<T>,
+    pub reference: Stack<T>,
+
     pub reanchor: bool,
-    pub inner: StaticNeighbourhoodsConfig<T>,
     pub group_ms: u64,
 }
 
@@ -46,7 +52,7 @@ impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyCon
     type Realized = StaticNeighbourhoodsAsMelody<T>;
 
     fn as_melody_strategy_config(self) -> MelodyStrategyConfig<T> {
-        MelodyStrategyConfig::Neighbourhoods(self)
+        MelodyStrategyConfig::StaticNeighbourhoods(self)
     }
 }
 
@@ -251,12 +257,12 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
 
     type Msg = ToStaticNeighbourhoodsAsMelody<T>;
 
-    fn new(config: Self::Config) -> Self {
+    fn new(mut config: Self::Config) -> Self {
         Self {
-            neighbourhoods: config.inner.neighbourhoods,
+            neighbourhoods: config.neighbourhoods.drain(..).map(|n| n.named).collect(),
             curr_neighbourhood_index: 0,
-            tuning_reference: config.inner.tuning_reference,
-            reference: config.inner.reference,
+            tuning_reference: config.tuning_reference,
+            reference: config.reference,
             reanchor: config.reanchor,
             last_solve: Instant::now(),
             group_start_reference: Stack::new_zero(),

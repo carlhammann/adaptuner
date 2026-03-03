@@ -5,7 +5,7 @@ use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
     bindable::MidiBindable,
-    config::{BackendConfig, ProcessConfig},
+    config::BackendConfig,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     reference::Reference,
     strategy::{harmony::chordlist::PatternConfig, r#trait::StrategyAction},
@@ -111,7 +111,6 @@ pub enum FromProcess<T: StackType> {
         time: Instant,
     },
     CurrentStrategyIndex(Option<usize>),
-    CurrentConfig(ProcessConfig<T>),
 }
 
 pub enum ToChordList<T: StackType> {
@@ -336,7 +335,6 @@ pub enum FromBackend {
         actual: Semitones,
         explanation: &'static str,
     },
-    CurrentConfig(BackendConfig),
 }
 
 pub enum ToUi<T: StackType> {
@@ -401,8 +399,6 @@ pub enum ToUi<T: StackType> {
         explanation: &'static str,
     },
     CurrentStrategyIndex(Option<usize>),
-    CurrentProcessConfig(ProcessConfig<T>),
-    CurrentBackendConfig(BackendConfig),
     CurrentHarmony {
         pattern_index: Option<usize>,
         reference: Option<Stack<T>>,
@@ -658,9 +654,6 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
             ),
             FromProcess::CurrentStrategyIndex(i) => {
                 (None {}, None {}, Some(ToUi::CurrentStrategyIndex(i)))
-            }
-            FromProcess::CurrentConfig(config) => {
-                (None {}, None {}, Some(ToUi::CurrentProcessConfig(config)))
             }
         }
     }
@@ -1035,9 +1028,6 @@ impl<T: StackType> MessageTranslate2<ToMidiOut, ToUi<T>> for FromBackend {
                     explanation,
                 }),
             ),
-            FromBackend::CurrentConfig(config) => {
-                (None {}, Some(ToUi::CurrentBackendConfig(config)))
-            }
         }
     }
 }

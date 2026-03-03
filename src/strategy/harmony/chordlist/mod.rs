@@ -48,6 +48,8 @@ pub struct PatternConfig<T: IntervalBasis> {
     pub key_shape: KeyShape,
     pub neighbourhood: SomeNeighbourhood<T>,
     pub allow_extra_high_notes: bool,
+    pub name: String,
+    pub original_reference: Stack<T>,
 }
 
 impl<T: IntervalBasis> PatternConfig<T> {
@@ -57,8 +59,12 @@ impl<T: IntervalBasis> PatternConfig<T> {
         tunings: &impl Reader128<Stack<T>>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
+        name: String,
+        original_reference: Stack<T>,
     ) -> Self {
         Self {
+            name,
+            original_reference,
             key_shape: KeyShape::ExactFixed {
                 keys: keys
                     .iter()
@@ -89,8 +95,12 @@ impl<T: IntervalBasis> PatternConfig<T> {
         tunings: &impl Reader128<Stack<T>>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
+        name: String,
+        original_reference: Stack<T>,
     ) -> Self {
         Self {
+            name,
+            original_reference,
             key_shape: KeyShape::ExactRelative {
                 offsets: keys
                     .iter()
@@ -191,8 +201,12 @@ impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
         tunings: &impl Reader128<Stack<T>>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
+        name: String,
+        original_reference: Stack<T>,
     ) -> Self {
         Self {
+            name,
+            original_reference,
             key_shape: KeyShape::classes_relative_from_current(keys, lowest_sounding),
             neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
             allow_extra_high_notes,
@@ -204,8 +218,12 @@ impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
         tunings: &impl Reader128<Stack<T>>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
+        name: String,
+        original_reference: Stack<T>,
     ) -> Self {
         Self {
+            name,
+            original_reference,
             key_shape: KeyShape::classes_fixed_from_current(keys),
             neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
             allow_extra_high_notes,
@@ -218,8 +236,12 @@ impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
         tunings: &impl Reader128<Stack<T>>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
+        name: String,
+        original_reference: Stack<T>,
     ) -> Self {
         Self {
+            name,
+            original_reference,
             key_shape: KeyShape::BlockVoicingFixed {
                 blocks: blocks_from_current(block_sizes, keys, lowest_sounding),
             },
@@ -234,8 +256,12 @@ impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
         tunings: &impl Reader128<Stack<T>>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
+        name: String,
+        original_reference: Stack<T>,
     ) -> Self {
         Self {
+            name,
+            original_reference,
             key_shape: KeyShape::BlockVoicingRelative {
                 blocks: blocks_from_current(block_sizes, keys, lowest_sounding),
             },
