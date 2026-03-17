@@ -1,4 +1,4 @@
-use std::{rc::Rc, time::Instant};
+use std::{ops::Deref, time::Instant};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -11,8 +11,7 @@ use crate::{
     keystate::KeyState,
     msg::{ToChordList, ToHarmony},
     neighbourhood::{Neighbourhood, Partial, PeriodicPartial, SomeNeighbourhood},
-    strategy::harmony::r#trait::{Harmony, HarmonyResult, HarmonyStrategy},
-    util::readerwriter::{Reader128, ReaderWriter},
+    strategy::harmony::r#trait::{HarmonyResult, HarmonyStrategy, HarmonyStrategyAdaptor},
 };
 
 pub mod keyshape;
@@ -21,23 +20,23 @@ use keyshape::{active_code, Fit, HasActivationStatus, KeyShape};
 #[derive(Debug, Clone, PartialEq)]
 struct Pattern<T: StackType> {
     key_shape: KeyShape,
-    neighbourhood: Rc<SomeNeighbourhood<T>>,
+    neighbourhood: SomeNeighbourhood<T>,
     allow_extra_high_notes: bool,
 }
 
 impl<T: StackType> Pattern<T> {
-    fn new(conf: PatternConfig<T>) -> Self {
+    fn new(conf: &PatternConfig<T>) -> Self {
         Self {
-            key_shape: conf.key_shape,
-            neighbourhood: Rc::new(conf.neighbourhood),
+            key_shape: conf.key_shape.clone(),
+            neighbourhood: conf.neighbourhood.clone(),
             allow_extra_high_notes: conf.allow_extra_high_notes,
         }
     }
 }
 
-impl<X: AsRef<KeyState>> HasActivationStatus for X {
+impl HasActivationStatus for KeyState {
     fn active(&self) -> bool {
-        self.as_ref().is_sounding()
+        self.is_sounding()
     }
 }
 
@@ -56,7 +55,7 @@ impl<T: IntervalBasis> PatternConfig<T> {
     /// assumes that at least one of the `keys` is sounding.
     pub fn exact_fixed_from_current(
         keys: &[KeyState; 128],
-        tunings: &impl Reader128<Stack<T>>,
+        tunings: impl Deref<Target = [Stack<T>; 128]>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
         name: String,
@@ -77,10 +76,10 @@ impl<T: IntervalBasis> PatternConfig<T> {
                 let mut neigh = Partial::new();
                 let mut tmp = Stack::new_zero();
                 for i in 0..128 {
-                    let stack = &tunings.read(i);
+                    let stack = &tunings[i];
                     if keys[i].is_sounding() {
                         tmp.clone_from(stack);
-                        tmp.scaled_add(-1, tunings.read(lowest_sounding));
+                        tmp.scaled_add(-1, &tunings[lowest_sounding]);
                         let _ = neigh.insert(&tmp);
                     }
                 }
@@ -92,7 +91,7 @@ impl<T: IntervalBasis> PatternConfig<T> {
 
     pub fn exact_relative_from_current(
         keys: &[KeyState; 128],
-        tunings: &impl Reader128<Stack<T>>,
+        tunings: impl Deref<Target = [Stack<T>; 128]>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
         name: String,
@@ -113,10 +112,10 @@ impl<T: IntervalBasis> PatternConfig<T> {
                 let mut neigh = Partial::new();
                 let mut tmp = Stack::new_zero();
                 for i in 0..128 {
-                    let stack = &tunings.read(i);
+                    let stack = &tunings[i];
                     if keys[i].is_sounding() {
                         tmp.clone_from(stack);
-                        tmp.scaled_add(-1, tunings.read(lowest_sounding));
+                        tmp.scaled_add(-1, &tunings[lowest_sounding]);
                         let _ = neigh.insert(&tmp);
                     }
                 }
@@ -131,17 +130,17 @@ impl<T: IntervalBasis> PatternConfig<T> {
 /// notes.
 fn sounding_neighbourhood<T: OctavePeriodicIntervalBasis>(
     keys: &[KeyState; 128],
-    tunings: &impl Reader128<Stack<T>>,
+    tunings: impl Deref<Target = [Stack<T>; 128]>,
     lowest_sounding: usize,
 ) -> SomeNeighbourhood<T> {
     SomeNeighbourhood::PeriodicPartial({
         let mut neigh = PeriodicPartial::new_from_period_index(T::period_index());
         let mut tmp = Stack::new_zero();
         for i in 0..128 {
-            let stack = &tunings.read(i);
+            let stack = &tunings[i];
             if keys[i].is_sounding() {
                 tmp.clone_from(stack);
-                tmp.scaled_add(-1, tunings.read(lowest_sounding));
+                tmp.scaled_add(-1, &tunings[lowest_sounding]);
                 let _ = neigh.insert(&tmp);
             }
         }
@@ -198,7 +197,7 @@ impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
     // whether there are any notes sounding.
     pub fn classes_relative_from_current(
         keys: &[KeyState; 128],
-        tunings: &impl Reader128<Stack<T>>,
+        tunings: impl Deref<Target = [Stack<T>; 128]>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
         name: String,
@@ -215,7 +214,7 @@ impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
 
     pub fn classes_fixed_from_current(
         keys: &[KeyState; 128],
-        tunings: &impl Reader128<Stack<T>>,
+        tunings: impl Deref<Target = [Stack<T>; 128]>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
         name: String,
@@ -233,7 +232,7 @@ impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
     pub fn block_voicing_fixed_from_current(
         block_sizes: &[usize],
         keys: &[KeyState; 128],
-        tunings: &impl Reader128<Stack<T>>,
+        tunings: impl Deref<Target = [Stack<T>; 128]>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
         name: String,
@@ -253,7 +252,7 @@ impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
     pub fn block_voicing_relative_from_current(
         block_sizes: &[usize],
         keys: &[KeyState; 128],
-        tunings: &impl Reader128<Stack<T>>,
+        tunings: impl Deref<Target = [Stack<T>; 128]>,
         lowest_sounding: usize,
         allow_extra_high_notes: bool,
         name: String,
@@ -289,21 +288,29 @@ pub struct ChordList<T: StackType> {
 }
 
 impl<T: StackType> IsHarmonyStrategyConfig<T> for ChordListConfig<T> {
-    type Realized = ChordList<T>;
-
     fn as_harmony_strategy_config(self) -> HarmonyStrategyConfig<T> {
         HarmonyStrategyConfig::ChordList(self)
     }
 }
 
-impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
+pub trait ChordListAdaptor<T: StackType>: HarmonyStrategyAdaptor<T> {
+    /// This function is allowed to be not extremely fast; it's only called in situations where we
+    /// want to reload (parts of) the configuration.
+    fn config(&self) -> impl Deref<Target = ChordListConfig<T>>;
+}
+
+impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T> {
     type Config = ChordListConfig<T>;
-    type Msg = ToChordList<T>;
+    type Msg = ToChordList;
 
     fn new(mut config: ChordListConfig<T>) -> Self {
         Self {
             enable: config.enable,
-            patterns: config.patterns.drain(..).map(|p| Pattern::new(p)).collect(),
+            patterns: config
+                .patterns
+                .drain(..)
+                .map(|p| Pattern::new(&p))
+                .collect(),
             next_pattern_to_try: 0,
             best_fit: (0, Fit::Failed),
             solve_start: Instant::now(),
@@ -311,58 +318,34 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         }
     }
 
-    fn start(
-        &mut self,
-        time: Instant,
-        keys: &impl Reader128<KeyState>,
-        harmony: &impl ReaderWriter<Harmony<T>>,
-    ) -> HarmonyResult {
-        self.start_solve(time, keys, harmony)
+    fn start(&mut self, time: Instant, adaptor: &A) -> HarmonyResult {
+        self.start_solve(time, adaptor)
     }
 
-    fn stop(
-        &mut self,
-        _time: Instant,
-        _keys: &impl Reader128<KeyState>,
-        _harmony: &impl ReaderWriter<Harmony<T>>,
-    ) {
-    }
+    fn stop(&mut self, _time: Instant, _adaptor: &A) {}
 
-    fn start_solve(
-        &mut self,
-        time: Instant,
-        keys: &impl Reader128<KeyState>,
-        _harmony: &impl ReaderWriter<Harmony<T>>,
-    ) -> HarmonyResult {
+    fn start_solve(&mut self, time: Instant, adaptor: &A) -> HarmonyResult {
         if self.enable {
             self.next_pattern_to_try = 0;
             self.best_fit = (0, Fit::Failed);
             self.solve_start = time;
-            self.active_code = active_code(keys.read_all());
+            self.active_code = active_code(adaptor.key_states());
         }
+        adaptor.harmony().valid = false;
         HarmonyResult {
             finished: !self.enable,
             progress: false,
         }
     }
 
-    fn step(
-        &mut self,
-        _keys: &impl Reader128<KeyState>,
-        harmony: &impl ReaderWriter<Harmony<T>>,
-    ) -> HarmonyResult {
+    fn step(&mut self, adaptor: &A) -> HarmonyResult {
         if self.next_pattern_to_try >= self.patterns.len() {
-            if self.best_fit.1.matches_nothing() {
-                return HarmonyResult {
-                    finished: true,
-                    progress: false,
-                };
-            } else {
-                return HarmonyResult {
-                    finished: true,
-                    progress: true,
-                };
-            }
+            let progress = self.best_fit.1.matches_something();
+            adaptor.harmony().valid = progress;
+            return HarmonyResult {
+                finished: true,
+                progress,
+            };
         }
 
         let the_pattern = &self.patterns[self.next_pattern_to_try];
@@ -370,12 +353,13 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         let fit = the_pattern.key_shape.fit_code(self.active_code);
 
         let update_harmony = || {
-            harmony
-                .write()
+            adaptor
+                .harmony()
                 .neighbourhood
                 .clone_from(&the_pattern.neighbourhood);
-            harmony.write().reference = fit.reference() as StackCoeff;
-            harmony.write().pattern_index = Some(self.next_pattern_to_try);
+            adaptor.harmony().reference = fit.reference() as StackCoeff;
+            adaptor.harmony().pattern_index = Some(self.next_pattern_to_try);
+            adaptor.harmony().valid = true;
         };
 
         if fit.is_complete() {
@@ -409,27 +393,27 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         }
     }
 
-    fn filter_to_harmony(msg: ToHarmony<T>) -> Option<Self::Msg> {
+    fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg> {
         match msg {
             ToHarmony::ChordList(msg) => Some(msg),
         }
     }
 
-    fn receive_msg(
-        &mut self,
-        msg: Self::Msg,
-        keys: &impl Reader128<KeyState>,
-        harmony: &impl ReaderWriter<Harmony<T>>,
-    ) -> Option<Instant> {
-        let time = match &msg {
-            ToChordList::ChordListAction { time, .. }
-            | ToChordList::PushNewChord { time, .. }
-            | ToChordList::AllowExtraHighNotes { time, .. }
-            | ToChordList::ToggleEnable { time, .. } => *time,
-        };
-
-        todo!();
-
-        Some(time)
+    fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) -> Option<Instant> {
+        match msg {
+            ToChordList::UpdateChordList { time } => {
+                self.patterns = adaptor
+                    .config()
+                    .patterns
+                    .iter()
+                    .map(|p| Pattern::new(p))
+                    .collect();
+                Some(time)
+            }
+            ToChordList::ToggleEnable { time } => {
+                self.enable = !self.enable;
+                Some(time)
+            }
+        }
     }
 }

@@ -1,18 +1,17 @@
-use std::collections::BTreeMap;
-
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
-    bindable::Bindable,
     interval::{
+        base::Semitones,
+        stack::Stack,
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
     },
+    reference::Reference,
     strategy::{
-        harmony::{chordlist::ChordListConfig, r#trait::HarmonyStrategy},
-        melody::{neighbourhoods::StaticNeighbourhoodsAsMelodyConfig, r#trait::MelodyStrategy},
-        r#trait::{Strategy, StrategyAction},
+        harmony::chordlist::ChordListConfig,
+        melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
 };
@@ -40,39 +39,32 @@ pub struct AdaptunerVersion;
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum StrategyConfig<T: IntervalBasis> {
-    StaticNeighbourhoods(StaticNeighbourhoodsConfig<T>),
+    StaticNeighbourhoods {
+        name: String,
+        description: String,
+        config: StaticNeighbourhoodsConfig<T>,
+        // bindings: BTreeMap<Bindable, StrategyAction>,
+    },
     TwoStep {
         name: String,
         description: String,
         harmony: HarmonyStrategyConfig<T>,
         melody: MelodyStrategyConfig<T>,
-        bindings: BTreeMap<Bindable, StrategyAction>,
+        // bindings: BTreeMap<Bindable, StrategyAction>,
     },
 }
 
 impl<T: IntervalBasis> StrategyConfig<T> {
-    pub fn bindings(&self) -> &BTreeMap<Bindable, StrategyAction> {
-        match self {
-            StrategyConfig::StaticNeighbourhoods(StaticNeighbourhoodsConfig {
-                bindings, ..
-            }) => &bindings,
-            StrategyConfig::TwoStep { .. } => todo!(),
-        }
-    }
-
     pub fn name(&self) -> &str {
         match self {
-            StrategyConfig::StaticNeighbourhoods(StaticNeighbourhoodsConfig { name, .. }) => &name,
+            StrategyConfig::StaticNeighbourhoods { name, .. } => &name,
             StrategyConfig::TwoStep { name, .. } => name,
         }
     }
 
     pub fn description(&self) -> &str {
         match self {
-            StrategyConfig::StaticNeighbourhoods(StaticNeighbourhoodsConfig {
-                description,
-                ..
-            }) => &description,
+            StrategyConfig::StaticNeighbourhoods { description, .. } => &description,
             StrategyConfig::TwoStep { description, .. } => description,
         }
     }
@@ -94,25 +86,24 @@ pub enum MelodyStrategyConfig<T: IntervalBasis> {
 
 /// Marker trait for strategy configuration types. [StrategyConfig] does not implement this, but
 /// the types it "wraps" should.
-pub trait IsStrategyConfig<T: StackType> {
-    type Realized: Strategy<T, Config = Self>;
-
-    fn realize(self) -> Self::Realized
-    where
-        Self: Sized,
-    {
-        Self::Realized::new(self)
+pub trait IsStrategyConfig<T: StackType>: Clone {
+    fn tuning_reference(&self) -> &Reference<T>;
+    fn tuning_for_stack(&self, stack: &Stack<T>) -> Semitones {
+        stack.absolute_semitones(self.tuning_reference().c4_semitones())
     }
 }
 
-pub trait IsHarmonyStrategyConfig<T: StackType> {
-    type Realized: HarmonyStrategy<T, Config = Self>;
+pub trait IsHarmonyStrategyConfig<T: StackType>: Clone {
     fn as_harmony_strategy_config(self) -> HarmonyStrategyConfig<T>;
 }
 
-pub trait IsMelodyStrategyConfig<T: StackType> {
-    type Realized: MelodyStrategy<T, Config = Self>;
+pub trait IsMelodyStrategyConfig<T: StackType>: Clone {
     fn as_melody_strategy_config(self) -> MelodyStrategyConfig<T>;
+
+    fn tuning_reference(&self) -> &Reference<T>;
+    fn tuning_for_stack(&self, stack: &Stack<T>) -> Semitones {
+        stack.absolute_semitones(self.tuning_reference().c4_semitones())
+    }
 }
 
 #[derive(Serialize, Deserialize)]

@@ -5,10 +5,7 @@ use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
     bindable::MidiBindable,
-    config::BackendConfig,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
-    reference::Reference,
-    strategy::{harmony::chordlist::PatternConfig, r#trait::StrategyAction},
     util::list_action::ListAction,
 };
 
@@ -42,7 +39,9 @@ pub trait MessageTranslate4<B, C, D, E> {
 }
 
 pub enum ToProcess<T: StackType> {
-    Stop,
+    Stop {
+        time: Instant,
+    },
     Start {
         time: Instant,
     },
@@ -72,7 +71,7 @@ pub enum ToProcess<T: StackType> {
         time: Instant,
     },
     BindAction {
-        action: Option<StrategyAction>,
+        action: Option<ToStrategy<T>>,
         bindable: MidiBindable,
     },
     StrategyListAction {
@@ -113,106 +112,34 @@ pub enum FromProcess<T: StackType> {
     CurrentStrategyIndex(Option<usize>),
 }
 
-pub enum ToChordList<T: StackType> {
-    ChordListAction {
-        action: ListAction,
-        time: Instant,
-    },
-    PushNewChord {
-        pattern: PatternConfig<T>,
-        time: Instant,
-    },
-    AllowExtraHighNotes {
-        pattern_index: usize,
-        allow: bool,
-        time: Instant,
-    },
-    ToggleEnable {
-        time: Instant,
-    },
+pub enum ToChordList {
+    UpdateChordList { time: Instant },
+    ToggleEnable { time: Instant },
 }
 
 pub enum ToStaticNeighbourhoods<T: StackType> {
-    Consider {
-        stack: Stack<T>,
-        time: Instant,
-    },
-    ApplyTemperamentToNeighbourhood {
-        neighbourhood: usize,
-        temperament: usize,
-        time: Instant,
-    },
-    MakeNeighbourhoodPure {
-        neighbourhood: usize,
-        time: Instant,
-    },
-    NeighbourhoodListAction {
-        action: ListAction,
-        time: Instant,
-    },
-    SetReference {
-        reference: Stack<T>,
-        time: Instant,
-    },
-    IncrementNeighbourhoodIndex {
-        increment: isize,
-        time: Instant,
-    },
-    SetReferenceToLowest {
-        time: Instant,
-    },
-    SetReferenceToHighest {
-        time: Instant,
-    },
+    UpdateNeighbourhoods { time: Instant },
+    IncrementNeighbourhoodIndex { increment: isize, time: Instant },
+    SetReference { reference: Stack<T>, time: Instant },
+    SetReferenceToLowest { time: Instant },
+    SetReferenceToHighest { time: Instant },
 }
 
 pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
-    Consider {
-        stack: Stack<T>,
-        time: Instant,
-    },
-    ApplyTemperamentToNeighbourhood {
-        neighbourhood: usize,
-        temperament: usize,
-        time: Instant,
-    },
-    MakeNeighbourhoodPure {
-        neighbourhood: usize,
-        time: Instant,
-    },
-    NeighbourhoodListAction {
-        action: ListAction,
-        time: Instant,
-    },
-    IncrementNeighbourhoodIndex {
-        increment: isize,
-        time: Instant,
-    },
+    UpdateNeighbourhoods { time: Instant },
+    IncrementNeighbourhoodIndex { increment: isize, time: Instant },
 
-    SetReferenceToLowest {
-        time: Instant,
-    },
-    SetReferenceToHighest {
-        time: Instant,
-    },
-    SetReference {
-        reference: Stack<T>,
-        time: Instant,
-    },
-    SetReferenceToCurrent {
-        time: Instant,
-    },
+    SetReference { reference: Stack<T>, time: Instant },
+    SetReferenceToLowest { time: Instant },
+    SetReferenceToHighest { time: Instant },
+    SetReferenceToCurrent { time: Instant },
 
-    ToggleReanchor {
-        time: Instant,
-    },
-    SetGroupMs {
-        group_ms: u64,
-    },
+    ToggleReanchor { time: Instant },
+    SetGroupMs { group_ms: u64 },
 }
 
 pub enum ToTwoStep<T: StackType> {
-    ToHarmonyStrategy(ToHarmony<T>),
+    ToHarmonyStrategy(ToHarmony),
     ToMelodystrategy(ToMelody<T>),
 }
 
@@ -220,32 +147,17 @@ pub enum ToMelody<T: StackType> {
     StaticNeighbourhoods(ToStaticNeighbourhoodsAsMelody<T>),
 }
 
-pub enum ToHarmony<T: StackType> {
-    ChordList(ToChordList<T>),
+pub enum ToHarmony {
+    ChordList(ToChordList),
 }
 
 pub enum ToStrategy<T: StackType> {
-    Start {
-        time: Instant,
-    },
-    Stop {
-        time: Instant,
-    },
-    Reset {
-        time: Instant,
-    },
-    NoteOn {
-        note: u8,
-        time: Instant,
-    },
-    NoteOff {
-        note: u8,
-        time: Instant,
-    },
-    SetTuningReference {
-        reference: Reference<T>,
-        time: Instant,
-    },
+    Start { time: Instant },
+    Stop { time: Instant },
+    Reset { time: Instant },
+    NoteOn { note: u8, time: Instant },
+    NoteOff { note: u8, time: Instant },
+    UpdateTuningReference { time: Instant },
 
     TwoStep(ToTwoStep<T>),
     StaticNeighbourhoods(ToStaticNeighbourhoods<T>),
@@ -257,12 +169,6 @@ pub enum FromStrategy<T: StackType> {
         time: Instant,
     },
     SetReference {
-        stack: Stack<T>,
-    },
-    SetTuningReference {
-        reference: Reference<T>,
-    },
-    Consider {
         stack: Stack<T>,
     },
     CurrentNeighbourhoodIndex {
@@ -383,12 +289,6 @@ pub enum ToUi<T: StackType> {
     SetReference {
         stack: Stack<T>,
     },
-    SetTuningReference {
-        reference: Reference<T>,
-    },
-    Consider {
-        stack: Stack<T>,
-    },
     CurrentNeighbourhoodIndex {
         index: usize,
     },
@@ -412,23 +312,6 @@ pub enum ToUi<T: StackType> {
 }
 
 pub enum FromUi<T: StackType> {
-    Consider {
-        stack: Stack<T>,
-        time: Instant,
-    },
-    NeighbourhoodListAction {
-        action: ListAction,
-        time: Instant,
-    },
-    ApplyTemperamentToNeighbourhood {
-        neighbourhood: usize,
-        temperament: usize,
-        time: Instant,
-    },
-    MakeNeighbourhoodPure {
-        neighbourhood: usize,
-        time: Instant,
-    },
     DisconnectInput,
     ConnectInput {
         port: MidiInputPort,
@@ -441,8 +324,7 @@ pub enum FromUi<T: StackType> {
         portname: String,
         time: Instant,
     },
-    SetTuningReference {
-        reference: Reference<T>,
+    UpdateTuningReference {
         time: Instant,
     },
     SetReference {
@@ -478,25 +360,14 @@ pub enum FromUi<T: StackType> {
         action: ListAction,
         time: Instant,
     },
-    Action {
-        action: StrategyAction,
-        time: Instant,
+    ToStrategy {
+        action: ToStrategy<T>,
     },
     BindAction {
-        action: Option<StrategyAction>,
+        action: Option<ToStrategy<T>>,
         bindable: MidiBindable,
     },
-    ChordListAction {
-        action: ListAction,
-        time: Instant,
-    },
-    PushNewChord {
-        pattern: PatternConfig<T>,
-        time: Instant,
-    },
-    AllowExtraHighNotes {
-        pattern_index: usize,
-        allow: bool,
+    UpdateChordList {
         time: Instant,
     },
     ToggleChordList {
@@ -667,12 +538,8 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
                 Some(ToUi::Retune { note }),
             ),
             FromStrategy::SetReference { stack } => (None {}, Some(ToUi::SetReference { stack })),
-            FromStrategy::Consider { stack } => (None {}, Some(ToUi::Consider { stack })),
             FromStrategy::CurrentNeighbourhoodIndex { index } => {
                 (None {}, Some(ToUi::CurrentNeighbourhoodIndex { index }))
-            }
-            FromStrategy::SetTuningReference { reference } => {
-                (None {}, Some(ToUi::SetTuningReference { reference }))
             }
             FromStrategy::CurrentHarmony {
                 pattern_index,
@@ -704,30 +571,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
         Option<ToMidiOut>,
     ) {
         match self {
-            FromUi::Consider { stack, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                    ToStaticNeighbourhoods::Consider { stack, time },
-                ))),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::ApplyTemperamentToNeighbourhood {
-                temperament,
-                neighbourhood,
-                time,
-            } => (
-                Some(ToProcess::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                    ToStaticNeighbourhoods::ApplyTemperamentToNeighbourhood {
-                        temperament,
-                        neighbourhood,
-                        time,
-                    },
-                ))),
-                None {},
-                None {},
-                None {},
-            ),
             FromUi::DisconnectInput => (None {}, None {}, Some(ToMidiIn::Disconnect), None {}),
             FromUi::ConnectInput {
                 port,
@@ -750,9 +593,8 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 Some(ToMidiOut::Connect { port, portname }),
             ),
-            FromUi::SetTuningReference { reference, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::SetTuningReference {
-                    reference,
+            FromUi::UpdateTuningReference { time } => (
+                Some(ToProcess::ToStrategy(ToStrategy::UpdateTuningReference {
                     time,
                 })),
                 None {},
@@ -825,53 +667,8 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::Action { action, time } => (
-                Some(ToProcess::ToStrategy(match action {
-                    StrategyAction::IncrementNeighbourhoodIndex(index) => {
-                        ToStrategy::StaticNeighbourhoods(
-                            ToStaticNeighbourhoods::IncrementNeighbourhoodIndex {
-                                increment: index,
-                                time,
-                            },
-                        )
-                    }
-                    StrategyAction::SetReferenceToLowest => ToStrategy::StaticNeighbourhoods(
-                        ToStaticNeighbourhoods::SetReferenceToLowest { time },
-                    ),
-                    StrategyAction::SetReferenceToHighest => ToStrategy::StaticNeighbourhoods(
-                        ToStaticNeighbourhoods::SetReferenceToHighest { time },
-                    ),
-                    StrategyAction::SetReferenceToCurrent => ToStrategy::TwoStep(
-                        ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
-                            ToStaticNeighbourhoodsAsMelody::SetReferenceToCurrent { time },
-                        )),
-                    ),
-                    StrategyAction::ToggleChordMatching => {
-                        ToStrategy::TwoStep(ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(
-                            ToChordList::ToggleEnable { time },
-                        )))
-                    }
-                    StrategyAction::ToggleReanchor => ToStrategy::TwoStep(
-                        ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
-                            ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time },
-                        )),
-                    ),
-                    StrategyAction::Reset => ToStrategy::Reset { time },
-                })),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::MakeNeighbourhoodPure {
-                time,
-                neighbourhood,
-            } => (
-                Some(ToProcess::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                    ToStaticNeighbourhoods::MakeNeighbourhoodPure {
-                        time,
-                        neighbourhood,
-                    },
-                ))),
+            FromUi::ToStrategy { action } => (
+                Some(ToProcess::ToStrategy(action)),
                 None {},
                 None {},
                 None {},
@@ -888,47 +685,10 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::NeighbourhoodListAction { action, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                    ToStaticNeighbourhoods::NeighbourhoodListAction { action, time },
-                ))),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::ChordListAction { action, time } => (
+            FromUi::UpdateChordList { time } => (
                 Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
                     ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(
-                        ToChordList::ChordListAction { action, time },
-                    )),
-                ))),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::PushNewChord { pattern, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
-                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(ToChordList::PushNewChord {
-                        pattern,
-                        time,
-                    })),
-                ))),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::AllowExtraHighNotes {
-                pattern_index,
-                allow,
-                time,
-            } => (
-                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
-                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(
-                        ToChordList::AllowExtraHighNotes {
-                            pattern_index,
-                            allow,
-                            time,
-                        },
+                        ToChordList::UpdateChordList { time },
                     )),
                 ))),
                 None {},
@@ -1035,7 +795,7 @@ impl<T: StackType> MessageTranslate2<ToMidiOut, ToUi<T>> for FromBackend {
 impl<T: StackType> HasStop for ToProcess<T> {
     fn is_stop(&self) -> bool {
         match self {
-            Self::Stop => true,
+            Self::Stop { .. } => true,
             _ => false,
         }
     }

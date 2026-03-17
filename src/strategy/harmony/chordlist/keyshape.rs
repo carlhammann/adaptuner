@@ -44,6 +44,13 @@ impl Fit {
         }
     }
 
+    pub fn matches_something(&self) -> bool {
+        match self {
+            Fit::Failed => false,
+            _ => true,
+        }
+    }
+
     pub fn matches_nothing(&self) -> bool {
         match self {
             Fit::Failed => true,

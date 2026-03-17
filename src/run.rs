@@ -1,5 +1,10 @@
-use std::{sync::mpsc, thread, time::Instant};
+use std::{
+    sync::{mpsc, Arc, RwLock},
+    thread,
+    time::Instant,
+};
 
+use arc_swap::ArcSwap;
 use eframe::egui;
 use midir::{MidiInput, MidiOutput};
 
@@ -17,7 +22,6 @@ use crate::{
         fromstrategy::ProcessFromStrategy,
         r#trait::{ConcreteProcessAdaptor, StackWithTuning},
     },
-    util::readerwriter::{ConcreteReaderWriter, ConcreteReaderWriter128},
 };
 
 fn start_receiver_thread<I, H, NH>(
@@ -346,18 +350,18 @@ impl<T: StackType> RunState<T> {
 
         let process_adaptor = ConcreteProcessAdaptor {
             forward: from_process_tx,
-            tunings: ConcreteReaderWriter128::new(core::array::from_fn(|i| StackWithTuning {
+            tunings: Arc::new(RwLock::new(core::array::from_fn(|i| StackWithTuning {
                 stack: Stack::new_zero(),
-                tuning: i as Semitones,
-            })),
-            key_states: ConcreteReaderWriter128::new(core::array::from_fn(|_| KeyState::new(now))),
-            strategies: ConcreteReaderWriter::new(strategies),
+                semitones: i as Semitones,
+            }))),
+            key_states: Arc::new(RwLock::new(core::array::from_fn(|_| KeyState::new(now)))),
+            strategies: Arc::new(ArcSwap::from_pointee(strategies)),
         };
 
         let backend_adaptor = ConcreteBackendAdaptor {
             forward: from_backend_tx,
-            tunings: process_adaptor.tunings.clone().into_reader(),
-            key_states: process_adaptor.key_states.clone().into_reader(),
+            tunings: process_adaptor.tunings.clone(),
+            key_states: process_adaptor.key_states.clone(), 
         };
 
         let res = Self {

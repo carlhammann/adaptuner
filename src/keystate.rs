@@ -2,22 +2,11 @@ use std::time::Instant;
 
 use midi_msg::Channel;
 
+#[derive(Clone, Copy)]
 pub struct KeyState {
     last_change: Instant, // last time that the note changed between sounding and not sounding
     on_channels: u16,
     held_channels: u16,
-}
-
-impl AsRef<KeyState> for KeyState {
-    fn as_ref(&self) -> &KeyState {
-        self
-    }
-}
-
-impl AsMut<KeyState> for KeyState {
-    fn as_mut(&mut self) -> &mut KeyState {
-        self
-    }
 }
 
 impl KeyState {

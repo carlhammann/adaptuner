@@ -1,4 +1,9 @@
-use std::time::Instant;
+use std::{
+    ops::{Deref, DerefMut},
+    time::Instant,
+};
+
+use arc_swap::access::Access;
 
 use crate::{
     config::IsHarmonyStrategyConfig,
@@ -6,7 +11,6 @@ use crate::{
     keystate::KeyState,
     msg::ToHarmony,
     neighbourhood::{Partial, SomeNeighbourhood},
-    util::readerwriter::{Reader128, ReaderWriter},
 };
 
 #[derive(Clone)]
@@ -15,6 +19,9 @@ pub struct Harmony<T: IntervalBasis> {
     /// MIDI key number of the reference note, but may be outside the MIDI range
     pub reference: StackCoeff,
     pub pattern_index: Option<usize>,
+
+    /// does this harmony describe a valid tuning nof the current keys?
+    pub valid: bool,
 }
 
 impl<T: IntervalBasis> Harmony<T> {
@@ -23,6 +30,7 @@ impl<T: IntervalBasis> Harmony<T> {
             neighbourhood: SomeNeighbourhood::Partial(Partial::new()),
             reference: 0,
             pattern_index: None {},
+            valid: false,
         }
     }
 }
@@ -32,47 +40,31 @@ pub struct HarmonyResult {
     pub progress: bool,
 }
 
-pub trait HarmonyStrategy<T: StackType> {
-    type Config: IsHarmonyStrategyConfig<T, Realized = Self>;
+pub trait HarmonyStrategyAdaptor<T: StackType> {
+    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]>;
+    fn harmony(&self) -> impl DerefMut<Target = Harmony<T>>;
+}
+
+pub trait HarmonyStrategy<T: StackType, A: HarmonyStrategyAdaptor<T>> {
+    type Config: IsHarmonyStrategyConfig<T>;
     type Msg;
 
     fn new(config: Self::Config) -> Self;
 
-    fn start(
-        &mut self,
-        time: Instant,
-        keys: &impl Reader128<KeyState>,
-        harmony: &impl ReaderWriter<Harmony<T>>,
-    ) -> HarmonyResult;
+    /// returns true iff further [HarmonyStrategy::step]s are needed.
+    fn start(&mut self, time: Instant, adaptor: &A) -> HarmonyResult;
 
-    fn start_solve(
-        &mut self,
-        time: Instant,
-        keys: &impl Reader128<KeyState>,
-        harmony: &impl ReaderWriter<Harmony<T>>,
-    ) -> HarmonyResult;
+    /// returns true iff further [HarmonyStrategy::step]s are needed.
+    fn start_solve(&mut self, time: Instant, adaptor: &A) -> HarmonyResult;
 
-    fn step(
-        &mut self,
-        keys: &impl Reader128<KeyState>,
-        harmony: &impl ReaderWriter<Harmony<T>>,
-    ) -> HarmonyResult;
+    /// returns true iff further [HarmonyStrategy::step]s are needed.
+    fn step(&mut self, adaptor: &A) -> HarmonyResult;
 
-    fn stop(
-        &mut self,
-        time: Instant,
-        keys: &impl Reader128<KeyState>,
-        harmony: &impl ReaderWriter<Harmony<T>>,
-    );
+    fn stop(&mut self, time: Instant, adaptor: &A);
 
-    fn filter_to_harmony(msg: ToHarmony<T>) -> Option<Self::Msg>;
+    fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg>;
 
     /// Should return the time of a [HarmonyStrategy::start_solve] that should be triggered by the
     /// message, if necessary.
-    fn receive_msg(
-        &mut self,
-        msg: Self::Msg,
-        keys: &impl Reader128<KeyState>,
-        harmony: &impl ReaderWriter<Harmony<T>>,
-    ) -> Option<Instant>;
+    fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) -> Option<Instant>;
 }

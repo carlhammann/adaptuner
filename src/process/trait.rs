@@ -1,7 +1,9 @@
 use std::{
-    ops::{Deref, DerefMut},
-    sync::mpsc,
+    ops::DerefMut,
+    sync::{mpsc, Arc, RwLock},
 };
+
+use arc_swap::{access::Access, ArcSwap};
 
 use crate::{
     config::StrategyConfig,
@@ -12,68 +14,57 @@ use crate::{
     },
     keystate::KeyState,
     msg::FromProcess,
-    util::readerwriter::{
-        ConcreteReaderWriter, ConcreteReaderWriter128, Reader128, ReaderWriter128,
-    },
 };
 
 pub struct StackWithTuning<T: IntervalBasis> {
     pub stack: Stack<T>,
-    pub tuning: Semitones,
+    pub semitones: Semitones,
 }
 
-impl<T: IntervalBasis> AsRef<Stack<T>> for StackWithTuning<T> {
-    fn as_ref(&self) -> &Stack<T> {
-        &self.stack
-    }
-}
-
-impl<T: IntervalBasis> AsRef<StackWithTuning<T>> for StackWithTuning<T> {
-    fn as_ref(&self) -> &StackWithTuning<T> {
-        self
-    }
-}
-
-impl<T: IntervalBasis> AsMut<StackWithTuning<T>> for StackWithTuning<T> {
-    fn as_mut(&mut self) -> &mut StackWithTuning<T> {
-        self
-    }
-}
-
-#[derive(Clone)]
 pub struct ConcreteProcessAdaptor<T: StackType> {
     pub forward: mpsc::Sender<FromProcess<T>>,
-    pub tunings: ConcreteReaderWriter128<StackWithTuning<T>>,
-    pub key_states: ConcreteReaderWriter128<KeyState>,
-    pub strategies: ConcreteReaderWriter<Vec<StrategyConfig<T>>>,
+    pub tunings: Arc<RwLock<[StackWithTuning<T>; 128]>>,
+    pub key_states: Arc<RwLock<[KeyState; 128]>>,
+    pub strategies: Arc<ArcSwap<Vec<StrategyConfig<T>>>>,
 }
 
+impl<T: StackType> Clone for ConcreteProcessAdaptor<T> {
+    fn clone(&self) -> Self {
+        Self {
+            forward: self.forward.clone(),
+            tunings: self.tunings.clone(),
+            key_states: self.key_states.clone(),
+            strategies: self.strategies.clone(),
+        }
+    }
+}
+
+/// The `Clone` implementation should make it so that the same underlying data is referenced.
 pub trait ProcessAdaptor<T: StackType>: Clone {
     fn send(&self, msg: FromProcess<T>) -> bool;
-    fn read_tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
-    fn write_tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
-    fn read_key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
-    fn write_key_state(&self, i: usize) -> impl DerefMut<Target = KeyState>;
+    fn key_states(&self) -> impl DerefMut<Target = [KeyState; 128]>;
+    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]>;
+    fn config(&self) -> impl Access<Vec<StrategyConfig<T>>>;
 }
 
 impl<T: StackType> ProcessAdaptor<T> for ConcreteProcessAdaptor<T> {
+    #[inline]
     fn send(&self, msg: FromProcess<T>) -> bool {
         self.forward.send(msg).is_ok()
     }
 
-    fn read_tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
-        self.tunings.read(i)
+    #[inline]
+    fn key_states(&self) -> impl DerefMut<Target = [KeyState; 128]> {
+        self.key_states.write().unwrap()
     }
 
-    fn write_tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
-        self.tunings.write(i)
+    #[inline]
+    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
+        self.tunings.write().unwrap()
     }
 
-    fn read_key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
-        self.key_states.read(i)
-    }
-
-    fn write_key_state(&self, i: usize) -> impl DerefMut<Target = KeyState> {
-        self.key_states.write(i)
+    #[inline]
+    fn config(&self) -> impl Access<Vec<StrategyConfig<T>>> {
+        &self.strategies
     }
 }

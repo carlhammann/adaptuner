@@ -3,7 +3,6 @@ use std::{sync::mpsc, time::Instant};
 use midir::{MidiInput, MidiInputConnection, MidiInputPort};
 
 use crate::{
-    config::MidiInputConfig,
     maybeconnected::common::MaybeConnected,
     msg::{FromMidiIn, ReceiveMsg, ToMidiIn},
     util::update_cell::UpdateCell,

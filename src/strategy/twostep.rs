@@ -1,69 +1,93 @@
-use std::time::Instant;
+use std::{marker::PhantomData, time::Instant};
 
 use crate::{
-    config::{IsHarmonyStrategyConfig, IsMelodyStrategyConfig, IsStrategyConfig, StrategyConfig},
+    config::{IsHarmonyStrategyConfig, IsMelodyStrategyConfig, IsStrategyConfig},
     interval::stacktype::r#trait::StackType,
     msg::{ToStrategy, ToTwoStep},
     reference::Reference,
     strategy::{
-        harmony::r#trait::{Harmony, HarmonyStrategy},
-        melody::r#trait::MelodyStrategy,
+        harmony::r#trait::{HarmonyStrategy, HarmonyStrategyAdaptor},
+        melody::r#trait::{MelodyStrategy, MelodyStrategyAdaptor},
         r#trait::{Strategy, StrategyAdaptor},
     },
-    util::readerwriter::ConcreteReaderWriter,
 };
 
-pub struct TwoStep<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>> {
-    harmony: ConcreteReaderWriter<Harmony<T>>,
+pub struct TwoStep<
+    T: StackType,
+    H: HarmonyStrategy<T, HA>,
+    HA: HarmonyStrategyAdaptor<T>,
+    M: MelodyStrategy<T, MA>,
+    MA: MelodyStrategyAdaptor<T>,
+> {
+    _phantom: PhantomData<(T, HA, MA)>,
+
     harmony_strategy: H,
     melody_strategy: M,
+
     solve_start: Instant,
     solving_harmony: bool,
-    found_harmony: bool,
 }
 
 impl<T, HC, MC> IsStrategyConfig<T> for (HC, MC)
 where
-    T: StackType + Send + Sync,
+    T: StackType,
     HC: IsHarmonyStrategyConfig<T>,
     MC: IsMelodyStrategyConfig<T>,
 {
-    type Realized = TwoStep<T, HC::Realized, MC::Realized>;
+    #[inline]
+    fn tuning_reference(&self) -> &Reference<T> {
+        self.1.tuning_reference()
+    }
 }
 
-impl<T, H, M> TwoStep<T, H, M>
+impl<T, H, HA, M, MA> TwoStep<T, H, HA, M, MA>
 where
     T: StackType,
-    H: HarmonyStrategy<T>,
-    M: MelodyStrategy<T>,
+    H: HarmonyStrategy<T, HA>,
+    HA: HarmonyStrategyAdaptor<T>,
+    M: MelodyStrategy<T, MA>,
+    MA: MelodyStrategyAdaptor<T>,
 {
-    fn start_solve(&mut self, time: Instant, adaptor: &impl StrategyAdaptor<T>) -> bool {
+    fn start_solve(
+        &mut self,
+        time: Instant,
+        adaptor: &impl TwoStepStrategyAdaptor<T, H, HA, M, MA>,
+    ) -> bool {
         let res = self
             .harmony_strategy
-            .start_solve(time, adaptor, &self.harmony);
+            .start_solve(time, adaptor.as_harmony_adaptor());
         self.solve_start = time;
         self.solving_harmony = !res.finished;
-        self.found_harmony = res.progress;
 
-        if res.progress {
+        if res.progress | res.finished {
             self.melody_strategy
-                .tune_with_harmony(self.solve_start, adaptor, &self.harmony, true);
-        }
-
-        if !self.found_harmony & res.finished {
-            self.melody_strategy
-                .tune_with_harmony(self.solve_start, adaptor, &self.harmony, false);
+                .tune_with_harmony(self.solve_start, adaptor.as_melody_adaptor());
         }
 
         self.solving_harmony
     }
 }
 
-impl<T, H, M> Strategy<T> for TwoStep<T, H, M>
+pub trait TwoStepStrategyAdaptor<T, H, HA, M, MA>: StrategyAdaptor<T>
 where
-    T: StackType + Send + Sync,
-    H: HarmonyStrategy<T>,
-    M: MelodyStrategy<T>,
+    T: StackType,
+    H: HarmonyStrategy<T, HA>,
+    HA: HarmonyStrategyAdaptor<T>,
+    M: MelodyStrategy<T, MA>,
+    MA: MelodyStrategyAdaptor<T>,
+{
+    fn as_melody_adaptor(&self) -> &MA;
+    fn as_harmony_adaptor(&self) -> &HA;
+}
+
+impl<T, H, HA, M, MA, A> Strategy<T, A> for TwoStep<T, H, HA, M, MA>
+where
+    T: StackType,
+    H: HarmonyStrategy<T, HA>,
+    HA: HarmonyStrategyAdaptor<T>,
+    M: MelodyStrategy<T, MA>,
+    MA: MelodyStrategyAdaptor<T>,
+    A: TwoStepStrategyAdaptor<T, H, HA, M, MA>,
 {
     type Msg = ToTwoStep<T>;
 
@@ -71,63 +95,55 @@ where
 
     fn new(config: Self::Config) -> Self {
         Self {
-            harmony: ConcreteReaderWriter::new(Harmony::new_dummy()),
+            _phantom: PhantomData,
             harmony_strategy: H::new(config.0),
             melody_strategy: M::new(config.1),
             solve_start: Instant::now(),
             solving_harmony: false,
-            found_harmony: false,
         }
     }
 
-    fn start(&mut self, time: Instant, adaptor: &impl StrategyAdaptor<T>) -> bool {
-        let res = self.harmony_strategy.start(time, adaptor, &self.harmony);
+    fn start(&mut self, time: Instant, adaptor: &A) -> bool {
+        let res = self
+            .harmony_strategy
+            .start(time, adaptor.as_harmony_adaptor());
         self.solving_harmony = !res.finished;
-        self.found_harmony = res.progress;
         self.melody_strategy
-            .start(time, adaptor, &self.harmony, self.found_harmony);
+            .start(time, adaptor.as_melody_adaptor());
         self.solving_harmony
     }
 
-    fn stop(&mut self, time: Instant, adaptor: &impl StrategyAdaptor<T>) {
-        self.harmony_strategy.stop(time, adaptor, &self.harmony);
-        self.melody_strategy.stop(time, adaptor);
+    fn stop(&mut self, time: Instant, adaptor: &A) {
+        self.harmony_strategy
+            .stop(time, adaptor.as_harmony_adaptor());
+        self.melody_strategy.stop(time, adaptor.as_melody_adaptor());
     }
 
-    fn reset(&mut self, time: Instant, adaptor: &impl StrategyAdaptor<T>) -> bool {
-        todo!()
-        // self.start(time, adaptor)
+    fn reset(&mut self, time: Instant, adaptor: &A) -> bool {
+        self.start(time, adaptor)
     }
 
-    fn note_on(&mut self, _note: u8, time: Instant, adaptor: &impl StrategyAdaptor<T>) -> bool {
+    fn note_on(&mut self, _note: u8, time: Instant, adaptor: &A) -> bool {
         self.start_solve(time, adaptor)
     }
 
-    fn note_off(&mut self, _note: u8, time: Instant, adaptor: &impl StrategyAdaptor<T>) -> bool {
+    fn note_off(&mut self, _note: u8, time: Instant, adaptor: &A) -> bool {
         self.start_solve(time, adaptor)
     }
 
-    fn set_tuning_reference(
-        &mut self,
-        reference: Reference<T>,
-        time: Instant,
-        adaptor: &impl StrategyAdaptor<T>,
-    ) -> bool {
-        self.melody_strategy.set_tuning_reference(
-            reference,
-            time,
-            adaptor,
-            &self.harmony,
-            self.found_harmony,
-        );
+    fn update_tuning_reference(&mut self, time: Instant, adaptor: &A) -> bool {
+        self.melody_strategy
+            .update_tuning_reference(time, adaptor.as_melody_adaptor());
         self.solving_harmony
     }
 
-    fn receive_msg(&mut self, msg: Self::Msg, adaptor: &impl StrategyAdaptor<T>) -> bool {
+    fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) -> bool {
         match msg {
             ToTwoStep::ToHarmonyStrategy(msg) => {
                 if let Some(x) = H::filter_to_harmony(msg) {
-                    if let Some(time) = self.harmony_strategy.receive_msg(x, adaptor, &self.harmony)
+                    if let Some(time) = self
+                        .harmony_strategy
+                        .receive_msg(x, adaptor.as_harmony_adaptor())
                     {
                         return self.start_solve(time, adaptor);
                     }
@@ -137,36 +153,22 @@ where
             ToTwoStep::ToMelodystrategy(msg) => {
                 if let Some(x) = M::filter_to_melody(msg) {
                     self.melody_strategy
-                        .receive_msg(x, adaptor, &self.harmony, self.found_harmony);
+                        .receive_msg(x, adaptor.as_melody_adaptor());
                 }
                 self.solving_harmony
             }
         }
     }
 
-    fn step(&mut self, adaptor: &impl StrategyAdaptor<T>) -> bool {
+    fn step(&mut self, adaptor: &A) -> bool {
         if self.solving_harmony {
-            let res = self.harmony_strategy.step(adaptor, &self.harmony);
+            let res = self.harmony_strategy.step(adaptor.as_harmony_adaptor());
 
             self.solving_harmony = !res.finished;
-            self.found_harmony |= res.progress;
 
-            if res.progress {
-                self.melody_strategy.tune_with_harmony(
-                    self.solve_start,
-                    adaptor,
-                    &self.harmony,
-                    true,
-                );
-            }
-
-            if !self.found_harmony & res.finished {
-                self.melody_strategy.tune_with_harmony(
-                    self.solve_start,
-                    adaptor,
-                    &self.harmony,
-                    false,
-                );
+            if res.progress | res.finished {
+                self.melody_strategy
+                    .tune_with_harmony(self.solve_start, adaptor.as_melody_adaptor());
             }
         }
         self.solving_harmony

@@ -1,41 +1,209 @@
-use std::{fmt, sync::mpsc, thread, time::Instant};
+use std::{
+    fmt,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+    sync::mpsc,
+    sync::{Arc, RwLock},
+    thread,
+    time::Instant,
+};
 
+use arc_swap::access::{Access, Map};
 use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
 
 use crate::{
-    config::{
-        FromConfigAndState, HarmonyStrategyConfig, IsStrategyConfig, MelodyStrategyConfig,
-        StrategyConfig,
-    },
+    config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
     interval::stacktype::r#trait::StackType,
+    keystate::KeyState,
     msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
-    process::r#trait::{ConcreteProcessAdaptor, ProcessAdaptor},
-    strategy::r#trait::{ConcreteStrategyAdaptor, Strategy},
-    util::readerwriter::{Reader, ReaderWriter},
+    process::r#trait::{ProcessAdaptor, StackWithTuning},
+    strategy::{
+        harmony::{
+            chordlist::{ChordList, ChordListAdaptor, ChordListConfig},
+            r#trait::{Harmony, HarmonyStrategyAdaptor},
+        },
+        melody::{
+            neighbourhoods::{
+                StaticNeighbourhoodsAsMelody, StaticNeighbourhoodsAsMelodyAdaptor,
+                StaticNeighbourhoodsAsMelodyConfig,
+            },
+            r#trait::MelodyStrategyAdaptor,
+        },
+        r#trait::{Strategy, StrategyAdaptor},
+        staticneighbourhoods::{
+            StaticNeighbourhoods, StaticNeighbourhoodsAdaptor, StaticNeighbourhoodsConfig,
+        },
+        twostep::{TwoStep, TwoStepStrategyAdaptor},
+    },
 };
 
 struct RunningStrategy<T: StackType> {
-    /// The index in the list of strategies
+    /// the index of the strategy in the list of strategies from the configuration file
     index: usize,
     to_strategy_tx: mpsc::Sender<ToStrategy<T>>,
     strategy_thread: thread::JoinHandle<()>,
 }
 
+struct TheStaticNeighbourhoodsAdaptor<T: StackType, P: ProcessAdaptor<T>> {
+    _phantom: PhantomData<T>,
+    strategy_index: usize,
+    process_adaptor: P,
+}
+
+impl<T: StackType, P: ProcessAdaptor<T> + 'static> StrategyAdaptor<T>
+    for TheStaticNeighbourhoodsAdaptor<T, P>
+{
+    #[inline]
+    fn send(&self, msg: FromStrategy<T>) -> bool {
+        self.process_adaptor.send(FromProcess::FromStrategy(msg))
+    }
+
+    #[inline]
+    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
+        self.process_adaptor.key_states()
+    }
+
+    #[inline]
+    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
+        self.process_adaptor.tunings()
+    }
+}
+
+impl<T: StackType, P: ProcessAdaptor<T> + 'static> StaticNeighbourhoodsAdaptor<T>
+    for TheStaticNeighbourhoodsAdaptor<T, P>
+{
+    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsConfig<T>> {
+        Map::new(
+            self.process_adaptor.config(),
+            |v: &Vec<StrategyConfig<T>>| match &v[self.strategy_index] {
+                StrategyConfig::StaticNeighbourhoods { config, .. } => config,
+                _ => panic!(
+                    "strategy config for StaticNeighbourhoods does not have the expected type"
+                ),
+            },
+        )
+        .load()
+    }
+}
+
+struct TheTwoStepAdaptor<T: StackType, P: ProcessAdaptor<T>> {
+    process_adaptor: P,
+    strategy_index: usize,
+    harmony: Arc<RwLock<Harmony<T>>>,
+}
+
+impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
+    #[inline]
+    fn send(&self, msg: FromStrategy<T>) -> bool {
+        self.process_adaptor.send(FromProcess::FromStrategy(msg))
+    }
+
+    #[inline]
+    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
+        self.process_adaptor.key_states()
+    }
+
+    #[inline]
+    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
+        self.process_adaptor.tunings()
+    }
+
+    #[inline]
+    fn harmony(&self) -> impl Deref<Target = Harmony<T>> {
+        self.harmony.read().unwrap()
+    }
+}
+
+impl<T: StackType, P: ProcessAdaptor<T>> HarmonyStrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
+    #[inline]
+    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
+        self.process_adaptor.key_states()
+    }
+
+    #[inline]
+    fn harmony(&self) -> impl DerefMut<Target = Harmony<T>> {
+        self.harmony.write().unwrap()
+    }
+}
+
+impl<T: StackType, P: ProcessAdaptor<T>> StrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
+    #[inline]
+    fn send(&self, msg: FromStrategy<T>) -> bool {
+        self.process_adaptor.send(FromProcess::FromStrategy(msg))
+    }
+
+    #[inline]
+    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
+        self.process_adaptor.key_states()
+    }
+
+    #[inline]
+    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
+        self.process_adaptor.tunings()
+    }
+}
+
+impl<T: StackType, P: ProcessAdaptor<T>> StaticNeighbourhoodsAsMelodyAdaptor<T>
+    for TheTwoStepAdaptor<T, P>
+{
+    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsAsMelodyConfig<T>> {
+        Map::new(
+            self.process_adaptor.config(),
+            |v: &Vec<StrategyConfig<T>>| match &v[self.strategy_index] {
+                StrategyConfig::TwoStep { melody: MelodyStrategyConfig::StaticNeighbourhoods(config), .. } => config,
+                _ => panic!(
+                    "melody strategy config for static neighbourhoods does not have the expected type"
+                ),
+            },
+        )
+        .load()
+    }
+}
+
+impl<T: StackType, P: ProcessAdaptor<T>> ChordListAdaptor<T> for TheTwoStepAdaptor<T, P> {
+    fn config(&self) -> impl Deref<Target = ChordListConfig<T>> {
+        Map::new(
+            self.process_adaptor.config(),
+            |v: &Vec<StrategyConfig<T>>| match &v[self.strategy_index] {
+                StrategyConfig::TwoStep {
+                    harmony: HarmonyStrategyConfig::ChordList(config),
+                    ..
+                } => config,
+                _ => {
+                    panic!("harmony strategy config for chord list does not have the expected type")
+                }
+            },
+        )
+        .load()
+    }
+}
+
+impl<T: StackType, P: ProcessAdaptor<T>>
+    TwoStepStrategyAdaptor<T, ChordList<T>, Self, StaticNeighbourhoodsAsMelody<T>, Self>
+    for TheTwoStepAdaptor<T, P>
+{
+    fn as_melody_adaptor(&self) -> &Self {
+        self
+    }
+
+    fn as_harmony_adaptor(&self) -> &Self {
+        self
+    }
+}
+
 impl<T: StackType + Send + Sync> RunningStrategy<T> {
-    fn start(
-        time: Instant,
-        index: usize,
-        config: impl IsStrategyConfig<T> + Send + 'static,
-        adaptor: ConcreteStrategyAdaptor<T>,
-    ) -> Self {
+    fn start<S, A>(time: Instant, index: usize, config: S::Config, adaptor: A) -> Self
+    where
+        S: Strategy<T, A>,
+        S::Config: Send + 'static,
+        A: StrategyAdaptor<T> + Send + 'static,
+    {
         let (to_strategy_tx, to_strategy_rx) = mpsc::channel();
 
         let strategy_thread = thread::spawn(move || {
-            let mut strategy = config.realize();
-
+            let mut strategy = S::new(config);
             strategy.start(time, &adaptor);
-
-            strategy.receive_solve_loop(to_strategy_rx, &adaptor)
+            strategy.receive_solve_loop(to_strategy_rx, &adaptor);
         });
 
         Self {
@@ -57,55 +225,33 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
     }
 }
 
-pub struct ProcessFromStrategy<T: StackType> {
+pub struct ProcessFromStrategy<T: StackType, A: ProcessAdaptor<T>> {
     pedal_hold: [bool; 16],
     sostenuto_hold: [bool; 16],
     soft_hold: [bool; 16],
 
-    _message_forward_thread: thread::JoinHandle<mpsc::Receiver<FromStrategy<T>>>,
-
     current_strategy: Option<RunningStrategy<T>>,
-    from_strategy_tx: mpsc::Sender<FromStrategy<T>>,
 
-    adaptor: ConcreteProcessAdaptor<T>,
+    adaptor: A,
 }
 
-impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
-    pub fn new(adaptor: ConcreteProcessAdaptor<T>) -> Self {
-        if adaptor.strategies.read().len() <= 0 {
+impl<T, P> ProcessFromStrategy<T, P>
+where
+    T: StackType + Send + Sync,
+    P: ProcessAdaptor<T> + Send + 'static,
+{
+    pub fn new(adaptor: P) -> Self {
+        if adaptor.config().load().len() <= 0 {
             panic!("Cannot start process from empty list of strategies");
         }
-
-        let (from_strategy_tx, from_strategy_rx) = mpsc::channel();
-
-        let forward_clone = adaptor.forward.clone();
-        let message_forward_thread = thread::spawn(move || {
-            loop {
-                match from_strategy_rx.recv() {
-                    Ok(msg) => {
-                        let _ = forward_clone.send(FromProcess::FromStrategy(msg));
-                    }
-                    Err(_) => break,
-                }
-            }
-            from_strategy_rx
-        });
 
         Self {
             pedal_hold: [false; 16],
             sostenuto_hold: [false; 16],
             soft_hold: [false; 16],
             current_strategy: None {},
-            _message_forward_thread: message_forward_thread,
-            from_strategy_tx,
             adaptor,
         }
-    }
-}
-
-impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
-    fn send_msg(&self, msg: FromProcess<T>) -> bool {
-        self.adaptor.send(msg)
     }
 
     fn send_to_strategy(&self, msg: ToStrategy<T>) {
@@ -164,7 +310,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
             //         if let Some(&action) = action {
             //             let _ = self.send_to_strategy(ToStrategy::Action { action, time });
             //         } else {
-            //             self.send_msg(untouched_midi());
+            //             self.adaptor.send(untouched_midi());
             //         }
             //     }
             // }
@@ -189,7 +335,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
             //         if let Some(&action) = action {
             //             let _ = self.send_to_strategy(ToStrategy::Action { action, time });
             //         } else {
-            //             self.send_msg(untouched_midi());
+            //             self.adaptor.send(untouched_midi());
             //         }
             //     }
             // }
@@ -197,7 +343,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
                 channel,
                 msg: ProgramChange { program },
             } => {
-                let _ = self.send_msg(FromProcess::ProgramChange {
+                let _ = self.adaptor.send(FromProcess::ProgramChange {
                     channel,
                     program,
                     time,
@@ -205,21 +351,17 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
             }
 
             _ => {
-                let _ = self.send_msg(untouched_midi());
+                let _ = self.adaptor.send(untouched_midi());
             }
         }
     }
 
     fn handle_note_on(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self
-                .adaptor
-                .write_key_state(note as usize)
-                .note_on(channel, time)
-            {
+            if self.adaptor.key_states()[note as usize].note_on(channel, time) {
                 let _ = self.send_to_strategy(ToStrategy::NoteOn { note, time });
             }
-            let _ = self.send_msg(FromProcess::NoteOn {
+            let _ = self.adaptor.send(FromProcess::NoteOn {
                 channel,
                 note,
                 velocity,
@@ -230,14 +372,14 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
 
     fn handle_note_off(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.adaptor.write_key_state(note as usize).note_off(
+            if self.adaptor.key_states()[note as usize].note_off(
                 channel,
                 self.pedal_hold[channel as usize],
                 time,
             ) {
                 let _ = self.send_to_strategy(ToStrategy::NoteOff { note, time });
             }
-            let _ = self.send_msg(FromProcess::NoteOff {
+            let _ = self.adaptor.send(FromProcess::NoteOff {
                 channel,
                 note,
                 velocity,
@@ -253,7 +395,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
             } else {
                 self.pedal_hold[channel as usize] = false;
                 for i in 0..128 {
-                    let changed = self.adaptor.write_key_state(i).pedal_off(channel, time);
+                    let changed = self.adaptor.key_states()[i].pedal_off(channel, time);
                     if changed {
                         let _ = self.send_to_strategy(ToStrategy::NoteOff {
                             note: i as u8,
@@ -262,7 +404,7 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
                     }
                 }
             }
-            let _ = self.send_msg(FromProcess::PedalHold {
+            let _ = self.adaptor.send(FromProcess::PedalHold {
                 channel,
                 value,
                 time,
@@ -284,32 +426,41 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
         if self.current_strategy.is_some() {
             self.stop(time);
         }
-        self.current_strategy = Some(match &self.adaptor.strategies.read()[index] {
+
+        match &self.adaptor.config().load()[index] {
+            StrategyConfig::StaticNeighbourhoods { config, .. } => {
+                self.current_strategy = Some(RunningStrategy::start::<StaticNeighbourhoods<T>, _>(
+                    time,
+                    index,
+                    config.clone(),
+                    TheStaticNeighbourhoodsAdaptor {
+                        _phantom: PhantomData,
+                        strategy_index: index,
+                        process_adaptor: self.adaptor.clone(),
+                    },
+                ))
+            }
             StrategyConfig::TwoStep {
-                harmony: HarmonyStrategyConfig::ChordList(harmony),
-                melody: MelodyStrategyConfig::StaticNeighbourhoods(melody),
+                harmony: HarmonyStrategyConfig::ChordList(harmony_config),
+                melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
                 ..
-            } => RunningStrategy::start(
-                time,
-                index,
-                (harmony.clone(), melody.clone()),
-                ConcreteStrategyAdaptor {
-                    forward: self.from_strategy_tx.clone(),
-                    key_states: self.adaptor.key_states.clone().into_reader(),
-                    tunings: self.adaptor.tunings.clone(),
-                },
-            ),
-            StrategyConfig::StaticNeighbourhoods(conf) => RunningStrategy::start(
-                time,
-                index,
-                conf.clone(),
-                ConcreteStrategyAdaptor {
-                    forward: self.from_strategy_tx.clone(),
-                    key_states: self.adaptor.key_states.clone().into_reader(),
-                    tunings: self.adaptor.tunings.clone(),
-                },
-            ),
-        });
+            } => {
+                self.current_strategy = Some(RunningStrategy::start::<
+                    TwoStep<T, ChordList<T>, _, StaticNeighbourhoodsAsMelody<T>, _>,
+                    _,
+                >(
+                    time,
+                    index,
+                    (harmony_config.clone(), melody_config.clone()),
+                    TheTwoStepAdaptor {
+                        strategy_index: index,
+                        process_adaptor: self.adaptor.clone(),
+                        harmony: Arc::new(RwLock::new(Harmony::new_dummy())),
+                    },
+                ))
+            }
+        }
+
         self.adaptor
             .send(FromProcess::CurrentStrategyIndex(Some(index)));
     }
@@ -321,16 +472,22 @@ impl<T: StackType + Send + Sync> ProcessFromStrategy<T> {
     }
 }
 
-impl<T: StackType + fmt::Debug + Send + Sync> ReceiveMsg<ToProcess<T>> for ProcessFromStrategy<T> {
+impl<T, A> ReceiveMsg<ToProcess<T>> for ProcessFromStrategy<T, A>
+where
+    T: StackType + fmt::Debug + Send + Sync,
+    A: ProcessAdaptor<T> + Send + 'static,
+{
     fn receive_msg(&mut self, msg: ToProcess<T>) {
         match msg {
-            ToProcess::Stop => {}
+            ToProcess::Stop { time } => {
+                let _ = self.stop(time);
+            }
             ToProcess::Reset { time } => self.restart(time),
             ToProcess::Start { time } => self.restart(time),
             ToProcess::IncomingMidi { time, bytes } => match MidiMsg::from_midi(&bytes) {
                 Ok((msg, _)) => self.handle_midi(time, msg), // TODO: multi-part messages?
                 Err(e) => {
-                    let _ = self.send_msg(FromProcess::MidiParseErr(e.to_string()));
+                    let _ = self.adaptor.send(FromProcess::MidiParseErr(e.to_string()));
                 }
             },
             ToProcess::NoteOn {
@@ -358,14 +515,14 @@ impl<T: StackType + fmt::Debug + Send + Sync> ReceiveMsg<ToProcess<T>> for Proce
             ToProcess::StrategyListAction { action, time } => {
                 todo!();
                 let mut index = self.stop(time);
-                action.apply_to(
-                    |c| c.clone(),
-                    &mut self.adaptor.strategies.write(),
-                    &mut index,
-                );
-                if let Some(index) = index {
-                    self.start(time, index);
-                }
+                // action.apply_to(
+                //     |c| c.clone(),
+                //     &mut self.adaptor.strategies.write(),
+                //     &mut index,
+                // );
+                // if let Some(index) = index {
+                //     self.start(time, index);
+                // }
             }
             ToProcess::BindAction { action, bindable } => {
                 todo!()

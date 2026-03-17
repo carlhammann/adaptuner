@@ -3,7 +3,6 @@ use std::{sync::mpsc, time::Instant};
 use midir::*;
 
 use crate::{
-    config::MidiOutputConfig,
     maybeconnected::common::MaybeConnected,
     msg::{FromMidiOut, ReceiveMsg, ToMidiOut},
     util::update_cell::UpdateCell,
