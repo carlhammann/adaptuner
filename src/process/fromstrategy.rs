@@ -8,7 +8,6 @@ use std::{
     time::Instant,
 };
 
-use arc_swap::access::{Access, Map};
 use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
 
 use crate::{
@@ -16,7 +15,7 @@ use crate::{
     interval::stacktype::r#trait::StackType,
     keystate::KeyState,
     msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
-    process::r#trait::{ProcessAdaptor, StackWithTuning},
+    process::r#trait::{MapDerefMut, ProcessAdaptor, StackWithTuning},
     strategy::{
         harmony::{
             chordlist::{ChordList, ChordListAdaptor, ChordListConfig},
@@ -72,17 +71,15 @@ impl<T: StackType, P: ProcessAdaptor<T> + 'static> StrategyAdaptor<T>
 impl<T: StackType, P: ProcessAdaptor<T> + 'static> StaticNeighbourhoodsAdaptor<T>
     for TheStaticNeighbourhoodsAdaptor<T, P>
 {
-    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsConfig<T>> {
-        Map::new(
-            self.process_adaptor.config(),
-            |v: &Vec<StrategyConfig<T>>| match &v[self.strategy_index] {
-                StrategyConfig::StaticNeighbourhoods { config, .. } => config,
-                _ => panic!(
-                    "strategy config for StaticNeighbourhoods does not have the expected type"
-                ),
-            },
-        )
-        .load()
+    fn config(&self) -> impl DerefMut<Target = StaticNeighbourhoodsConfig<T>> {
+        self.process_adaptor
+            .config()
+            .map(
+                |c: &mut Vec<StrategyConfig<T>>| match &mut c[self.strategy_index] {
+                    StrategyConfig::StaticNeighbourhoods { config, .. } => config,
+                    _ => panic!("TheStaticNeighbourhoodsAdaptor::config: incorrect config type"),
+                },
+            )
     }
 }
 
@@ -146,35 +143,28 @@ impl<T: StackType, P: ProcessAdaptor<T>> StrategyAdaptor<T> for TheTwoStepAdapto
 impl<T: StackType, P: ProcessAdaptor<T>> StaticNeighbourhoodsAsMelodyAdaptor<T>
     for TheTwoStepAdaptor<T, P>
 {
-    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsAsMelodyConfig<T>> {
-        Map::new(
-            self.process_adaptor.config(),
-            |v: &Vec<StrategyConfig<T>>| match &v[self.strategy_index] {
-                StrategyConfig::TwoStep { melody: MelodyStrategyConfig::StaticNeighbourhoods(config), .. } => config,
-                _ => panic!(
-                    "melody strategy config for static neighbourhoods does not have the expected type"
-                ),
-            },
-        )
-        .load()
+    fn config(&self) -> impl DerefMut<Target = StaticNeighbourhoodsAsMelodyConfig<T>> {
+        self.process_adaptor
+            .config()
+            .map(
+                |c: &mut Vec<StrategyConfig<T>>| match &mut c[self.strategy_index] {
+                    StrategyConfig::TwoStep { melody: MelodyStrategyConfig::StaticNeighbourhoods(config), .. } => config,
+                    _ => panic!("TheTwoStepAdaptor::config: incorrect melody config type for static neighbourhoods"),
+                },
+            )
     }
 }
 
 impl<T: StackType, P: ProcessAdaptor<T>> ChordListAdaptor<T> for TheTwoStepAdaptor<T, P> {
-    fn config(&self) -> impl Deref<Target = ChordListConfig<T>> {
-        Map::new(
-            self.process_adaptor.config(),
-            |v: &Vec<StrategyConfig<T>>| match &v[self.strategy_index] {
-                StrategyConfig::TwoStep {
-                    harmony: HarmonyStrategyConfig::ChordList(config),
-                    ..
-                } => config,
-                _ => {
-                    panic!("harmony strategy config for chord list does not have the expected type")
-                }
-            },
-        )
-        .load()
+    fn config(&self) -> impl DerefMut<Target = ChordListConfig<T>> {
+        self.process_adaptor
+            .config()
+            .map(
+                |c: &mut Vec<StrategyConfig<T>>| match &mut c[self.strategy_index] {
+                    StrategyConfig::TwoStep { harmony: HarmonyStrategyConfig::ChordList(config), .. } => config,
+                    _ => panic!("TheTwoStepAdaptor::config: incorrect harmony config type for chord list"),
+                },
+            )
     }
 }
 
@@ -241,7 +231,7 @@ where
     P: ProcessAdaptor<T> + Send + 'static,
 {
     pub fn new(adaptor: P) -> Self {
-        if adaptor.config().load().len() <= 0 {
+        if adaptor.config().len() <= 0 {
             panic!("Cannot start process from empty list of strategies");
         }
 
@@ -427,7 +417,7 @@ where
             self.stop(time);
         }
 
-        match &self.adaptor.config().load()[index] {
+        match &self.adaptor.config()[index] {
             StrategyConfig::StaticNeighbourhoods { config, .. } => {
                 self.current_strategy = Some(RunningStrategy::start::<StaticNeighbourhoods<T>, _>(
                     time,

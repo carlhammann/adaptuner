@@ -3,8 +3,6 @@ use std::{
     time::Instant,
 };
 
-use arc_swap::access::Access;
-
 use crate::{
     config::IsMelodyStrategyConfig,
     interval::stacktype::r#trait::StackType,

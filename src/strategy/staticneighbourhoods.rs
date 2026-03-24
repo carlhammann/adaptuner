@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, DerefMut},
-    time::Instant,
-};
+use std::{ops::DerefMut, time::Instant};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -145,7 +142,7 @@ impl<T: StackType> IsStrategyConfig<T> for StaticNeighbourhoodsConfig<T> {
 pub trait StaticNeighbourhoodsAdaptor<T: StackType>: StrategyAdaptor<T> {
     /// This function is allowed to be not extremely fast; it's only called in situations where we
     /// want to reload (parts of) the configuration.
-    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsConfig<T>>;
+    fn config(&self) -> impl DerefMut<Target = StaticNeighbourhoodsConfig<T>>;
 }
 
 impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticNeighbourhoods<T> {

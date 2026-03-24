@@ -4,7 +4,6 @@ use std::{
     time::Instant,
 };
 
-use arc_swap::ArcSwap;
 use eframe::egui;
 use midir::{MidiInput, MidiOutput};
 
@@ -355,7 +354,7 @@ impl<T: StackType> RunState<T> {
                 semitones: i as Semitones,
             }))),
             key_states: Arc::new(RwLock::new(core::array::from_fn(|_| KeyState::new(now)))),
-            strategies: Arc::new(ArcSwap::from_pointee(strategies)),
+            strategies: Arc::new(RwLock::new(strategies)),
         };
 
         let backend_adaptor = ConcreteBackendAdaptor {

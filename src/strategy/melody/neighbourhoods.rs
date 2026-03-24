@@ -1,5 +1,5 @@
 use std::{
-    ops::Deref,
+    ops::DerefMut,
     time::{Duration, Instant},
 };
 
@@ -261,7 +261,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
 pub trait StaticNeighbourhoodsAsMelodyAdaptor<T: StackType>: MelodyStrategyAdaptor<T> {
     /// This function is allowed to be not extremely fast; it's only called in situations where we
     /// want to reload (parts of) the configuration.
-    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsAsMelodyConfig<T>>;
+    fn config(&self) -> impl DerefMut<Target = StaticNeighbourhoodsAsMelodyConfig<T>>;
 }
 
 impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, A>
