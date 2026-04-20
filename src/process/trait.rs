@@ -1,6 +1,9 @@
 use std::{
     ops::DerefMut,
-    sync::{mpsc, Arc, MappedRwLockWriteGuard, RwLock, RwLockWriteGuard},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc, RwLock,
+    },
 };
 
 use crate::{
@@ -12,6 +15,7 @@ use crate::{
     },
     keystate::KeyState,
     msg::FromProcess,
+    util::mapderefmut::MapDerefMut,
 };
 
 pub struct StackWithTuning<T: IntervalBasis> {
@@ -24,6 +28,7 @@ pub struct ConcreteProcessAdaptor<T: StackType> {
     pub tunings: Arc<RwLock<[StackWithTuning<T>; 128]>>,
     pub key_states: Arc<RwLock<[KeyState; 128]>>,
     pub strategies: Arc<RwLock<Vec<StrategyConfig<T>>>>,
+    pub active_strategy_index: Arc<AtomicUsize>,
 }
 
 impl<T: StackType> Clone for ConcreteProcessAdaptor<T> {
@@ -33,32 +38,8 @@ impl<T: StackType> Clone for ConcreteProcessAdaptor<T> {
             tunings: self.tunings.clone(),
             key_states: self.key_states.clone(),
             strategies: self.strategies.clone(),
+            active_strategy_index: self.active_strategy_index.clone(),
         }
-    }
-}
-
-pub trait MapDerefMut: DerefMut {
-    fn map<X: 'static>(
-        self,
-        f: impl FnOnce(&mut Self::Target) -> &mut X,
-    ) -> impl MapDerefMut<Target = X>;
-}
-
-impl<'rwlock, T: ?Sized + 'rwlock> MapDerefMut for RwLockWriteGuard<'rwlock, T> {
-    fn map<X: 'static>(
-        self,
-        f: impl FnOnce(&mut Self::Target) -> &mut X,
-    ) -> impl MapDerefMut<Target = X> {
-        RwLockWriteGuard::map(self, f)
-    }
-}
-
-impl<'rwlock, T: ?Sized + 'rwlock> MapDerefMut for MappedRwLockWriteGuard<'rwlock, T> {
-    fn map<X: 'static>(
-        self,
-        f: impl FnOnce(&mut Self::Target) -> &mut X,
-    ) -> impl MapDerefMut<Target = X> {
-        MappedRwLockWriteGuard::map(self, f)
     }
 }
 
@@ -68,6 +49,8 @@ pub trait ProcessAdaptor<T: StackType>: Clone {
     fn key_states(&self) -> impl DerefMut<Target = [KeyState; 128]>;
     fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]>;
     fn config(&self) -> impl MapDerefMut<Target = Vec<StrategyConfig<T>>>;
+    fn active_strategy_index(&self) -> usize;
+    fn replace_active_strategy_index(&self, new_index: usize);
 }
 
 impl<T: StackType> ProcessAdaptor<T> for ConcreteProcessAdaptor<T> {
@@ -89,5 +72,16 @@ impl<T: StackType> ProcessAdaptor<T> for ConcreteProcessAdaptor<T> {
     #[inline]
     fn config(&self) -> impl MapDerefMut<Target = Vec<StrategyConfig<T>>> {
         self.strategies.write().unwrap()
+    }
+
+    #[inline]
+    fn active_strategy_index(&self) -> usize {
+        self.active_strategy_index.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    fn replace_active_strategy_index(&self, new_index: usize) {
+        self.active_strategy_index
+            .store(new_index, Ordering::Release);
     }
 }

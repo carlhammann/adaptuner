@@ -150,7 +150,7 @@ where
                 }
                 self.solving_harmony
             }
-            ToTwoStep::ToMelodystrategy(msg) => {
+            ToTwoStep::ToMelodyStrategy(msg) => {
                 if let Some(x) = M::filter_to_melody(msg) {
                     self.melody_strategy
                         .receive_msg(x, adaptor.as_melody_adaptor());

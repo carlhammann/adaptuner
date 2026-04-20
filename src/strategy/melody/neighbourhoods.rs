@@ -347,6 +347,8 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
             ToStaticNeighbourhoodsAsMelody::IncrementNeighbourhoodIndex { increment, time } => {
                 todo!()
             }
+
+            ToStaticNeighbourhoodsAsMelody::Consider { stack, time } => todo!()
         }
     }
 

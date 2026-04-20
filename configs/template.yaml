@@ -471,27 +471,28 @@ backend: !pitchbend12
   - 12
   - 13
 gui:
-  # lattice-window:
-  #   zoom: 10.909091
-  #   interval-heights:
-  #   - 0.0
-  #   - 3.8631372
-  #   - -7.01955
-  #   background-around-reference: false
-  #   background-low:
-  #   - 0
-  #   - -4
-  #   - -3
-  #   background-high:
-  #   - 0
-  #   - 4
-  #   - 3
-  #   project-dimension: 0
-  #   screen-keyboard-channel: 1
-  #   screen-keyboard-velocity: 64
-  #   notenamestyle: class
-  #   highlight-playable-keys: true
-  #   color-period-ct: 21.506289596715078
+  lattice:
+    zoom: 10.909091
+    interval-heights:
+    - 0.0
+    - 3.8631372
+    - -7.01955
+    background-around-reference: false
+    background-low:
+    - 0
+    - -4
+    - -3
+    background-high:
+    - 0
+    - 4
+    - 3
+    project-dimension: 0
+    screen-keyboard-channel: 1
+    screen-keyboard-velocity: 64
+    notenamestyle: class
+    highlight-playable-keys: true
+    color-period-ct: 21.506289596715078
+    screen-keyboard-center: 60
   # tuning-editor:
   #   notenamestyle: full
   # reference-editor:

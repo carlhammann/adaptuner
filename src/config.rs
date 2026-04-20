@@ -1,19 +1,16 @@
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    backend::pitchbend12::Pitchbend12Config,
-    interval::{
+    backend::pitchbend12::Pitchbend12Config, gui::lattice::LatticeWindowConfig, interval::{
         base::Semitones,
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
-    },
-    reference::Reference,
-    strategy::{
+    }, reference::Reference, strategy::{
         harmony::chordlist::ChordListConfig,
         melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
-    },
+    }
 };
 
 pub trait FromConfigAndState<C, S> {
@@ -106,11 +103,11 @@ pub trait IsMelodyStrategyConfig<T: StackType>: Clone {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct GuiConfig {
-    // pub lattice_window: LatticeWindowConfig,
+    pub lattice: LatticeWindowConfig,
     // pub tuning_editor: TuningEditorConfig,
     // pub reference_editor: ReferenceEditorConfig,
     pub latency_mean_over: usize,

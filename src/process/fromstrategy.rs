@@ -15,7 +15,7 @@ use crate::{
     interval::stacktype::r#trait::StackType,
     keystate::KeyState,
     msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
-    process::r#trait::{MapDerefMut, ProcessAdaptor, StackWithTuning},
+    process::r#trait::{ProcessAdaptor, StackWithTuning},
     strategy::{
         harmony::{
             chordlist::{ChordList, ChordListAdaptor, ChordListConfig},
@@ -34,6 +34,7 @@ use crate::{
         },
         twostep::{TwoStep, TwoStepStrategyAdaptor},
     },
+    util::mapderefmut::MapDerefMut,
 };
 
 struct RunningStrategy<T: StackType> {
@@ -161,8 +162,13 @@ impl<T: StackType, P: ProcessAdaptor<T>> ChordListAdaptor<T> for TheTwoStepAdapt
             .config()
             .map(
                 |c: &mut Vec<StrategyConfig<T>>| match &mut c[self.strategy_index] {
-                    StrategyConfig::TwoStep { harmony: HarmonyStrategyConfig::ChordList(config), .. } => config,
-                    _ => panic!("TheTwoStepAdaptor::config: incorrect harmony config type for chord list"),
+                    StrategyConfig::TwoStep {
+                        harmony: HarmonyStrategyConfig::ChordList(config),
+                        ..
+                    } => config,
+                    _ => panic!(
+                        "TheTwoStepAdaptor::config: incorrect harmony config type for chord list"
+                    ),
                 },
             )
     }
@@ -502,7 +508,7 @@ where
                     let _ = self.send_to_strategy(msg);
                 }
             }
-            ToProcess::StrategyListAction { action, time } => {
+            ToProcess::ReloadStrategyList { time } => {
                 todo!();
                 let mut index = self.stop(time);
                 // action.apply_to(

@@ -1,5 +1,6 @@
 use std::{
-    sync::{mpsc, Arc, RwLock},
+    cell::RefCell,
+    sync::{mpsc, atomic::AtomicUsize, Arc, RwLock},
     thread,
     time::Instant,
 };
@@ -9,7 +10,12 @@ use midir::{MidiInput, MidiOutput};
 
 use crate::{
     backend::r#trait::ConcreteBackendAdaptor,
-    config::{BackendConfig, FromConfigAndState, StrategyConfig},
+    config::{BackendConfig, FromConfigAndState, GuiConfig, StrategyConfig},
+    gui::{
+        alternate::TopLevelGui,
+        common::CorrectionSystemChooser,
+        r#trait::{ConcreteUiAdaptor, Gui, UiAdaptor},
+    },
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
@@ -17,10 +23,12 @@ use crate::{
         FromProcess, FromUi, HasStop, MessageTranslate, MessageTranslate2, MessageTranslate3,
         MessageTranslate4, ReceiveMsg, ToBackend, ToMidiIn, ToMidiOut, ToProcess, ToUi,
     },
+    notename::HasNoteNames,
     process::{
         fromstrategy::ProcessFromStrategy,
         r#trait::{ConcreteProcessAdaptor, StackWithTuning},
     },
+    reference::Reference,
 };
 
 fn start_receiver_thread<I, H, NH>(
@@ -109,6 +117,50 @@ fn setup_fonts(ctx: &egui::Context) {
         .insert(0, "inter_music".to_owned());
 
     ctx.set_fonts(fonts);
+}
+
+fn start_gui<T, A, G>(
+    gui_config: GuiConfig,
+    rx: mpsc::Receiver<ToUi<T>>,
+    adaptor: A,
+) -> Result<(), eframe::Error>
+where
+    T: StackType + Send + 'static,
+    A: UiAdaptor<T>,
+    G: Gui<T, A>,
+{
+    // create icon.rgba using something like
+    //
+    // magick stream -map rgba -storage-type char icon.png icon.rgba
+    //
+    // you can inspect it using
+    //
+    // magick display -depth 8 -size 512x512 rgba:icon.rgba
+    let icon_bytes = include_bytes!("../assets/icon.rgba");
+    let icon_data = egui::IconData {
+        width: 512,
+        height: 512,
+        rgba: icon_bytes.into(),
+    };
+    eframe::run_native(
+        "com.carlhammann.adaptuner",
+        eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_icon(icon_data)
+                .with_title("adaptuner")
+                .with_app_id("com.carlhammann.adaptuner"),
+            ..eframe::NativeOptions::default()
+        },
+        Box::new(|cc| {
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+
+            // load fonts
+            setup_fonts(&cc.egui_ctx);
+
+            let gui = G::new(gui_config, adaptor);
+            Ok(Box::new(GuiWithConnections::new(cc, gui, rx)))
+        }),
+    )
 }
 
 fn start_translate_thread<B, A>(
@@ -304,9 +356,10 @@ impl<T: StackType> RunState<T> {
         midi_out: MidiOutput,
         strategies: Vec<StrategyConfig<T>>,
         backend_config: BackendConfig,
+        gui_config: GuiConfig,
     ) -> Result<Self, eframe::Error>
     where
-        T: Send + Sync + 'static,
+        T: HasNoteNames + Send + Sync + 'static,
         B: ReceiveMsg<ToBackend> + FromConfigAndState<BackendConfig, ConcreteBackendAdaptor<T>>,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();
@@ -355,12 +408,33 @@ impl<T: StackType> RunState<T> {
             }))),
             key_states: Arc::new(RwLock::new(core::array::from_fn(|_| KeyState::new(now)))),
             strategies: Arc::new(RwLock::new(strategies)),
+            active_strategy_index: Arc::new(AtomicUsize::new(0)),
         };
 
         let backend_adaptor = ConcreteBackendAdaptor {
             forward: from_backend_tx,
             tunings: process_adaptor.tunings.clone(),
-            key_states: process_adaptor.key_states.clone(), 
+            key_states: process_adaptor.key_states.clone(),
+        };
+
+        let gui_adaptor = ConcreteUiAdaptor {
+            forward: from_ui_tx,
+            tunings: process_adaptor.tunings.clone(),
+            key_states: process_adaptor.key_states.clone(),
+            gui_config: RefCell::new(gui_config.clone()),
+            strategies: process_adaptor.strategies.clone(),
+            tuning_reference: Arc::new(RwLock::new(Reference::from_semitones(
+                Stack::new_zero(),
+                60.0,
+            ))),
+            correction_system_chooser: RefCell::new(CorrectionSystemChooser::new(
+                "the correction system chooser",
+                true,
+            )),
+            active_strategy_index: process_adaptor.active_strategy_index.clone(),
+            reference: Arc::new(RwLock::new(Stack::new_zero())), // todo, this should also exist in
+                                                                 // the strategy, and be changed by
+                                                                 // it!
         };
 
         let res = Self {
@@ -387,52 +461,11 @@ impl<T: StackType> RunState<T> {
         });
         // TODO: send more start messages?
 
-        loop {
-            if let Ok(msg) = to_ui_rx.recv() {
-                match msg {
-                    ToUi::Notify { line } => println!("{line}"),
-                    ToUi::NoteOn {
-                        channel,
-                        note,
-                        time,
-                    } => println!("note on {note}"),
-                    ToUi::Retune { note } => println!("retune {note}"),
-                    ToUi::NoteOff {
-                        channel,
-                        note,
-                        time,
-                    } => println!("note off {note}"),
-                    ToUi::EventLatency { since_input } => println!("latency: {since_input:?}"),
-                    ToUi::InputConnectionError { reason } => {
-                        println!("input connection error: {reason}")
-                    }
-                    ToUi::InputConnected { portname } => println!("input {portname} connected"),
-                    ToUi::InputDisconnected { available_ports } => {
-                        let (port, portname) = &available_ports[0];
-                        let _ = from_ui_tx.send(FromUi::ConnectInput {
-                            port: port.clone(),
-                            portname: portname.clone(),
-                            time: Instant::now(),
-                        });
-                    }
-                    ToUi::OutputConnectionError { reason } => {
-                        println!("output connection error: {reason}")
-                    }
-                    ToUi::OutputConnected { portname } => println!("output {portname} connected"),
-                    ToUi::OutputDisconnected { available_ports } => {
-                        let (port, portname) = &available_ports[1];
-                        let _ = from_ui_tx.send(FromUi::ConnectOutput {
-                            port: port.clone(),
-                            portname: portname.clone(),
-                            time: Instant::now(),
-                        });
-                    }
-                    _ => {}
-                }
-            } else {
-                break;
-            }
-        }
+        let _ = start_gui::<T, ConcreteUiAdaptor<_>, TopLevelGui<_, _>>(
+            gui_config,
+            to_ui_rx,
+            gui_adaptor,
+        );
 
         Ok(res)
     }

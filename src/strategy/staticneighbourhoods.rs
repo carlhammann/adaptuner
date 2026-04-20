@@ -245,6 +245,8 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
                     self.update_all_tunings_and_send(time, adaptor);
                 }
             }
+
+            ToStaticNeighbourhoods::Consider { stack, time } => todo!()
         }
         false
     }

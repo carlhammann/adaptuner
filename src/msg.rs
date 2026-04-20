@@ -6,7 +6,6 @@ use midir::{MidiInputPort, MidiOutputPort};
 use crate::{
     bindable::MidiBindable,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
-    util::list_action::ListAction,
 };
 
 pub trait ReceiveMsg<I> {
@@ -74,8 +73,7 @@ pub enum ToProcess<T: StackType> {
         action: Option<ToStrategy<T>>,
         bindable: MidiBindable,
     },
-    StrategyListAction {
-        action: ListAction,
+    ReloadStrategyList {
         time: Instant,
     },
 }
@@ -120,9 +118,12 @@ pub enum ToChordList {
 pub enum ToStaticNeighbourhoods<T: StackType> {
     UpdateNeighbourhoods { time: Instant },
     IncrementNeighbourhoodIndex { increment: isize, time: Instant },
+
     SetReference { reference: Stack<T>, time: Instant },
     SetReferenceToLowest { time: Instant },
     SetReferenceToHighest { time: Instant },
+
+    Consider { stack: Stack<T>, time: Instant },
 }
 
 pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
@@ -134,13 +135,15 @@ pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
     SetReferenceToHighest { time: Instant },
     SetReferenceToCurrent { time: Instant },
 
+    Consider { stack: Stack<T>, time: Instant },
+
     ToggleReanchor { time: Instant },
     SetGroupMs { group_ms: u64 },
 }
 
 pub enum ToTwoStep<T: StackType> {
     ToHarmonyStrategy(ToHarmony),
-    ToMelodystrategy(ToMelody<T>),
+    ToMelodyStrategy(ToMelody<T>),
 }
 
 pub enum ToMelody<T: StackType> {
@@ -356,13 +359,10 @@ pub enum FromUi<T: StackType> {
         channels: [bool; 16],
         time: Instant,
     },
-    StrategyListAction {
-        action: ListAction,
+    ReloadStrategyList {
         time: Instant,
     },
-    ToStrategy {
-        action: ToStrategy<T>,
-    },
+    ToStrategy(ToStrategy<T>),
     BindAction {
         action: Option<ToStrategy<T>>,
         bindable: MidiBindable,
@@ -667,7 +667,7 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::ToStrategy { action } => (
+            FromUi::ToStrategy(action) => (
                 Some(ToProcess::ToStrategy(action)),
                 None {},
                 None {},
@@ -679,8 +679,8 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::StrategyListAction { action, time } => (
-                Some(ToProcess::StrategyListAction { action, time }),
+            FromUi::ReloadStrategyList { time } => (
+                Some(ToProcess::ReloadStrategyList { time }),
                 None {},
                 None {},
                 None {},
@@ -707,7 +707,7 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             ),
             FromUi::ToggleReanchorOnMatch { time } => (
                 Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
-                    ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
+                    ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
                         ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time },
                     )),
                 ))),
@@ -717,7 +717,7 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             ),
             FromUi::SetGroupMs { group_ms } => (
                 Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
-                    ToTwoStep::ToMelodystrategy(ToMelody::StaticNeighbourhoods(
+                    ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
                         ToStaticNeighbourhoodsAsMelody::SetGroupMs { group_ms },
                     )),
                 ))),

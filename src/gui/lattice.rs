@@ -1,4 +1,4 @@
-use std::{cell::RefCell, hash::Hash, rc::Rc, sync::mpsc, time::Instant};
+use std::time::Instant;
 
 use eframe::egui::{self, pos2, vec2, Popup, PopupCloseBehavior};
 use midi_msg::Channel;
@@ -6,21 +6,19 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     custom_serde::common::{deserialize_channel, serialize_channel},
+    gui::{
+        common::temperament_applier,
+        r#trait::{GuiShow, UiAdaptor},
+    },
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{StackCoeff, StackType},
     },
-    msg::{FromUi, ReceiveMsgRef, ToUi},
-    neighbourhood::{Neighbourhood, Partial},
+    msg::FromUi,
+    neighbourhood::Partial,
     notename::{correction::Correction, HasNoteNames, NoteNameStyle},
-    util::readerwriter::Reader128,
-};
-
-use super::{
-    common::{temperament_applier, CorrectionSystemChooser},
-    latency::LatencyWindow,
-    toplevel::KeysAndTunings,
+    process::r#trait::StackWithTuning,
 };
 
 // The following measurements are all in units of [LatticeWindow::zoom], which is the width of one
@@ -59,62 +57,8 @@ pub struct LatticeWindowConfig {
     pub notenamestyle: NoteNameStyle,
     pub highlight_playable_keys: bool,
     pub color_period_ct: Semitones,
-}
-
-impl LatticeWindowConfig {
-    pub fn to_controls<T: StackType>(
-        self,
-        correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
-    ) -> LatticeWindowControls<T> {
-        let LatticeWindowConfig {
-            zoom,
-            interval_heights,
-            background_around_reference,
-            background_low,
-            background_high,
-            project_dimension,
-            screen_keyboard_channel,
-            screen_keyboard_velocity,
-            notenamestyle,
-            highlight_playable_keys,
-            color_period_ct,
-        } = self;
-        LatticeWindowControls {
-            zoom,
-            interval_heights,
-            background_around_reference,
-            background_low,
-            background_high,
-            project_dimension,
-            screen_keyboard_channel,
-            screen_keyboard_velocity,
-            screen_keyboard_pedal_hold: false,
-            screen_keyboard_center: 60,
-            notenamestyle,
-            correction_system_chooser,
-            highlight_playable_keys,
-            color_period_ct,
-            tmp_correction: Correction::new_zero(),
-        }
-    }
-}
-
-pub struct LatticeWindowControls<T: StackType> {
-    pub zoom: f32,
-    pub interval_heights: Vec<f32>,
-    pub background_around_reference: bool,
-    pub background_low: Vec<StackCoeff>,
-    pub background_high: Vec<StackCoeff>,
-    pub project_dimension: usize,
-    pub screen_keyboard_channel: Channel,
-    pub screen_keyboard_velocity: u8,
-    pub screen_keyboard_pedal_hold: bool,
+    /// MIDI number of the key that should be in the center of the screen.
     pub screen_keyboard_center: u8,
-    pub notenamestyle: NoteNameStyle,
-    pub correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
-    pub highlight_playable_keys: bool,
-    pub color_period_ct: Semitones,
-    pub tmp_correction: Correction<T>,
 }
 
 struct Positions {
@@ -135,8 +79,6 @@ struct OneNodeDrawState<T: StackType> {
 }
 
 pub struct LatticeWindow<T: StackType> {
-    pub controls: LatticeWindowControls<T>,
-
     considered_notes: Partial<T>,
 
     reset_position: bool,
@@ -212,12 +154,12 @@ fn grid_line_color(ui: &egui::Ui) -> egui::Color32 {
 
 fn activation_color<T: StackType>(
     ui: &egui::Ui,
-    controls: &LatticeWindowControls<T>,
+    config: &LatticeWindowConfig,
     stack: &Stack<T>,
 ) -> egui::Color32 {
     let t: f32 = ((stack.semitones() - stack.target_semitones())
-        .rem_euclid(controls.color_period_ct / 100.0)
-        / controls.color_period_ct
+        .rem_euclid(config.color_period_ct / 100.0)
+        / config.color_period_ct
         * 100.0) as f32;
     let start_color = ecolor::HsvaGamma::from(ui.style().visuals.selection.bg_fill);
     (ecolor::HsvaGamma {
@@ -236,19 +178,20 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
         ui: &mut egui::Ui,
         stack: &Stack<T>,
         pos: egui::Pos2,
-        controls: &LatticeWindowControls<T>,
         style: NoteDrawStyle,
+        adaptor: &impl UiAdaptor<T>,
     ) -> egui::Rect {
         let egui::Pos2 { x: hpos, y: vpos } = pos;
+        let config = &adaptor.config().lattice;
 
         let first_line_height = match style {
             NoteDrawStyle::Background | NoteDrawStyle::Considered | NoteDrawStyle::Antenna => {
-                controls.zoom * FONT_SIZE
+                config.zoom * FONT_SIZE
             }
-            NoteDrawStyle::Playing => controls.zoom * 1.5 * FONT_SIZE,
+            NoteDrawStyle::Playing => config.zoom * 1.5 * FONT_SIZE,
         };
-        let spacing = controls.zoom * 0.5 * FONT_SIZE;
-        let other_lines_height = controls.zoom * 0.6 * FONT_SIZE;
+        let spacing = config.zoom * 0.5 * FONT_SIZE;
+        let other_lines_height = config.zoom * 0.6 * FONT_SIZE;
         let second_line_vpos = vpos + 0.5 * first_line_height + spacing;
         let third_line_vpos = second_line_vpos + 0.5 * other_lines_height + spacing;
         let text_color = match style {
@@ -261,7 +204,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
         ui.painter().text(
             pos2(hpos, vpos),
             egui::Align2::CENTER_CENTER,
-            stack.notename(&controls.notenamestyle),
+            stack.notename(&config.notenamestyle),
             egui::FontId::proportional(first_line_height),
             text_color,
         );
@@ -278,15 +221,12 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                     text_color,
                 );
             };
-            if controls.correction_system_chooser.borrow().use_cent_values {
+            if adaptor.correction_system_chooser().use_cent_values {
                 write_cents();
             } else {
                 if let Some(correction) = Correction::new(
                     stack,
-                    controls
-                        .correction_system_chooser
-                        .borrow()
-                        .preference_order(),
+                    adaptor.correction_system_chooser().preference_order(),
                 ) {
                     ui.painter().text(
                         pos2(hpos, second_line_vpos),
@@ -304,7 +244,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                 ui.painter().text(
                     pos2(hpos, third_line_vpos),
                     egui::Align2::CENTER_CENTER,
-                    format!("={}", stack.actual_notename(&controls.notenamestyle)),
+                    format!("={}", stack.actual_notename(&config.notenamestyle)),
                     egui::FontId::proportional(other_lines_height),
                     text_color,
                 );
@@ -323,9 +263,9 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
         rect: egui::Rect,
         stack: &Stack<T>,
         reference: &Stack<T>,
-        controls: &LatticeWindowControls<T>,
-        forward: &mpsc::Sender<FromUi<T>>,
+        adaptor: &impl UiAdaptor<T>,
     ) {
+        let config = &adaptor.config().lattice;
         let popup_id = ui.id().with(&stack.target);
         let response = ui.interact(rect, egui::Id::new(&stack.target), egui::Sense::click());
         if response.clicked() {
@@ -337,10 +277,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
 
             if !self.tmp_correction.set_with(
                 &self.tmp_relative_stack,
-                controls
-                    .correction_system_chooser
-                    .borrow()
-                    .preference_order(),
+                adaptor.correction_system_chooser().preference_order(),
             ) {
                 self.tmp_correction.reset_to_zero();
             }
@@ -353,26 +290,17 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                     Some(&format!(
                         "make pure relative to {}",
                         reference.corrected_notename(
-                            &controls.notenamestyle,
-                            controls
-                                .correction_system_chooser
-                                .borrow()
-                                .preference_order(),
-                            controls.correction_system_chooser.borrow().use_cent_values,
+                            &config.notenamestyle,
+                            adaptor.correction_system_chooser().preference_order(),
+                            adaptor.correction_system_chooser().use_cent_values,
                         )
                     )),
                     ui,
                     &mut self.tmp_correction,
                     &mut self.tmp_relative_stack,
-                    controls
-                        .correction_system_chooser
-                        .borrow()
-                        .preference_order(),
+                    adaptor.correction_system_chooser().preference_order(),
                 ) {
-                    let _ = forward.send(FromUi::Consider {
-                        stack: self.tmp_relative_stack.clone(),
-                        time: Instant::now(),
-                    });
+                    let _ = adaptor.send_consider(&self.tmp_relative_stack, Instant::now());
                 }
             });
     }
@@ -383,30 +311,28 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
         stack: &Stack<T>,
         pos: egui::Pos2,
         reference: &Stack<T>,
-        controls: &LatticeWindowControls<T>,
         style: NoteDrawStyle,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) where
-        T: Hash,
-    {
+        adaptor: &impl UiAdaptor<T>,
+    ) {
+        let config = &adaptor.config().lattice;
         let draw_activation_circle = |active: bool| {
             if active {
                 ui.painter().circle_filled(
                     pos,
-                    controls.zoom * FONT_SIZE,
-                    activation_color(ui, controls, stack),
+                    config.zoom * FONT_SIZE,
+                    activation_color(ui, config, stack),
                 );
             } else {
                 ui.painter().circle_filled(
                     pos,
-                    controls.zoom * 0.6 * FONT_SIZE,
+                    config.zoom * 0.6 * FONT_SIZE,
                     ui.style().visuals.window_fill,
                 );
             }
         };
 
         draw_activation_circle(style == NoteDrawStyle::Playing);
-        let rect = self.draw_corrected_note_name(ui, stack, pos, controls, style);
+        let rect = self.draw_corrected_note_name(ui, stack, pos, style, adaptor);
 
         match style {
             NoteDrawStyle::Playing => {}
@@ -416,28 +342,18 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                     .interact(rect, egui::Id::new(stack), egui::Sense::click())
                     .clicked()
                 {
-                    let _ = forward.send(FromUi::Consider {
-                        stack: {
-                            let mut x = stack.clone();
-                            x.scaled_add(-1, reference);
-                            x
-                        },
-                        time: Instant::now(),
-                    });
+                    let _ = adaptor.send_consider(&self.tmp_relative_stack, Instant::now());
                 }
             }
             NoteDrawStyle::Considered => {
-                self.retemper_popup(ui, rect, stack, reference, controls, forward);
+                self.retemper_popup(ui, rect, stack, reference, adaptor);
             }
         }
     }
 }
 
 impl<T: StackType> LatticeWindow<T> {
-    pub fn new(
-        config: LatticeWindowConfig,
-        correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
             considered_notes: Partial::new(),
             draw_state: OneNodeDrawState {
@@ -457,21 +373,16 @@ impl<T: StackType> LatticeWindow<T> {
                 background_low: vec![0; T::num_intervals()],
                 background_high: vec![0; T::num_intervals()],
             },
-            controls: config.to_controls(correction_system_chooser),
         }
     }
 
-    pub fn restart_from_config(
-        &mut self,
-        config: LatticeWindowConfig,
-        correction_system_chooser: Rc<RefCell<CorrectionSystemChooser<T>>>,
-    ) {
-        *self = LatticeWindow::new(config, correction_system_chooser);
-    }
+    // pub fn restart_from_config(&mut self) { //, config: LatticeWindowConfig) {
+    //     *self = LatticeWindow::new();
+    // }
 }
 
 impl<T: StackType + HasNoteNames> LatticeWindow<T> {
-    fn keyboard_hover_interaction(&self, ui: &mut egui::Ui, forward: &mpsc::Sender<FromUi<T>>) {
+    fn keyboard_hover_interaction(&self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
         if ui.ui_contains_pointer() {
             ui.input(|i| {
                 for e in &i.events {
@@ -529,20 +440,33 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                                 _ => None {},
                             };
                             if let Some(offset) = offset {
-                                let note = self.controls.screen_keyboard_center as i16 + offset;
+                                let note =
+                                    adaptor.config().lattice.screen_keyboard_center as i16 + offset;
                                 if note <= 127 && note >= 0 {
                                     if *pressed {
-                                        let _ = forward.send(FromUi::NoteOn {
-                                            channel: self.controls.screen_keyboard_channel,
+                                        let _ = adaptor.send(FromUi::NoteOn {
+                                            channel: adaptor
+                                                .config()
+                                                .lattice
+                                                .screen_keyboard_channel,
                                             note: note as u8,
-                                            velocity: self.controls.screen_keyboard_velocity,
+                                            velocity: adaptor
+                                                .config()
+                                                .lattice
+                                                .screen_keyboard_velocity,
                                             time: Instant::now(),
                                         });
                                     } else {
-                                        let _ = forward.send(FromUi::NoteOff {
-                                            channel: self.controls.screen_keyboard_channel,
+                                        let _ = adaptor.send(FromUi::NoteOff {
+                                            channel: adaptor
+                                                .config()
+                                                .lattice
+                                                .screen_keyboard_channel,
                                             note: note as u8,
-                                            velocity: self.controls.screen_keyboard_velocity,
+                                            velocity: adaptor
+                                                .config()
+                                                .lattice
+                                                .screen_keyboard_velocity,
                                             time: Instant::now(),
                                         });
                                     }
@@ -561,31 +485,36 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         rect: egui::Rect,
         key_number: u8,
         ui: &mut egui::Ui,
-        forward: &mpsc::Sender<FromUi<T>>,
+        adaptor: &impl UiAdaptor<T>,
     ) {
         let r = ui.interact(rect, ui.id().with(key_number), egui::Sense::drag());
 
         if r.drag_started() {
-            let _ = forward.send(FromUi::NoteOn {
-                channel: self.controls.screen_keyboard_channel,
+            let _ = adaptor.send(FromUi::NoteOn {
+                channel: adaptor.config().lattice.screen_keyboard_channel,
                 note: key_number,
-                velocity: self.controls.screen_keyboard_velocity,
+                velocity: adaptor.config().lattice.screen_keyboard_velocity,
                 time: Instant::now(),
             });
         }
 
         if r.drag_stopped() {
-            let _ = forward.send(FromUi::NoteOff {
-                channel: self.controls.screen_keyboard_channel,
+            let _ = adaptor.send(FromUi::NoteOff {
+                channel: adaptor.config().lattice.screen_keyboard_channel,
                 note: key_number,
-                velocity: self.controls.screen_keyboard_velocity,
+                velocity: adaptor.config().lattice.screen_keyboard_velocity,
                 time: Instant::now(),
             });
         }
     }
 
-    fn key_border_color(&self, ui: &egui::Ui, key_number: u8) -> egui::Color32 {
-        if !self.controls.highlight_playable_keys {
+    fn key_border_color(
+        &self,
+        ui: &egui::Ui,
+        key_number: u8,
+        adaptor: &impl UiAdaptor<T>,
+    ) -> egui::Color32 {
+        if !adaptor.config().lattice.highlight_playable_keys {
             if key_number >= 109 || key_number <= 20
             // the range of the piano
             {
@@ -594,7 +523,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 ui.style().visuals.strong_text_color()
             }
         } else {
-            let d = key_number as i16 - self.controls.screen_keyboard_center as i16;
+            let d = key_number as i16 - adaptor.config().lattice.screen_keyboard_center as i16;
             if d <= 19 && d >= -18
             // the range playable in [Self.key_interaction]
             {
@@ -607,15 +536,10 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         }
     }
 
-    fn draw_white_keys(
-        &mut self,
-        ui: &mut egui::Ui,
-        state: &KeysAndTunings<T>,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) {
+    fn draw_white_keys(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
         let bottom = self.positions.bottom;
         let left = self.positions.left;
-        let zoom = self.controls.zoom;
+        let zoom = adaptor.config().lattice.zoom;
         let white_key_width = zoom * OCTAVE_WIDTH / 7.0;
         let mut rect = egui::Rect::from_min_max(
             pos2(left, bottom - zoom * WHITE_KEY_LENGTH),
@@ -628,8 +552,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         let mut key_number: u8 = 0;
         let mut pitch_class = 0;
         while key_number <= 127 {
-            let border_color = self.key_border_color(ui, key_number);
-            if state.active_notes[key_number as usize].is_sounding() {
+            let border_color = self.key_border_color(ui, key_number, adaptor);
+            if adaptor.key_states()[key_number as usize].is_sounding() {
                 ui.painter().rect(
                     rect,
                     egui::CornerRadius::default(),
@@ -645,22 +569,17 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                     egui::StrokeKind::Middle,
                 );
             }
-            self.key_click_interaction(rect, key_number, ui, forward);
+            self.key_click_interaction(rect, key_number, ui, adaptor);
             rect = rect.translate(vec2(white_key_width, 0.0));
             key_number += steps[pitch_class];
             pitch_class = (pitch_class + 1) % 7;
         }
     }
 
-    fn draw_black_keys(
-        &mut self,
-        ui: &mut egui::Ui,
-        state: &KeysAndTunings<T>,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) {
+    fn draw_black_keys(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
         let bottom = self.positions.bottom;
         let left = self.positions.left;
-        let zoom = self.controls.zoom;
+        let zoom = adaptor.config().lattice.zoom;
         let key_number_steps = [2, 3, 2, 2, 3];
         let w = zoom * OCTAVE_WIDTH / 7.0; // bottom width of white key.
         let b = zoom * BLACK_KEY_WIDTH; // width of a black key;
@@ -683,11 +602,11 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         let mut key_number: u8 = 1;
         let mut pitch_class = 0;
         while key_number <= 127 {
-            let border_color = self.key_border_color(ui, key_number);
+            let border_color = self.key_border_color(ui, key_number, adaptor);
             ui.painter().rect(
                 rect,
                 egui::CornerRadius::default(),
-                if state.active_notes[key_number as usize].is_sounding() {
+                if adaptor.key_states()[key_number as usize].is_sounding() {
                     active_color
                 } else {
                     border_color
@@ -695,17 +614,17 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 egui::Stroke::new(zoom * PIANO_KEY_BORDER_THICKNESS, border_color),
                 egui::StrokeKind::Middle,
             );
-            self.key_click_interaction(rect, key_number, ui, forward);
+            self.key_click_interaction(rect, key_number, ui, adaptor);
             rect = rect.translate(vec2(spacing_steps[pitch_class], 0.0));
             key_number += key_number_steps[pitch_class];
             pitch_class = (pitch_class + 1) % 5;
         }
     }
 
-    fn draw_ruler(&self, ui: &mut egui::Ui) {
+    fn draw_ruler(&self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
         let bottom = self.positions.bottom;
-        let zoom = self.controls.zoom;
-        let mut x = self.positions.left + self.controls.zoom / 2.0;
+        let zoom = adaptor.config().lattice.zoom;
+        let mut x = self.positions.left + adaptor.config().lattice.zoom / 2.0;
         let y = egui::Rangef {
             min: bottom - zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH),
             max: bottom - zoom * WHITE_KEY_LENGTH,
@@ -720,54 +639,48 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         }
     }
 
-    fn draw_keyboard(
-        &mut self,
-        ui: &mut egui::Ui,
-        state: &KeysAndTunings<T>,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) {
-        self.draw_ruler(ui);
-        self.draw_white_keys(ui, state, forward);
-        self.draw_black_keys(ui, state, forward);
+    fn draw_keyboard(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+        self.draw_ruler(ui, adaptor);
+        self.draw_white_keys(ui, adaptor);
+        self.draw_black_keys(ui, adaptor);
     }
 
-    fn c4_offset(&self, state: &KeysAndTunings<T>) -> f32 {
-        self.controls.zoom
+    fn c4_offset(&self, adaptor: &impl UiAdaptor<T>) -> f32 {
+        adaptor.config().lattice.zoom
             * (0.5 // half a key width on the ruler above the piano
-                   + state.tuning_reference.c4_semitones() as f32)
+                   + adaptor.tuning_reference().c4_semitones() as f32)
     }
 
-    fn update_positions(&mut self, state: &KeysAndTunings<T>) {
-        if self.controls.background_around_reference {
-            self.grid_reference.clone_from(&state.reference);
+    fn update_positions(&mut self, adaptor: &impl UiAdaptor<T>) {
+        if adaptor.config().lattice.background_around_reference {
+            self.grid_reference.clone_from(&adaptor.reference());
         } else {
             self.grid_reference.reset_to_zero();
         }
 
         self.positions
             .background_low
-            .copy_from_slice(&self.controls.background_low);
+            .copy_from_slice(&adaptor.config().lattice.background_low);
         self.positions
             .background_high
-            .copy_from_slice(&self.controls.background_high);
+            .copy_from_slice(&adaptor.config().lattice.background_high);
 
         for (_, relative_stack) in self.considered_notes.iter() {
             for i in 0..T::num_intervals() {
-                if i == self.controls.project_dimension {
+                if i == adaptor.config().lattice.project_dimension {
                     continue;
                 }
-                let x = relative_stack.target[i] + state.reference.target[i]
+                let x = relative_stack.target[i] + adaptor.reference().target[i]
                     - self.grid_reference.target[i];
                 self.positions.background_low[i] = self.positions.background_low[i].min(x);
                 self.positions.background_high[i] = self.positions.background_high[i].max(x);
             }
         }
 
-        for (j, tuning) in state.tunings.read_all().iter().enumerate() {
-            let stack: &Stack<T> = tuning.as_ref();
-            if state.active_notes[j].is_sounding() {
+        for (j, StackWithTuning { stack, .. }) in adaptor.tunings().iter().enumerate() {
+            if adaptor.key_states()[j].is_sounding() {
                 for i in 0..T::num_intervals() {
-                    if i == self.controls.project_dimension {
+                    if i == adaptor.config().lattice.project_dimension {
                         continue;
                     }
                     let x = stack.target[i] - self.grid_reference.target[i];
@@ -777,10 +690,10 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             }
         }
 
-        self.positions.c4_hpos = self.positions.left + self.c4_offset(state);
+        self.positions.c4_hpos = self.positions.left + self.c4_offset(adaptor);
 
-        self.positions.grid_reference_pos.x =
-            self.positions.c4_hpos + self.controls.zoom * self.grid_reference.semitones() as f32;
+        self.positions.grid_reference_pos.x = self.positions.c4_hpos
+            + adaptor.config().lattice.zoom * self.grid_reference.semitones() as f32;
 
         let mut lowest_background: f32 = 0.0;
         let mut background = PureStacksAround::new(
@@ -789,75 +702,85 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             &self.grid_reference,
         );
         while let Some(stack) = background.next() {
-            lowest_background = lowest_background.max(self.vpos_relative_to_grid_reference(stack));
+            lowest_background =
+                lowest_background.max(self.vpos_relative_to_grid_reference(stack, adaptor));
         }
 
         self.positions.grid_reference_pos.y = self.positions.bottom
-            - self.keyboard_height()
-            - self.controls.zoom * FREE_SPACE_ABOVE_KEYBOARD
+            - self.keyboard_height(adaptor)
+            - adaptor.config().lattice.zoom * FREE_SPACE_ABOVE_KEYBOARD
             - lowest_background;
     }
 
-    fn vpos_relative_to_grid_reference(&self, stack: &Stack<T>) -> f32 {
+    fn vpos_relative_to_grid_reference(
+        &self,
+        stack: &Stack<T>,
+        adaptor: &impl UiAdaptor<T>,
+    ) -> f32 {
         let mut y = 0.0;
         for i in 0..T::num_intervals() {
             y += (stack.target[i] - self.grid_reference.target[i]) as f32
-                * self.controls.interval_heights[i];
+                * adaptor.config().lattice.interval_heights[i];
         }
-        self.controls.zoom * y
+        adaptor.config().lattice.zoom * y
     }
 
-    fn vpos(&self, stack: &Stack<T>) -> f32 {
-        self.positions.grid_reference_pos.y + self.vpos_relative_to_grid_reference(stack)
+    fn vpos(&self, stack: &Stack<T>, adaptor: &impl UiAdaptor<T>) -> f32 {
+        self.positions.grid_reference_pos.y + self.vpos_relative_to_grid_reference(stack, adaptor)
     }
 
-    fn hpos(&self, stack: &Stack<T>) -> f32 {
-        self.positions.c4_hpos + self.controls.zoom * stack.semitones() as f32
+    fn hpos(&self, stack: &Stack<T>, adaptor: &impl UiAdaptor<T>) -> f32 {
+        self.positions.c4_hpos + adaptor.config().lattice.zoom * stack.semitones() as f32
     }
 
-    fn pos(&self, stack: &Stack<T>) -> egui::Pos2 {
-        pos2(self.hpos(stack), self.vpos(stack))
+    fn pos(&self, stack: &Stack<T>, adaptor: &impl UiAdaptor<T>) -> egui::Pos2 {
+        pos2(self.hpos(stack, adaptor), self.vpos(stack, adaptor))
     }
 
-    fn has_projection(&self, stack: &Stack<T>) -> bool {
-        stack.target[self.controls.project_dimension]
-            != self.grid_reference.target[self.controls.project_dimension]
+    fn has_projection(&self, stack: &Stack<T>, adaptor: &impl UiAdaptor<T>) -> bool {
+        stack.target[adaptor.config().lattice.project_dimension]
+            != self.grid_reference.target[adaptor.config().lattice.project_dimension]
     }
 
-    fn projected_pos(&self, stack: &Stack<T>) -> egui::Pos2 {
-        self.pos(stack)
-            - (stack.target[self.controls.project_dimension]
-                - self.grid_reference.target[self.controls.project_dimension]) as f32
-                * self.controls.zoom
+    fn projected_pos(&self, stack: &Stack<T>, adaptor: &impl UiAdaptor<T>) -> egui::Pos2 {
+        self.pos(stack, adaptor)
+            - (stack.target[adaptor.config().lattice.project_dimension]
+                - self.grid_reference.target[adaptor.config().lattice.project_dimension])
+                as f32
+                * adaptor.config().lattice.zoom
                 * vec2(
-                    T::intervals()[self.controls.project_dimension].semitones as f32,
-                    self.controls.interval_heights[self.controls.project_dimension],
+                    T::intervals()[adaptor.config().lattice.project_dimension].semitones as f32,
+                    adaptor.config().lattice.interval_heights
+                        [adaptor.config().lattice.project_dimension],
                 )
     }
 
-    fn grid_line_stroke(&self, ui: &egui::Ui) -> egui::Stroke {
+    fn grid_line_stroke(&self, ui: &egui::Ui, adaptor: &impl UiAdaptor<T>) -> egui::Stroke {
         egui::Stroke::new(
-            self.controls.zoom * FAINT_GRID_LINE_THICKNESS,
+            adaptor.config().lattice.zoom * FAINT_GRID_LINE_THICKNESS,
             grid_line_color(ui),
         )
     }
 
-    fn draw_grid_lines(&mut self, ui: &egui::Ui, state: &KeysAndTunings<T>) {
+    fn draw_grid_lines(&mut self, ui: &egui::Ui, adaptor: &impl UiAdaptor<T>) {
         let color = grid_line_color(ui);
-        let stroke = self.grid_line_stroke(ui);
+        let stroke = self.grid_line_stroke(ui, adaptor);
 
         let draw_circle = |pos| {
-            ui.painter()
-                .circle_filled(pos, self.controls.zoom * GRID_NODE_RADIUS, color);
+            ui.painter().circle_filled(
+                pos,
+                adaptor.config().lattice.zoom * GRID_NODE_RADIUS,
+                color,
+            );
         };
 
         let draw_limb = |direction: usize, forward: bool, start_pos: egui::Pos2| {
             let end_pos = start_pos
-                + self.controls.zoom
+                + adaptor.config().lattice.zoom
                     * if forward { 1.0 } else { -1.0 }
                     * vec2(
                         T::intervals()[direction].semitones as f32,
-                        self.controls.interval_heights[direction],
+                        adaptor.config().lattice.interval_heights[direction],
                     );
             ui.painter().line_segment([start_pos, end_pos], stroke);
             end_pos
@@ -874,50 +797,48 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 if d == 0 {
                     continue;
                 }
-                let p = self.pos(&stack);
+                let p = self.pos(&stack, adaptor);
                 // draw_circle(p);
                 let _ = draw_limb(i, d < 0, p);
             }
         }
 
-        for (i, tuning) in state.tunings.read_all().iter().enumerate() {
-            let stack: &Stack<T> = tuning.as_ref();
-            if state.active_notes[i].is_sounding() {
-                let mut pos = self.projected_pos(&stack);
-                let d = stack.target[self.controls.project_dimension]
-                    - self.grid_reference.target[self.controls.project_dimension];
+        for (i, StackWithTuning { stack, .. }) in adaptor.tunings().iter().enumerate() {
+            if adaptor.key_states()[i].is_sounding() {
+                let mut pos = self.projected_pos(&stack, adaptor);
+                let d = stack.target[adaptor.config().lattice.project_dimension]
+                    - self.grid_reference.target[adaptor.config().lattice.project_dimension];
                 for _ in 0..d.abs() {
-                    pos = draw_limb(self.controls.project_dimension, d > 0, pos);
+                    pos = draw_limb(adaptor.config().lattice.project_dimension, d > 0, pos);
                     draw_circle(pos);
                 }
             }
         }
     }
 
-    fn draw_down_lines(&self, ui: &egui::Ui, state: &KeysAndTunings<T>) {
-        let bottom = self.keyboard_top();
-        for (i, tuning) in state.tunings.read_all().iter().enumerate() {
-            let stack: &Stack<T> = tuning.as_ref();
-            if state.active_notes[i].is_sounding() {
-                let ppos = self.projected_pos(stack);
+    fn draw_down_lines(&self, ui: &egui::Ui, adaptor: &impl UiAdaptor<T>) {
+        let bottom = self.keyboard_top(adaptor);
+        for (i, StackWithTuning { stack, .. }) in adaptor.tunings().iter().enumerate() {
+            if adaptor.key_states()[i].is_sounding() {
+                let ppos = self.projected_pos(&stack, adaptor);
                 ui.painter().vline(
                     ppos.x,
                     egui::Rangef {
                         min: ppos.y,
                         max: bottom,
                     },
-                    self.grid_line_stroke(ui),
+                    self.grid_line_stroke(ui, adaptor),
                 );
 
-                if self.has_projection(stack) {
-                    let pos = self.pos(stack);
+                if self.has_projection(&stack, adaptor) {
+                    let pos = self.pos(&stack, adaptor);
                     ui.painter().vline(
                         pos.x,
                         egui::Rangef {
                             min: pos.y,
                             max: bottom,
                         },
-                        self.grid_line_stroke(ui),
+                        self.grid_line_stroke(ui, adaptor),
                     );
                 }
             }
@@ -927,28 +848,25 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     fn draw_note_names_and_interaction_zones(
         &mut self,
         ui: &mut egui::Ui,
-        state: &KeysAndTunings<T>,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) where
-        T: Hash,
-    {
+        adaptor: &impl UiAdaptor<T>,
+    ) {
         let write_considered_stack_to_draw = |considered: &Stack<T>, output: &mut Stack<T>| {
-            output.clone_from(&state.reference);
+            output.clone_from(&adaptor.reference());
             output.scaled_add(1, considered);
             output.increment_at_index_pure(
-                self.controls.project_dimension,
-                self.grid_reference.target[self.controls.project_dimension]
-                    - state.reference.target[self.controls.project_dimension]
-                    - considered.target[self.controls.project_dimension],
+                adaptor.config().lattice.project_dimension,
+                self.grid_reference.target[adaptor.config().lattice.project_dimension]
+                    - adaptor.reference().target[adaptor.config().lattice.project_dimension]
+                    - considered.target[adaptor.config().lattice.project_dimension],
             );
         };
 
         let write_sounding_stack_to_draw = |sounding: &Stack<T>, output: &mut Stack<T>| {
             output.clone_from(sounding);
             output.increment_at_index_pure(
-                self.controls.project_dimension,
-                self.grid_reference.target[self.controls.project_dimension]
-                    - sounding.target[self.controls.project_dimension],
+                adaptor.config().lattice.project_dimension,
+                self.grid_reference.target[adaptor.config().lattice.project_dimension]
+                    - sounding.target[adaptor.config().lattice.project_dimension],
             );
         };
 
@@ -961,12 +879,17 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             let draw_this = self.considered_notes.iter().all(|(_, considered)| {
                 write_considered_stack_to_draw(considered, &mut self.tmp_stack);
                 self.tmp_stack.target != stack.target
-            }) && state.tunings.read_all().iter().enumerate().all(
-                |(i, sounding)| {
-                    if !state.active_notes[i].is_sounding() {
+            }) && adaptor.tunings().iter().enumerate().all(
+                |(
+                    i,
+                    StackWithTuning {
+                        stack: sounding, ..
+                    },
+                )| {
+                    if !adaptor.key_states()[i].is_sounding() {
                         return true;
                     }
-                    write_sounding_stack_to_draw(sounding.as_ref(), &mut self.tmp_stack);
+                    write_sounding_stack_to_draw(&sounding, &mut self.tmp_stack);
                     self.tmp_stack.target != stack.target
                 },
             );
@@ -974,102 +897,102 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 self.draw_state.draw_note_and_interaction_zone(
                     ui,
                     stack,
-                    self.pos(stack),
-                    &state.reference,
-                    &self.controls,
+                    self.pos(stack, adaptor),
+                    &adaptor.reference(),
                     NoteDrawStyle::Background,
-                    forward,
+                    adaptor,
                 );
             }
         }
 
         for (_, stack) in self.considered_notes.iter() {
             write_considered_stack_to_draw(stack, &mut self.tmp_stack);
-            let draw_this = state
-                .tunings
-                .read_all()
-                .iter()
-                .enumerate()
-                .all(|(i, sounding)| {
-                    if !state.active_notes[i].is_sounding() {
+            let draw_this = adaptor.tunings().iter().enumerate().all(
+                |(
+                    i,
+                    StackWithTuning {
+                        stack: sounding, ..
+                    },
+                )| {
+                    if !adaptor.key_states()[i].is_sounding() {
                         return true;
                     }
-                    write_sounding_stack_to_draw(sounding.as_ref(), &mut self.other_tmp_stack);
+                    write_sounding_stack_to_draw(&sounding, &mut self.other_tmp_stack);
                     self.tmp_stack.target != self.other_tmp_stack.target
-                });
+                },
+            );
             if draw_this {
                 self.draw_state.draw_note_and_interaction_zone(
                     ui,
                     &self.tmp_stack,
-                    self.pos(&self.tmp_stack),
-                    &state.reference,
-                    &self.controls,
+                    self.pos(&self.tmp_stack, adaptor),
+                    &adaptor.reference(),
                     NoteDrawStyle::Considered,
-                    forward,
+                    adaptor,
                 );
             }
         }
 
-        for (i, tuning) in state.tunings.read_all().iter().enumerate() {
-            let stack: &Stack<T> = tuning.as_ref();
-            if state.active_notes[i].is_sounding() {
+        for (i, StackWithTuning { stack, .. }) in adaptor.tunings().iter().enumerate() {
+            if adaptor.key_states()[i].is_sounding() {
                 write_sounding_stack_to_draw(stack, &mut self.tmp_stack);
                 self.draw_state.draw_note_and_interaction_zone(
                     ui,
                     &self.tmp_stack,
-                    self.pos(&self.tmp_stack),
-                    &state.reference,
-                    &self.controls,
+                    self.pos(&self.tmp_stack, adaptor),
+                    &adaptor.reference(),
                     NoteDrawStyle::Playing,
-                    forward,
+                    adaptor,
                 );
-                if self.has_projection(stack) {
+                if self.has_projection(&stack, adaptor) {
                     self.draw_state.draw_note_and_interaction_zone(
                         ui,
-                        stack,
-                        self.pos(stack),
-                        &state.reference,
-                        &self.controls,
+                        &stack,
+                        self.pos(&stack, adaptor),
+                        &adaptor.reference(),
                         NoteDrawStyle::Antenna,
-                        forward,
+                        adaptor,
                     );
                 }
             }
         }
     }
 
-    fn draw_lattice(
-        &mut self,
-        ui: &mut egui::Ui,
-        state: &KeysAndTunings<T>,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) where
-        T: Hash,
-    {
-        self.update_positions(state);
-        self.draw_down_lines(ui, state);
-        self.draw_grid_lines(ui, state);
-        self.draw_note_names_and_interaction_zones(ui, state, forward);
+    fn draw_lattice(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+        self.update_positions(adaptor);
+        self.draw_down_lines(ui, adaptor);
+        self.draw_grid_lines(ui, adaptor);
+        self.draw_note_names_and_interaction_zones(ui, adaptor);
     }
 
-    fn keyboard_height(&self) -> f32 {
-        self.controls.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH)
+    fn keyboard_height(&self, adaptor: &impl UiAdaptor<T>) -> f32 {
+        adaptor.config().lattice.zoom * (WHITE_KEY_LENGTH + MARKER_LENGTH)
     }
 
-    fn keyboard_top(&self) -> f32 {
-        self.positions.bottom - self.keyboard_height()
+    fn keyboard_top(&self, adaptor: &impl UiAdaptor<T>) -> f32 {
+        self.positions.bottom - self.keyboard_height(adaptor)
     }
 }
 
-impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        state: &KeysAndTunings<T>,
-        latency: &LatencyWindow,
-        show_side_panel: &mut bool,
-        forward: &mpsc::Sender<FromUi<T>>,
-    ) {
+// impl<T: StackType> ReceiveMsgRef<ToUi<T>> for LatticeWindow<T> {
+//     fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
+//         match msg {
+//             ToUi::Consider { stack } => {
+//                 let _ = self.considered_notes.insert(stack);
+//             }
+//
+//             ToUi::PedalHold { channel, value, .. } => {
+//                 adaptor.config().lattice.screen_keyboard_pedal_hold =
+//                     (*channel == adaptor.config().lattice.screen_keyboard_channel) & (*value != 0);
+//             }
+//
+//             _ => {}
+//         }
+//     }
+// }
+
+impl<T: StackType + HasNoteNames> GuiShow<T> for LatticeWindow<T> {
+    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
         let r = ui.interact(
             ui.max_rect(),
             egui::Id::new("global_grid_interaction"),
@@ -1091,50 +1014,33 @@ impl<T: StackType + HasNoteNames + Hash> LatticeWindow<T> {
                 x: center,
                 y: bottom,
             } = ui.max_rect().center_bottom();
-            self.positions.left = center - self.c4_offset(state);
+            self.positions.left = center - self.c4_offset(adaptor);
             self.positions.bottom = bottom;
         }
-        self.keyboard_hover_interaction(ui, forward);
-        self.draw_keyboard(ui, state, forward);
-        self.draw_lattice(ui, state, forward);
+        self.keyboard_hover_interaction(ui, adaptor);
+        self.draw_keyboard(ui, adaptor);
+        self.draw_lattice(ui, adaptor);
 
-        ui.horizontal(|ui| {
-            if !*show_side_panel {
-                if ui.button("☰").clicked() {
-                    *show_side_panel = true;
-                }
-            } else {
-                if ui.button("⏴").clicked() {
-                    *show_side_panel = false;
-                }
-            }
-
-            if ui.button("🔍+").clicked() {
-                self.controls.zoom *= 1.1;
-            }
-            if ui.button("🔍-").clicked() {
-                self.controls.zoom /= 1.1;
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                latency.show(ui);
-            });
-        });
-    }
-}
-
-impl<T: StackType> ReceiveMsgRef<ToUi<T>> for LatticeWindow<T> {
-    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
-        match msg {
-            ToUi::Consider { stack } => {
-                let _ = self.considered_notes.insert(stack);
-            }
-
-            ToUi::PedalHold { channel, value, .. } => {
-                self.controls.screen_keyboard_pedal_hold =
-                    (*channel == self.controls.screen_keyboard_channel) & (*value != 0);
-            }
-
-            _ => {}
-        }
+        // ui.horizontal(|ui| {
+        //     if !*show_side_panel {
+        //         if ui.button("☰").clicked() {
+        //             *show_side_panel = true;
+        //         }
+        //     } else {
+        //         if ui.button("⏴").clicked() {
+        //             *show_side_panel = false;
+        //         }
+        //     }
+        //
+        //     if ui.button("🔍+").clicked() {
+        //         adaptor.config().lattice.zoom *= 1.1;
+        //     }
+        //     if ui.button("🔍-").clicked() {
+        //         adaptor.config().lattice.zoom /= 1.1;
+        //     }
+        //     ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+        //         latency.show(ui);
+        //     });
+        // });
     }
 }

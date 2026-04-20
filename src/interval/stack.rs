@@ -1,4 +1,8 @@
-use std::{marker::PhantomData, ops};
+use std::{
+    hash::{Hash, Hasher},
+    marker::PhantomData,
+    ops,
+};
 
 use ndarray::{Array1, ArrayView1};
 use num_rational::Ratio;
@@ -9,11 +13,18 @@ use crate::interval::{
     stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
 };
 
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Stack<T: IntervalBasis> {
     _phantom: PhantomData<T>,
     pub target: Array1<StackCoeff>,
     pub actual: Array1<Ratio<StackCoeff>>,
+}
+
+impl<T: IntervalBasis> Hash for Stack<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.target.hash(state);
+        self.actual.hash(state);
+    }
 }
 
 pub trait ScaledAdd<S> {

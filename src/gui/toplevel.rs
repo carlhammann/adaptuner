@@ -1,454 +1,454 @@
-use std::{cell::RefCell, hash::Hash, rc::Rc, sync::mpsc, time::Instant};
-
-use eframe::{self, egui};
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    config::{BackendConfig, GuiConfig, ProcessConfig},
-    gui::r#trait::ConcreteUiAdaptor,
-    interval::{
-        stack::Stack,
-        stacktype::r#trait::{IntervalBasis, OctavePeriodicStackType, Reloadable, StackType},
-    },
-    keystate::KeyState,
-    msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi},
-    notename::HasNoteNames,
-    process::r#trait::StackWithTuning,
-    reference::Reference,
-    util::readerwriter::ConcreteReader128,
-};
-
-use super::{
-    backend::BackendWindow,
-    common::{CorrectionSystemChooser, SmallFloatingWindow},
-    config::ConfigFileDialog,
-    connection::{ConnectionWindow, Input, Output},
-    editor::{commas::CommaEditor, temperament::TemperamentEditor},
-    latency::LatencyWindow,
-    lattice::LatticeWindow,
-    latticecontrol::{AsBigControls, AsKeyboardControls},
-    notifications::Notifications,
-    r#trait::GuiShow,
-    strategy::{AsStrategyPicker, AsWindows, StrategyWindows},
-};
-
-pub struct KeysAndTunings<T: IntervalBasis> {
-    pub active_notes: [KeyState; 128],
-    pub pedal_hold: [bool; 16],
-    pub tunings: ConcreteReader128<StackWithTuning<T>>,
-    pub reference: Stack<T>,
-    pub tuning_reference: Reference<T>,
-}
-
-impl<T: IntervalBasis + 'static> KeysAndTunings<T> {
-    fn new(time: Instant, tunings: ConcreteReader128<StackWithTuning<T>>) -> Self {
-        Self {
-            active_notes: core::array::from_fn(|_| KeyState::new(time)),
-            pedal_hold: [false; 16],
-            tunings,
-            reference: Stack::new_zero(),
-            tuning_reference: Reference {
-                stack: Stack::new_zero(),
-                semitones: 60.0,
-            },
-        }
-    }
-}
-
-pub struct Toplevel<T: StackType> {
-    state: KeysAndTunings<T>,
-
-    show_side_panel: bool,
-
-    lattice: LatticeWindow<T>,
-    keyboard_control_window: SmallFloatingWindow,
-
-    strategies: StrategyWindows<T>,
-
-    input_connection: ConnectionWindow<Input>,
-    output_connection: ConnectionWindow<Output>,
-    connection_window: SmallFloatingWindow,
-
-    backend: BackendWindow,
-
-    latency: LatencyWindow,
-
-    tx: mpsc::Sender<FromUi<T>>,
-
-    // notes: NoteWindow<T>,
-    // note_window: SmallFloatingWindow,
-    current_config: GuiConfig<T>,
-    current_backend_config: Option<BackendConfig>,
-    current_process_config: Option<ProcessConfig<T>>,
-
-    config_file_dialog: ConfigFileDialog<T>,
-
-    notifications: Notifications<T>,
-
-    temperament_editor: TemperamentEditor<T>,
-    temperament_editor_window: SmallFloatingWindow,
-
-    comma_editor: CommaEditor<T>,
-    comma_editor_window: SmallFloatingWindow,
-}
-
-/// [OctavePeriodicStackType] is needed for the [ChordListEditor]
-impl<T: OctavePeriodicStackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
-    pub fn new(config: GuiConfig<T>, _ctx: &egui::Context, adaptor: ConcreteUiAdaptor<T>) -> Self {
-        let correction_system_chooser = Rc::new(RefCell::new(CorrectionSystemChooser::new(
-            "correction_system_chooser",
-            config.use_cent_values,
-        )));
-
-        Self {
-            state: KeysAndTunings::new(Instant::now(), adaptor.tunings),
-
-            show_side_panel: false,
-
-            strategies: StrategyWindows::new(
-                config.strategies.clone(),
-                config.tuning_editor.clone(),
-                config.reference_editor.clone(),
-                correction_system_chooser.clone(),
-            ),
-
-            lattice: LatticeWindow::new(
-                config.lattice_window.clone(),
-                correction_system_chooser.clone(),
-            ),
-            keyboard_control_window: SmallFloatingWindow::new(
-                egui::Id::new("keyboard_control_window"),
-                false,
-            ),
-
-            input_connection: ConnectionWindow::new(),
-            output_connection: ConnectionWindow::new(),
-            connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window"), true),
-            backend: BackendWindow::new(config.backend_window.clone()),
-            latency: LatencyWindow::new(config.latency_mean_over),
-            // notes: NoteWindow::new(ctx),
-            // note_window: SmallFloatingWindow::new(egui::Id::new("note_window")),
-            tx: adaptor.forward,
-            current_config: config,
-            current_backend_config: None {},
-            current_process_config: None {},
-            config_file_dialog: ConfigFileDialog::new(),
-            notifications: Notifications::new(correction_system_chooser),
-            temperament_editor: TemperamentEditor::new(),
-            temperament_editor_window: SmallFloatingWindow::new(
-                egui::Id::new("temperament_editor_window"),
-                false,
-            ),
-            comma_editor: CommaEditor::new(),
-            comma_editor_window: SmallFloatingWindow::new(
-                egui::Id::new("comma_editor_window"),
-                false,
-            ),
-        }
-    }
-
-    fn restart_from_config(&mut self, config: GuiConfig<T>, time: Instant) {
-        let correction_system_chooser = Rc::new(RefCell::new(CorrectionSystemChooser::new(
-            "correction_system_chooser",
-            config.use_cent_values,
-        )));
-
-        self.state = KeysAndTunings::new(time, self.state.tunings.clone());
-
-        self.lattice
-            .restart_from_config(config.lattice_window, correction_system_chooser.clone());
-
-        self.strategies.restart_from_config(
-            config.strategies,
-            config.tuning_editor,
-            config.reference_editor,
-            correction_system_chooser.clone(),
-            time,
-        );
-        // input, output, latency, config_file_dialog don't need a restart
-
-        self.backend
-            .restart_from_config(config.backend_window, time);
-
-        self.notifications = Notifications::new(correction_system_chooser);
-
-        self.temperament_editor = TemperamentEditor::new();
-        self.comma_editor = CommaEditor::new();
-
-        // self.notes.restart_from_config(config.notes_window, time);
-    }
-}
-
-impl<T: StackType + Serialize> ReceiveMsg<ToUi<T>> for Toplevel<T> {
-    fn receive_msg(&mut self, msg: ToUi<T>) {
-        self.lattice.receive_msg_ref(&msg);
-        // self.notes.receive_msg_ref(&msg);
-        self.strategies.receive_msg_ref(&msg);
-        self.input_connection.receive_msg_ref(&msg);
-        self.output_connection.receive_msg_ref(&msg);
-        self.latency.receive_msg_ref(&msg);
-        self.notifications.receive_msg_ref(&msg);
-
-        match msg {
-            ToUi::NoteOn {
-                time,
-                channel,
-                note,
-            } => {
-                self.state.active_notes[note as usize].note_on(channel, time);
-            }
-
-            ToUi::NoteOff {
-                time,
-                channel,
-                note,
-            } => {
-                self.state.active_notes[note as usize].note_off(
-                    channel,
-                    self.state.pedal_hold[channel as usize],
-                    time,
-                );
-            }
-
-            ToUi::PedalHold {
-                channel,
-                value,
-                time,
-            } => {
-                self.state.pedal_hold[channel as usize] = value != 0;
-                if value == 0 {
-                    for n in self.state.active_notes.iter_mut() {
-                        n.pedal_off(channel, time);
-                    }
-                }
-            }
-
-            ToUi::Retune { .. } => {}
-
-            ToUi::SetReference { stack } => {
-                self.state.reference = stack;
-            }
-
-            ToUi::SetTuningReference { reference } => {
-                self.state.tuning_reference = reference;
-            }
-
-            ToUi::CurrentProcessConfig(process_config) => {
-                self.current_process_config = Some(process_config);
-            }
-            ToUi::CurrentBackendConfig(backend_config) => {
-                self.current_backend_config = Some(backend_config);
-            }
-
-            _ => {}
-        }
-    }
-}
-
-/// [OctavePeriodicStackType] is needed for the [ChordListEditor]
-impl<T> eframe::App for Toplevel<T>
-where
-    T: OctavePeriodicStackType
-        + HasNoteNames
-        + PartialEq
-        + Hash
-        + Serialize
-        + for<'a> Deserialize<'a>
-        + Reloadable,
-{
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // no need to check for the ConfigFileDialog, which is also shown as modal; this has its
-        // own implementation of a modal window from egui_file_dialog
-        let any_modal_open =
-            self.temperament_editor_window.is_open() || self.comma_editor_window.is_open();
-
-        egui::SidePanel::left("left panel").show_animated(ctx, self.show_side_panel, |ui| {
-            if any_modal_open {
-                ui.disable();
-            }
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.visuals_mut().collapsing_header_frame = true;
-
-                AsStrategyPicker(&mut self.strategies).show(ui, &self.state, &self.tx);
-
-                ui.separator();
-
-                self.connection_window
-                    .show_hide_button(ui, "MIDI connections");
-                // self.note_window.show_hide_button(ui, "notes");
-                self.keyboard_control_window
-                    .show_hide_button(ui, "keyboard controls");
-                if self
-                    .temperament_editor_window
-                    .show_hide_button(ui, "temperaments")
-                {
-                    self.current_config = self.extract_config();
-                    self.temperament_editor = TemperamentEditor::new();
-                }
-                if self.comma_editor_window.show_hide_button(ui, "commas") {
-                    self.current_config = self.extract_config();
-                    self.comma_editor = CommaEditor::new();
-                }
-
-                ui.separator();
-
-                if ui.button("save configuration").clicked() {
-                    self.current_config = self.extract_config();
-                    self.current_process_config = None {};
-                    self.current_backend_config = None {};
-                    let _ = self.tx.send(FromUi::GetCurrentProcessConfig);
-                    let _ = self.tx.send(FromUi::GetCurrentBackendConfig);
-                    self.config_file_dialog.as_save().open();
-                }
-
-                if ui.button("load configuration").clicked() {
-                    self.current_config = self.extract_config();
-                    self.current_process_config = None {};
-                    self.current_backend_config = None {};
-                    let _ = self.tx.send(FromUi::GetCurrentProcessConfig);
-                    let _ = self.tx.send(FromUi::GetCurrentBackendConfig);
-                    self.config_file_dialog.as_load().open();
-                }
-
-                ui.separator();
-
-                AsBigControls(&mut self.lattice).show(ui);
-
-                ui.separator();
-
-                egui::widgets::global_theme_preference_buttons(ui);
-            });
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if any_modal_open {
-                ui.disable();
-            }
-
-            self.notifications.clear_old(Instant::now());
-            if self.notifications.is_nonempty() {
-                egui::Window::new("notification window")
-                    .title_bar(false)
-                    .resizable(false)
-                    .interactable(false)
-                    .fixed_pos(ui.max_rect().center_top())
-                    .pivot(egui::Align2::CENTER_TOP)
-                    .show(ui.ctx(), |ui| {
-                        if any_modal_open {
-                            ui.disable();
-                        }
-                        self.notifications.show(
-                            ui,
-                            &self.state,
-                            self.strategies.currently_active().map(|p| &p.0),
-                        )
-                    });
-            }
-
-            AsWindows(&mut self.strategies).show(ui, any_modal_open, &self.tx);
-
-            self.keyboard_control_window
-                .show("keyboard controls", ctx, |ui| {
-                    if any_modal_open {
-                        ui.disable();
-                    }
-                    AsKeyboardControls(&mut self.lattice).show(ui, &self.tx);
-                });
-
-            self.connection_window.show("midi connections", ctx, |ui| {
-                ui.vertical(|ui| {
-                    if any_modal_open {
-                        ui.disable();
-                    }
-                    self.input_connection.show(ui, &self.tx);
-                    self.output_connection.show(ui, &self.tx);
-
-                    ui.separator();
-
-                    ui.vertical_centered(|ui| ui.label("output settings"));
-                    self.backend.show(ui, &self.tx);
-                });
-            });
-
-            let new_config = self.config_file_dialog.show(
-                ui,
-                &self.current_config,
-                &self.current_process_config,
-                &self.current_backend_config,
-            );
-            if let Some(config) = new_config {
-                let (process_config, gui_config, backend_config) = config.split();
-                let _ = T::initialise(config.temperaments, config.named_intervals);
-
-                let time = Instant::now();
-                self.restart_from_config(gui_config, time);
-                let _ = self.tx.send(FromUi::RestartProcessWithConfig {
-                    config: process_config,
-                    time,
-                });
-                let _ = self.tx.send(FromUi::RestartBackendWithConfig {
-                    config: backend_config,
-                    time,
-                });
-
-                return; // don't continue updating for this frame
-            }
-
-            if let Some(egui::InnerResponse {
-                inner: Some(Some(new_temperament_definitions)),
-                ..
-            }) = self
-                .temperament_editor_window
-                .show("temperaments", ctx, |ui| self.temperament_editor.show(ui))
-            {
-                let named_intervals = T::named_intervals().clone();
-                let _ = T::initialise(new_temperament_definitions, named_intervals);
-
-                let time = Instant::now();
-                self.restart_from_config(self.current_config.clone(), time);
-                let _ = self
-                    .tx
-                    .send(FromUi::RestartProcessWithCurrentConfig { time });
-                let _ = self
-                    .tx
-                    .send(FromUi::RestartBackendWithCurrentConfig { time });
-
-                return; // don't continue updating for this frame
-            }
-
-            if let Some(egui::InnerResponse {
-                inner: Some(Some(new_named_intervals)),
-                ..
-            }) = self
-                .comma_editor_window
-                .show("commas", ctx, |ui| self.comma_editor.show(ui))
-            {
-                let temperament_definitions = T::temperament_definitions().clone();
-                let _ = T::initialise(temperament_definitions, new_named_intervals);
-
-                let time = Instant::now();
-                self.restart_from_config(self.current_config.clone(), time);
-                let _ = self
-                    .tx
-                    .send(FromUi::RestartProcessWithCurrentConfig { time });
-                let _ = self
-                    .tx
-                    .send(FromUi::RestartBackendWithCurrentConfig { time });
-
-                return; // don't continue updating for this frame
-            }
-
-            self.lattice.show(
-                ui,
-                &self.state,
-                &self.latency,
-                &mut self.show_side_panel,
-                &self.tx,
-            );
-        });
-
-        // self.note_window.show("notes", ctx, |ui| {
-        //     self.notes.show(ui, &self.tx);
-        // });
-    }
-}
+// use std::{cell::RefCell, hash::Hash, rc::Rc, sync::mpsc, time::Instant};
+//
+// use eframe::{self, egui};
+// use serde::{Deserialize, Serialize};
+//
+// use crate::{
+//     config::{BackendConfig, GuiConfig, ProcessConfig},
+//     gui::r#trait::ConcreteUiAdaptor,
+//     interval::{
+//         stack::Stack,
+//         stacktype::r#trait::{IntervalBasis, OctavePeriodicStackType, Reloadable, StackType},
+//     },
+//     keystate::KeyState,
+//     msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi},
+//     notename::HasNoteNames,
+//     process::r#trait::StackWithTuning,
+//     reference::Reference,
+//     util::readerwriter::ConcreteReader128,
+// };
+//
+// use super::{
+//     backend::BackendWindow,
+//     common::{CorrectionSystemChooser, SmallFloatingWindow},
+//     config::ConfigFileDialog,
+//     connection::{ConnectionWindow, Input, Output},
+//     editor::{commas::CommaEditor, temperament::TemperamentEditor},
+//     latency::LatencyWindow,
+//     lattice::LatticeWindow,
+//     latticecontrol::{AsBigControls, AsKeyboardControls},
+//     notifications::Notifications,
+//     r#trait::GuiShow,
+//     strategy::{AsStrategyPicker, AsWindows, StrategyWindows},
+// };
+//
+// pub struct KeysAndTunings<T: IntervalBasis> {
+//     pub active_notes: [KeyState; 128],
+//     pub pedal_hold: [bool; 16],
+//     pub tunings: ConcreteReader128<StackWithTuning<T>>,
+//     pub reference: Stack<T>,
+//     pub tuning_reference: Reference<T>,
+// }
+//
+// impl<T: IntervalBasis + 'static> KeysAndTunings<T> {
+//     fn new(time: Instant, tunings: ConcreteReader128<StackWithTuning<T>>) -> Self {
+//         Self {
+//             active_notes: core::array::from_fn(|_| KeyState::new(time)),
+//             pedal_hold: [false; 16],
+//             tunings,
+//             reference: Stack::new_zero(),
+//             tuning_reference: Reference {
+//                 stack: Stack::new_zero(),
+//                 semitones: 60.0,
+//             },
+//         }
+//     }
+// }
+//
+// pub struct Toplevel<T: StackType> {
+//     state: KeysAndTunings<T>,
+//
+//     show_side_panel: bool,
+//
+//     lattice: LatticeWindow<T>,
+//     keyboard_control_window: SmallFloatingWindow,
+//
+//     strategies: StrategyWindows<T>,
+//
+//     input_connection: ConnectionWindow<Input>,
+//     output_connection: ConnectionWindow<Output>,
+//     connection_window: SmallFloatingWindow,
+//
+//     backend: BackendWindow,
+//
+//     latency: LatencyWindow,
+//
+//     tx: mpsc::Sender<FromUi<T>>,
+//
+//     // notes: NoteWindow<T>,
+//     // note_window: SmallFloatingWindow,
+//     current_config: GuiConfig<T>,
+//     current_backend_config: Option<BackendConfig>,
+//     current_process_config: Option<ProcessConfig<T>>,
+//
+//     config_file_dialog: ConfigFileDialog<T>,
+//
+//     notifications: Notifications<T>,
+//
+//     temperament_editor: TemperamentEditor<T>,
+//     temperament_editor_window: SmallFloatingWindow,
+//
+//     comma_editor: CommaEditor<T>,
+//     comma_editor_window: SmallFloatingWindow,
+// }
+//
+// /// [OctavePeriodicStackType] is needed for the [ChordListEditor]
+// impl<T: OctavePeriodicStackType + HasNoteNames + Hash + Serialize> Toplevel<T> {
+//     pub fn new(config: GuiConfig<T>, _ctx: &egui::Context, adaptor: ConcreteUiAdaptor<T>) -> Self {
+//         let correction_system_chooser = Rc::new(RefCell::new(CorrectionSystemChooser::new(
+//             "correction_system_chooser",
+//             config.use_cent_values,
+//         )));
+//
+//         Self {
+//             state: KeysAndTunings::new(Instant::now(), adaptor.tunings),
+//
+//             show_side_panel: false,
+//
+//             strategies: StrategyWindows::new(
+//                 config.strategies.clone(),
+//                 config.tuning_editor.clone(),
+//                 config.reference_editor.clone(),
+//                 correction_system_chooser.clone(),
+//             ),
+//
+//             lattice: LatticeWindow::new(
+//                 config.lattice_window.clone(),
+//                 correction_system_chooser.clone(),
+//             ),
+//             keyboard_control_window: SmallFloatingWindow::new(
+//                 egui::Id::new("keyboard_control_window"),
+//                 false,
+//             ),
+//
+//             input_connection: ConnectionWindow::new(),
+//             output_connection: ConnectionWindow::new(),
+//             connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window"), true),
+//             backend: BackendWindow::new(config.backend_window.clone()),
+//             latency: LatencyWindow::new(config.latency_mean_over),
+//             // notes: NoteWindow::new(ctx),
+//             // note_window: SmallFloatingWindow::new(egui::Id::new("note_window")),
+//             tx: adaptor.forward,
+//             current_config: config,
+//             current_backend_config: None {},
+//             current_process_config: None {},
+//             config_file_dialog: ConfigFileDialog::new(),
+//             notifications: Notifications::new(correction_system_chooser),
+//             temperament_editor: TemperamentEditor::new(),
+//             temperament_editor_window: SmallFloatingWindow::new(
+//                 egui::Id::new("temperament_editor_window"),
+//                 false,
+//             ),
+//             comma_editor: CommaEditor::new(),
+//             comma_editor_window: SmallFloatingWindow::new(
+//                 egui::Id::new("comma_editor_window"),
+//                 false,
+//             ),
+//         }
+//     }
+//
+//     fn restart_from_config(&mut self, config: GuiConfig<T>, time: Instant) {
+//         let correction_system_chooser = Rc::new(RefCell::new(CorrectionSystemChooser::new(
+//             "correction_system_chooser",
+//             config.use_cent_values,
+//         )));
+//
+//         self.state = KeysAndTunings::new(time, self.state.tunings.clone());
+//
+//         self.lattice
+//             .restart_from_config(config.lattice_window, correction_system_chooser.clone());
+//
+//         self.strategies.restart_from_config(
+//             config.strategies,
+//             config.tuning_editor,
+//             config.reference_editor,
+//             correction_system_chooser.clone(),
+//             time,
+//         );
+//         // input, output, latency, config_file_dialog don't need a restart
+//
+//         self.backend
+//             .restart_from_config(config.backend_window, time);
+//
+//         self.notifications = Notifications::new(correction_system_chooser);
+//
+//         self.temperament_editor = TemperamentEditor::new();
+//         self.comma_editor = CommaEditor::new();
+//
+//         // self.notes.restart_from_config(config.notes_window, time);
+//     }
+// }
+//
+// impl<T: StackType + Serialize> ReceiveMsg<ToUi<T>> for Toplevel<T> {
+//     fn receive_msg(&mut self, msg: ToUi<T>) {
+//         self.lattice.receive_msg_ref(&msg);
+//         // self.notes.receive_msg_ref(&msg);
+//         self.strategies.receive_msg_ref(&msg);
+//         self.input_connection.receive_msg_ref(&msg);
+//         self.output_connection.receive_msg_ref(&msg);
+//         self.latency.receive_msg_ref(&msg);
+//         self.notifications.receive_msg_ref(&msg);
+//
+//         match msg {
+//             ToUi::NoteOn {
+//                 time,
+//                 channel,
+//                 note,
+//             } => {
+//                 self.state.active_notes[note as usize].note_on(channel, time);
+//             }
+//
+//             ToUi::NoteOff {
+//                 time,
+//                 channel,
+//                 note,
+//             } => {
+//                 self.state.active_notes[note as usize].note_off(
+//                     channel,
+//                     self.state.pedal_hold[channel as usize],
+//                     time,
+//                 );
+//             }
+//
+//             ToUi::PedalHold {
+//                 channel,
+//                 value,
+//                 time,
+//             } => {
+//                 self.state.pedal_hold[channel as usize] = value != 0;
+//                 if value == 0 {
+//                     for n in self.state.active_notes.iter_mut() {
+//                         n.pedal_off(channel, time);
+//                     }
+//                 }
+//             }
+//
+//             ToUi::Retune { .. } => {}
+//
+//             ToUi::SetReference { stack } => {
+//                 self.state.reference = stack;
+//             }
+//
+//             ToUi::SetTuningReference { reference } => {
+//                 self.state.tuning_reference = reference;
+//             }
+//
+//             ToUi::CurrentProcessConfig(process_config) => {
+//                 self.current_process_config = Some(process_config);
+//             }
+//             ToUi::CurrentBackendConfig(backend_config) => {
+//                 self.current_backend_config = Some(backend_config);
+//             }
+//
+//             _ => {}
+//         }
+//     }
+// }
+//
+// /// [OctavePeriodicStackType] is needed for the [ChordListEditor]
+// impl<T> eframe::App for Toplevel<T>
+// where
+//     T: OctavePeriodicStackType
+//         + HasNoteNames
+//         + PartialEq
+//         + Hash
+//         + Serialize
+//         + for<'a> Deserialize<'a>
+//         + Reloadable,
+// {
+//     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+//         // no need to check for the ConfigFileDialog, which is also shown as modal; this has its
+//         // own implementation of a modal window from egui_file_dialog
+//         let any_modal_open =
+//             self.temperament_editor_window.is_open() || self.comma_editor_window.is_open();
+//
+//         egui::SidePanel::left("left panel").show_animated(ctx, self.show_side_panel, |ui| {
+//             if any_modal_open {
+//                 ui.disable();
+//             }
+//             egui::ScrollArea::vertical().show(ui, |ui| {
+//                 ui.visuals_mut().collapsing_header_frame = true;
+//
+//                 AsStrategyPicker(&mut self.strategies).show(ui, &self.state, &self.tx);
+//
+//                 ui.separator();
+//
+//                 self.connection_window
+//                     .show_hide_button(ui, "MIDI connections");
+//                 // self.note_window.show_hide_button(ui, "notes");
+//                 self.keyboard_control_window
+//                     .show_hide_button(ui, "keyboard controls");
+//                 if self
+//                     .temperament_editor_window
+//                     .show_hide_button(ui, "temperaments")
+//                 {
+//                     self.current_config = self.extract_config();
+//                     self.temperament_editor = TemperamentEditor::new();
+//                 }
+//                 if self.comma_editor_window.show_hide_button(ui, "commas") {
+//                     self.current_config = self.extract_config();
+//                     self.comma_editor = CommaEditor::new();
+//                 }
+//
+//                 ui.separator();
+//
+//                 if ui.button("save configuration").clicked() {
+//                     self.current_config = self.extract_config();
+//                     self.current_process_config = None {};
+//                     self.current_backend_config = None {};
+//                     let _ = self.tx.send(FromUi::GetCurrentProcessConfig);
+//                     let _ = self.tx.send(FromUi::GetCurrentBackendConfig);
+//                     self.config_file_dialog.as_save().open();
+//                 }
+//
+//                 if ui.button("load configuration").clicked() {
+//                     self.current_config = self.extract_config();
+//                     self.current_process_config = None {};
+//                     self.current_backend_config = None {};
+//                     let _ = self.tx.send(FromUi::GetCurrentProcessConfig);
+//                     let _ = self.tx.send(FromUi::GetCurrentBackendConfig);
+//                     self.config_file_dialog.as_load().open();
+//                 }
+//
+//                 ui.separator();
+//
+//                 AsBigControls(&mut self.lattice).show(ui);
+//
+//                 ui.separator();
+//
+//                 egui::widgets::global_theme_preference_buttons(ui);
+//             });
+//         });
+//
+//         egui::CentralPanel::default().show(ctx, |ui| {
+//             if any_modal_open {
+//                 ui.disable();
+//             }
+//
+//             self.notifications.clear_old(Instant::now());
+//             if self.notifications.is_nonempty() {
+//                 egui::Window::new("notification window")
+//                     .title_bar(false)
+//                     .resizable(false)
+//                     .interactable(false)
+//                     .fixed_pos(ui.max_rect().center_top())
+//                     .pivot(egui::Align2::CENTER_TOP)
+//                     .show(ui.ctx(), |ui| {
+//                         if any_modal_open {
+//                             ui.disable();
+//                         }
+//                         self.notifications.show(
+//                             ui,
+//                             &self.state,
+//                             self.strategies.currently_active().map(|p| &p.0),
+//                         )
+//                     });
+//             }
+//
+//             AsWindows(&mut self.strategies).show(ui, any_modal_open, &self.tx);
+//
+//             self.keyboard_control_window
+//                 .show("keyboard controls", ctx, |ui| {
+//                     if any_modal_open {
+//                         ui.disable();
+//                     }
+//                     AsKeyboardControls(&mut self.lattice).show(ui, &self.tx);
+//                 });
+//
+//             self.connection_window.show("midi connections", ctx, |ui| {
+//                 ui.vertical(|ui| {
+//                     if any_modal_open {
+//                         ui.disable();
+//                     }
+//                     self.input_connection.show(ui, &self.tx);
+//                     self.output_connection.show(ui, &self.tx);
+//
+//                     ui.separator();
+//
+//                     ui.vertical_centered(|ui| ui.label("output settings"));
+//                     self.backend.show(ui, &self.tx);
+//                 });
+//             });
+//
+//             let new_config = self.config_file_dialog.show(
+//                 ui,
+//                 &self.current_config,
+//                 &self.current_process_config,
+//                 &self.current_backend_config,
+//             );
+//             if let Some(config) = new_config {
+//                 let (process_config, gui_config, backend_config) = config.split();
+//                 let _ = T::initialise(config.temperaments, config.named_intervals);
+//
+//                 let time = Instant::now();
+//                 self.restart_from_config(gui_config, time);
+//                 let _ = self.tx.send(FromUi::RestartProcessWithConfig {
+//                     config: process_config,
+//                     time,
+//                 });
+//                 let _ = self.tx.send(FromUi::RestartBackendWithConfig {
+//                     config: backend_config,
+//                     time,
+//                 });
+//
+//                 return; // don't continue updating for this frame
+//             }
+//
+//             if let Some(egui::InnerResponse {
+//                 inner: Some(Some(new_temperament_definitions)),
+//                 ..
+//             }) = self
+//                 .temperament_editor_window
+//                 .show("temperaments", ctx, |ui| self.temperament_editor.show(ui))
+//             {
+//                 let named_intervals = T::named_intervals().clone();
+//                 let _ = T::initialise(new_temperament_definitions, named_intervals);
+//
+//                 let time = Instant::now();
+//                 self.restart_from_config(self.current_config.clone(), time);
+//                 let _ = self
+//                     .tx
+//                     .send(FromUi::RestartProcessWithCurrentConfig { time });
+//                 let _ = self
+//                     .tx
+//                     .send(FromUi::RestartBackendWithCurrentConfig { time });
+//
+//                 return; // don't continue updating for this frame
+//             }
+//
+//             if let Some(egui::InnerResponse {
+//                 inner: Some(Some(new_named_intervals)),
+//                 ..
+//             }) = self
+//                 .comma_editor_window
+//                 .show("commas", ctx, |ui| self.comma_editor.show(ui))
+//             {
+//                 let temperament_definitions = T::temperament_definitions().clone();
+//                 let _ = T::initialise(temperament_definitions, new_named_intervals);
+//
+//                 let time = Instant::now();
+//                 self.restart_from_config(self.current_config.clone(), time);
+//                 let _ = self
+//                     .tx
+//                     .send(FromUi::RestartProcessWithCurrentConfig { time });
+//                 let _ = self
+//                     .tx
+//                     .send(FromUi::RestartBackendWithCurrentConfig { time });
+//
+//                 return; // don't continue updating for this frame
+//             }
+//
+//             self.lattice.show(
+//                 ui,
+//                 &self.state,
+//                 &self.latency,
+//                 &mut self.show_side_panel,
+//                 &self.tx,
+//             );
+//         });
+//
+//         // self.note_window.show("notes", ctx, |ui| {
+//         //     self.notes.show(ui, &self.tx);
+//         // });
+//     }
+// }

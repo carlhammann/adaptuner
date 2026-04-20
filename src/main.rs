@@ -28,6 +28,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         midi_out,
         config.strategies,
         config.backend,
+        config.gui,
     )?;
 
     Ok(())
