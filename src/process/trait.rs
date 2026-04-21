@@ -27,8 +27,8 @@ pub struct StackWithTuning<T: IntervalBasis> {
 
 pub struct ConcreteProcessAdaptor<T: StackType> {
     pub forward: mpsc::Sender<FromProcess<T>>,
-    pub tunings: Arc<RwLock<[StackWithTuning<T>; 128]>>,
-    pub key_states: Arc<RwLock<[KeyState; 128]>>,
+    pub tunings: [Arc<RwLock<StackWithTuning<T>>>; 128],
+    pub key_states: [Arc<RwLock<KeyState>>; 128],
     pub strategies: Arc<RwLock<Vec<StrategyConfig<T>>>>,
     pub active_strategy_index: Arc<AtomicUsize>,
 }
@@ -48,8 +48,10 @@ impl<T: StackType> Clone for ConcreteProcessAdaptor<T> {
 /// The `Clone` implementation should make it so that the same underlying data is referenced.
 pub trait ProcessAdaptor<T: StackType>: Clone {
     fn send(&self, msg: FromProcess<T>) -> bool;
-    fn key_states(&self) -> impl DerefMut<Target = [KeyState; 128]>;
-    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]>;
+    /// index `i` must be in the range `0..128`
+    fn key_state(&self, i: usize) -> impl DerefMut<Target = KeyState>;
+    /// index `i` must be in the range `0..128`
+    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
     fn config(&self) -> impl MapDerefMut<Target = Vec<StrategyConfig<T>>>;
     fn active_strategy_index(&self) -> usize;
     fn replace_active_strategy_index(&self, new_index: usize);
@@ -62,13 +64,13 @@ impl<T: StackType> ProcessAdaptor<T> for ConcreteProcessAdaptor<T> {
     }
 
     #[inline]
-    fn key_states(&self) -> impl DerefMut<Target = [KeyState; 128]> {
-        self.key_states.write()
+    fn key_state(&self, i:usize) -> impl DerefMut<Target = KeyState> {
+        self.key_states[i].write()
     }
 
     #[inline]
-    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
-        self.tunings.write()
+    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+        self.tunings[i].write()
     }
 
     #[inline]

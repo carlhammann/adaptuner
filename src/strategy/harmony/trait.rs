@@ -1,4 +1,5 @@
 use std::{
+    marker::PhantomData,
     ops::{Deref, DerefMut},
     time::Instant,
 };
@@ -38,8 +39,38 @@ pub struct HarmonyResult {
     pub progress: bool,
 }
 
+/// Return value for the Function [HarmonyStrategyAdaptor::key_state_iter]
+struct KeyStateIter<'a, T: StackType, A: HarmonyStrategyAdaptor<T>> {
+    _phantom: PhantomData<T>,
+    adaptor: &'a A,
+    pos: usize,
+}
+
+impl<'a, T: StackType, A: HarmonyStrategyAdaptor<T>> Iterator for KeyStateIter<'a, T, A> {
+    type Item = (usize, KeyState);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos >= 128 {
+            None {}
+        } else {
+            let res = (self.pos, *self.adaptor.key_state(self.pos));
+            self.pos += 1;
+            Some(res)
+        }
+    }
+}
+
 pub trait HarmonyStrategyAdaptor<T: StackType> {
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]>;
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
+    fn key_state_iter(&self) -> impl Iterator<Item = (usize, KeyState)>
+    where
+        Self: Sized,
+    {
+        KeyStateIter {
+            _phantom: PhantomData,
+            adaptor: self,
+            pos: 0,
+        }
+    }
     fn harmony(&self) -> impl DerefMut<Target = Harmony<T>>;
 }
 

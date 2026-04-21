@@ -78,7 +78,7 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         time: Instant,
         adaptor: &impl StaticNeighbourhoodsAdaptor<T>,
     ) {
-        if self.update_tuning(note, &mut adaptor.tunings()[note as usize]) {
+        if self.update_tuning(note, adaptor.tuning(note as usize)) {
             adaptor.send(FromStrategy::Retune { note, time });
         }
     }
@@ -88,7 +88,8 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         time: Instant,
         adaptor: &impl StaticNeighbourhoodsAdaptor<T>,
     ) {
-        for (i, state) in adaptor.key_states().iter().enumerate() {
+        for i in 0..128 {
+            let state = adaptor.key_state(i);
             if state.is_sounding() {
                 self.update_tuning_and_send(i as u8, time, adaptor);
             }
@@ -105,16 +106,18 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         self.tmp_stack.clone_from(&self.reference);
 
         if to_highest {
-            for (i, state) in adaptor.key_states().iter().enumerate().rev() {
+            for i in 0..128 {
+                let state = adaptor.key_state(i);
                 if state.is_sounding() {
-                    self.tmp_stack.clone_from(&adaptor.tunings()[i].stack);
+                    self.tmp_stack.clone_from(&adaptor.tuning(i).stack);
                     break;
                 }
             }
         } else {
-            for (i, state) in adaptor.key_states().iter().enumerate() {
+            for i in 0..128 {
+                let state = adaptor.key_state(i);
                 if state.is_sounding() {
-                    self.tmp_stack.clone_from(&adaptor.tunings()[i].stack);
+                    self.tmp_stack.clone_from(&adaptor.tuning(i).stack);
                     break;
                 }
             }
@@ -180,7 +183,7 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
     }
 
     fn note_on(&mut self, note: u8, time: Instant, adaptor: &A) -> bool {
-        if self.update_tuning(note, &mut adaptor.tunings()[note as usize]) {
+        if self.update_tuning(note, adaptor.tuning(note as usize)) {
             adaptor.send(FromStrategy::Retune { note, time });
         }
         false
@@ -193,10 +196,11 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
     fn update_tuning_reference(&mut self, time: Instant, adaptor: &A) -> bool {
         self.tuning_reference
             .clone_from(adaptor.config().tuning_reference());
-        for (i, state) in adaptor.key_states().iter().enumerate() {
+        for i in 0..128 {
+            let state = adaptor.key_state(i);
             if state.is_sounding() {
                 // do it like this to avoid double-locking 'adaptor.tunings'
-                let x = &mut adaptor.tunings()[i];
+                let x = &mut adaptor.tuning(i);
                 x.semitones = self.semitones_for_stack(&x.stack);
                 adaptor.send(FromStrategy::Retune {
                     note: i as u8,
@@ -246,7 +250,7 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
                 }
             }
 
-            ToStaticNeighbourhoods::Consider { stack, time } => todo!()
+            ToStaticNeighbourhoods::Consider { stack, time } => todo!(),
         }
         false
     }

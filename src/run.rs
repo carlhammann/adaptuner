@@ -1,14 +1,13 @@
 use std::{
     cell::RefCell,
-    sync::{mpsc, atomic::AtomicUsize, Arc},
+    sync::{atomic::AtomicUsize, mpsc, Arc},
     thread,
     time::Instant,
 };
 
-use parking_lot::RwLock;
 use eframe::egui;
 use midir::{MidiInput, MidiOutput};
-
+use parking_lot::RwLock;
 
 use crate::{
     backend::r#trait::ConcreteBackendAdaptor,
@@ -404,25 +403,27 @@ impl<T: StackType> RunState<T> {
 
         let process_adaptor = ConcreteProcessAdaptor {
             forward: from_process_tx,
-            tunings: Arc::new(RwLock::new(core::array::from_fn(|i| StackWithTuning {
-                stack: Stack::new_zero(),
-                semitones: i as Semitones,
-            }))),
-            key_states: Arc::new(RwLock::new(core::array::from_fn(|_| KeyState::new(now)))),
+            tunings: core::array::from_fn(|i| {
+                Arc::new(RwLock::new(StackWithTuning {
+                    stack: Stack::new_zero(),
+                    semitones: i as Semitones,
+                }))
+            }),
+            key_states: core::array::from_fn(|_| Arc::new(RwLock::new(KeyState::new(now)))),
             strategies: Arc::new(RwLock::new(strategies)),
             active_strategy_index: Arc::new(AtomicUsize::new(0)),
         };
 
         let backend_adaptor = ConcreteBackendAdaptor {
             forward: from_backend_tx,
-            tunings: process_adaptor.tunings.clone(),
-            key_states: process_adaptor.key_states.clone(),
+            tunings: core::array::from_fn(|i| process_adaptor.tunings[i].clone()),
+            key_states: core::array::from_fn(|i| process_adaptor.key_states[i].clone()),
         };
 
         let gui_adaptor = ConcreteUiAdaptor {
             forward: from_ui_tx,
-            tunings: process_adaptor.tunings.clone(),
-            key_states: process_adaptor.key_states.clone(),
+            tunings: core::array::from_fn(|i| process_adaptor.tunings[i].clone()),
+            key_states: core::array::from_fn(|i| process_adaptor.key_states[i].clone()),
             gui_config: RefCell::new(gui_config.clone()),
             strategies: process_adaptor.strategies.clone(),
             tuning_reference: Arc::new(RwLock::new(Reference::from_semitones(

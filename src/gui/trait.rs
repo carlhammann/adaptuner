@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    marker::PhantomData,
     ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -8,7 +9,7 @@ use std::{
     time::Instant,
 };
 
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockReadGuard};
 
 use eframe::egui;
 
@@ -18,7 +19,8 @@ use crate::{
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{
-        FromUi, ReceiveMsg, ToMelody, ToStaticNeighbourhoods, ToStaticNeighbourhoodsAsMelody, ToStrategy, ToTwoStep, ToUi
+        FromUi, ReceiveMsg, ToMelody, ToStaticNeighbourhoods, ToStaticNeighbourhoodsAsMelody,
+        ToStrategy, ToTwoStep, ToUi,
     },
     process::r#trait::StackWithTuning,
     reference::Reference,
@@ -26,8 +28,15 @@ use crate::{
 
 pub trait UiAdaptor<T: StackType> {
     fn send(&self, msg: FromUi<T>) -> bool;
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]>;
-    fn tunings(&self) -> impl Deref<Target = [StackWithTuning<T>; 128]>;
+    /// index `i` must be in the range `0..128`
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
+
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
+    /// iterator through all 128 tunings
+    fn tunings_iter(
+        &self,
+    ) -> impl Iterator<Item = (usize, impl Deref<Target = StackWithTuning<T>>)>;
+
     fn reference(&self) -> impl Deref<Target = Stack<T>>;
     fn config(&self) -> impl Deref<Target = GuiConfig>;
     fn strategy_config(&self) -> impl Deref<Target = Vec<StrategyConfig<T>>>;
@@ -60,9 +69,9 @@ pub trait UiAdaptor<T: StackType> {
 
 pub struct ConcreteUiAdaptor<T: StackType> {
     pub forward: mpsc::Sender<FromUi<T>>,
-    pub tunings: Arc<RwLock<[StackWithTuning<T>; 128]>>,
+    pub tunings: [Arc<RwLock<StackWithTuning<T>>>; 128],
     pub reference: Arc<RwLock<Stack<T>>>,
-    pub key_states: Arc<RwLock<[KeyState; 128]>>,
+    pub key_states: [Arc<RwLock<KeyState>>; 128],
     pub gui_config: RefCell<GuiConfig>,
     pub strategies: Arc<RwLock<Vec<StrategyConfig<T>>>>,
     pub active_strategy_index: Arc<AtomicUsize>,
@@ -70,17 +79,44 @@ pub struct ConcreteUiAdaptor<T: StackType> {
     pub correction_system_chooser: RefCell<CorrectionSystemChooser<T>>,
 }
 
+pub struct ConcreteTuningsIterator<'a, T: StackType> {
+    adaptor: &'a ConcreteUiAdaptor<T>,
+    pos: usize,
+}
+
+impl<'a, T: StackType> Iterator for ConcreteTuningsIterator<'a, T> {
+    type Item = (usize, RwLockReadGuard<'a, StackWithTuning<T>>);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos >= 128 {
+            None {}
+        } else {
+            let res = (self.pos, self.adaptor.tunings[self.pos].read());
+            self.pos += 1;
+            Some(res)
+        }
+    }
+}
+
 impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
     fn send(&self, msg: FromUi<T>) -> bool {
         self.forward.send(msg).is_ok()
     }
 
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
-        self.key_states.read()
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
+        self.key_states[i].read()
     }
 
-    fn tunings(&self) -> impl Deref<Target = [StackWithTuning<T>; 128]> {
-        self.tunings.read()
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
+        self.tunings[i].read()
+    }
+
+    fn tunings_iter(
+        &self,
+    ) -> impl Iterator<Item = (usize, impl Deref<Target = StackWithTuning<T>>)> {
+        ConcreteTuningsIterator {
+            adaptor: self,
+            pos: 0,
+        }
     }
 
     fn reference(&self) -> impl Deref<Target = Stack<T>> {

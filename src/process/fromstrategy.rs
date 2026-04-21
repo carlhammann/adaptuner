@@ -3,13 +3,13 @@ use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
     sync::mpsc,
-    sync::{Arc,},
+    sync::Arc,
     thread,
     time::Instant,
 };
 
-use parking_lot::RwLock;
 use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
+use parking_lot::RwLock;
 
 use crate::{
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
@@ -60,13 +60,13 @@ impl<T: StackType, P: ProcessAdaptor<T> + 'static> StrategyAdaptor<T>
     }
 
     #[inline]
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
-        self.process_adaptor.key_states()
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
+        self.process_adaptor.key_state(i)
     }
 
     #[inline]
-    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
-        self.process_adaptor.tunings()
+    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+        self.process_adaptor.tuning(i)
     }
 }
 
@@ -98,13 +98,13 @@ impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStep
     }
 
     #[inline]
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
-        self.process_adaptor.key_states()
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
+        self.process_adaptor.key_state(i)
     }
 
     #[inline]
-    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
-        self.process_adaptor.tunings()
+    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+        self.process_adaptor.tuning(i)
     }
 
     #[inline]
@@ -112,11 +112,11 @@ impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStep
         self.harmony.read()
     }
 }
-
+ 
 impl<T: StackType, P: ProcessAdaptor<T>> HarmonyStrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
     #[inline]
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
-        self.process_adaptor.key_states()
+    fn key_state(&self, i:usize) -> impl Deref<Target = KeyState> {
+        self.process_adaptor.key_state(i)
     }
 
     #[inline]
@@ -132,13 +132,13 @@ impl<T: StackType, P: ProcessAdaptor<T>> StrategyAdaptor<T> for TheTwoStepAdapto
     }
 
     #[inline]
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
-        self.process_adaptor.key_states()
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
+        self.process_adaptor.key_state(i)
     }
 
     #[inline]
-    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
-        self.process_adaptor.tunings()
+    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+        self.process_adaptor.tuning(i)
     }
 }
 
@@ -355,7 +355,7 @@ where
 
     fn handle_note_on(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.adaptor.key_states()[note as usize].note_on(channel, time) {
+            if self.adaptor.key_state(note as usize).note_on(channel, time) {
                 let _ = self.send_to_strategy(ToStrategy::NoteOn { note, time });
             }
             let _ = self.adaptor.send(FromProcess::NoteOn {
@@ -369,7 +369,7 @@ where
 
     fn handle_note_off(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.adaptor.key_states()[note as usize].note_off(
+            if self.adaptor.key_state(note as usize).note_off(
                 channel,
                 self.pedal_hold[channel as usize],
                 time,
@@ -392,7 +392,7 @@ where
             } else {
                 self.pedal_hold[channel as usize] = false;
                 for i in 0..128 {
-                    let changed = self.adaptor.key_states()[i].pedal_off(channel, time);
+                    let changed = self.adaptor.key_state(i).pedal_off(channel, time);
                     if changed {
                         let _ = self.send_to_strategy(ToStrategy::NoteOff {
                             note: i as u8,

@@ -151,9 +151,10 @@ impl KeyShape {
     }
 }
 
-pub fn active_code<N: HasActivationStatus>(notes: impl Deref<Target = [N; 128]>) -> u128 {
+/// The iterator `notes` must yield exactly 128 elements describin the actication of MIDI notes.
+pub fn active_code<N: HasActivationStatus>(notes: impl Iterator<Item = (usize, N)>) -> u128 {
     let mut active_code: u128 = 0;
-    for (i, n) in notes.iter().enumerate() {
+    for (i, n) in notes {
         if n.active() {
             active_code |= 1 << i;
         }

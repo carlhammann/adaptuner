@@ -1,4 +1,5 @@
 use std::{
+    marker::PhantomData,
     ops::{Deref, DerefMut},
     time::Instant,
 };
@@ -12,14 +13,17 @@ use crate::{
     strategy::harmony::r#trait::Harmony,
 };
 
-pub trait MelodyStrategyAdaptor<T: StackType>: {
+
+pub trait MelodyStrategyAdaptor<T: StackType> {
     fn send(&self, msg: FromStrategy<T>) -> bool;
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]>;
-    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]>;
+    /// index `i` must be in the range `0..128`
+    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
+    /// index `i` must be in the range `0..128`
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
     fn harmony(&self) -> impl Deref<Target = Harmony<T>>;
 }
 
-pub trait MelodyStrategy<T: StackType, A: MelodyStrategyAdaptor<T>>: {
+pub trait MelodyStrategy<T: StackType, A: MelodyStrategyAdaptor<T>> {
     type Config: IsMelodyStrategyConfig<T>;
 
     type Msg;

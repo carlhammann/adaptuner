@@ -332,7 +332,7 @@ impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T
             self.next_pattern_to_try = 0;
             self.best_fit = (0, Fit::Failed);
             self.solve_start = time;
-            self.active_code = active_code(adaptor.key_states());
+            self.active_code = active_code(adaptor.key_state_iter());
         }
         adaptor.harmony().valid = false;
         HarmonyResult {

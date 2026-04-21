@@ -6,9 +6,7 @@ use std::{
 use parking_lot::RwLock;
 
 use crate::{
-    interval::stacktype::r#trait::StackType,
-    keystate::KeyState,
-    msg::FromBackend,
+    interval::stacktype::r#trait::StackType, keystate::KeyState, msg::FromBackend,
     process::r#trait::StackWithTuning,
 };
 
@@ -16,14 +14,16 @@ use crate::{
 #[derive(Clone)]
 pub struct ConcreteBackendAdaptor<T: StackType> {
     pub forward: mpsc::Sender<FromBackend>,
-    pub tunings: Arc<RwLock<[StackWithTuning<T>; 128]>>,
-    pub key_states: Arc<RwLock<[KeyState; 128]>>,
+    pub tunings: [Arc<RwLock<StackWithTuning<T>>>; 128],
+    pub key_states: [Arc<RwLock<KeyState>>; 128],
 }
 
 pub trait BackendAdaptor<T: StackType>: Clone {
     fn send(&self, msg: FromBackend) -> bool;
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]>;
-    fn tunings(&self) -> impl Deref<Target = [StackWithTuning<T>; 128]>;
+    /// index `i` must be in the range `0..128`
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
+    /// index `i` must be in the range `0..128`
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
 }
 
 impl<T: StackType> BackendAdaptor<T> for ConcreteBackendAdaptor<T> {
@@ -31,11 +31,11 @@ impl<T: StackType> BackendAdaptor<T> for ConcreteBackendAdaptor<T> {
         self.forward.send(msg).is_ok()
     }
 
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
-        self.key_states.read()
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
+        self.key_states[i].read()
     }
 
-    fn tunings(&self) -> impl Deref<Target = [StackWithTuning<T>; 128]> {
-        self.tunings.read()
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
+        self.tunings[i].read()
     }
 }

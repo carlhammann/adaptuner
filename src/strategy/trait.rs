@@ -14,8 +14,11 @@ use crate::{
 
 pub trait StrategyAdaptor<T: StackType> {
     fn send(&self, msg: FromStrategy<T>) -> bool;
-    fn key_states(&self) -> impl Deref<Target = [KeyState; 128]>;
-    fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]>;
+    /// index `i` bust be in the range `0..128`
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
+
+    /// index `i` bust be in the range `0..128`
+    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
 }
 
 pub trait Strategy<T: StackType, A: StrategyAdaptor<T>> {
