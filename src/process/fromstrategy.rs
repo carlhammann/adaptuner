@@ -3,11 +3,12 @@ use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
     sync::mpsc,
-    sync::{Arc, RwLock},
+    sync::{Arc,},
     thread,
     time::Instant,
 };
 
+use parking_lot::RwLock;
 use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
 
 use crate::{
@@ -108,7 +109,7 @@ impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStep
 
     #[inline]
     fn harmony(&self) -> impl Deref<Target = Harmony<T>> {
-        self.harmony.read().unwrap()
+        self.harmony.read()
     }
 }
 
@@ -120,7 +121,7 @@ impl<T: StackType, P: ProcessAdaptor<T>> HarmonyStrategyAdaptor<T> for TheTwoSte
 
     #[inline]
     fn harmony(&self) -> impl DerefMut<Target = Harmony<T>> {
-        self.harmony.write().unwrap()
+        self.harmony.write()
     }
 }
 

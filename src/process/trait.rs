@@ -2,9 +2,11 @@ use std::{
     ops::DerefMut,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        mpsc, Arc, RwLock,
+        mpsc, Arc,
     },
 };
+
+use parking_lot::RwLock;
 
 use crate::{
     config::StrategyConfig,
@@ -61,17 +63,17 @@ impl<T: StackType> ProcessAdaptor<T> for ConcreteProcessAdaptor<T> {
 
     #[inline]
     fn key_states(&self) -> impl DerefMut<Target = [KeyState; 128]> {
-        self.key_states.write().unwrap()
+        self.key_states.write()
     }
 
     #[inline]
     fn tunings(&self) -> impl DerefMut<Target = [StackWithTuning<T>; 128]> {
-        self.tunings.write().unwrap()
+        self.tunings.write()
     }
 
     #[inline]
     fn config(&self) -> impl MapDerefMut<Target = Vec<StrategyConfig<T>>> {
-        self.strategies.write().unwrap()
+        self.strategies.write()
     }
 
     #[inline]

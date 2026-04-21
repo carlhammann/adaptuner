@@ -1,12 +1,14 @@
 use std::{
     cell::RefCell,
-    sync::{mpsc, atomic::AtomicUsize, Arc, RwLock},
+    sync::{mpsc, atomic::AtomicUsize, Arc},
     thread,
     time::Instant,
 };
 
+use parking_lot::RwLock;
 use eframe::egui;
 use midir::{MidiInput, MidiOutput};
+
 
 use crate::{
     backend::r#trait::ConcreteBackendAdaptor,

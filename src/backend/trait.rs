@@ -1,7 +1,9 @@
 use std::{
     ops::Deref,
-    sync::{mpsc, Arc, RwLock},
+    sync::{mpsc, Arc},
 };
+
+use parking_lot::RwLock;
 
 use crate::{
     interval::stacktype::r#trait::StackType,
@@ -30,10 +32,10 @@ impl<T: StackType> BackendAdaptor<T> for ConcreteBackendAdaptor<T> {
     }
 
     fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
-        self.key_states.read().unwrap()
+        self.key_states.read()
     }
 
     fn tunings(&self) -> impl Deref<Target = [StackWithTuning<T>; 128]> {
-        self.tunings.read().unwrap()
+        self.tunings.read()
     }
 }

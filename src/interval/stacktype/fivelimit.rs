@@ -1,8 +1,10 @@
 use std::{
     collections::{BTreeMap, HashMap},
     ops::Deref,
-    sync::{LazyLock, RwLock},
+    sync::{LazyLock},
 };
+
+use parking_lot::RwLock;
 
 use ndarray::Array2;
 use serde_derive::{Deserialize, Serialize};
@@ -68,7 +70,7 @@ impl Reloadable for TheFiveLimitStackType {
         named_intervals: Vec<NamedInterval<TheFiveLimitStackType>>,
     ) -> Result<(), StackTypeInitialisationErr> {
         {
-            let mut t = TEMPERAMENTS.write().unwrap();
+            let mut t = TEMPERAMENTS.write();
             t.clear();
             for def in temperament_definitions.iter() {
                 t.push(
@@ -79,7 +81,7 @@ impl Reloadable for TheFiveLimitStackType {
         }
 
         {
-            let systems = &mut *COORDINATE_SYSTEMS.write().unwrap();
+            let systems = &mut *COORDINATE_SYSTEMS.write();
             let n = named_intervals.len();
             for i in 0..n {
                 for j in (i + 1)..n {
@@ -102,8 +104,8 @@ impl Reloadable for TheFiveLimitStackType {
             }
         }
 
-        *TEMPERAMENT_DEFINITIONS.write().unwrap() = temperament_definitions;
-        *NAMED_INTERVALS.write().unwrap() = named_intervals;
+        *TEMPERAMENT_DEFINITIONS.write() = temperament_definitions;
+        *NAMED_INTERVALS.write() = named_intervals;
 
         Ok(())
     }
@@ -125,15 +127,15 @@ impl IntervalBasis for TheFiveLimitStackType {
 
 impl StackType for TheFiveLimitStackType {
     fn temperaments() -> impl Deref<Target = Vec<Temperament<StackCoeff>>> {
-        TEMPERAMENTS.read().unwrap()
+        TEMPERAMENTS.read()
     }
 
     fn temperament_definitions() -> impl Deref<Target = Vec<TemperamentDefinition<Self>>> {
-        TEMPERAMENT_DEFINITIONS.read().unwrap()
+        TEMPERAMENT_DEFINITIONS.read()
     }
 
     fn named_intervals() -> impl Deref<Target = Vec<NamedInterval<Self>>> {
-        NAMED_INTERVALS.read().unwrap()
+        NAMED_INTERVALS.read()
     }
 
     fn with_coordinate_system<R>(
@@ -145,7 +147,7 @@ impl StackType for TheFiveLimitStackType {
         let j = basis_indices[0] + basis_indices[1] + basis_indices[2] - i - k;
         let n = Self::named_intervals().len();
 
-        let cs = &*COORDINATE_SYSTEMS.read().unwrap();
+        let cs = &*COORDINATE_SYSTEMS.read();
         f(cs.get(&(i + j * n + k * n * n)))
     }
 }

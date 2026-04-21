@@ -3,10 +3,12 @@ use std::{
     ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        mpsc, Arc, RwLock,
+        mpsc, Arc,
     },
     time::Instant,
 };
+
+use parking_lot::RwLock;
 
 use eframe::egui;
 
@@ -74,15 +76,15 @@ impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
     }
 
     fn key_states(&self) -> impl Deref<Target = [KeyState; 128]> {
-        self.key_states.read().unwrap()
+        self.key_states.read()
     }
 
     fn tunings(&self) -> impl Deref<Target = [StackWithTuning<T>; 128]> {
-        self.tunings.read().unwrap()
+        self.tunings.read()
     }
 
     fn reference(&self) -> impl Deref<Target = Stack<T>> {
-        self.reference.read().unwrap()
+        self.reference.read()
     }
 
     fn config(&self) -> impl Deref<Target = GuiConfig> {
@@ -90,11 +92,11 @@ impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
     }
 
     fn strategy_config(&self) -> impl Deref<Target = Vec<StrategyConfig<T>>> {
-        self.strategies.read().unwrap()
+        self.strategies.read()
     }
 
     fn tuning_reference(&self) -> impl DerefMut<Target = Reference<T>> {
-        self.tuning_reference.write().unwrap()
+        self.tuning_reference.write()
     }
 
     fn correction_system_chooser(&self) -> impl DerefMut<Target = CorrectionSystemChooser<T>> {

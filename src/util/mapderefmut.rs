@@ -1,7 +1,6 @@
-use std::{
-    ops::DerefMut,
-    sync::{MappedRwLockWriteGuard, RwLockWriteGuard},
-};
+use std::ops::DerefMut;
+
+use parking_lot::{MappedRwLockWriteGuard, RwLockWriteGuard};
 
 pub trait MapDerefMut: DerefMut {
     fn map<X: 'static>(
