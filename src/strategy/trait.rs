@@ -34,9 +34,6 @@ pub trait Strategy<T: StackType, A: StrategyAdaptor<T>> {
     fn stop(&mut self, time: Instant, adaptor: &A);
 
     /// returns true iff further [Strategy::step]s are needed.
-    fn reset(&mut self, time: Instant, adaptor: &A) -> bool;
-
-    /// returns true iff further [Strategy::step]s are needed.
     fn note_on(&mut self, note: u8, time: Instant, adaptor: &A) -> bool;
 
     /// returns true iff further [Strategy::step]s are needed.
@@ -88,7 +85,6 @@ pub trait Strategy<T: StackType, A: StrategyAdaptor<T>> {
                     self.stop(time, adaptor);
                     break;
                 }
-                Some(ToStrategy::Reset { time }) => continue_solving = self.reset(time, adaptor),
                 Some(msg) => {
                     if let Some(x) = Self::filter_to_strategy(msg) {
                         continue_solving = self.receive_msg(x, adaptor);

@@ -10,8 +10,8 @@ use midir::{MidiInput, MidiOutput};
 use parking_lot::RwLock;
 
 use crate::{
-    backend::r#trait::ConcreteBackendAdaptor,
-    config::{BackendConfig, FromConfigAndState, GuiConfig, StrategyConfig},
+    backend::{pitchbend12::{Pitchbend12, Pitchbend12Config}, r#trait::ConcretePitchbend12Adaptor},
+    config::{BackendConfig, GuiConfig, StrategyConfig},
     gui::{
         alternate::TopLevelGui,
         common::CorrectionSystemChooser,
@@ -352,16 +352,15 @@ impl std::fmt::Display for JoinError {
 impl std::error::Error for JoinError {}
 
 impl<T: StackType> RunState<T> {
-    pub fn new<B>(
+    pub fn new(
         midi_in: MidiInput,
         midi_out: MidiOutput,
         strategies: Vec<StrategyConfig<T>>,
-        backend_config: BackendConfig,
+        backend_config: Pitchbend12Config,
         gui_config: GuiConfig,
     ) -> Result<Self, eframe::Error>
     where
         T: HasNoteNames + Send + Sync + 'static,
-        B: ReceiveMsg<ToBackend> + FromConfigAndState<BackendConfig, ConcreteBackendAdaptor<T>>,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();
         let (from_midi_input_tx, from_midi_input_rx) = mpsc::channel();
@@ -414,10 +413,11 @@ impl<T: StackType> RunState<T> {
             active_strategy_index: Arc::new(AtomicUsize::new(0)),
         };
 
-        let backend_adaptor = ConcreteBackendAdaptor {
+        let backend_adaptor = ConcretePitchbend12Adaptor {
             forward: from_backend_tx,
             tunings: core::array::from_fn(|i| process_adaptor.tunings[i].clone()),
             key_states: core::array::from_fn(|i| process_adaptor.key_states[i].clone()),
+            config: Arc::new(RwLock::new(backend_config)),
         };
 
         let gui_adaptor = ConcreteUiAdaptor {
@@ -436,8 +436,9 @@ impl<T: StackType> RunState<T> {
             )),
             active_strategy_index: process_adaptor.active_strategy_index.clone(),
             reference: Arc::new(RwLock::new(Stack::new_zero())), // todo, this should also exist in
-                                                                 // the strategy, and be changed by
-                                                                 // it!
+            // the strategy, and be changed by
+            // it!
+            backend_config: backend_adaptor.config.clone(),
         };
 
         let res = Self {
@@ -447,10 +448,7 @@ impl<T: StackType> RunState<T> {
                 || ProcessFromStrategy::new(process_adaptor),
                 to_process_rx,
             ),
-            backend: start_receiver_thread(
-                || B::initialise(backend_config, backend_adaptor),
-                to_backend_rx,
-            ),
+            backend: start_receiver_thread(|| Pitchbend12::new(backend_adaptor), to_backend_rx),
             to_process_tx: to_process_tx.clone(),
             to_backend_tx,
             to_midi_input_tx: to_midi_input_tx.clone(),

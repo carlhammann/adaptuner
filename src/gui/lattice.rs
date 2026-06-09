@@ -15,8 +15,8 @@ use crate::{
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{StackCoeff, StackType},
     },
-    msg::FromUi,
-    neighbourhood::Partial,
+    msg::{FromUi, ReceiveMsgRef, ToUi},
+    neighbourhood::{Neighbourhood, Partial},
     notename::{correction::Correction, HasNoteNames, NoteNameStyle},
     process::r#trait::StackWithTuning,
 };
@@ -48,17 +48,15 @@ pub struct LatticeWindowConfig {
     pub background_low: Vec<StackCoeff>,
     pub background_high: Vec<StackCoeff>,
     pub project_dimension: usize,
+    pub notenamestyle: NoteNameStyle,
+    pub color_period_ct: Semitones,
     #[serde(
         serialize_with = "serialize_channel",
         deserialize_with = "deserialize_channel"
     )]
     pub screen_keyboard_channel: Channel,
     pub screen_keyboard_velocity: u8,
-    pub notenamestyle: NoteNameStyle,
     pub highlight_playable_keys: bool,
-    pub color_period_ct: Semitones,
-    /// MIDI number of the key that should be in the center of the screen.
-    pub screen_keyboard_center: u8,
 }
 
 struct Positions {
@@ -342,6 +340,8 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                     .interact(rect, egui::Id::new(stack), egui::Sense::click())
                     .clicked()
                 {
+                    self.tmp_relative_stack.clone_from(&stack);
+                    self.tmp_relative_stack.scaled_add(-1, reference);
                     let _ = adaptor.send_consider(&self.tmp_relative_stack, Instant::now());
                 }
             }
@@ -440,8 +440,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                                 _ => None {},
                             };
                             if let Some(offset) = offset {
-                                let note =
-                                    adaptor.config().lattice.screen_keyboard_center as i16 + offset;
+                                let note = 60 + offset;
                                 if note <= 127 && note >= 0 {
                                     if *pressed {
                                         let _ = adaptor.send(FromUi::NoteOn {
@@ -523,7 +522,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                 ui.style().visuals.strong_text_color()
             }
         } else {
-            let d = key_number as i16 - adaptor.config().lattice.screen_keyboard_center as i16;
+            let d = key_number as i16 - 60;
             if d <= 19 && d >= -18
             // the range playable in [Self.key_interaction]
             {
@@ -971,22 +970,21 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     }
 }
 
-// impl<T: StackType> ReceiveMsgRef<ToUi<T>> for LatticeWindow<T> {
-//     fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
-//         match msg {
-//             ToUi::Consider { stack } => {
-//                 let _ = self.considered_notes.insert(stack);
-//             }
-//
-//             ToUi::PedalHold { channel, value, .. } => {
-//                 adaptor.config().lattice.screen_keyboard_pedal_hold =
-//                     (*channel == adaptor.config().lattice.screen_keyboard_channel) & (*value != 0);
-//             }
-//
-//             _ => {}
-//         }
-//     }
-// }
+impl<T: StackType> ReceiveMsgRef<ToUi<T>> for LatticeWindow<T> {
+    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
+        match msg {
+            ToUi::Consider { stack } => {
+                let _ = self.considered_notes.insert(stack);
+            }
+
+            // ToUi::PedalHold { channel, value, .. } => {
+            //     adaptor.config().lattice.screen_keyboard_pedal_hold =
+            //         (*channel == adaptor.config().lattice.screen_keyboard_channel) & (*value != 0);
+            // }
+            _ => {}
+        }
+    }
+}
 
 impl<T: StackType + HasNoteNames> GuiShow<T> for LatticeWindow<T> {
     fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
@@ -1017,27 +1015,5 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for LatticeWindow<T> {
         self.keyboard_hover_interaction(ui, adaptor);
         self.draw_keyboard(ui, adaptor);
         self.draw_lattice(ui, adaptor);
-
-        // ui.horizontal(|ui| {
-        //     if !*show_side_panel {
-        //         if ui.button("☰").clicked() {
-        //             *show_side_panel = true;
-        //         }
-        //     } else {
-        //         if ui.button("⏴").clicked() {
-        //             *show_side_panel = false;
-        //         }
-        //     }
-        //
-        //     if ui.button("🔍+").clicked() {
-        //         adaptor.config().lattice.zoom *= 1.1;
-        //     }
-        //     if ui.button("🔍-").clicked() {
-        //         adaptor.config().lattice.zoom /= 1.1;
-        //     }
-        //     ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-        //         latency.show(ui);
-        //     });
-        // });
     }
 }

@@ -2,13 +2,12 @@ use std::error::Error;
 
 use adaptuner::{
     backend::pitchbend12::Pitchbend12,
-    config::Config,
+    config::{BackendConfig, Config},
     interval::stacktype::{fivelimit::TheFiveLimitStackType, r#trait::Reloadable},
     run::RunState,
 };
 
 fn main() {
-
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_secs(2));
         for deadlock in parking_lot::deadlock::check_deadlock() {
@@ -37,13 +36,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
 
-    let _runstate = RunState::new::<Pitchbend12<_>>(
-        midi_in,
-        midi_out,
-        config.strategies,
-        config.backend,
-        config.gui,
-    )?;
+    let p12_config = match config.backend {
+        BackendConfig::Pitchbend12(c) => c,
+    };
+
+    let _runstate = RunState::new(midi_in, midi_out, config.strategies, p12_config, config.gui)?;
 
     Ok(())
 }

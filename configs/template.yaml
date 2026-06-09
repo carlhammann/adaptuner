@@ -107,103 +107,103 @@ named-intervals:
     fifth: '-5'
     third: '6'
 strategies:
-# - !static-neighbourhoods 
-#   name: static scales
-#   description: |-
-#     This strategy allows you to
-#     • define scales comprising static tunings of all 12 notes as a "neighbourhood" of the reference note,
-#     • switch between different scales on the fly, and
-#     • reset the reference note on the fly.
-#   config: 
-#     neighbourhoods:
-#     - name: flats
-#       named: !periodic-complete
-#         0: {}
-#         1:
-#           octave: 1
-#           fifth: -1
-#           third: -1
-#         2:
-#           octave: -1
-#           fifth: 2
-#         3:
-#           fifth: 1
-#           third: -1
-#         4:
-#           third: 1
-#         5:
-#           octave: 1
-#           fifth: -1
-#         6:
-#           octave: 2
-#           fifth: -2
-#           third: -1
-#         7:
-#           fifth: 1
-#         8:
-#           octave: 1
-#           third: -1
-#         9:
-#           octave: 1
-#           fifth: -1
-#           third: 1
-#         10:
-#           octave: 2
-#           fifth: -2
-#         11:
-#           fifth: 1
-#           third: 1
-#     - name: sharps
-#       named: !periodic-complete
-#         0: {}
-#         1:
-#           fifth: -1
-#           third: 2
-#         2:
-#           octave: -1
-#           fifth: 2
-#         3:
-#           octave: -1
-#           fifth: 1
-#           third: 2
-#         4:
-#           third: 1
-#         5:
-#           octave: 1
-#           fifth: -1
-#         6:
-#           octave: -1
-#           fifth: 2
-#           third: 1
-#         7:
-#           fifth: 1
-#         8:
-#           third: 2
-#         9:
-#           octave: 1
-#           fifth: -1
-#           third: 1
-#         10:
-#           octave: -1
-#           fifth: 2
-#           third: 2
-#         11:
-#           fifth: 1
-#           third: 1
-#     tuning-reference:
-#       stack:
-#         octave: 1
-#         fifth: -1
-#         third: 1
-#       semitones: 69.0
-#     initial-reference: {}
-#   # bindings: {}
-#     # sostenuto-pedal-down: !increment-neighbourhood-index 1
-#     # sostenuto-pedal-up: !increment-neighbourhood-index -1
-#     # soft-pedal-down: set-reference-to-lowest
-#     # Escape: reset
-#     # Enter: !increment-neighbourhood-index 1
-#     # Space: set-reference-to-lowest
+- !static-neighbourhoods 
+  name: static scales
+  description: |-
+    This strategy allows you to
+    • define scales comprising static tunings of all 12 notes as a "neighbourhood" of the reference note,
+    • switch between different scales on the fly, and
+    • reset the reference note on the fly.
+  config: 
+    neighbourhoods:
+    - name: flats
+      named: !periodic-complete
+        0: {}
+        1:
+          octave: 1
+          fifth: -1
+          third: -1
+        2:
+          octave: -1
+          fifth: 2
+        3:
+          fifth: 1
+          third: -1
+        4:
+          third: 1
+        5:
+          octave: 1
+          fifth: -1
+        6:
+          octave: 2
+          fifth: -2
+          third: -1
+        7:
+          fifth: 1
+        8:
+          octave: 1
+          third: -1
+        9:
+          octave: 1
+          fifth: -1
+          third: 1
+        10:
+          octave: 2
+          fifth: -2
+        11:
+          fifth: 1
+          third: 1
+    - name: sharps
+      named: !periodic-complete
+        0: {}
+        1:
+          fifth: -1
+          third: 2
+        2:
+          octave: -1
+          fifth: 2
+        3:
+          octave: -1
+          fifth: 1
+          third: 2
+        4:
+          third: 1
+        5:
+          octave: 1
+          fifth: -1
+        6:
+          octave: -1
+          fifth: 2
+          third: 1
+        7:
+          fifth: 1
+        8:
+          third: 2
+        9:
+          octave: 1
+          fifth: -1
+          third: 1
+        10:
+          octave: -1
+          fifth: 2
+          third: 2
+        11:
+          fifth: 1
+          third: 1
+    tuning-reference:
+      stack:
+        octave: 1
+        fifth: -1
+        third: 1
+      semitones: 69.0
+    initial-reference: {}
+  # bindings: {}
+    # sostenuto-pedal-down: !increment-neighbourhood-index 1
+    # sostenuto-pedal-up: !increment-neighbourhood-index -1
+    # soft-pedal-down: set-reference-to-lowest
+    # Escape: reset
+    # Enter: !increment-neighbourhood-index 1
+    # Space: set-reference-to-lowest
 - !two-step
   name: static scales + list of chords
   description: |-
@@ -492,7 +492,6 @@ gui:
     notenamestyle: class
     highlight-playable-keys: true
     color-period-ct: 21.506289596715078
-    screen-keyboard-center: 60
   # tuning-editor:
   #   notenamestyle: full
   # reference-editor:

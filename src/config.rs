@@ -1,21 +1,22 @@
+use midi_msg::Channel;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    backend::pitchbend12::Pitchbend12Config, gui::lattice::LatticeWindowConfig, interval::{
+    backend::pitchbend12::Pitchbend12Config,
+    gui::lattice::LatticeWindowConfig,
+    interval::{
         base::Semitones,
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
-    }, reference::Reference, strategy::{
+    },
+    reference::Reference,
+    strategy::{
         harmony::chordlist::ChordListConfig,
         melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
-    }
+    },
 };
-
-pub trait FromConfigAndState<C, S> {
-    fn initialise(config: C, state: S) -> Self;
-}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,6 +121,7 @@ pub struct GuiConfig {
 pub enum BackendConfig {
     Pitchbend12(Pitchbend12Config),
 }
+
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

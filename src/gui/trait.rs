@@ -1,6 +1,5 @@
 use std::{
     cell::RefCell,
-    marker::PhantomData,
     ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -14,16 +13,10 @@ use parking_lot::{RwLock, RwLockReadGuard};
 use eframe::egui;
 
 use crate::{
-    config::{GuiConfig, MelodyStrategyConfig, StrategyConfig},
-    gui::common::CorrectionSystemChooser,
-    interval::{stack::Stack, stacktype::r#trait::StackType},
-    keystate::KeyState,
-    msg::{
+    backend::pitchbend12::Pitchbend12Config, config::{BackendConfig, GuiConfig, MelodyStrategyConfig, StrategyConfig}, gui::common::CorrectionSystemChooser, interval::{stack::Stack, stacktype::r#trait::StackType}, keystate::KeyState, msg::{
         FromUi, ReceiveMsg, ToMelody, ToStaticNeighbourhoods, ToStaticNeighbourhoodsAsMelody,
         ToStrategy, ToTwoStep, ToUi,
-    },
-    process::r#trait::StackWithTuning,
-    reference::Reference,
+    }, process::r#trait::StackWithTuning, reference::Reference
 };
 
 pub trait UiAdaptor<T: StackType> {
@@ -41,8 +34,10 @@ pub trait UiAdaptor<T: StackType> {
     fn config(&self) -> impl Deref<Target = GuiConfig>;
     fn strategy_config(&self) -> impl Deref<Target = Vec<StrategyConfig<T>>>;
     fn tuning_reference(&self) -> impl DerefMut<Target = Reference<T>>;
-    fn correction_system_chooser(&self) -> impl DerefMut<Target = CorrectionSystemChooser<T>>;
+    fn correction_system_chooser(&self) -> impl Deref<Target = CorrectionSystemChooser<T>>;
     fn active_strategy_index(&self) -> usize;
+
+    fn backend_config(&self) -> impl Deref<Target = Pitchbend12Config>;
 
     fn send_consider(&self, stack: &Stack<T>, time: Instant) -> bool {
         self.send(FromUi::ToStrategy(
@@ -77,6 +72,7 @@ pub struct ConcreteUiAdaptor<T: StackType> {
     pub active_strategy_index: Arc<AtomicUsize>,
     pub tuning_reference: Arc<RwLock<Reference<T>>>,
     pub correction_system_chooser: RefCell<CorrectionSystemChooser<T>>,
+    pub backend_config: Arc<RwLock<Pitchbend12Config>>,
 }
 
 pub struct ConcreteTuningsIterator<'a, T: StackType> {
@@ -135,12 +131,16 @@ impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
         self.tuning_reference.write()
     }
 
-    fn correction_system_chooser(&self) -> impl DerefMut<Target = CorrectionSystemChooser<T>> {
-        self.correction_system_chooser.borrow_mut()
+    fn correction_system_chooser(&self) -> impl Deref<Target = CorrectionSystemChooser<T>> {
+        self.correction_system_chooser.borrow()
     }
 
     fn active_strategy_index(&self) -> usize {
         self.active_strategy_index.load(Ordering::Acquire)
+    }
+
+    fn backend_config(&self) -> impl Deref<Target = Pitchbend12Config> {
+        self.backend_config.read()
     }
 }
 

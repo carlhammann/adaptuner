@@ -156,7 +156,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         }
     }
 
-    fn udpate_all_tunings_and_send(
+    fn update_all_tunings_and_send(
         &mut self,
         time: Instant,
         adaptor: &impl MelodyStrategyAdaptor<T>,
@@ -279,7 +279,7 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
     }
 
     fn tune_with_harmony(&mut self, time: Instant, adaptor: &A) {
-        self.udpate_all_tunings_and_send(time, adaptor);
+        self.update_all_tunings_and_send(time, adaptor);
     }
 
     fn stop(&mut self, _time: Instant, _adaptor: &A) {}
@@ -290,6 +290,11 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
         });
         adaptor.send(FromStrategy::CurrentNeighbourhoodIndex {
             index: self.curr_neighbourhood_index,
+        });
+        self.neighbourhoods[self.curr_neighbourhood_index].for_each_stack(|_, stack| {
+            let _ = adaptor.send(FromStrategy::Consider {
+                stack: stack.clone(),
+            });
         });
         self.tune_with_harmony(time, adaptor);
     }
@@ -314,22 +319,22 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
         match msg {
             ToStaticNeighbourhoodsAsMelody::SetReference { reference, time } => {
                 if self.set_reference(reference, adaptor) {
-                    self.udpate_all_tunings_and_send(time, adaptor);
+                    self.update_all_tunings_and_send(time, adaptor);
                 }
             }
             ToStaticNeighbourhoodsAsMelody::SetReferenceToLowest { time } => {
                 if self.set_reference_to_extreme(false, adaptor) {
-                    self.udpate_all_tunings_and_send(time, adaptor);
+                    self.update_all_tunings_and_send(time, adaptor);
                 }
             }
             ToStaticNeighbourhoodsAsMelody::SetReferenceToHighest { time } => {
                 if self.set_reference_to_extreme(true, adaptor) {
-                    self.udpate_all_tunings_and_send(time, adaptor);
+                    self.update_all_tunings_and_send(time, adaptor);
                 }
             }
             ToStaticNeighbourhoodsAsMelody::SetReferenceToCurrent { time } => {
                 if self.set_reference_to_current(adaptor) {
-                    self.udpate_all_tunings_and_send(time, adaptor);
+                    self.update_all_tunings_and_send(time, adaptor);
                 }
             }
             ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time } => self.toggle_reanchor(time),
@@ -341,7 +346,15 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
                 todo!()
             }
 
-            ToStaticNeighbourhoodsAsMelody::Consider { stack, time } => todo!(),
+            ToStaticNeighbourhoodsAsMelody::Consider { stack, time } => {
+                let inserted_stack = self.neighbourhoods[self.curr_neighbourhood_index]
+                    .insert(&stack)
+                    .clone();
+                let _ = adaptor.send(FromStrategy::Consider {
+                    stack: inserted_stack,
+                });
+                self.update_all_tunings_and_send(time, adaptor);
+            }
         }
     }
 

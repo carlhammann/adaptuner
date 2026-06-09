@@ -157,7 +157,6 @@ pub enum ToHarmony {
 pub enum ToStrategy<T: StackType> {
     Start { time: Instant },
     Stop { time: Instant },
-    Reset { time: Instant },
     NoteOn { note: u8, time: Instant },
     NoteOff { note: u8, time: Instant },
     UpdateTuningReference { time: Instant },
@@ -186,6 +185,9 @@ pub enum FromStrategy<T: StackType> {
     },
     ReanchorOnMatch {
         reanchor: bool,
+    },
+    Consider {
+        stack: Stack<T>,
     },
 }
 
@@ -228,7 +230,8 @@ pub enum ToBackend {
         time: Instant,
     },
     ChannelsToUse {
-        channels: [bool; 16],
+        /// i-th bit is set if the i-th channel should be used
+        channels: u16,
         time: Instant,
     },
 }
@@ -312,6 +315,9 @@ pub enum ToUi<T: StackType> {
     ReanchorOnMatch {
         reanchor: bool,
     },
+    Consider {
+        stack: Stack<T>,
+    },
 }
 
 pub enum FromUi<T: StackType> {
@@ -356,7 +362,8 @@ pub enum FromUi<T: StackType> {
         time: Instant,
     },
     ChannelsToUse {
-        channels: [bool; 16],
+        /// i-th bit is set if the i-th channel should be used.
+        channels: u16,
         time: Instant,
     },
     ReloadStrategyList {
@@ -557,6 +564,7 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
             FromStrategy::ReanchorOnMatch { reanchor } => {
                 (None {}, Some(ToUi::ReanchorOnMatch { reanchor }))
             }
+            FromStrategy::Consider { stack } => (None {}, Some(ToUi::Consider { stack })),
         }
     }
 }

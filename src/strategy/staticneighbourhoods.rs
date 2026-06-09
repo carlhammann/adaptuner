@@ -10,7 +10,7 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     msg::{FromStrategy, ToStaticNeighbourhoods, ToStrategy},
-    neighbourhood::{CompleteNeigbourhood, SomeCompleteNeighbourhood},
+    neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
     process::r#trait::StackWithTuning,
     reference::Reference,
     strategy::r#trait::{Strategy, StrategyAdaptor},
@@ -166,21 +166,22 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
         adaptor.send(FromStrategy::SetReference {
             stack: self.reference.clone(),
         });
+
         adaptor.send(FromStrategy::CurrentNeighbourhoodIndex {
             index: self.curr_neighbourhood_index,
         });
+        self.neighbourhoods[self.curr_neighbourhood_index].for_each_stack(|_, stack| {
+            let _ = adaptor.send(FromStrategy::Consider {
+                stack: stack.clone(),
+            });
+        });
+
         self.update_all_tunings_and_send(time, adaptor);
 
         false
     }
 
     fn stop(&mut self, _time: Instant, _adaptor: &A) {}
-
-    fn reset(&mut self, time: Instant, adaptor: &A) -> bool {
-        todo!();
-        // self.start(time, adaptor)
-        false
-    }
 
     fn note_on(&mut self, note: u8, time: Instant, adaptor: &A) -> bool {
         if self.update_tuning(note, adaptor.tuning(note as usize)) {
@@ -249,8 +250,15 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
                     self.update_all_tunings_and_send(time, adaptor);
                 }
             }
-
-            ToStaticNeighbourhoods::Consider { stack, time } => todo!(),
+            ToStaticNeighbourhoods::Consider { stack, time } => {
+                let inserted_stack = self.neighbourhoods[self.curr_neighbourhood_index]
+                    .insert(&stack)
+                    .clone();
+                let _ = adaptor.send(FromStrategy::Consider {
+                    stack: inserted_stack,
+                });
+                self.update_all_tunings_and_send(time, adaptor);
+            }
         }
         false
     }

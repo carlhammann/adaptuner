@@ -8,48 +8,17 @@ use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    backend::r#trait::{BackendAdaptor, ConcreteBackendAdaptor},
-    config::{BackendConfig, FromConfigAndState},
-    custom_serde::common::{deserialize_channel, serialize_channel},
+    backend::r#trait::{BackendAdaptor, ConcretePitchbend12Adaptor, Pitchbend12Adaptor},
+    custom_serde::common::{deserialize_channels, serialize_channels},
     interval::{base::Semitones, stacktype::r#trait::StackType},
     msg::{self, FromBackend, ReceiveMsg, ToBackend},
 };
 
 pub struct Pitchbend12<T: StackType> {
-    /// the channels to use. Exlude CH10 for GM compatibility
-    channels: [Channel; 12],
-
     /// invariant: the bend pertaining to `channels[i]` is in `bends[i]`
     bends: [u16; 12],
 
-    /// the current bend range
-    bend_range: Semitones,
-
-    adaptor: ConcreteBackendAdaptor<T>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-#[derive(Clone, Copy)]
-pub struct WrappedChannel(
-    #[serde(
-        deserialize_with = "deserialize_channel",
-        serialize_with = "serialize_channel"
-    )]
-    Channel,
-);
-
-impl From<WrappedChannel> for Channel {
-    fn from(x: WrappedChannel) -> Self {
-        let WrappedChannel(x) = x;
-        x
-    }
-}
-
-impl From<Channel> for WrappedChannel {
-    fn from(x: Channel) -> Self {
-        WrappedChannel(x)
-    }
+    adaptor: ConcretePitchbend12Adaptor<T>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -58,31 +27,44 @@ impl From<Channel> for WrappedChannel {
 #[derive(Clone)]
 pub struct Pitchbend12Config {
     pub bend_range: Semitones,
-    pub channels: [WrappedChannel; 12],
+
+    #[serde(
+        serialize_with = "serialize_channels",
+        deserialize_with = "deserialize_channels"
+    )]
+    pub channels: [Channel; 12],
+}
+
+impl Pitchbend12Config {
+    pub fn uses_channels(&self, used_channels_map: u16) -> bool {
+        match self {
+            Pitchbend12Config { channels, .. } => {
+                let mut actual_used_channels_map = 0;
+                for channel in channels {
+                    actual_used_channels_map |= 1 << Channel::from(*channel) as u8;
+                }
+                actual_used_channels_map == used_channels_map
+            }
+        }
+    }
 }
 
 impl<T: StackType> Pitchbend12<T> {
-    fn send_msg(&self, msg: FromBackend) -> bool {
-        self.adaptor.send(msg)
-    }
-
-    pub fn new(config: Pitchbend12Config, adaptor: ConcreteBackendAdaptor<T>) -> Self {
+    pub fn new(adaptor: ConcretePitchbend12Adaptor<T>) -> Self {
         Self {
-            channels: core::array::from_fn(|i| config.channels[i].into()),
             bends: [8192; 12],
-            bend_range: config.bend_range,
             adaptor,
         }
     }
 
     fn bend_from_semitones(&self, semitones: Semitones) -> u16 {
-        ((8191.0 * semitones / self.bend_range + 8192.0) as u16)
+        ((8191.0 * semitones / self.adaptor.config().bend_range + 8192.0) as u16)
             .max(0)
             .min(16383)
     }
 
     fn semitones_from_bend(&self, bend: u16) -> Semitones {
-        (bend as Semitones - 8192.0) / 8191.0 * self.bend_range
+        (bend as Semitones - 8192.0) / 8191.0 * self.adaptor.config().bend_range
     }
 
     fn handle_note_on(&mut self, note: u8, velocity: u8, time: Instant) {
@@ -91,7 +73,7 @@ impl<T: StackType> Pitchbend12<T> {
         let _ = self.adaptor.send(msg::FromBackend::OutgoingMidi {
             time,
             bytes: (MidiMsg::ChannelVoice {
-                channel: self.channels[note as usize % 12],
+                channel: self.adaptor.config().channels[note as usize % 12],
                 msg: ChannelVoiceMsg::NoteOn { note, velocity },
             })
             .to_midi(),
@@ -108,15 +90,15 @@ impl<T: StackType> Pitchbend12<T> {
             let _ = self.adaptor.send(msg::FromBackend::OutgoingMidi {
                 time,
                 bytes: (MidiMsg::ChannelVoice {
-                    channel: self.channels[channel_index],
+                    channel: self.adaptor.config().channels[channel_index],
                     msg: ChannelVoiceMsg::PitchBend { bend: desired_bend },
                 })
                 .to_midi(),
             });
             self.bends[channel_index] = desired_bend;
         }
-        if (tuning - note as Semitones).abs() > self.bend_range {
-            let _ = self.send_msg(FromBackend::DetunedNote {
+        if (tuning - note as Semitones).abs() > self.adaptor.config().bend_range {
+            let _ = self.adaptor.send(FromBackend::DetunedNote {
                 note,
                 actual: note as Semitones + self.semitones_from_bend(desired_bend),
                 should_be: tuning,
@@ -126,26 +108,10 @@ impl<T: StackType> Pitchbend12<T> {
     }
 
     fn reset(&mut self, time: Instant) {
-        let send_midi = |msg: MidiMsg, original_time: Instant| {
-            let _ = self.adaptor.send(msg::FromBackend::OutgoingMidi {
-                time: original_time,
-                bytes: msg.to_midi(),
-            });
-        };
-
-        // the same initialisation as in [Pitchbend12::new].
-        self.bends = [8192; 12];
-
-        for (i, &channel) in self.channels.iter().enumerate() {
-            send_midi(
-                MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::PitchBend {
-                        bend: self.bends[i],
-                    },
-                },
-                time,
-            );
+        for note in 0..128 {
+            if self.adaptor.key_state(note).is_sounding() {
+                self.handle_retune(note as u8, time);
+            }
         }
     }
 }
@@ -179,9 +145,9 @@ impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
                 time,
                 ..
             } => {
-                self.send_msg(as_midi(
+                self.adaptor.send(as_midi(
                     MidiMsg::ChannelVoice {
-                        channel: self.channels[note as usize % 12],
+                        channel: self.adaptor.config().channels[note as usize % 12],
                         msg: ChannelVoiceMsg::NoteOff { note, velocity },
                     },
                     time,
@@ -189,8 +155,8 @@ impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
             }
 
             ToBackend::PedalHold { value, time, .. } => {
-                for channel in self.channels {
-                    self.send_msg(as_midi(
+                for channel in self.adaptor.config().channels {
+                    self.adaptor.send(as_midi(
                         MidiMsg::ChannelVoice {
                             channel,
                             msg: ChannelVoiceMsg::ControlChange {
@@ -203,8 +169,8 @@ impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
             }
 
             ToBackend::ProgramChange { program, time, .. } => {
-                for channel in self.channels {
-                    let _ = self.send_msg(as_midi(
+                for channel in self.adaptor.config().channels {
+                    let _ = self.adaptor.send(as_midi(
                         MidiMsg::ChannelVoice {
                             channel,
                             msg: ChannelVoiceMsg::ProgramChange { program },
@@ -219,28 +185,20 @@ impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
             }
 
             ToBackend::BendRange { range, time } => {
-                self.bend_range = range;
+                self.adaptor.config().bend_range = range;
                 self.reset(time);
             }
 
             ToBackend::ChannelsToUse { channels, time } => {
                 let mut i = 0;
-                for (ch, used) in channels.iter().enumerate() {
-                    if *used {
-                        self.channels[i] = Channel::from_u8(ch as u8);
+                for ch in 0..16 {
+                    if 0 != channels & 1 << i {
+                        self.adaptor.config().channels[i] = Channel::from_u8(ch as u8);
                         i += 1;
                     }
                 }
                 self.reset(time);
             }
-        }
-    }
-}
-
-impl<T: StackType> FromConfigAndState<BackendConfig, ConcreteBackendAdaptor<T>> for Pitchbend12<T> {
-    fn initialise(config: BackendConfig, adaptor: ConcreteBackendAdaptor<T>) -> Self {
-        match config {
-            BackendConfig::Pitchbend12(config) => Self::new(config, adaptor),
         }
     }
 }

@@ -119,10 +119,6 @@ where
         self.melody_strategy.stop(time, adaptor.as_melody_adaptor());
     }
 
-    fn reset(&mut self, time: Instant, adaptor: &A) -> bool {
-        self.start(time, adaptor)
-    }
-
     fn note_on(&mut self, _note: u8, time: Instant, adaptor: &A) -> bool {
         self.start_solve(time, adaptor)
     }

@@ -1,11 +1,18 @@
 use std::{fmt, marker::PhantomData};
 
-use eframe::{egui, Result};
+use eframe::{
+    egui::{self, AtomExt},
+    Result,
+};
 use midi_msg::Channel;
 use ndarray::{Array1, ArrayView1};
 use num_rational::Ratio;
 use num_traits::Zero;
-use serde::{de::Visitor, ser::SerializeMap, Serializer};
+use serde::{
+    de::Visitor,
+    ser::{SerializeMap, SerializeSeq},
+    Serializer,
+};
 
 use crate::interval::stacktype::r#trait::{IntervalBasis, StackCoeff};
 
@@ -219,4 +226,38 @@ pub fn serialize_channel<S: serde::Serializer>(
     ser: S,
 ) -> Result<S::Ok, S::Error> {
     ser.serialize_u8(*channel as u8 + 1)
+}
+
+pub fn deserialize_channels<'de, const N: usize, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<[Channel; N], D::Error> {
+    let tmp: Vec<u8> = <Vec<u8> as serde::Deserialize<'de>>::deserialize(deserializer)?;
+    if tmp.len() != N {
+        return Err(serde::de::Error::custom(format!(
+            "List of channels has length {}, expected {}",
+            tmp.len(),
+            N
+        )));
+    }
+    for i in 0..N {
+        let x = tmp[i];
+        if x > 16 && x < 1 {
+            return Err(serde::de::Error::custom(format!(
+                "{x} is not in the (inclusive) range 1...16"
+            )));
+        }
+    }
+    Ok(core::array::from_fn(|i| Channel::from_u8(tmp[i] - 1)))
+}
+
+pub fn serialize_channels<const N: usize, S: serde::Serializer>(
+    channels: &[Channel; N],
+    ser: S,
+) -> Result<S::Ok, S::Error> {
+    let mut seq = ser.serialize_seq(Some(N))?;
+    for channel in channels {
+        let tmp = *channel as u8 + 1;
+        seq.serialize_element(&tmp)?;
+    }
+    seq.end()
 }

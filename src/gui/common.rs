@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use eframe::egui;
+use eframe::egui::{self, Response};
 use num_rational::Ratio;
 
 use crate::{
@@ -611,4 +611,19 @@ pub fn temperament_applier<T: StackType>(
         }
     });
     temperament_select_changed | correction_changed | made_pure
+}
+
+pub fn toggle_bit(ui: &mut egui::Ui, x: &mut u16, i: u8, msg: &str) -> Response {
+    let mut tmp = 0 != *x & 1 << i;
+    let res = ui.toggle_value(&mut tmp, msg);
+
+    if res.changed() {
+        if tmp {
+            *x |= 1 << i;
+        } else {
+            *x &= !(1 << i);
+        }
+    }
+
+    res
 }
