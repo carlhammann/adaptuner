@@ -8,7 +8,7 @@ pub mod diffshow;
 pub mod latency;
 pub mod lattice;
 pub mod latticecontrol;
-// pub mod notifications;
+pub mod notifications;
 // pub mod strategy;
 // pub mod toplevel;
 pub mod r#trait;

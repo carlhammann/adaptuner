@@ -10,10 +10,11 @@ use crate::{
         connection::{ConnectionWindow, Input, Output},
         latency::LatencyWindow,
         lattice::LatticeWindow,
+        notifications::Notifications,
         r#trait::{Gui, GuiShow, UiAdaptor},
     },
     interval::stacktype::r#trait::StackType,
-    msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi},
+    msg::{ReceiveMsg, ReceiveMsgRef, ToUi},
     notename::HasNoteNames,
 };
 
@@ -22,9 +23,10 @@ pub struct TopLevelGui<T: StackType, A: UiAdaptor<T>> {
 
     input_connection: ConnectionWindow<Input>,
     output_connection: ConnectionWindow<Output>,
+    backend: BackendWindow,
     connection_window: SmallFloatingWindow,
 
-    backend: BackendWindow,
+    notifications: Notifications<T>,
 
     lattice: LatticeWindow<T>,
     latency: LatencyWindow,
@@ -38,6 +40,22 @@ impl<T: StackType + HasNoteNames, A: UiAdaptor<T>> eframe::App for TopLevelGui<T
         // self.temperament_editor_window.is_open() || self.comma_editor_window.is_open();
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            self.notifications.clear_old(Instant::now());
+            if self.notifications.is_nonempty() {
+                egui::Window::new("notification window")
+                    .title_bar(false)
+                    .resizable(false)
+                    .interactable(false)
+                    .fixed_pos(ui.max_rect().center_top())
+                    .pivot(egui::Align2::CENTER_TOP)
+                    .show(ui.ctx(), |ui| {
+                        if any_modal_open {
+                            ui.disable();
+                        }
+                        self.notifications.show(ui, &self.adaptor)
+                    });
+            }
+
             self.connection_window.show("midi connections", ctx, |ui| {
                 ui.vertical(|ui| {
                     if any_modal_open {
@@ -86,6 +104,7 @@ impl<T: StackType, A: UiAdaptor<T>> ReceiveMsg<ToUi<T>> for TopLevelGui<T, A> {
         self.latency.receive_msg_ref(&msg);
         self.input_connection.receive_msg_ref(&msg);
         self.output_connection.receive_msg_ref(&msg);
+        self.notifications.receive_msg_ref(&msg);
     }
 }
 
@@ -94,9 +113,9 @@ impl<T: StackType + HasNoteNames, A: UiAdaptor<T>> Gui<T, A> for TopLevelGui<T, 
         Self {
             input_connection: ConnectionWindow::new(),
             output_connection: ConnectionWindow::new(),
-            connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window"), true),
-
             backend: BackendWindow::new(adaptor.backend_config()),
+            connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window"), true),
+            notifications: Notifications::new(),
 
             lattice: LatticeWindow::new(),
             latency: LatencyWindow::new(config.latency_mean_over),

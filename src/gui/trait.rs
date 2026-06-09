@@ -13,10 +13,17 @@ use parking_lot::{RwLock, RwLockReadGuard};
 use eframe::egui;
 
 use crate::{
-    backend::pitchbend12::Pitchbend12Config, config::{BackendConfig, GuiConfig, MelodyStrategyConfig, StrategyConfig}, gui::common::CorrectionSystemChooser, interval::{stack::Stack, stacktype::r#trait::StackType}, keystate::KeyState, msg::{
+    backend::pitchbend12::Pitchbend12Config,
+    config::{BackendConfig, GuiConfig, MelodyStrategyConfig, StrategyConfig},
+    gui::common::CorrectionSystemChooser,
+    interval::{stack::Stack, stacktype::r#trait::StackType},
+    keystate::KeyState,
+    msg::{
         FromUi, ReceiveMsg, ToMelody, ToStaticNeighbourhoods, ToStaticNeighbourhoodsAsMelody,
         ToStrategy, ToTwoStep, ToUi,
-    }, process::r#trait::StackWithTuning, reference::Reference
+    },
+    process::r#trait::StackWithTuning,
+    reference::Reference,
 };
 
 pub trait UiAdaptor<T: StackType> {
