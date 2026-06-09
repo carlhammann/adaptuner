@@ -39,6 +39,7 @@ pub trait UiAdaptor<T: StackType> {
 
     fn reference(&self) -> impl Deref<Target = Stack<T>>;
     fn config(&self) -> impl Deref<Target = GuiConfig>;
+    fn config_mut(&self) -> impl DerefMut<Target = GuiConfig>;
     fn strategy_config(&self) -> impl Deref<Target = Vec<StrategyConfig<T>>>;
     fn tuning_reference(&self) -> impl DerefMut<Target = Reference<T>>;
     fn correction_system_chooser(&self) -> impl Deref<Target = CorrectionSystemChooser<T>>;
@@ -128,6 +129,10 @@ impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
 
     fn config(&self) -> impl Deref<Target = GuiConfig> {
         self.gui_config.borrow()
+    }
+
+    fn config_mut(&self) -> impl DerefMut<Target = GuiConfig> {
+        self.gui_config.borrow_mut()
     }
 
     fn strategy_config(&self) -> impl Deref<Target = Vec<StrategyConfig<T>>> {

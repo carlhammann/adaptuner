@@ -83,13 +83,14 @@ impl<T: StackType + HasNoteNames, A: UiAdaptor<T>> eframe::App for TopLevelGui<T
                 //         *show_side_panel = false;
                 //     }
                 // }
-                //
-                // if ui.button("🔍+").clicked() {
-                //     adaptor.config().lattice.zoom *= 1.1;
-                // }
-                // if ui.button("🔍-").clicked() {
-                //     adaptor.config().lattice.zoom /= 1.1;
-                // }
+
+                if ui.button("🔍+").clicked() {
+                    self.adaptor.config_mut().lattice.zoom *= 1.1;
+                }
+                if ui.button("🔍-").clicked() {
+                    self.adaptor.config_mut().lattice.zoom /= 1.1;
+                }
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                     self.latency.show(ui);
                 });
