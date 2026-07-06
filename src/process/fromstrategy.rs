@@ -275,7 +275,13 @@ where
             MidiMsg::ChannelVoice {
                 channel,
                 msg: NoteOn { note, velocity },
-            } => self.handle_note_on(time, note, channel, velocity),
+            } => {
+                if velocity != 0 {
+                    self.handle_note_on(time, note, channel, velocity);
+                } else {
+                    self.handle_note_off(time, note, channel, 0);
+                }
+            }
             MidiMsg::ChannelVoice {
                 channel,
                 msg: NoteOff { note, velocity },
