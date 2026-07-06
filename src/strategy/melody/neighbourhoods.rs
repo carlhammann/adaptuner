@@ -73,8 +73,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
             reference: None {},
         });
         for i in 0..128 {
-            let state = adaptor.key_state(i);
-            if state.is_sounding() {
+            if adaptor.key_state(i).is_sounding() {
                 let the_tuning = &mut adaptor.tuning(i);
                 self.tmp_stack.clone_from(&the_tuning.stack);
                 self.neighbourhoods[self.curr_neighbourhood_index].write_absolute_stack(
@@ -117,8 +116,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
                 ),
             });
             for i in 0..128 {
-                let key_state = adaptor.key_state(i);
-                if key_state.is_sounding() {
+                if adaptor.key_state(i).is_sounding() {
                     let the_tuning = &mut adaptor.tuning(i);
                     self.tmp_stack.clone_from(&the_tuning.stack);
                     if harmony_neighbourhood.try_write_relative_stack(
@@ -218,16 +216,14 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
 
         if to_highest {
             for i in (0..128).rev() {
-                let state = adaptor.key_state(i);
-                if state.is_sounding() {
+                if adaptor.key_state(i).is_sounding() {
                     self.tmp_stack.clone_from(&adaptor.tuning(i).stack);
                     break;
                 }
             }
         } else {
             for i in 0..128 {
-                let state = adaptor.key_state(i);
-                if state.is_sounding() {
+                if adaptor.key_state(i).is_sounding() {
                     self.tmp_stack.clone_from(&adaptor.tuning(i).stack);
                     break;
                 }

@@ -676,9 +676,9 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             }
         }
 
-        for (j, stack_with_tuning) in adaptor.tunings_iter() {
-            let StackWithTuning { stack, .. } = &*stack_with_tuning;
+        for j in 0..128 {
             if adaptor.key_state(j).is_sounding() {
+                let StackWithTuning { stack, .. } = &*adaptor.tuning(j);
                 for i in 0..T::num_intervals() {
                     if i == adaptor.config().lattice.project_dimension {
                         continue;
@@ -803,9 +803,9 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             }
         }
 
-        for (i, stack_with_tuning) in adaptor.tunings_iter() {
-            let StackWithTuning { stack, .. } = &*stack_with_tuning;
+        for i in 0..128 {
             if adaptor.key_state(i).is_sounding() {
+                let StackWithTuning { stack, .. } = &*adaptor.tuning(i);
                 let mut pos = self.projected_pos(&stack, adaptor);
                 let d = stack.target[adaptor.config().lattice.project_dimension]
                     - self.grid_reference.target[adaptor.config().lattice.project_dimension];
@@ -820,9 +820,9 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     fn draw_down_lines(&self, ui: &egui::Ui, adaptor: &impl UiAdaptor<T>) {
         let bottom = self.keyboard_top(adaptor);
 
-        for (i, stack_with_tuning) in adaptor.tunings_iter() {
-            let StackWithTuning { stack, .. } = &*stack_with_tuning;
+        for i in 0..128 {
             if adaptor.key_state(i).is_sounding() {
+                let StackWithTuning { stack, .. } = &*adaptor.tuning(i);
                 let ppos = self.projected_pos(&stack, adaptor);
                 ui.painter().vline(
                     ppos.x,
@@ -882,15 +882,16 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             let draw_this = self.considered_notes.iter().all(|(_, considered)| {
                 write_considered_stack_to_draw(considered, &mut self.tmp_stack);
                 self.tmp_stack.target != stack.target
-            }) && adaptor.tunings_iter().all(|(i, stack_with_tuning)| {
-                let StackWithTuning {
-                    stack: sounding, ..
-                } = &*stack_with_tuning;
+            }) && (0..128).all(|i| {
                 if !adaptor.key_state(i).is_sounding() {
-                    return true;
+                    true
+                } else {
+                    let StackWithTuning {
+                        stack: sounding, ..
+                    } = &*adaptor.tuning(i);
+                    write_sounding_stack_to_draw(&sounding, &mut self.tmp_stack);
+                    self.tmp_stack.target != stack.target
                 }
-                write_sounding_stack_to_draw(&sounding, &mut self.tmp_stack);
-                self.tmp_stack.target != stack.target
             });
             if draw_this {
                 self.draw_state.draw_note_and_interaction_zone(
@@ -906,15 +907,16 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
 
         for (_, stack) in self.considered_notes.iter() {
             write_considered_stack_to_draw(stack, &mut self.tmp_stack);
-            let draw_this = adaptor.tunings_iter().all(|(i, stack_with_tuning)| {
-                let StackWithTuning {
-                    stack: sounding, ..
-                } = &*stack_with_tuning;
+            let draw_this = (0..128).all(|i| {
                 if !adaptor.key_state(i).is_sounding() {
-                    return true;
+                    true
+                } else {
+                    let StackWithTuning {
+                        stack: sounding, ..
+                    } = &*adaptor.tuning(i);
+                    write_sounding_stack_to_draw(&sounding, &mut self.other_tmp_stack);
+                    self.tmp_stack.target != self.other_tmp_stack.target
                 }
-                write_sounding_stack_to_draw(&sounding, &mut self.other_tmp_stack);
-                self.tmp_stack.target != self.other_tmp_stack.target
             });
             if draw_this {
                 self.draw_state.draw_note_and_interaction_zone(
@@ -928,9 +930,9 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             }
         }
 
-        for (i, stack_with_tuning) in adaptor.tunings_iter() {
-            let StackWithTuning { stack, .. } = &*stack_with_tuning;
+        for i in 0..128 {
             if adaptor.key_state(i).is_sounding() {
+                let StackWithTuning { stack, .. } = &*adaptor.tuning(i);
                 write_sounding_stack_to_draw(&stack, &mut self.tmp_stack);
                 self.draw_state.draw_note_and_interaction_zone(
                     ui,

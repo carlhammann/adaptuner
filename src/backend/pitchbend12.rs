@@ -81,7 +81,7 @@ impl<T: StackType> Pitchbend12<T> {
     }
 
     fn handle_retune(&mut self, note: u8, time: Instant) {
-        let tuning = self.adaptor.tuning(note as usize).semitones;
+        let tuning: Semitones = self.adaptor.tuning(note as usize).semitones;
 
         let channel_index = note as usize % 12;
         let desired_bend = self.bend_from_semitones(tuning - note as Semitones);

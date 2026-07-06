@@ -32,10 +32,6 @@ pub trait UiAdaptor<T: StackType> {
     fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
 
     fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
-    /// iterator through all 128 tunings
-    fn tunings_iter(
-        &self,
-    ) -> impl Iterator<Item = (usize, impl Deref<Target = StackWithTuning<T>>)>;
 
     fn reference(&self) -> impl Deref<Target = Stack<T>>;
     fn config(&self) -> impl Deref<Target = GuiConfig>;
@@ -83,24 +79,6 @@ pub struct ConcreteUiAdaptor<T: StackType> {
     pub backend_config: Arc<RwLock<Pitchbend12Config>>,
 }
 
-pub struct ConcreteTuningsIterator<'a, T: StackType> {
-    adaptor: &'a ConcreteUiAdaptor<T>,
-    pos: usize,
-}
-
-impl<'a, T: StackType> Iterator for ConcreteTuningsIterator<'a, T> {
-    type Item = (usize, RwLockReadGuard<'a, StackWithTuning<T>>);
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.pos >= 128 {
-            None {}
-        } else {
-            let res = (self.pos, self.adaptor.tunings[self.pos].read());
-            self.pos += 1;
-            Some(res)
-        }
-    }
-}
-
 impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
     fn send(&self, msg: FromUi<T>) -> bool {
         self.forward.send(msg).is_ok()
@@ -112,15 +90,6 @@ impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
 
     fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
         self.tunings[i].read()
-    }
-
-    fn tunings_iter(
-        &self,
-    ) -> impl Iterator<Item = (usize, impl Deref<Target = StackWithTuning<T>>)> {
-        ConcreteTuningsIterator {
-            adaptor: self,
-            pos: 0,
-        }
     }
 
     fn reference(&self) -> impl Deref<Target = Stack<T>> {

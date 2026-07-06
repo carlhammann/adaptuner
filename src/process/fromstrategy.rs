@@ -112,10 +112,10 @@ impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStep
         self.harmony.read()
     }
 }
- 
+
 impl<T: StackType, P: ProcessAdaptor<T>> HarmonyStrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
     #[inline]
-    fn key_state(&self, i:usize) -> impl Deref<Target = KeyState> {
+    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
         self.process_adaptor.key_state(i)
     }
 

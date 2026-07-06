@@ -89,8 +89,7 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         adaptor: &impl StaticNeighbourhoodsAdaptor<T>,
     ) {
         for i in 0..128 {
-            let state = adaptor.key_state(i);
-            if state.is_sounding() {
+            if adaptor.key_state(i).is_sounding() {
                 self.update_tuning_and_send(i as u8, time, adaptor);
             }
         }
@@ -107,16 +106,14 @@ impl<T: StackType> StaticNeighbourhoods<T> {
 
         if to_highest {
             for i in 0..128 {
-                let state = adaptor.key_state(i);
-                if state.is_sounding() {
+                if adaptor.key_state(i).is_sounding() {
                     self.tmp_stack.clone_from(&adaptor.tuning(i).stack);
                     break;
                 }
             }
         } else {
             for i in 0..128 {
-                let state = adaptor.key_state(i);
-                if state.is_sounding() {
+                if adaptor.key_state(i).is_sounding() {
                     self.tmp_stack.clone_from(&adaptor.tuning(i).stack);
                     break;
                 }
@@ -184,9 +181,7 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
     fn stop(&mut self, _time: Instant, _adaptor: &A) {}
 
     fn note_on(&mut self, note: u8, time: Instant, adaptor: &A) -> bool {
-        if self.update_tuning(note, adaptor.tuning(note as usize)) {
-            adaptor.send(FromStrategy::Retune { note, time });
-        }
+        self.update_tuning_and_send(note, time, adaptor);
         false
     }
 
@@ -198,8 +193,7 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
         self.tuning_reference
             .clone_from(adaptor.config().tuning_reference());
         for i in 0..128 {
-            let state = adaptor.key_state(i);
-            if state.is_sounding() {
+            if adaptor.key_state(i).is_sounding() {
                 // do it like this to avoid double-locking 'adaptor.tunings'
                 let x = &mut adaptor.tuning(i);
                 x.semitones = self.semitones_for_stack(&x.stack);
