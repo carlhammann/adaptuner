@@ -8,20 +8,28 @@ use std::{
 use eframe::egui;
 use midir::{MidiInput, MidiOutput};
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    backend::{pitchbend12::{Pitchbend12, Pitchbend12Config}, r#trait::ConcretePitchbend12Adaptor},
-    config::{BackendConfig, GuiConfig, StrategyConfig},
+    backend::{
+        pitchbend12::{Pitchbend12, Pitchbend12Config},
+        r#trait::ConcretePitchbend12Adaptor,
+    },
+    config::{GuiConfig, StrategyConfig},
     gui::{
         alternate::TopLevelGui,
         common::CorrectionSystemChooser,
         r#trait::{ConcreteUiAdaptor, Gui, UiAdaptor},
     },
-    interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
+    interval::{
+        base::Semitones,
+        stack::Stack,
+        stacktype::r#trait::{Reloadable, StackType},
+    },
     keystate::KeyState,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
-        FromProcess, FromUi, HasStop, MessageTranslate, MessageTranslate2, MessageTranslate3,
+        FromProcess, FromUi, MessageTranslate, MessageTranslate2, MessageTranslate3,
         MessageTranslate4, ReceiveMsg, ToBackend, ToMidiIn, ToMidiOut, ToProcess, ToUi,
     },
     notename::HasNoteNames,
@@ -38,7 +46,7 @@ fn start_receiver_thread<I, H, NH>(
 ) -> thread::JoinHandle<mpsc::Receiver<I>>
 where
     H: ReceiveMsg<I>,
-    I: HasStop + Send + 'static,
+    I: Send + 'static,
     NH: FnOnce() -> H + Send + 'static,
 {
     thread::spawn(move || {
@@ -46,11 +54,7 @@ where
         loop {
             match rx.recv() {
                 Ok(msg) => {
-                    let stop = msg.is_stop();
                     state.receive_msg(msg);
-                    if stop {
-                        break;
-                    }
                 }
                 Err(_) => break,
             }
@@ -120,11 +124,7 @@ fn setup_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-fn start_gui<T, A, G>(
-    gui_config: GuiConfig,
-    rx: mpsc::Receiver<ToUi<T>>,
-    adaptor: A,
-) -> Result<(), eframe::Error>
+fn start_gui<T, A, G>(rx: mpsc::Receiver<ToUi<T>>, adaptor: A) -> Result<(), eframe::Error>
 where
     T: StackType + Send + 'static,
     A: UiAdaptor<T>,
@@ -158,7 +158,7 @@ where
             // load fonts
             setup_fonts(&cc.egui_ctx);
 
-            let gui = G::new(gui_config, adaptor);
+            let gui = G::new(adaptor);
             Ok(Box::new(GuiWithConnections::new(cc, gui, rx)))
         }),
     )
@@ -360,7 +360,7 @@ impl<T: StackType> RunState<T> {
         gui_config: GuiConfig,
     ) -> Result<Self, eframe::Error>
     where
-        T: HasNoteNames + Send + Sync + 'static,
+        T: 'static + Send + Sync + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();
         let (from_midi_input_tx, from_midi_input_rx) = mpsc::channel();
@@ -462,11 +462,7 @@ impl<T: StackType> RunState<T> {
         });
         // TODO: send more start messages?
 
-        let _ = start_gui::<T, ConcreteUiAdaptor<_>, TopLevelGui<_, _>>(
-            gui_config,
-            to_ui_rx,
-            gui_adaptor,
-        );
+        let _ = start_gui::<T, ConcreteUiAdaptor<_>, TopLevelGui<_, _>>(to_ui_rx, gui_adaptor);
 
         Ok(res)
     }

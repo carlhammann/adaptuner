@@ -1,4 +1,3 @@
-use midi_msg::Channel;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
@@ -22,7 +21,7 @@ use crate::{
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config<T: IntervalBasis> {
-    version: AdaptunerVersion,
+    pub version: AdaptunerVersion,
     pub temperaments: Vec<TemperamentDefinition<T>>,
     pub named_intervals: Vec<NamedInterval<T>>,
     pub strategies: Vec<StrategyConfig<T>>, // must be non-empty
@@ -121,7 +120,6 @@ pub struct GuiConfig {
 pub enum BackendConfig {
     Pitchbend12(Pitchbend12Config),
 }
-
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

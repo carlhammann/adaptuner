@@ -14,7 +14,7 @@ use eframe::egui;
 
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
-    config::{BackendConfig, GuiConfig, MelodyStrategyConfig, StrategyConfig},
+    config::{GuiConfig, MelodyStrategyConfig, StrategyConfig},
     gui::common::CorrectionSystemChooser,
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
@@ -30,18 +30,20 @@ pub trait UiAdaptor<T: StackType> {
     fn send(&self, msg: FromUi<T>) -> bool;
     /// index `i` must be in the range `0..128`
     fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
-
+    /// index `i` must be in the range `0..128`
     fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
 
     fn reference(&self) -> impl Deref<Target = Stack<T>>;
     fn config(&self) -> impl Deref<Target = GuiConfig>;
     fn config_mut(&self) -> impl DerefMut<Target = GuiConfig>;
     fn strategy_config(&self) -> impl Deref<Target = Vec<StrategyConfig<T>>>;
+    fn strategy_config_mut(&self) -> impl DerefMut<Target = Vec<StrategyConfig<T>>>;
     fn tuning_reference(&self) -> impl DerefMut<Target = Reference<T>>;
     fn correction_system_chooser(&self) -> impl Deref<Target = CorrectionSystemChooser<T>>;
     fn active_strategy_index(&self) -> usize;
 
     fn backend_config(&self) -> impl Deref<Target = Pitchbend12Config>;
+    fn backend_config_mut(&self) -> impl DerefMut<Target = Pitchbend12Config>;
 
     fn send_consider(&self, stack: &Stack<T>, time: Instant) -> bool {
         self.send(FromUi::ToStrategy(
@@ -108,6 +110,10 @@ impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
         self.strategies.read()
     }
 
+    fn strategy_config_mut(&self) -> impl DerefMut<Target = Vec<StrategyConfig<T>>> {
+        self.strategies.write()
+    }
+
     fn tuning_reference(&self) -> impl DerefMut<Target = Reference<T>> {
         self.tuning_reference.write()
     }
@@ -123,6 +129,10 @@ impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
     fn backend_config(&self) -> impl Deref<Target = Pitchbend12Config> {
         self.backend_config.read()
     }
+
+    fn backend_config_mut(&self) -> impl DerefMut<Target = Pitchbend12Config> {
+        self.backend_config.write()
+    }
 }
 
 pub trait GuiShow<T: StackType> {
@@ -130,5 +140,5 @@ pub trait GuiShow<T: StackType> {
 }
 
 pub trait Gui<T: StackType, A: UiAdaptor<T>>: eframe::App + ReceiveMsg<ToUi<T>> {
-    fn new(config: GuiConfig, adaptor: A) -> Self;
+    fn new(adaptor: A) -> Self;
 }

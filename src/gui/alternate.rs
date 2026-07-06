@@ -1,30 +1,35 @@
 use std::time::Instant;
 
 use eframe::{self, egui};
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::GuiConfig,
+    config::BackendConfig,
     gui::{
         backend::BackendWindow,
         common::SmallFloatingWindow,
+        config::ConfigFileDialog,
         connection::{ConnectionWindow, Input, Output},
         latency::LatencyWindow,
         lattice::LatticeWindow,
         notifications::Notifications,
         r#trait::{Gui, GuiShow, UiAdaptor},
     },
-    interval::stacktype::r#trait::StackType,
-    msg::{ReceiveMsg, ReceiveMsgRef, ToUi},
+    interval::stacktype::r#trait::{Reloadable, StackType},
+    msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi},
     notename::HasNoteNames,
 };
 
 pub struct TopLevelGui<T: StackType, A: UiAdaptor<T>> {
     adaptor: A,
 
+    // these four use the same SmallFloatingWindow, namely the connection_window
     input_connection: ConnectionWindow<Input>,
     output_connection: ConnectionWindow<Output>,
     backend: BackendWindow,
     connection_window: SmallFloatingWindow,
+
+    config_file_dialog: ConfigFileDialog<T>,
 
     notifications: Notifications<T>,
 
@@ -34,8 +39,12 @@ pub struct TopLevelGui<T: StackType, A: UiAdaptor<T>> {
     latency: LatencyWindow,
 }
 
-impl<T: StackType + HasNoteNames, A: UiAdaptor<T>> eframe::App for TopLevelGui<T, A> {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+impl<T, A> eframe::App for TopLevelGui<T, A>
+where
+    T: StackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
+    A: UiAdaptor<T>,
+{
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // no need to check for the ConfigFileDialog, which is also shown as modal; this has its
         // own implementation of a modal window from egui_file_dialog
         let any_modal_open = false;
@@ -72,25 +81,15 @@ impl<T: StackType + HasNoteNames, A: UiAdaptor<T>> eframe::App for TopLevelGui<T
 
                 ui.separator();
 
-                // if ui.button("save configuration").clicked() {
-                //     self.current_config = self.extract_config();
-                //     self.current_process_config = None {};
-                //     self.current_backend_config = None {};
-                //     let _ = self.tx.send(FromUi::GetCurrentProcessConfig);
-                //     let _ = self.tx.send(FromUi::GetCurrentBackendConfig);
-                //     self.config_file_dialog.as_save().open();
-                // }
-                //
-                // if ui.button("load configuration").clicked() {
-                //     self.current_config = self.extract_config();
-                //     self.current_process_config = None {};
-                //     self.current_backend_config = None {};
-                //     let _ = self.tx.send(FromUi::GetCurrentProcessConfig);
-                //     let _ = self.tx.send(FromUi::GetCurrentBackendConfig);
-                //     self.config_file_dialog.as_load().open();
-                // }
-                //
-                // ui.separator();
+                if ui.button("save configuration").clicked() {
+                    self.config_file_dialog.as_save().open();
+                }
+
+                if ui.button("load configuration").clicked() {
+                    self.config_file_dialog.as_load().open();
+                }
+
+                ui.separator();
 
                 // AsBigControls(&mut self.lattice).show(ui);
                 //
@@ -132,6 +131,29 @@ impl<T: StackType + HasNoteNames, A: UiAdaptor<T>> eframe::App for TopLevelGui<T
                 });
             });
 
+            let new_config = self.config_file_dialog.show(ui, &self.adaptor);
+            if let Some(config) = new_config {
+                let _ = self.adaptor.send(FromUi::Stop {
+                    time: Instant::now(),
+                });
+
+                let _ = T::initialise(config.temperaments, config.named_intervals);
+
+                *self.adaptor.config_mut() = config.gui;
+                match config.backend {
+                    BackendConfig::Pitchbend12(c) => *self.adaptor.backend_config_mut() = c,
+                }
+                *self.adaptor.strategy_config_mut() = config.strategies;
+
+                self.renew();
+
+                let _ = self.adaptor.send(FromUi::RestartFromConfig {
+                    time: Instant::now(),
+                });
+
+                return; // don't continue updating for this frame
+            }
+
             self.lattice.show(ui, &self.adaptor);
 
             ui.horizontal(|ui| {
@@ -170,8 +192,13 @@ impl<T: StackType, A: UiAdaptor<T>> ReceiveMsg<ToUi<T>> for TopLevelGui<T, A> {
     }
 }
 
-impl<T: StackType + HasNoteNames, A: UiAdaptor<T>> Gui<T, A> for TopLevelGui<T, A> {
-    fn new(config: GuiConfig, adaptor: A) -> Self {
+impl<T, A> Gui<T, A> for TopLevelGui<T, A>
+where
+    T: StackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
+    A: UiAdaptor<T>,
+{
+    fn new(adaptor: A) -> Self {
+        let latency_mean_over = adaptor.config().latency_mean_over;
         Self {
             input_connection: ConnectionWindow::new(),
             output_connection: ConnectionWindow::new(),
@@ -179,12 +206,28 @@ impl<T: StackType + HasNoteNames, A: UiAdaptor<T>> Gui<T, A> for TopLevelGui<T, 
             connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window"), true),
             notifications: Notifications::new(),
 
+            config_file_dialog: ConfigFileDialog::new(),
+
             show_side_panel: false,
 
             lattice: LatticeWindow::new(),
-            latency: LatencyWindow::new(config.latency_mean_over),
+            latency: LatencyWindow::new(latency_mean_over),
 
             adaptor,
         }
+    }
+}
+
+impl<T, A> TopLevelGui<T, A>
+where
+    T: StackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
+    A: UiAdaptor<T>,
+{
+    fn renew(&mut self) {
+        self.backend = BackendWindow::new(self.adaptor.backend_config());
+        self.notifications = Notifications::new();
+        self.config_file_dialog = ConfigFileDialog::new();
+        self.lattice = LatticeWindow::new();
+        self.latency = LatencyWindow::new(self.adaptor.config().latency_mean_over);
     }
 }

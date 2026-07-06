@@ -16,11 +16,6 @@ pub trait ReceiveMsgRef<I> {
     fn receive_msg_ref(&mut self, msg: &I);
 }
 
-/// Convention: the handler wil handle a 'stop' message, and immediately after that the thread will exit.
-pub trait HasStop {
-    fn is_stop(&self) -> bool;
-}
-
 pub trait MessageTranslate<B> {
     fn translate(self) -> Option<B>;
 }
@@ -73,7 +68,7 @@ pub enum ToProcess<T: StackType> {
         action: Option<ToStrategy<T>>,
         bindable: MidiBindable,
     },
-    ReloadStrategyList {
+    RestartFromConfig {
         time: Instant,
     },
 }
@@ -198,7 +193,12 @@ pub enum ToBackend {
     Reset {
         time: Instant,
     },
-    Stop,
+    Stop {
+        time: Instant,
+    },
+    RestartFromConfig {
+        time: Instant,
+    },
     NoteOn {
         channel: Channel,
         note: u8,
@@ -366,7 +366,10 @@ pub enum FromUi<T: StackType> {
         channels: u16,
         time: Instant,
     },
-    ReloadStrategyList {
+    Stop {
+        time: Instant,
+    },
+    RestartFromConfig {
         time: Instant,
     },
     ToStrategy(ToStrategy<T>),
@@ -687,9 +690,15 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::ReloadStrategyList { time } => (
-                Some(ToProcess::ReloadStrategyList { time }),
+            FromUi::Stop { time } => (
+                Some(ToProcess::Stop { time }),
+                Some(ToBackend::Stop { time }),
                 None {},
+                None {},
+            ),
+            FromUi::RestartFromConfig { time } => (
+                Some(ToProcess::RestartFromConfig { time }),
+                Some(ToBackend::RestartFromConfig { time }),
                 None {},
                 None {},
             ),
@@ -796,42 +805,6 @@ impl<T: StackType> MessageTranslate2<ToMidiOut, ToUi<T>> for FromBackend {
                     explanation,
                 }),
             ),
-        }
-    }
-}
-
-impl<T: StackType> HasStop for ToProcess<T> {
-    fn is_stop(&self) -> bool {
-        match self {
-            Self::Stop { .. } => true,
-            _ => false,
-        }
-    }
-}
-
-impl HasStop for ToBackend {
-    fn is_stop(&self) -> bool {
-        match self {
-            Self::Stop => true,
-            _ => false,
-        }
-    }
-}
-
-impl HasStop for ToMidiIn {
-    fn is_stop(&self) -> bool {
-        match self {
-            Self::Stop => true,
-            _ => false,
-        }
-    }
-}
-
-impl HasStop for ToMidiOut {
-    fn is_stop(&self) -> bool {
-        match self {
-            Self::Stop => true,
-            _ => false,
         }
     }
 }

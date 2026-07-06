@@ -1,9 +1,6 @@
 use std::{fmt, marker::PhantomData};
 
-use eframe::{
-    egui::{self, AtomExt},
-    Result,
-};
+use eframe::{egui, Result};
 use midi_msg::Channel;
 use ndarray::{Array1, ArrayView1};
 use num_rational::Ratio;

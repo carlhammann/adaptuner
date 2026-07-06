@@ -1,7 +1,7 @@
 pub mod alternate;
 pub mod backend;
 pub mod common;
-// pub mod config;
+pub mod config;
 pub mod connection;
 pub mod diffshow;
 // pub mod editor;

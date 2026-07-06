@@ -128,7 +128,12 @@ impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
                 self.reset(time);
             }
 
-            msg::ToBackend::Stop => {}
+            msg::ToBackend::Stop { .. } => {}
+
+            msg::ToBackend::RestartFromConfig { time } => {
+                self.bends = [8192; 12];
+                self.reset(time);
+            }
 
             ToBackend::NoteOn {
                 time,

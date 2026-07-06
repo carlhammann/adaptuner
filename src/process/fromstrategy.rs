@@ -515,17 +515,8 @@ where
                     let _ = self.send_to_strategy(msg);
                 }
             }
-            ToProcess::ReloadStrategyList { time } => {
-                todo!();
-                let mut index = self.stop(time);
-                // action.apply_to(
-                //     |c| c.clone(),
-                //     &mut self.adaptor.strategies.write(),
-                //     &mut index,
-                // );
-                // if let Some(index) = index {
-                //     self.start(time, index);
-                // }
+            ToProcess::RestartFromConfig { time } => {
+                self.restart(time);
             }
             ToProcess::BindAction { action, bindable } => {
                 todo!()
