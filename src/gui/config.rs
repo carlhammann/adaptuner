@@ -1,7 +1,7 @@
 use std::time::SystemTime;
 
 use eframe::egui::{self, vec2};
-use egui_file_dialog::{DirectoryEntry, FileDialog, FileDialogConfig};
+use egui_file_dialog::{DialogState, DirectoryEntry, FileDialog, FileDialogConfig};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
     interval::stacktype::r#trait::{IntervalBasis, StackType},
 };
 
+#[derive(PartialEq, Eq)]
 enum Phase {
     ShowingDialog,
     ShowingError,
@@ -66,10 +67,6 @@ impl<T: StackType + Serialize> ConfigFileDialog<T> {
     }
 
     pub fn open(&mut self) {
-        // , gui_config: GuiConfig<T>, forward: &mpsc::Sender<FromUi<T>>) {
-        // self.current_config.set(ConfigByParts::empty());
-        // self.current_config
-        //     .update(|x| x.add_gui_if_nonexistent(gui_config));
         self.phase = Phase::ShowingDialog;
         self.considered = None {};
         if self.as_load {
@@ -77,8 +74,10 @@ impl<T: StackType + Serialize> ConfigFileDialog<T> {
         } else {
             self.file_dialog.save_file();
         }
-        // let _ = forward.send(FromUi::GetCurrentProcessConfig);
-        // let _ = forward.send(FromUi::GetCurrentBackendConfig);
+    }
+
+    pub fn is_open(&self) -> bool {
+        *self.file_dialog.state() == DialogState::Open
     }
 }
 
