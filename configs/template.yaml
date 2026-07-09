@@ -1,4 +1,4 @@
-version: 0.2.2
+version: '0.2.2'
 temperaments:
 - name: equal temperament
   equations:
@@ -85,29 +85,35 @@ temperaments:
       third: 4
 named-intervals:
 - name: diesis
-  short-name: 'd'
+  short-name: d
   coeffs:
     octave: '1'
     third: '-3'
 - name: pythagorean comma
-  short-name: 'p'
+  short-name: p
   coeffs:
     octave: '-7'
     fifth: '12'
 - name: syntonic comma
-  short-name: 's'
+  short-name: s
   coeffs:
     octave: '-2'
     fifth: '4'
     third: '-1'
 - name: kleisma
-  short-name: 'k'
+  short-name: k
   coeffs:
     octave: '1'
     fifth: '-5'
     third: '6'
+tuning-reference:
+  stack:
+    octave: 1
+    fifth: -1
+    third: 1
+  semitones: 69.0
 strategies:
-- !two-step 
+- !two-step
   name: static + list of chords
   description: |-
     This strategy allows you to
@@ -117,8 +123,7 @@ strategies:
   harmony: !chord-list
     enable: true
     patterns:
-    - name: major
-      key-shape: !classes-relative
+    - key-shape: !classes-relative
         classes:
         - 0
         - 4
@@ -130,9 +135,9 @@ strategies:
         7:
           fifth: 1
       allow-extra-high-notes: true
+      name: major
       original-reference: {}
-    - name: minor
-      key-shape: !classes-relative
+    - key-shape: !classes-relative
         classes:
         - 0
         - 3
@@ -145,9 +150,9 @@ strategies:
         7:
           fifth: 1
       allow-extra-high-notes: true
+      name: minor
       original-reference: {}
-    - name: dominant seventh
-      key-shape: !classes-relative
+    - key-shape: !classes-relative
         classes:
         - 0
         - 4
@@ -163,9 +168,9 @@ strategies:
           octave: 2
           fifth: -2
       allow-extra-high-notes: true
+      name: dominant seventh
       original-reference: {}
-    - name: major add6
-      key-shape: !block-voicing-relative
+    - key-shape: !block-voicing-relative
         blocks:
         - - 0
         - - 4
@@ -182,9 +187,9 @@ strategies:
           fifth: -1
           third: 1
       allow-extra-high-notes: true
+      name: major add6
       original-reference: {}
-    - name: minor seventh
-      key-shape: !block-voicing-relative
+    - key-shape: !block-voicing-relative
         blocks:
         - - 0
         - - 3
@@ -201,9 +206,9 @@ strategies:
           fifth: 2
           third: -1
       allow-extra-high-notes: true
+      name: minor seventh
       original-reference: {}
-    - name: 'sus4 '
-      key-shape: !block-voicing-relative
+    - key-shape: !block-voicing-relative
         blocks:
         - - 0
           - 7
@@ -216,9 +221,9 @@ strategies:
         7:
           fifth: 1
       allow-extra-high-notes: true
+      name: 'sus4'
       original-reference: {}
-    - name: sus2
-      key-shape: !block-voicing-relative
+    - key-shape: !block-voicing-relative
         blocks:
         - - 0
           - 7
@@ -231,10 +236,9 @@ strategies:
         7:
           fifth: 1
       allow-extra-high-notes: true
+      name: sus2
       original-reference: {}
   melody: !static-neighbourhoods
-    reanchor: false
-    group-ms: 100
     neighbourhoods:
     - name: pure
       named: !periodic-complete
@@ -343,29 +347,17 @@ strategies:
             third: 1
           actual:
             octave: '11/12'
-    tuning-reference:
-      stack:
-        octave: 1
-        fifth: -1
-        third: 1
-      semitones: 69.0
-    reference: {}
-  # bindings:
-  #   sostenuto-pedal-down: !increment-neighbourhood-index 1
-  #   soft-pedal-down: set-reference-to-current
-  #   Escape: reset
-  #   Tab: toggle-reanchor
-  #   Backspace: toggle-chord-matching
-  #   Enter: !increment-neighbourhood-index 1
-  #   Space: set-reference-to-current
-- !static-neighbourhoods 
+    initial-reference: {}
+    reanchor: false
+    group-ms: 100
+- !static-neighbourhoods
   name: static scales
   description: |-
     This strategy allows you to
     • define scales comprising static tunings of all 12 notes as a "neighbourhood" of the reference note,
     • switch between different scales on the fly, and
     • reset the reference note on the fly.
-  config: 
+  config:
     neighbourhoods:
     - name: flats
       named: !periodic-complete
@@ -441,20 +433,7 @@ strategies:
         11:
           fifth: 1
           third: 1
-    tuning-reference:
-      stack:
-        octave: 1
-        fifth: -1
-        third: 1
-      semitones: 69.0
     initial-reference: {}
-  # bindings: {}
-    # sostenuto-pedal-down: !increment-neighbourhood-index 1
-    # sostenuto-pedal-up: !increment-neighbourhood-index -1
-    # soft-pedal-down: set-reference-to-lowest
-    # Escape: reset
-    # Enter: !increment-neighbourhood-index 1
-    # Space: set-reference-to-lowest
 - !two-step
   name: static scales + list of chords
   description: |-
@@ -465,8 +444,7 @@ strategies:
   harmony: !chord-list
     enable: true
     patterns:
-    - name: major
-      key-shape: !classes-relative
+    - key-shape: !classes-relative
         classes:
         - 0
         - 4
@@ -478,9 +456,9 @@ strategies:
         7:
           fifth: 1
       allow-extra-high-notes: true
+      name: major
       original-reference: {}
-    - name: minor
-      key-shape: !classes-relative
+    - key-shape: !classes-relative
         classes:
         - 0
         - 3
@@ -493,9 +471,9 @@ strategies:
         7:
           fifth: 1
       allow-extra-high-notes: true
+      name: minor
       original-reference: {}
-    - name: dominant seventh
-      key-shape: !classes-relative
+    - key-shape: !classes-relative
         classes:
         - 0
         - 4
@@ -511,9 +489,9 @@ strategies:
           octave: 2
           fifth: -2
       allow-extra-high-notes: true
+      name: dominant seventh
       original-reference: {}
-    - name: major add6
-      key-shape: !block-voicing-relative
+    - key-shape: !block-voicing-relative
         blocks:
         - - 0
         - - 4
@@ -530,9 +508,9 @@ strategies:
           fifth: -1
           third: 1
       allow-extra-high-notes: true
+      name: major add6
       original-reference: {}
-    - name: minor seventh
-      key-shape: !block-voicing-relative
+    - key-shape: !block-voicing-relative
         blocks:
         - - 0
         - - 3
@@ -549,9 +527,9 @@ strategies:
           fifth: 2
           third: -1
       allow-extra-high-notes: true
+      name: minor seventh
       original-reference: {}
-    - name: 'sus4 '
-      key-shape: !block-voicing-relative
+    - key-shape: !block-voicing-relative
         blocks:
         - - 0
           - 7
@@ -564,9 +542,9 @@ strategies:
         7:
           fifth: 1
       allow-extra-high-notes: true
+      name: 'sus4 '
       original-reference: {}
-    - name: sus2
-      key-shape: !block-voicing-relative
+    - key-shape: !block-voicing-relative
         blocks:
         - - 0
           - 7
@@ -579,10 +557,9 @@ strategies:
         7:
           fifth: 1
       allow-extra-high-notes: true
+      name: sus2
       original-reference: {}
   melody: !static-neighbourhoods
-    reanchor: false
-    group-ms: 100
     neighbourhoods:
     - name: pure
       named: !periodic-complete
@@ -691,21 +668,9 @@ strategies:
             third: 1
           actual:
             octave: '11/12'
-    tuning-reference:
-      stack:
-        octave: 1
-        fifth: -1
-        third: 1
-      semitones: 69.0
-    reference: {}
-  # bindings:
-  #   sostenuto-pedal-down: !increment-neighbourhood-index 1
-  #   soft-pedal-down: set-reference-to-current
-  #   Escape: reset
-  #   Tab: toggle-reanchor
-  #   Backspace: toggle-chord-matching
-  #   Enter: !increment-neighbourhood-index 1
-  #   Space: set-reference-to-current
+    initial-reference: {}
+    reanchor: false
+    group-ms: 100
 backend: !pitchbend12
   bend-range: 2.0
   channels:
@@ -722,6 +687,7 @@ backend: !pitchbend12
   - 12
   - 13
 gui:
+  notenamestyle: class
   lattice:
     zoom: 10.909091
     interval-heights:
@@ -738,14 +704,9 @@ gui:
     - 4
     - 3
     project-dimension: 0
+    color-period-ct: 21.506289596715078
     screen-keyboard-channel: 1
     screen-keyboard-velocity: 64
-    notenamestyle: class
     highlight-playable-keys: true
-    color-period-ct: 21.506289596715078
-  # tuning-editor:
-  #   notenamestyle: full
-  # reference-editor:
-  #   notenamestyle: full
   latency-mean-over: 20
   use-cent-values: true

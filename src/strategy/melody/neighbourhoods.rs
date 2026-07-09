@@ -8,13 +8,11 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     config::{IsMelodyStrategyConfig, MelodyStrategyConfig, Named},
     interval::{
-        base::Semitones,
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     msg::{FromStrategy, ToMelody, ToStaticNeighbourhoodsAsMelody},
     neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
-    reference::Reference,
     strategy::{
         harmony::r#trait::Harmony,
         melody::r#trait::{MelodyStrategy, MelodyStrategyAdaptor},
@@ -26,8 +24,7 @@ use crate::{
 #[serde(rename_all = "kebab-case")]
 pub struct StaticNeighbourhoodsAsMelodyConfig<T: IntervalBasis> {
     pub neighbourhoods: Vec<Named<SomeCompleteNeighbourhood<T>>>,
-    pub tuning_reference: Reference<T>,
-    pub reference: Stack<T>,
+    pub initial_reference: Stack<T>,
 
     pub reanchor: bool,
     pub group_ms: u64,
@@ -39,7 +36,6 @@ pub struct StaticNeighbourhoodsAsMelody<T: StackType> {
     /// This Vec must never be empty
     neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
     curr_neighbourhood_index: usize,
-    tuning_reference: Reference<T>,
     reference: Stack<T>,
 
     reanchor: bool,
@@ -55,18 +51,9 @@ impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyCon
     fn as_melody_strategy_config(self) -> MelodyStrategyConfig<T> {
         MelodyStrategyConfig::StaticNeighbourhoods(self)
     }
-
-    #[inline]
-    fn tuning_reference(&self) -> &Reference<T> {
-        &self.tuning_reference
-    }
 }
 
 impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
-    fn semitones_for_stack(&self, stack: &Stack<T>) -> Semitones {
-        stack.absolute_semitones(self.tuning_reference.c4_semitones())
-    }
-
     fn tune_without_harmony(&mut self, time: Instant, adaptor: &impl MelodyStrategyAdaptor<T>) {
         adaptor.send(FromStrategy::CurrentHarmony {
             pattern_index: None {},
@@ -83,7 +70,9 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
                 );
 
                 let mut retune = self.tmp_stack != the_tuning.stack;
-                let new_semitones = self.semitones_for_stack(&the_tuning.stack);
+                let new_semitones = the_tuning
+                    .stack
+                    .absolute_semitones(adaptor.tuning_reference().c4_semitones());
                 if new_semitones != the_tuning.semitones {
                     the_tuning.semitones = new_semitones;
                     retune = true;
@@ -138,7 +127,9 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
                     }
 
                     let mut retune = self.tmp_stack != the_tuning.stack;
-                    let new_semitones = self.semitones_for_stack(&the_tuning.stack);
+                    let new_semitones = the_tuning
+                        .stack
+                        .absolute_semitones(adaptor.tuning_reference().c4_semitones());
                     if new_semitones != the_tuning.semitones {
                         the_tuning.semitones = new_semitones;
                         retune = true;
@@ -264,8 +255,7 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
         Self {
             neighbourhoods: config.neighbourhoods.drain(..).map(|n| n.named).collect(),
             curr_neighbourhood_index: 0,
-            tuning_reference: config.tuning_reference,
-            reference: config.reference,
+            reference: config.initial_reference,
             reanchor: config.reanchor,
             last_solve: Instant::now(),
             group_start_reference: Stack::new_zero(),
@@ -296,19 +286,19 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
     }
 
     fn update_tuning_reference(&mut self, time: Instant, adaptor: &A) {
-        todo!() // copy what staticneighbourhoods does, this is incorrect:
-
-        // for (i, state) in adaptor.key_states().iter().enumerate() {
-        //     if state.is_sounding() {
-        //         // do it like this to avoid double-locking 'adaptor.tunings'
-        //         let x = &mut adaptor.tunings()[i];
-        //         x.semitones = self.semitones_for_stack(&x.stack);
-        //         adaptor.send(FromStrategy::Retune {
-        //             note: i as u8,
-        //             time,
-        //         });
-        //     }
-        // }
+        for i in 0..128 {
+            if adaptor.key_state(i).is_sounding() {
+                // do it like this to avoid double-locking 'adaptor.tuning(i)'
+                let x = &mut adaptor.tuning(i);
+                x.semitones = x
+                    .stack
+                    .absolute_semitones(adaptor.tuning_reference().c4_semitones());
+                adaptor.send(FromStrategy::Retune {
+                    note: i as u8,
+                    time,
+                });
+            }
+        }
     }
 
     fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) {

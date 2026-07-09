@@ -12,11 +12,13 @@ use crate::{
 
 /// todo: remove the generic? -- this is only possible if we somehow take sub-views of the 'tunings'
 /// field.
+///
+/// [key_states] and [tunings] must be locked and unlocked in that order.
 #[derive(Clone)]
 pub struct ConcretePitchbend12Adaptor<T: StackType> {
     pub forward: mpsc::Sender<FromBackend>,
-    pub tunings: [Arc<RwLock<StackWithTuning<T>>>; 128],
     pub key_states: [Arc<RwLock<KeyState>>; 128],
+    pub tunings: [Arc<RwLock<StackWithTuning<T>>>; 128],
     pub config: Arc<RwLock<Pitchbend12Config>>,
 }
 

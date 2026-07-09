@@ -5,14 +5,11 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     config::{IsStrategyConfig, Named},
     interval::{
-        base::Semitones,
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     msg::{FromStrategy, ToStaticNeighbourhoods, ToStrategy},
     neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
-    process::r#trait::StackWithTuning,
-    reference::Reference,
     strategy::r#trait::{Strategy, StrategyAdaptor},
 };
 
@@ -20,7 +17,6 @@ pub struct StaticNeighbourhoods<T: StackType> {
     /// this Vec must never be empty
     neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
     curr_neighbourhood_index: usize,
-    tuning_reference: Reference<T>,
     reference: Stack<T>,
 
     tmp_stack: Stack<T>,
@@ -32,44 +28,10 @@ pub struct StaticNeighbourhoods<T: StackType> {
 pub struct StaticNeighbourhoodsConfig<T: IntervalBasis> {
     /// this Vec must never be empty
     pub neighbourhoods: Vec<Named<SomeCompleteNeighbourhood<T>>>,
-    pub tuning_reference: Reference<T>,
     pub initial_reference: Stack<T>,
 }
 
 impl<T: StackType> StaticNeighbourhoods<T> {
-    fn semitones_for_stack(&self, stack: &Stack<T>) -> Semitones {
-        stack.absolute_semitones(self.tuning_reference.c4_semitones())
-    }
-
-    /// Returns true iff the tuning stack or tuning semitones, as accessed through the adaptor,
-    /// changed.
-    fn update_tuning(
-        &mut self,
-        note: u8,
-        mut tuning: impl DerefMut<Target = StackWithTuning<T>>,
-    ) -> bool {
-        self.neighbourhoods[self.curr_neighbourhood_index].write_relative_stack(
-            &mut self.tmp_stack,
-            note as StackCoeff - self.reference.key_number(),
-        );
-        self.tmp_stack.scaled_add(1, &self.reference);
-
-        let mut changed = false;
-
-        if tuning.stack != self.tmp_stack {
-            tuning.stack.clone_from(&self.tmp_stack);
-            changed = true;
-        }
-
-        let the_tuning = self.semitones_for_stack(&self.tmp_stack);
-        if the_tuning != tuning.semitones {
-            tuning.semitones = the_tuning;
-            changed = true;
-        }
-
-        changed
-    }
-
     /// Only does something iff the tuning stack, as accessed through the adaptor, changes. That
     /// is: You can't use this for retunes caused by a changing tuning reference.
     fn update_tuning_and_send(
@@ -78,7 +40,30 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         time: Instant,
         adaptor: &impl StaticNeighbourhoodsAdaptor<T>,
     ) {
-        if self.update_tuning(note, adaptor.tuning(note as usize)) {
+        let mut the_tuning = adaptor.tuning(note as usize);
+
+        self.neighbourhoods[self.curr_neighbourhood_index].write_relative_stack(
+            &mut self.tmp_stack,
+            note as StackCoeff - self.reference.key_number(),
+        );
+        self.tmp_stack.scaled_add(1, &self.reference);
+
+        let mut changed = false;
+
+        if the_tuning.stack != self.tmp_stack {
+            the_tuning.stack.clone_from(&self.tmp_stack);
+            changed = true;
+        }
+
+        let the_semitones = self
+            .tmp_stack
+            .absolute_semitones(adaptor.tuning_reference().c4_semitones());
+        if the_semitones != the_tuning.semitones {
+            the_tuning.semitones = the_semitones;
+            changed = true;
+        }
+
+        if changed {
             adaptor.send(FromStrategy::Retune { note, time });
         }
     }
@@ -132,12 +117,7 @@ impl<T: StackType> StaticNeighbourhoods<T> {
     }
 }
 
-impl<T: StackType> IsStrategyConfig<T> for StaticNeighbourhoodsConfig<T> {
-    #[inline]
-    fn tuning_reference(&self) -> &Reference<T> {
-        &self.tuning_reference
-    }
-}
+impl<T: StackType> IsStrategyConfig<T> for StaticNeighbourhoodsConfig<T> {}
 
 pub trait StaticNeighbourhoodsAdaptor<T: StackType>: StrategyAdaptor<T> {
     /// This function is allowed to be not extremely fast; it's only called in situations where we
@@ -153,7 +133,6 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
         Self {
             neighbourhoods: config.neighbourhoods.drain(..).map(|n| n.named).collect(),
             curr_neighbourhood_index: 0,
-            tuning_reference: config.tuning_reference,
             reference: config.initial_reference,
             tmp_stack: Stack::new_zero(),
         }
@@ -190,13 +169,13 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
     }
 
     fn update_tuning_reference(&mut self, time: Instant, adaptor: &A) -> bool {
-        self.tuning_reference
-            .clone_from(adaptor.config().tuning_reference());
         for i in 0..128 {
             if adaptor.key_state(i).is_sounding() {
                 // do it like this to avoid double-locking 'adaptor.tunings'
                 let x = &mut adaptor.tuning(i);
-                x.semitones = self.semitones_for_stack(&x.stack);
+                x.semitones = x
+                    .stack
+                    .absolute_semitones(adaptor.tuning_reference().c4_semitones());
                 adaptor.send(FromStrategy::Retune {
                     note: i as u8,
                     time,

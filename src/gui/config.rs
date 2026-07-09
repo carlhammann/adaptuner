@@ -123,6 +123,7 @@ impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
                                         version: AdaptunerVersion,
                                         temperaments: T::temperament_definitions().clone(),
                                         named_intervals: T::named_intervals().clone(),
+                                        tuning_reference: adaptor.tuning_reference().clone(),
                                         strategies: adaptor.strategy_config().clone(),
                                         backend: BackendConfig::Pitchbend12(
                                             adaptor.backend_config().clone(),
@@ -192,6 +193,7 @@ impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
                     version: AdaptunerVersion,
                     temperaments: T::temperament_definitions().clone(),
                     named_intervals: T::named_intervals().clone(),
+                    tuning_reference: adaptor.tuning_reference().clone(),
                     strategies: adaptor.strategy_config().clone(),
                     backend: BackendConfig::Pitchbend12(adaptor.backend_config().clone()),
                     gui: adaptor.config().clone(),

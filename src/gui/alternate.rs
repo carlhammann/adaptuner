@@ -10,11 +10,12 @@ use crate::{
         common::SmallFloatingWindow,
         config::ConfigFileDialog,
         connection::{ConnectionWindow, Input, Output},
-        editor::{commas::CommaEditor, temperament::TemperamentEditor},
+        editor::{commas::CommaEditor, temperament::TemperamentEditor, tuning::TuningEditor},
         latency::LatencyWindow,
         lattice::LatticeWindow,
         notifications::Notifications,
         r#trait::{Gui, GuiShow, UiAdaptor},
+        strategy::StrategyWidgets,
     },
     interval::stacktype::r#trait::{Reloadable, StackType},
     msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi},
@@ -29,6 +30,8 @@ pub struct TopLevelGui<T: StackType, A: UiAdaptor<T>> {
     output_connection: ConnectionWindow<Output>,
     backend: BackendWindow,
     connection_window: SmallFloatingWindow,
+
+    tuning_editor: TuningEditor<T>,
 
     stopped: bool,
 
@@ -59,14 +62,14 @@ where
         let any_modal_open =
             self.temperament_editor_window.is_open() || self.comma_editor_window.is_open();
 
-        let mut stop = |tlg: &mut TopLevelGui<T, A>| {
+        let stop = |tlg: &mut TopLevelGui<T, A>| {
             let _ = tlg.adaptor.send(FromUi::Stop {
                 time: Instant::now(),
             });
             tlg.stopped = true;
         };
 
-        let mut restart = |tlg: &mut TopLevelGui<T, A>| {
+        let restart = |tlg: &mut TopLevelGui<T, A>| {
             tlg.renew();
             let _ = tlg.adaptor.send(FromUi::RestartFromConfig {
                 time: Instant::now(),
@@ -92,7 +95,13 @@ where
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.visuals_mut().collapsing_header_frame = true;
 
-                // AsStrategyPicker(&mut self.strategies).show(ui, &self.state, &self.tx);
+                ui.collapsing("global tuning reference", |ui| {
+                    self.tuning_editor.show(ui, &self.adaptor)
+                });
+
+                ui.separator();
+
+                // self.strategy_widgets.show(ui, &self.adaptor);
                 //
                 // ui.separator();
 
@@ -271,16 +280,12 @@ where
             backend: BackendWindow::new(adaptor.backend_config()),
             connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window"), true),
             notifications: Notifications::new(),
-
+            tuning_editor: TuningEditor::new(),
             stopped: false,
-
             config_file_dialog: ConfigFileDialog::new(),
-
             show_side_panel: false,
-
             lattice: LatticeWindow::new(),
             latency: LatencyWindow::new(latency_mean_over),
-
             temperament_editor: TemperamentEditor::new(),
             temperament_editor_window: SmallFloatingWindow::new(
                 egui::Id::new("temperament_editor_window"),
@@ -291,7 +296,6 @@ where
                 egui::Id::new("comma_editor_window"),
                 false,
             ),
-
             adaptor,
         }
     }
@@ -305,10 +309,10 @@ where
     fn renew(&mut self) {
         self.backend = BackendWindow::new(self.adaptor.backend_config());
         self.notifications = Notifications::new();
+        self.tuning_editor = TuningEditor::new();
         self.config_file_dialog = ConfigFileDialog::new();
         self.lattice = LatticeWindow::new();
         self.latency = LatencyWindow::new(self.adaptor.config().latency_mean_over);
-
         self.temperament_editor = TemperamentEditor::new();
         self.comma_editor = CommaEditor::new();
     }

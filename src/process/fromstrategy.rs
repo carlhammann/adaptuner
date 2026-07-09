@@ -17,6 +17,7 @@ use crate::{
     keystate::KeyState,
     msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
     process::r#trait::{ProcessAdaptor, StackWithTuning},
+    reference::Reference,
     strategy::{
         harmony::{
             chordlist::{ChordList, ChordListAdaptor, ChordListConfig},
@@ -68,6 +69,11 @@ impl<T: StackType, P: ProcessAdaptor<T> + 'static> StrategyAdaptor<T>
     fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
         self.process_adaptor.tuning(i)
     }
+
+    #[inline]
+    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>> {
+        self.process_adaptor.tuning_reference()
+    }
 }
 
 impl<T: StackType, P: ProcessAdaptor<T> + 'static> StaticNeighbourhoodsAdaptor<T>
@@ -108,6 +114,11 @@ impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStep
     }
 
     #[inline]
+    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>> {
+        self.process_adaptor.tuning_reference()
+    }
+
+    #[inline]
     fn harmony(&self) -> impl Deref<Target = Harmony<T>> {
         self.harmony.read()
     }
@@ -139,6 +150,11 @@ impl<T: StackType, P: ProcessAdaptor<T>> StrategyAdaptor<T> for TheTwoStepAdapto
     #[inline]
     fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
         self.process_adaptor.tuning(i)
+    }
+
+    #[inline]
+    fn tuning_reference(&self) -> impl Deref<Target=Reference<T>> {
+        self.process_adaptor.tuning_reference()
     }
 }
 

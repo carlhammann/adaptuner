@@ -1,7 +1,6 @@
 use std::error::Error;
 
 use adaptuner::{
-    backend::pitchbend12::Pitchbend12,
     config::{BackendConfig, Config},
     interval::stacktype::{fivelimit::TheFiveLimitStackType, r#trait::Reloadable},
     run::RunState,
@@ -40,7 +39,14 @@ fn run() -> Result<(), Box<dyn Error>> {
         BackendConfig::Pitchbend12(c) => c,
     };
 
-    let _runstate = RunState::new(midi_in, midi_out, config.strategies, p12_config, config.gui)?;
+    let _runstate = RunState::new(
+        midi_in,
+        midi_out,
+        config.tuning_reference,
+        config.strategies,
+        p12_config,
+        config.gui,
+    )?;
 
     Ok(())
 }

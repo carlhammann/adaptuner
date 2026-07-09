@@ -9,16 +9,17 @@ use crate::{
     interval::stacktype::r#trait::StackType,
     keystate::KeyState,
     msg::{FromStrategy, ToStrategy},
-    process::r#trait::StackWithTuning,
+    process::r#trait::StackWithTuning, reference::Reference,
 };
 
+/// [key_state], [tuning], and [tuning_reference] must be locked in that order
 pub trait StrategyAdaptor<T: StackType> {
     fn send(&self, msg: FromStrategy<T>) -> bool;
     /// index `i` bust be in the range `0..128`
     fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
-
     /// index `i` bust be in the range `0..128`
     fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
+    fn tuning_reference(&self) -> impl Deref<Target=Reference<T>>;
 }
 
 pub trait Strategy<T: StackType, A: StrategyAdaptor<T>> {

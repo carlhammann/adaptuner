@@ -4,7 +4,6 @@ use crate::{
     config::{IsHarmonyStrategyConfig, IsMelodyStrategyConfig, IsStrategyConfig},
     interval::stacktype::r#trait::StackType,
     msg::{ToStrategy, ToTwoStep},
-    reference::Reference,
     strategy::{
         harmony::r#trait::{HarmonyStrategy, HarmonyStrategyAdaptor},
         melody::r#trait::{MelodyStrategy, MelodyStrategyAdaptor},
@@ -34,10 +33,6 @@ where
     HC: IsHarmonyStrategyConfig<T>,
     MC: IsMelodyStrategyConfig<T>,
 {
-    #[inline]
-    fn tuning_reference(&self) -> &Reference<T> {
-        self.1.tuning_reference()
-    }
 }
 
 impl<T, H, HA, M, MA> TwoStep<T, H, HA, M, MA>

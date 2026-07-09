@@ -8,7 +8,7 @@ use std::{
     time::Instant,
 };
 
-use parking_lot::{RwLock, RwLockReadGuard};
+use parking_lot::RwLock;
 
 use eframe::egui;
 
@@ -22,29 +22,44 @@ use crate::{
         FromUi, ReceiveMsg, ToMelody, ToStaticNeighbourhoods, ToStaticNeighbourhoodsAsMelody,
         ToStrategy, ToTwoStep, ToUi,
     },
+    notename::HasNoteNames,
     process::r#trait::StackWithTuning,
     reference::Reference,
 };
 
+/// Things must be locked in the order in which the functions in this trait are defined.
 pub trait UiAdaptor<T: StackType> {
     fn send(&self, msg: FromUi<T>) -> bool;
+
     /// index `i` must be in the range `0..128`
     fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
     /// index `i` must be in the range `0..128`
     fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
+    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>>;
+    fn tuning_reference_mut(&self) -> impl DerefMut<Target = Reference<T>>;
 
+    fn strategy_config(&self) -> impl Deref<Target = Vec<StrategyConfig<T>>>;
+    fn strategy_config_mut(&self) -> impl DerefMut<Target = Vec<StrategyConfig<T>>>;
+    fn active_strategy_index(&self) -> usize;
     fn reference(&self) -> impl Deref<Target = Stack<T>>;
     fn config(&self) -> impl Deref<Target = GuiConfig>;
     fn config_mut(&self) -> impl DerefMut<Target = GuiConfig>;
-    fn strategy_config(&self) -> impl Deref<Target = Vec<StrategyConfig<T>>>;
-    fn strategy_config_mut(&self) -> impl DerefMut<Target = Vec<StrategyConfig<T>>>;
-    fn tuning_reference(&self) -> impl DerefMut<Target = Reference<T>>;
     fn correction_system_chooser(&self) -> impl Deref<Target = CorrectionSystemChooser<T>>;
-    fn active_strategy_index(&self) -> usize;
 
     fn backend_config(&self) -> impl Deref<Target = Pitchbend12Config>;
     fn backend_config_mut(&self) -> impl DerefMut<Target = Pitchbend12Config>;
 
+    /// this locks [Self::config] and [Self::correction_system_chooser].
+    fn corrected_notename(&self, stack: &Stack<T>) -> String
+    where
+        T: HasNoteNames,
+    {
+        stack.corrected_notename(
+            &self.config().notenamestyle,
+            self.correction_system_chooser().preference_order(),
+            self.correction_system_chooser().use_cent_values,
+        )
+    }
     fn send_consider(&self, stack: &Stack<T>, time: Instant) -> bool {
         self.send(FromUi::ToStrategy(
             match self.strategy_config()[self.active_strategy_index()] {
@@ -70,66 +85,84 @@ pub trait UiAdaptor<T: StackType> {
 
 pub struct ConcreteUiAdaptor<T: StackType> {
     pub forward: mpsc::Sender<FromUi<T>>,
-    pub tunings: [Arc<RwLock<StackWithTuning<T>>>; 128],
-    pub reference: Arc<RwLock<Stack<T>>>,
     pub key_states: [Arc<RwLock<KeyState>>; 128],
-    pub gui_config: RefCell<GuiConfig>,
+    pub tunings: [Arc<RwLock<StackWithTuning<T>>>; 128],
+    pub tuning_reference: Arc<RwLock<Reference<T>>>,
+    pub reference: Arc<RwLock<Stack<T>>>,
     pub strategies: Arc<RwLock<Vec<StrategyConfig<T>>>>,
     pub active_strategy_index: Arc<AtomicUsize>,
-    pub tuning_reference: Arc<RwLock<Reference<T>>>,
+    pub gui_config: RefCell<GuiConfig>,
     pub correction_system_chooser: RefCell<CorrectionSystemChooser<T>>,
     pub backend_config: Arc<RwLock<Pitchbend12Config>>,
 }
 
 impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
+    #[inline]
     fn send(&self, msg: FromUi<T>) -> bool {
         self.forward.send(msg).is_ok()
     }
 
+    #[inline]
     fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
         self.key_states[i].read()
     }
 
+    #[inline]
     fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
         self.tunings[i].read()
     }
 
+    #[inline]
+    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>> {
+        self.tuning_reference.read()
+    }
+
+    #[inline]
+    fn tuning_reference_mut(&self) -> impl DerefMut<Target = Reference<T>> {
+        self.tuning_reference.write()
+    }
+
+    #[inline]
     fn reference(&self) -> impl Deref<Target = Stack<T>> {
         self.reference.read()
     }
 
+    #[inline]
     fn config(&self) -> impl Deref<Target = GuiConfig> {
         self.gui_config.borrow()
     }
 
+    #[inline]
     fn config_mut(&self) -> impl DerefMut<Target = GuiConfig> {
         self.gui_config.borrow_mut()
     }
 
+    #[inline]
     fn strategy_config(&self) -> impl Deref<Target = Vec<StrategyConfig<T>>> {
         self.strategies.read()
     }
 
+    #[inline]
     fn strategy_config_mut(&self) -> impl DerefMut<Target = Vec<StrategyConfig<T>>> {
         self.strategies.write()
     }
 
-    fn tuning_reference(&self) -> impl DerefMut<Target = Reference<T>> {
-        self.tuning_reference.write()
-    }
-
+    #[inline]
     fn correction_system_chooser(&self) -> impl Deref<Target = CorrectionSystemChooser<T>> {
         self.correction_system_chooser.borrow()
     }
 
+    #[inline]
     fn active_strategy_index(&self) -> usize {
         self.active_strategy_index.load(Ordering::Acquire)
     }
 
+    #[inline]
     fn backend_config(&self) -> impl Deref<Target = Pitchbend12Config> {
         self.backend_config.read()
     }
 
+    #[inline]
     fn backend_config_mut(&self) -> impl DerefMut<Target = Pitchbend12Config> {
         self.backend_config.write()
     }

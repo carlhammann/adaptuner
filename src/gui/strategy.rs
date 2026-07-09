@@ -1,10 +1,54 @@
+use eframe::egui;
+
+use crate::{
+    config::{MelodyStrategyConfig, StrategyConfig},
+    gui::{
+        editor::tuning::TuningEditor,
+        r#trait::{GuiShow, UiAdaptor},
+    },
+    interval::stacktype::r#trait::StackType,
+    notename::HasNoteNames,
+};
+
+pub struct StrategyWidgets<T: StackType> {
+    tuning_editor: TuningEditor<T>,
+}
+
+impl<T: StackType> StrategyWidgets<T> {
+    pub fn new() -> Self {
+        Self {
+            tuning_editor: TuningEditor::new(),
+        }
+    }
+}
+
+impl<T: StackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T> {
+    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+        self.tuning_editor.show(ui, adaptor);
+        // match &adaptor.strategy_config()[adaptor.active_strategy_index()] {
+        //     StrategyConfig::StaticNeighbourhoods {
+        //         name,
+        //         description,
+        //         config,
+        //     } => {}
+        //     StrategyConfig::TwoStep {
+        //         melody:
+        //             MelodyStrategyConfig::StaticNeighbourhoods(StaticNeighbourhoodsAsMelodyConfig {
+        //                 ..
+        //             }),
+        //         ..
+        //     } => {
+        //         self.tuning_editor.show(ui, adaptor);
+        //     }
+        // }
+    }
+}
+
 // use std::{cell::RefCell, rc::Rc, sync::mpsc, time::Instant};
 //
 // use eframe::egui::{self, vec2};
 //
 // use crate::{
-//     bindable::{Bindable, Bindings},
-//     config::{HarmonyStrategyNames, MelodyStrategyNames, StrategyNames},
 //     interval::stacktype::r#trait::{OctavePeriodicStackType, StackType},
 //     msg::{FromUi, ReceiveMsgRef, ToUi},
 //     notename::HasNoteNames,
@@ -16,12 +60,12 @@
 //         CorrectionSystemChooser, ListEdit, ListEditOpts, OwningListEdit, SmallFloatingWindow,
 //     },
 //     editor::{
-//         binding::BindingEditor,
-//         chordlist::ChordListEditor,
-//         neighbourhood::NeighbourhoodEditor,
-//         reference::{ReferenceEditor, ReferenceEditorConfig},
+//         // binding::BindingEditor,
+//         // chordlist::ChordListEditor,
+//         // neighbourhood::NeighbourhoodEditor,
+//         // reference::{ReferenceEditor, ReferenceEditorConfig},
 //         tuning::{TuningEditor, TuningEditorConfig},
-//         twostep::TwoStepEditor,
+//         // twostep::TwoStepEditor,
 //     },
 //     r#trait::GuiShow,
 //     toplevel::KeysAndTunings,
@@ -29,14 +73,14 @@
 //
 // pub struct StrategyWindows<T: StackType + 'static> {
 //     strategy_list_editor_window: SmallFloatingWindow,
-//     strategies: OwningListEdit<(StrategyNames<T>, Bindings<Bindable>)>,
+//     // strategies: OwningListEdit<(StrategyNames<T>, Bindings<Bindable>)>,
 //
 //     tuning_editor: TuningEditor<T>,
-//     reference_editor: ReferenceEditor<T>,
-//     neighbourhood_editor: NeighbourhoodEditor<T>,
-//     binding_editor: BindingEditor,
-//     chord_list_editor: ChordListEditor<T>,
-//     twostep_editor: TwoStepEditor,
+//     // reference_editor: ReferenceEditor<T>,
+//     // neighbourhood_editor: NeighbourhoodEditor<T>,
+//     // binding_editor: BindingEditor,
+//     // chord_list_editor: ChordListEditor<T>,
+//     // twostep_editor: TwoStepEditor,
 // }
 //
 // /// [OctavePeriodicStackType] is needed for the [ChordListEditor]

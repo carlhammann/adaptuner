@@ -10,16 +10,18 @@ use crate::{
     keystate::KeyState,
     msg::{FromStrategy, ToMelody},
     process::r#trait::StackWithTuning,
+    reference::Reference,
     strategy::harmony::r#trait::Harmony,
 };
 
-
+/// [key_state], [tuning], and [tuning_reference] must be locked in that order.
 pub trait MelodyStrategyAdaptor<T: StackType> {
     fn send(&self, msg: FromStrategy<T>) -> bool;
     /// index `i` must be in the range `0..128`
-    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
-    /// index `i` must be in the range `0..128`
     fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
+    /// index `i` must be in the range `0..128`
+    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
+    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>>;
     fn harmony(&self) -> impl Deref<Target = Harmony<T>>;
 }
 

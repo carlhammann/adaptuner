@@ -355,6 +355,7 @@ impl<T: StackType> RunState<T> {
     pub fn new(
         midi_in: MidiInput,
         midi_out: MidiOutput,
+        tuning_reference: Reference<T>,
         strategies: Vec<StrategyConfig<T>>,
         backend_config: Pitchbend12Config,
         gui_config: GuiConfig,
@@ -409,14 +410,15 @@ impl<T: StackType> RunState<T> {
                 }))
             }),
             key_states: core::array::from_fn(|_| Arc::new(RwLock::new(KeyState::new(now)))),
+            tuning_reference: Arc::new(RwLock::new(tuning_reference)),
             strategies: Arc::new(RwLock::new(strategies)),
             active_strategy_index: Arc::new(AtomicUsize::new(0)),
         };
 
         let backend_adaptor = ConcretePitchbend12Adaptor {
             forward: from_backend_tx,
-            tunings: core::array::from_fn(|i| process_adaptor.tunings[i].clone()),
             key_states: core::array::from_fn(|i| process_adaptor.key_states[i].clone()),
+            tunings: core::array::from_fn(|i| process_adaptor.tunings[i].clone()),
             config: Arc::new(RwLock::new(backend_config)),
         };
 
@@ -424,17 +426,14 @@ impl<T: StackType> RunState<T> {
             forward: from_ui_tx,
             tunings: core::array::from_fn(|i| process_adaptor.tunings[i].clone()),
             key_states: core::array::from_fn(|i| process_adaptor.key_states[i].clone()),
-            gui_config: RefCell::new(gui_config.clone()),
-            strategies: process_adaptor.strategies.clone(),
-            tuning_reference: Arc::new(RwLock::new(Reference::from_semitones(
-                Stack::new_zero(),
-                60.0,
-            ))),
+            tuning_reference: process_adaptor.tuning_reference.clone(),
             correction_system_chooser: RefCell::new(CorrectionSystemChooser::new(
                 "the correction system chooser",
                 true,
             )),
+            strategies: process_adaptor.strategies.clone(),
             active_strategy_index: process_adaptor.active_strategy_index.clone(),
+            gui_config: RefCell::new(gui_config.clone()),
             reference: Arc::new(RwLock::new(Stack::new_zero())), // todo, this should also exist in
             // the strategy, and be changed by
             // it!

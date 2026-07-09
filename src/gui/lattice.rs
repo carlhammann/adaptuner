@@ -48,7 +48,6 @@ pub struct LatticeWindowConfig {
     pub background_low: Vec<StackCoeff>,
     pub background_high: Vec<StackCoeff>,
     pub project_dimension: usize,
-    pub notenamestyle: NoteNameStyle,
     pub color_period_ct: Semitones,
     #[serde(
         serialize_with = "serialize_channel",
@@ -202,7 +201,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
         ui.painter().text(
             pos2(hpos, vpos),
             egui::Align2::CENTER_CENTER,
-            stack.notename(&config.notenamestyle),
+            stack.notename(&adaptor.config().notenamestyle),
             egui::FontId::proportional(first_line_height),
             text_color,
         );
@@ -242,7 +241,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                 ui.painter().text(
                     pos2(hpos, third_line_vpos),
                     egui::Align2::CENTER_CENTER,
-                    format!("={}", stack.actual_notename(&config.notenamestyle)),
+                    format!("={}", stack.actual_notename(&adaptor.config().notenamestyle)),
                     egui::FontId::proportional(other_lines_height),
                     text_color,
                 );
@@ -263,7 +262,6 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
         reference: &Stack<T>,
         adaptor: &impl UiAdaptor<T>,
     ) {
-        let config = &adaptor.config().lattice;
         let popup_id = ui.id().with(&stack.target);
         let response = ui.interact(rect, egui::Id::new(&stack.target), egui::Sense::click());
         if response.clicked() {
@@ -287,11 +285,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                 if temperament_applier(
                     Some(&format!(
                         "make pure relative to {}",
-                        reference.corrected_notename(
-                            &config.notenamestyle,
-                            adaptor.correction_system_chooser().preference_order(),
-                            adaptor.correction_system_chooser().use_cent_values,
-                        )
+                        adaptor.corrected_notename(&reference),
                     )),
                     ui,
                     &mut self.tmp_correction,
