@@ -154,17 +154,12 @@ fn show_list_picker_old<'a, X>(
     new_selection
 }
 
-pub struct OwningListEdit<X> {
-    elems: Vec<X>,
-    selected: Option<usize>,
-}
-
 pub struct RefListEdit<'a, X> {
     elems: &'a mut Vec<X>,
     selected: &'a mut Option<usize>,
 }
 
-pub struct ListEditOpts<X> { 
+pub struct ListEditOpts<X> {
     pub empty_allowed: bool,
     pub select_allowed: bool,
     pub no_selection_allowed: bool,
@@ -384,84 +379,6 @@ impl<'a, X> ListEdit<X> for RefListEdit<'a, X> {
     }
 }
 
-impl<X> OwningListEdit<X> {
-    pub fn new(elems: Vec<X>) -> Self {
-        Self {
-            elems,
-            selected: None {},
-        }
-    }
-
-    pub fn set_elems(&mut self, elems: &[X])
-    where
-        X: Clone,
-    {
-        self.elems = elems.into();
-        self.selected = None {};
-    }
-
-    pub fn put_elems(&mut self, elems: Vec<X>) {
-        self.elems = elems;
-        self.selected = None {}
-    }
-
-    fn as_ref_list_edit<'a>(&'a mut self) -> RefListEdit<'a, X> {
-        RefListEdit {
-            elems: &mut self.elems,
-            selected: &mut self.selected,
-        }
-    }
-}
-
-impl<X> ListEdit<X> for OwningListEdit<X> {
-    fn elems(&self) -> &[X] {
-        &self.elems
-    }
-
-    fn apply(&mut self, action: ListAction)
-    where
-        X: Clone,
-    {
-        action.apply_to_old(|x| x.clone(), &mut self.elems, &mut self.selected);
-    }
-
-    fn current_selected(&self) -> Option<&X> {
-        self.selected.map(|i| &self.elems[i])
-    }
-
-    fn current_selected_mut(&mut self) -> Option<&mut X> {
-        self.selected.map(|i| &mut self.elems[i])
-    }
-
-    fn show_as_list_picker(
-        &mut self,
-        ui: &mut egui::Ui,
-        elem_name: impl Fn(&X) -> &str,
-        elem_description: impl Fn(&X) -> Option<&str>,
-    ) -> Option<(usize, &X)> {
-        show_list_picker_old(
-            &self.elems,
-            &mut self.selected,
-            ui,
-            elem_name,
-            elem_description,
-        )
-    }
-
-    fn show<M, H>(
-        &mut self,
-        ui: &mut egui::Ui,
-        id_salt: &'static str,
-        opts: ListEditOptsOld<X, M, H>,
-        view_data: &mut H,
-    ) -> ListEditResultOld<M>
-    where
-        X: Clone,
-    {
-        self.as_ref_list_edit().show(ui, id_salt, opts, view_data)
-    }
-}
-
 pub struct SmallFloatingWindow {
     id: egui::Id,
     open: bool,
@@ -556,7 +473,7 @@ pub fn show_hide_button(
 pub struct CorrectionSystemChooser<T: IntervalBasis> {
     _phantom: PhantomData<T>,
     pub use_cent_values: bool,
-    preference_order: OwningListEdit<usize>,
+    preference_order: Vec<usize>,
     id_salt: &'static str,
 }
 
@@ -568,41 +485,45 @@ impl<T: StackType> CorrectionSystemChooser<T> {
             preference_order: {
                 let mut v = Vec::with_capacity(T::num_named_intervals());
                 (0..T::num_named_intervals()).for_each(|i| v.push(i));
-                OwningListEdit::new(v)
+                v
             },
             id_salt,
         }
     }
 
     pub fn preference_order(&self) -> &[usize] {
-        &self.preference_order.elems
+        &self.preference_order
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.checkbox(&mut self.use_cent_values, "use cent values");
             ui.label("preference order for commas:");
-            let _ = self.preference_order.show(
+            let res = show_list_edit(
                 ui,
                 self.id_salt,
-                ListEditOptsOld::<_, _, ()> {
+                &mut self.preference_order,
+                None {},
+                ListEditOpts {
                     empty_allowed: false,
                     select_allowed: false,
                     no_selection_allowed: false,
                     delete_allowed: false,
                     reorder_allowed: true,
-                    show_one: Box::new(|ui, _, i, _| {
+                    show_one: Box::new(|ui, _, i| {
                         ui.label(format!(
                             "{} ('{}')",
                             T::named_intervals()[*i].name,
                             T::named_intervals()[*i].short_name
                         ));
-                        None::<()> {}
                     }),
                     clone: None {},
                 },
-                &mut (),
             );
+
+            if let ListEditResult::Action(a) = res {
+                a.apply_to_no_select(&mut self.preference_order, |x| *x);
+            }
         });
     }
 }

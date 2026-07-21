@@ -8,6 +8,20 @@ pub enum ListAction {
 }
 
 impl ListAction {
+    pub fn apply_to_no_select<X>(self, vec: &mut Vec<X>, clone: impl Fn(&X) -> X) {
+        match self {
+            ListAction::Delete(i) => {
+                vec.remove(i);
+            }
+            ListAction::Clone(i) => vec.push(clone(&vec[i])),
+            ListAction::SwapWithPrev(i) => {
+                vec.swap(i, i - 1);
+            }
+            ListAction::Select(_) => {}
+            ListAction::Deselect => {}
+        }
+    }
+
     pub fn apply_to<X>(
         self,
         vec: &mut Vec<X>,
