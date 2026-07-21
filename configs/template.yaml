@@ -709,4 +709,4 @@ gui:
     screen-keyboard-velocity: 64
     highlight-playable-keys: true
   latency-mean-over: 20
-  use-cent-values: true
+  use-cent-values: false

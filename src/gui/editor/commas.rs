@@ -15,8 +15,7 @@ pub struct CommaEditor<T: IntervalBasis> {
 
 fn compute_possible_bases<T: IntervalBasis>(intervals: &[NamedInterval<T>]) -> Vec<Vec<usize>> {
     let mut res = vec![];
-    let indices: Vec<usize> = (0..intervals.len()).collect();
-    let mut subsequences = Subsequences::new(&indices, T::num_intervals());
+    let mut subsequences = Subsequences::new(intervals.len(), T::num_intervals());
     while let Some(basis_indices) = subsequences.next() {
         let basis_columnwise =
             Array2::from_shape_fn((T::num_intervals(), T::num_intervals()), |(i, j)| {
@@ -112,7 +111,7 @@ impl<T: StackType> CommaEditor<T> {
                 "These commas won't be usable in note names, because no basis can be formed.",
             );
         } else {
-            ui.collapsing("Possible bases with these commas", |ui| {
+            ui.collapsing("Possible bases with these commas, in the order in wich they will be used", |ui| {
                 for b in &self.possible_bases {
                     self.tmp_str.clear();
                     for i in b {

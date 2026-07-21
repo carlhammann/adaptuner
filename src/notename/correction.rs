@@ -29,10 +29,9 @@ impl<T: StackType> Stack<T> {
 }
 
 impl<T: StackType> Correction<T> {
-    /// `preference_order` contains indices into ´T::named_intervals()`
-    pub fn new(stack: &Stack<T>, preference_order: &[usize]) -> Option<Self> {
+    pub fn new(stack: &Stack<T>) -> Option<Self> {
         let mut res = Self::new_zero();
-        if res.set_with(stack, preference_order) {
+        if res.set_with(stack) {
             Some(res)
         } else {
             None {}
@@ -59,7 +58,7 @@ impl<T: StackType> Correction<T> {
         self.coeffs.iter().any(|c| !c.is_zero())
     }
 
-    pub fn set_with(&mut self, stack: &Stack<T>, preference_order: &[usize]) -> bool {
+    pub fn set_with(&mut self, stack: &Stack<T>) -> bool {
         let count_nonzero = |coeffs: &Array1<Ratio<StackCoeff>>| -> usize {
             coeffs.iter().filter(|x| !x.is_zero()).count()
         };
@@ -74,7 +73,7 @@ impl<T: StackType> Correction<T> {
         let mut tmp: Array1<Ratio<StackCoeff>> = Array1::zeros(T::num_intervals());
         let mut lowest_score = usize::MAX;
 
-        let mut subsequences = Subsequences::new(preference_order, T::num_intervals());
+        let mut subsequences = Subsequences::new(T::num_named_intervals(), T::num_intervals());
         while let Some(basis_indices) = subsequences.next() {
             if T::with_coordinate_system(basis_indices, |x| {
                 if let Some((ordered_basis_indices, coordinate_system)) = x {
@@ -137,80 +136,51 @@ mod test {
 
     #[test]
     fn test_correction() {
-        // preference order: pythagorean comma, diesis, syntonic comma, octave
-        let pdso: [usize; 4] = [2, 3, 1, 0];
-
-        // preference order: pythagorean comma, syntonic comma, diesis octave
-        let psdo: [usize; 4] = [2, 1, 3, 0];
+        // The MockFiveLimitStackType has the following preference order for commas in corrections:
+        // pythagorean comma, diesis, syntonic comma, octave, See MOCK_NAMED_INTERVALS
 
         assert_eq!(
-            Correction::<MockFiveLimitStackType>::new(&Stack::new_zero(), &pdso)
+            Correction::<MockFiveLimitStackType>::new(&Stack::new_zero())
                 .unwrap()
                 .coeffs,
             arr1(&[0.into(), 0.into(), 0.into(), 0.into()])
         );
 
         assert_eq!(
-            Correction::<MockFiveLimitStackType>::new(
-                &Stack::from_target(vec![123, 234, 345]),
-                &pdso
-            )
-            .unwrap()
-            .coeffs,
+            Correction::<MockFiveLimitStackType>::new(&Stack::from_target(vec![123, 234, 345]),)
+                .unwrap()
+                .coeffs,
             arr1(&[0.into(), 0.into(), 0.into(), 0.into()])
         );
 
         assert_eq!(
-            Correction::<MockFiveLimitStackType>::new(
-                &Stack::from_temperaments_and_target(&[true, false], vec![0, 0, 3]),
-                &pdso
-            )
+            Correction::<MockFiveLimitStackType>::new(&Stack::from_target_and_actual(
+                vec![0, 0, 3].into(),
+                vec![1.into(), 0.into(), 0.into()].into()
+            ),)
             .unwrap()
             .coeffs,
-            arr1(&[0.into(), 0.into(), 0.into(), 1.into()])
+            arr1(&[0.into(), 1.into(), 0.into(), 0.into()])
         );
 
         assert_eq!(
-            Correction::<MockFiveLimitStackType>::new(
-                &Stack::from_temperaments_and_target(&[true, false], vec![0, 1, 1]),
-                &pdso
-            )
+            Correction::<MockFiveLimitStackType>::new(&Stack::from_temperaments_and_target(
+                &[true, false],
+                vec![0, 1, 1]
+            ),)
             .unwrap()
             .coeffs,
-            arr1(&[0.into(), 0.into(), Ratio::new(-1, 12), Ratio::new(1, 3)])
+            arr1(&[Ratio::new(-1, 12), Ratio::new(1, 3), 0.into(), 0.into(),])
         );
 
         assert_eq!(
-            Correction::<MockFiveLimitStackType>::new(
-                &Stack::from_temperaments_and_target(&[false, true], vec![0, 1, 0]),
-                &pdso
-            )
+            Correction::<MockFiveLimitStackType>::new(&Stack::from_temperaments_and_target(
+                &[false, true],
+                vec![0, 1, 0]
+            ),)
             .unwrap()
             .coeffs,
-            arr1(&[0.into(), Ratio::new(-1, 4), 0.into(), 0.into()])
-        );
-
-        assert_eq!(
-            Correction::<MockFiveLimitStackType>::new(
-                &Stack::from_temperaments_and_target(&[true, true], vec![0, 1, 0]),
-                &psdo
-            )
-            .unwrap()
-            .coeffs,
-            arr1(&[0.into(), Ratio::new(-1, 4), Ratio::new(-1, 12), 0.into()])
-        );
-
-        assert_eq!(
-            Correction::<MockFiveLimitStackType>::new(
-                &Stack::from_target_and_actual(
-                    arr1(&[0, 0, 0]),
-                    arr1(&[Ratio::new(1, 120), 0.into(), 0.into()])
-                ),
-                &pdso
-            )
-            .unwrap()
-            .coeffs,
-            arr1(&[Ratio::new(1, 120), 0.into(), 0.into(), 0.into()]),
+            arr1(&[0.into(), 0.into(), Ratio::new(-1, 4), 0.into()])
         );
     }
 }

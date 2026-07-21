@@ -1,34 +1,33 @@
-pub struct Subsequences<'a, X> {
+pub struct Subsequences {
     subseq_indices: i64,
     limit: i64,
-    seq: &'a [X],
-    subseq: Vec<X>,
+    n: usize,
+    subseq: Vec<usize>,
 }
 
-impl<'a, X: Clone> Subsequences<'a, X> {
-    /// Generate all subsequences of `seq` of length `k`. Subsequences that contain elements near
+impl Subsequences {
+    /// Generate all subsequences of the `n`-element list of length `k`. Subsequences that contain elements near
     /// the beginning of `seq` will be generated first.
     ///
-    /// It must hold `62 >= seq.len() , k > 0`
-    pub fn new(seq: &'a [X], k: usize) -> Self {
-        let n = seq.len();
+    /// It must hold `62 >= n , k > 0`
+    pub fn new(n: usize, k: usize) -> Self {
         Self {
             subseq_indices: (1 << k) - 1,
             limit: 1 << n,
-            seq,
+            n,
             subseq: Vec::with_capacity(k),
         }
     }
 
-    pub fn next(&mut self) -> Option<&[X]> {
+    pub fn next(&mut self) -> Option<&[usize]> {
         if self.subseq_indices >= self.limit {
             return None {};
         }
 
         self.subseq.clear();
-        for (i, x) in self.seq.iter().enumerate() {
+        for i in 0..self.n {
             if self.subseq_indices & (1 << i) != 0 {
-                self.subseq.push(x.clone());
+                self.subseq.push(i);
             }
         }
 
@@ -47,10 +46,9 @@ mod test {
 
     #[test]
     fn test_empty_subsequences() {
-        let seq = ['a', 'b', 'c', 'd'];
-        let mut collected: Vec<Vec<char>> = vec![];
+        let mut collected: Vec<Vec<usize>> = vec![];
 
-        let mut subseqs = Subsequences::new(&seq, 5);
+        let mut subseqs = Subsequences::new(4, 5);
         while let Some(l) = subseqs.next() {
             collected.push(l.into());
         }
@@ -60,23 +58,21 @@ mod test {
 
     #[test]
     fn test_one_subsequences() {
-        let seq = ['a', 'b', 'c', 'd'];
-        let mut collected: Vec<Vec<char>> = vec![];
+        let mut collected: Vec<Vec<usize>> = vec![];
 
-        let mut subseqs = Subsequences::new(&seq, 1);
+        let mut subseqs = Subsequences::new(4, 1);
         while let Some(l) = subseqs.next() {
             collected.push(l.into());
         }
 
-        assert_eq!(collected, vec![vec!['a'], vec!['b'], vec!['c'], vec!['d']]);
+        assert_eq!(collected, vec![vec![0], vec![1], vec![2], vec![3]]);
     }
 
     #[test]
     fn test_two_subsequences() {
-        let seq = ['a', 'b', 'c', 'd'];
-        let mut collected: Vec<Vec<char>> = vec![];
+        let mut collected: Vec<Vec<usize>> = vec![];
 
-        let mut subseqs = Subsequences::new(&seq, 2);
+        let mut subseqs = Subsequences::new(4, 2);
         while let Some(l) = subseqs.next() {
             collected.push(l.into());
         }
@@ -84,47 +80,40 @@ mod test {
         assert_eq!(
             collected,
             vec![
-                vec!['a', 'b'],
-                vec!['a', 'c'],
-                vec!['b', 'c'],
-                vec!['a', 'd'],
-                vec!['b', 'd'],
-                vec!['c', 'd']
+                vec![0, 1],
+                vec![0, 2],
+                vec![1, 2],
+                vec![0, 3],
+                vec![1, 3],
+                vec![2, 3]
             ]
         );
     }
 
     #[test]
     fn test_three_subsequences() {
-        let seq = ['a', 'b', 'c', 'd'];
-        let mut collected: Vec<Vec<char>> = vec![];
+        let mut collected: Vec<Vec<usize>> = vec![];
 
-        let mut subseqs = Subsequences::new(&seq, 3);
+        let mut subseqs = Subsequences::new(4, 3);
         while let Some(l) = subseqs.next() {
             collected.push(l.into());
         }
 
         assert_eq!(
             collected,
-            vec![
-                vec!['a', 'b', 'c'],
-                vec!['a', 'b', 'd'],
-                vec!['a', 'c', 'd'],
-                vec!['b', 'c', 'd'],
-            ]
+            vec![vec![0, 1, 2], vec![0, 1, 3], vec![0, 2, 3], vec![1, 2, 3],]
         );
     }
 
     #[test]
     fn test_four_subsequences() {
-        let seq = ['a', 'b', 'c', 'd'];
-        let mut collected: Vec<Vec<char>> = vec![];
+        let mut collected: Vec<Vec<usize>> = vec![];
 
-        let mut subseqs = Subsequences::new(&seq, 4);
+        let mut subseqs = Subsequences::new(4, 4);
         while let Some(l) = subseqs.next() {
             collected.push(l.into());
         }
 
-        assert_eq!(collected, vec![vec!['a', 'b', 'c', 'd'],]);
+        assert_eq!(collected, vec![vec![0, 1, 2, 3],]);
     }
 }

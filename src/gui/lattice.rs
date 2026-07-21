@@ -17,7 +17,7 @@ use crate::{
     },
     msg::{FromUi, ReceiveMsgRef, ToUi},
     neighbourhood::{Neighbourhood, Partial},
-    notename::{correction::Correction, HasNoteNames, NoteNameStyle},
+    notename::{correction::Correction, HasNoteNames},
     process::r#trait::StackWithTuning,
 };
 
@@ -218,13 +218,10 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                     text_color,
                 );
             };
-            if adaptor.correction_system_chooser().use_cent_values {
+            if adaptor.config().use_cent_values {
                 write_cents();
             } else {
-                if let Some(correction) = Correction::new(
-                    stack,
-                    adaptor.correction_system_chooser().preference_order(),
-                ) {
+                if let Some(correction) = Correction::new(stack) {
                     ui.painter().text(
                         pos2(hpos, second_line_vpos),
                         egui::Align2::CENTER_CENTER,
@@ -241,7 +238,10 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                 ui.painter().text(
                     pos2(hpos, third_line_vpos),
                     egui::Align2::CENTER_CENTER,
-                    format!("={}", stack.actual_notename(&adaptor.config().notenamestyle)),
+                    format!(
+                        "={}",
+                        stack.actual_notename(&adaptor.config().notenamestyle)
+                    ),
                     egui::FontId::proportional(other_lines_height),
                     text_color,
                 );
@@ -271,10 +271,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
             self.tmp_relative_stack.clone_from(stack);
             self.tmp_relative_stack.scaled_add(-1, reference);
 
-            if !self.tmp_correction.set_with(
-                &self.tmp_relative_stack,
-                adaptor.correction_system_chooser().preference_order(),
-            ) {
+            if !self.tmp_correction.set_with(&self.tmp_relative_stack) {
                 self.tmp_correction.reset_to_zero();
             }
         }
@@ -285,12 +282,14 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                 if temperament_applier(
                     Some(&format!(
                         "make pure relative to {}",
-                        adaptor.corrected_notename(&reference),
+                        reference.corrected_notename(
+                            &adaptor.config().notenamestyle,
+                            adaptor.config().use_cent_values
+                        )
                     )),
                     ui,
                     &mut self.tmp_correction,
                     &mut self.tmp_relative_stack,
-                    adaptor.correction_system_chooser().preference_order(),
                 ) {
                     let _ = adaptor.send_consider(&self.tmp_relative_stack, Instant::now());
                 }

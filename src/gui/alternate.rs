@@ -141,6 +141,13 @@ where
 
                 ui.separator();
 
+                ui.checkbox(
+                    &mut self.adaptor.config_mut().use_cent_values,
+                    "use cent values",
+                );
+
+                ui.separator();
+
                 // AsBigControls(&mut self.lattice).show(ui);
                 //
                 // ui.separator();

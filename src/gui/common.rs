@@ -1,5 +1,3 @@
-use std::{marker::PhantomData, ops::DerefMut};
-
 use eframe::egui::{self, Response};
 use num_rational::Ratio;
 
@@ -470,64 +468,6 @@ pub fn show_hide_button(
     clicked
 }
 
-pub struct CorrectionSystemChooser<T: IntervalBasis> {
-    _phantom: PhantomData<T>,
-    pub use_cent_values: bool,
-    preference_order: Vec<usize>,
-    id_salt: &'static str,
-}
-
-impl<T: StackType> CorrectionSystemChooser<T> {
-    pub fn new(id_salt: &'static str, use_cent_values: bool) -> Self {
-        Self {
-            _phantom: PhantomData,
-            use_cent_values,
-            preference_order: {
-                let mut v = Vec::with_capacity(T::num_named_intervals());
-                (0..T::num_named_intervals()).for_each(|i| v.push(i));
-                v
-            },
-            id_salt,
-        }
-    }
-
-    pub fn preference_order(&self) -> &[usize] {
-        &self.preference_order
-    }
-
-    pub fn show(&mut self, ui: &mut egui::Ui) {
-        ui.vertical(|ui| {
-            ui.checkbox(&mut self.use_cent_values, "use cent values");
-            ui.label("preference order for commas:");
-            let res = show_list_edit(
-                ui,
-                self.id_salt,
-                &mut self.preference_order,
-                None {},
-                ListEditOpts {
-                    empty_allowed: false,
-                    select_allowed: false,
-                    no_selection_allowed: false,
-                    delete_allowed: false,
-                    reorder_allowed: true,
-                    show_one: Box::new(|ui, _, i| {
-                        ui.label(format!(
-                            "{} ('{}')",
-                            T::named_intervals()[*i].name,
-                            T::named_intervals()[*i].short_name
-                        ));
-                    }),
-                    clone: None {},
-                },
-            );
-
-            if let ListEditResult::Action(a) = res {
-                a.apply_to_no_select(&mut self.preference_order, |x| *x);
-            }
-        });
-    }
-}
-
 /// returns true iff the number changed
 pub fn rational_drag_value(ui: &mut egui::Ui, id: egui::Id, value: &mut Ratio<StackCoeff>) -> bool {
     let numer_id = id.with("numer");
@@ -578,7 +518,6 @@ pub fn note_picker<T: StackType>(
     tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
     stack: &mut Stack<T>,
-    preference_order: &[usize],
 ) {
     ui.vertical(|ui| {
         let mut target_changed = false;
@@ -599,7 +538,7 @@ pub fn note_picker<T: StackType>(
 
         ui.label("tempered with:");
 
-        temperament_applier(None {}, ui, tmp_correction, stack, preference_order);
+        temperament_applier(None {}, ui, tmp_correction, stack);
     });
 }
 
@@ -609,7 +548,6 @@ pub fn temperament_applier<T: StackType>(
     ui: &mut egui::Ui,
     tmp_correction: &mut Correction<T>,
     stack: &mut Stack<T>,
-    preference_order: &[usize],
 ) -> bool {
     let mut temperament_select_changed = false;
     let mut correction_changed = false;
@@ -637,7 +575,7 @@ pub fn temperament_applier<T: StackType>(
                 for (i, t) in T::temperaments().iter().enumerate() {
                     if ui.button(&t.name).clicked() {
                         stack.apply_temperament(i);
-                        if !tmp_correction.set_with(stack, preference_order) {
+                        if !tmp_correction.set_with(stack) {
                             tmp_correction.reset_to_zero();
                         }
                         temperament_select_changed = true;

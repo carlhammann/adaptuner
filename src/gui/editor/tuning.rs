@@ -5,7 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     gui::{
-        common::{note_picker, CorrectionSystemChooser},
+        common::note_picker,
         r#trait::{GuiShow, UiAdaptor},
     },
     interval::{stack::Stack, stacktype::r#trait::StackType},
@@ -47,7 +47,11 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.label("Current tuning is ");
-                ui.strong(adaptor.corrected_notename(&reference.stack));
+                ui.strong(
+                    reference
+                        .stack
+                        .corrected_notename(&NoteNameStyle::Full, false),
+                );
                 ui.label(" at");
                 ui.strong(format!(" {:.02} Hz", reference.get_frequency()));
                 ui.label(format!(" (MIDI note {:.02})", reference.semitones));
@@ -60,7 +64,6 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
             &mut self.temperaments_applied_to_new_reference,
             &mut self.corrections_applied_to_new_reference,
             &mut self.new_reference.stack,
-            adaptor.correction_system_chooser().preference_order(),
         );
 
         ui.separator();
@@ -68,7 +71,11 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             ui.label("New tuning will be ");
-            ui.strong(adaptor.corrected_notename(&self.new_reference.stack));
+            ui.strong(
+                self.new_reference
+                    .stack
+                    .corrected_notename(&NoteNameStyle::Full, false),
+            );
             ui.label(" at ");
 
             let mut new_freq = frequency_from_semitones(self.new_reference.semitones);

@@ -15,7 +15,6 @@ use eframe::egui;
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
     config::{GuiConfig, MelodyStrategyConfig, StrategyConfig},
-    gui::common::CorrectionSystemChooser,
     interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{
@@ -44,22 +43,10 @@ pub trait UiAdaptor<T: StackType> {
     fn reference(&self) -> impl Deref<Target = Stack<T>>;
     fn config(&self) -> impl Deref<Target = GuiConfig>;
     fn config_mut(&self) -> impl DerefMut<Target = GuiConfig>;
-    fn correction_system_chooser(&self) -> impl Deref<Target = CorrectionSystemChooser<T>>;
 
     fn backend_config(&self) -> impl Deref<Target = Pitchbend12Config>;
     fn backend_config_mut(&self) -> impl DerefMut<Target = Pitchbend12Config>;
 
-    /// this locks [Self::config] and [Self::correction_system_chooser].
-    fn corrected_notename(&self, stack: &Stack<T>) -> String
-    where
-        T: HasNoteNames,
-    {
-        stack.corrected_notename(
-            &self.config().notenamestyle,
-            self.correction_system_chooser().preference_order(),
-            self.correction_system_chooser().use_cent_values,
-        )
-    }
     fn send_consider(&self, stack: &Stack<T>, time: Instant) -> bool {
         self.send(FromUi::ToStrategy(
             match self.strategy_config()[self.active_strategy_index()] {
@@ -92,7 +79,6 @@ pub struct ConcreteUiAdaptor<T: StackType> {
     pub strategies: Arc<RwLock<Vec<StrategyConfig<T>>>>,
     pub active_strategy_index: Arc<AtomicUsize>,
     pub gui_config: RefCell<GuiConfig>,
-    pub correction_system_chooser: RefCell<CorrectionSystemChooser<T>>,
     pub backend_config: Arc<RwLock<Pitchbend12Config>>,
 }
 
@@ -145,11 +131,6 @@ impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
     #[inline]
     fn strategy_config_mut(&self) -> impl DerefMut<Target = Vec<StrategyConfig<T>>> {
         self.strategies.write()
-    }
-
-    #[inline]
-    fn correction_system_chooser(&self) -> impl Deref<Target = CorrectionSystemChooser<T>> {
-        self.correction_system_chooser.borrow()
     }
 
     #[inline]

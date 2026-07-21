@@ -1,6 +1,5 @@
 use std::fmt;
 
-use serde_derive::{Deserialize, Serialize};
 use crate::interval::{
     stack::Stack,
     stacktype::{
@@ -8,6 +7,7 @@ use crate::interval::{
         r#trait::{IntervalBasis, StackCoeff, StackType},
     },
 };
+use serde_derive::{Deserialize, Serialize};
 
 pub mod correction;
 pub mod johnston;
@@ -105,7 +105,6 @@ pub trait HasNoteNames: IntervalBasis {
         stack: &Stack<Self>,
         f: &mut W,
         style: &NoteNameStyle,
-        preference_order: &[usize],
         use_cent_values: bool,
     ) -> fmt::Result
     where
@@ -124,7 +123,7 @@ pub trait HasNoteNames: IntervalBasis {
             if use_cent_values {
                 write_cents()?;
             } else {
-                if let Some(corr) = correction::Correction::new(stack, preference_order) {
+                if let Some(corr) = correction::Correction::new(stack) {
                     corr.fmt(f)?;
                 } else {
                     write_cents()?;
@@ -172,20 +171,14 @@ impl<T: StackType + HasNoteNames> Stack<T> {
         &self,
         f: &mut W,
         style: &NoteNameStyle,
-        preference_order: &[usize],
         use_cent_values: bool,
     ) -> fmt::Result {
-        T::write_corrected_notename(self, f, style, preference_order, use_cent_values)
+        T::write_corrected_notename(self, f, style, use_cent_values)
     }
 
-    pub fn corrected_notename(
-        &self,
-        style: &NoteNameStyle,
-        preference_order: &[usize],
-        use_cent_values: bool,
-    ) -> String {
+    pub fn corrected_notename(&self, style: &NoteNameStyle, use_cent_values: bool) -> String {
         let mut res = String::new();
-        self.write_corrected_notename(&mut res, style, preference_order, use_cent_values)
+        self.write_corrected_notename(&mut res, style, use_cent_values)
             .unwrap();
         res
     }

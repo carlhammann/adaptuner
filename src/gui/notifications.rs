@@ -149,8 +149,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                 ui.label(" on ");
                 ui.strong(reference.corrected_notename(
                     &NoteNameStyle::Full,
-                    adaptor.correction_system_chooser().preference_order(),
-                    adaptor.correction_system_chooser().use_cent_values,
+                    adaptor.config().use_cent_values,
                 ));
             });
         }
@@ -161,8 +160,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                 ui.label("reference ");
                 ui.strong(reference.corrected_notename(
                     &NoteNameStyle::Full,
-                    adaptor.correction_system_chooser().preference_order(),
-                    adaptor.correction_system_chooser().use_cent_values,
+                    adaptor.config().use_cent_values,
                 ));
             });
         }
@@ -173,8 +171,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                 {should_be:.02}, but is {actual:.02}: {explanation}",
                 adaptor.tuning(*note as usize).stack.corrected_notename(
                     &NoteNameStyle::Full,
-                    adaptor.correction_system_chooser().preference_order(),
-                    adaptor.correction_system_chooser().use_cent_values,
+                    adaptor.config().use_cent_values,
                 ),
             ));
         }

@@ -18,7 +18,6 @@ use crate::{
     config::{GuiConfig, StrategyConfig},
     gui::{
         alternate::TopLevelGui,
-        common::CorrectionSystemChooser,
         r#trait::{ConcreteUiAdaptor, Gui, UiAdaptor},
     },
     interval::{
@@ -427,10 +426,6 @@ impl<T: StackType> RunState<T> {
             tunings: core::array::from_fn(|i| process_adaptor.tunings[i].clone()),
             key_states: core::array::from_fn(|i| process_adaptor.key_states[i].clone()),
             tuning_reference: process_adaptor.tuning_reference.clone(),
-            correction_system_chooser: RefCell::new(CorrectionSystemChooser::new(
-                "the correction system chooser",
-                true,
-            )),
             strategies: process_adaptor.strategies.clone(),
             active_strategy_index: process_adaptor.active_strategy_index.clone(),
             gui_config: RefCell::new(gui_config.clone()),
