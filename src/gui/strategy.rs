@@ -1,30 +1,161 @@
+use std::time::Instant;
+
 use eframe::egui;
 
 use crate::{
     config::{MelodyStrategyConfig, StrategyConfig},
     gui::{
+        common::{
+            show_list_edit, show_list_picker, ListEditOpts, ListEditResult, SmallFloatingWindow,
+        },
         editor::tuning::TuningEditor,
         r#trait::{GuiShow, UiAdaptor},
     },
     interval::stacktype::r#trait::StackType,
+    msg::FromUi,
     notename::HasNoteNames,
+    util::list_action::ListAction,
 };
 
-pub struct StrategyWidgets<T: StackType> {
-    tuning_editor: TuningEditor<T>,
+pub struct StrategySelectorWidget {
+    strategy_list_editor_window: SmallFloatingWindow,
 }
 
-impl<T: StackType> StrategyWidgets<T> {
-    pub fn new() -> Self {
+impl StrategySelectorWidget {
+    fn new() -> Self {
         Self {
-            tuning_editor: TuningEditor::new(),
+            strategy_list_editor_window: SmallFloatingWindow::new(
+                egui::Id::new("strategy_list_editor_window"),
+                false,
+            ),
         }
+    }
+
+    fn show_windows<T: StackType>(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: &impl UiAdaptor<T>,
+        disable: bool,
+    ) {
+        self.strategy_list_editor_window
+            .show("edit strategies", ui.ctx(), |ui| {
+                ui.vertical(|ui| {
+                    if disable {
+                        ui.disable();
+                    }
+                    // don't handle the ListAction wrapped by `res` here, the process has to do
+                    // that. It's a bit funny that we're working with a mut reference
+                    // `strategy_config_mut`, but everything is all right, since the only thing
+                    // we'll change in this thread are names and descriptions of strategies, and
+                    // these aren't important in the process thread.
+                    let res = show_list_edit(
+                        ui,
+                        "strategy_editor",
+                        &mut *adaptor.strategy_config_mut(),
+                        Some(adaptor.active_strategy_index()),
+                        ListEditOpts {
+                            empty_allowed: false,
+                            select_allowed: true,
+                            no_selection_allowed: false,
+                            delete_allowed: true,
+                            reorder_allowed: true,
+                            show_one: Box::new(|ui, _i, elem: &mut StrategyConfig<T>| {
+                                ui.add(egui::TextEdit::singleline(elem.name_mut()).min_size(
+                                    egui::vec2(
+                                        ui.style().spacing.text_edit_width / 2.0,
+                                        ui.style().spacing.interact_size.y,
+                                    ),
+                                ));
+                                ui.add(
+                                    egui::TextEdit::multiline(elem.description_mut())
+                                        .min_size(egui::vec2(
+                                            ui.style().spacing.text_edit_width,
+                                            ui.style().spacing.interact_size.y,
+                                        ))
+                                        .desired_rows(1),
+                                );
+                            }),
+                            clone: Some(Box::new(|ui, _elems, selected| {
+                                ui.separator();
+                                if let Some(i) = selected {
+                                    if ui.button("create copy of selected").clicked() {
+                                        Some(i)
+                                    } else {
+                                        None {}
+                                    }
+                                } else {
+                                    None {}
+                                }
+                            })),
+                        },
+                    );
+                    match res {
+                        ListEditResult::Action(action) => {
+                            let _ = adaptor.send(FromUi::StrategyListAction {
+                                action,
+                                time: Instant::now(),
+                            });
+                        }
+                        ListEditResult::None => {}
+                    }
+                });
+            });
     }
 }
 
-impl<T: StackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T> {
+impl<T: StackType> GuiShow<T> for StrategySelectorWidget {
     fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
-        self.tuning_editor.show(ui, adaptor);
+        let asi = adaptor.active_strategy_index();
+        egui::ComboBox::from_id_salt("strategy selector widget")
+            .selected_text(adaptor.strategy_config()[asi].name())
+            .show_ui(ui, |ui| {
+                if let Some(i) = show_list_picker(
+                    &*adaptor.strategy_config(),
+                    asi,
+                    ui,
+                    |x| x.name(),
+                    |x| x.description(),
+                ) {
+                    let _ = adaptor.send(FromUi::StrategyListAction {
+                        action: ListAction::Select(i),
+                        time: Instant::now(),
+                    });
+                }
+
+                ui.separator();
+
+                self.strategy_list_editor_window
+                    .show_hide_button(ui, "edit strategies");
+
+                ui.shrink_width_to_current();
+            });
+    }
+}
+
+pub struct StrategyWidgets {
+    selector_widget: StrategySelectorWidget,
+}
+
+impl StrategyWidgets {
+    pub fn new() -> Self {
+        Self {
+            selector_widget: StrategySelectorWidget::new(),
+        }
+    }
+
+    pub fn show_windows<T: StackType>(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: &impl UiAdaptor<T>,
+        disable: bool,
+    ) {
+        self.selector_widget.show_windows(ui, adaptor, disable);
+    }
+}
+
+impl<T: StackType> GuiShow<T> for StrategyWidgets {
+    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+        self.selector_widget.show(ui, adaptor);
         // match &adaptor.strategy_config()[adaptor.active_strategy_index()] {
         //     StrategyConfig::StaticNeighbourhoods {
         //         name,
@@ -285,73 +416,5 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T> {
 //                 }
 //             }
 //         }
-//     }
-// }
-//
-// impl<'a, T: StackType> AsWindows<'a, T> {
-//     fn display_strategy_list_editor_window(
-//         &mut self,
-//         ui: &mut egui::Ui,
-//         disable: bool,
-//         forward: &mpsc::Sender<FromUi<T>>,
-//     ) {
-//         let AsWindows(x) = self;
-//         let ctx = ui.ctx();
-//         x.strategy_list_editor_window
-//             .show("edit strategies", ctx, |ui| {
-//                 if disable {
-//                     ui.disable();
-//                 }
-//                 let list_edit_res = x.strategies.show(
-//                     ui,
-//                     "strategy editor",
-//                     ListEditOpts {
-//                         empty_allowed: false,
-//                         select_allowed: true,
-//                         no_selection_allowed: false,
-//                         delete_allowed: true,
-//                         reorder_allowed: true,
-//                         show_one: Box::new(|ui, _i, elem, _| {
-//                             ui.add(egui::TextEdit::singleline(elem.0.name_mut()).min_size(vec2(
-//                                 ui.style().spacing.text_edit_width / 2.0,
-//                                 ui.style().spacing.interact_size.y,
-//                             )));
-//                             ui.add(
-//                                 egui::TextEdit::multiline(elem.0.description_mut())
-//                                     .min_size(vec2(
-//                                         ui.style().spacing.text_edit_width,
-//                                         ui.style().spacing.interact_size.y,
-//                                     ))
-//                                     .desired_rows(1),
-//                             );
-//                             None::<()> {}
-//                         }),
-//                         clone: Some(Box::new(|ui, _elems, selected, _| {
-//                             ui.separator();
-//                             if let Some(i) = selected {
-//                                 if ui.button("create copy of selected").clicked() {
-//                                     Some(i)
-//                                 } else {
-//                                     None {}
-//                                 }
-//                             } else {
-//                                 None {}
-//                             }
-//                         })),
-//                     },
-//                     &mut (),
-//                 );
-//
-//                 match list_edit_res {
-//                     super::common::ListEditResult::Message(_) => unreachable!(),
-//                     super::common::ListEditResult::Action(action) => {
-//                         let _ = forward.send(FromUi::StrategyListAction {
-//                             action,
-//                             time: Instant::now(),
-//                         });
-//                     }
-//                     super::common::ListEditResult::None => {}
-//                 }
-//             });
 //     }
 // }

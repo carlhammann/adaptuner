@@ -6,6 +6,7 @@ use midir::{MidiInputPort, MidiOutputPort};
 use crate::{
     bindable::MidiBindable,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
+    util::list_action::ListAction,
 };
 
 pub trait ReceiveMsg<I> {
@@ -67,6 +68,10 @@ pub enum ToProcess<T: StackType> {
     BindAction {
         action: Option<ToStrategy<T>>,
         bindable: MidiBindable,
+    },
+    StrategyListAction {
+        action: ListAction,
+        time: Instant,
     },
     RestartFromConfig {
         time: Instant,
@@ -372,11 +377,15 @@ pub enum FromUi<T: StackType> {
     RestartFromConfig {
         time: Instant,
     },
-    ToStrategy(ToStrategy<T>),
+    StrategyListAction {
+        action: ListAction,
+        time: Instant,
+    },
     BindAction {
         action: Option<ToStrategy<T>>,
         bindable: MidiBindable,
     },
+    ToStrategy(ToStrategy<T>), // this should somehow be merged with/include the following messages
     UpdateChordList {
         time: Instant,
     },
@@ -675,6 +684,12 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::ChannelsToUse { channels, time } => (
                 None {},
                 Some(ToBackend::ChannelsToUse { channels, time }),
+                None {},
+                None {},
+            ),
+            FromUi::StrategyListAction { action, time } => (
+                Some(ToProcess::StrategyListAction { action, time }),
+                None {},
                 None {},
                 None {},
             ),

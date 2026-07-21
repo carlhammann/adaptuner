@@ -9,11 +9,16 @@ use std::{
 use parking_lot::RwLock;
 
 use crate::{
-    config::StrategyConfig, interval::{
+    config::StrategyConfig,
+    interval::{
         base::Semitones,
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, StackType},
-    }, keystate::KeyState, msg::FromProcess, reference::Reference, util::mapderefmut::MapDerefMut
+    },
+    keystate::KeyState,
+    msg::FromProcess,
+    reference::Reference,
+    util::{mapderef::MapDeref, mapderefmut::MapDerefMut},
 };
 
 pub struct StackWithTuning<T: IntervalBasis> {
@@ -45,7 +50,7 @@ impl<T: StackType> Clone for ConcreteProcessAdaptor<T> {
 }
 
 /// The `Clone` implementation should make it so that the same underlying data is referenced.
-/// 
+///
 /// [key_state], [tuning], and [tuning_reference] must be locked in that order.
 pub trait ProcessAdaptor<T: StackType>: Clone {
     fn send(&self, msg: FromProcess<T>) -> bool;
@@ -53,8 +58,9 @@ pub trait ProcessAdaptor<T: StackType>: Clone {
     fn key_state(&self, i: usize) -> impl DerefMut<Target = KeyState>;
     /// index `i` must be in the range `0..128`
     fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
-    fn tuning_reference(&self) -> impl Deref<Target=Reference<T>>;
-    fn config(&self) -> impl MapDerefMut<Target = Vec<StrategyConfig<T>>>;
+    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>>;
+    fn strategy_config(&self) -> impl MapDeref<Target = Vec<StrategyConfig<T>>>;
+    fn strategy_config_mut(&self) -> impl MapDerefMut<Target = Vec<StrategyConfig<T>>>;
     fn active_strategy_index(&self) -> usize;
     fn replace_active_strategy_index(&self, new_index: usize);
 }
@@ -66,7 +72,7 @@ impl<T: StackType> ProcessAdaptor<T> for ConcreteProcessAdaptor<T> {
     }
 
     #[inline]
-    fn key_state(&self, i:usize) -> impl DerefMut<Target = KeyState> {
+    fn key_state(&self, i: usize) -> impl DerefMut<Target = KeyState> {
         self.key_states[i].write()
     }
 
@@ -76,12 +82,17 @@ impl<T: StackType> ProcessAdaptor<T> for ConcreteProcessAdaptor<T> {
     }
 
     #[inline]
-    fn tuning_reference(&self) -> impl Deref<Target=Reference<T>> {
+    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>> {
         self.tuning_reference.read()
     }
 
     #[inline]
-    fn config(&self) -> impl MapDerefMut<Target = Vec<StrategyConfig<T>>> {
+    fn strategy_config(&self) -> impl MapDeref<Target = Vec<StrategyConfig<T>>> {
+        self.strategies.read()
+    }
+
+    #[inline]
+    fn strategy_config_mut(&self) -> impl MapDerefMut<Target = Vec<StrategyConfig<T>>> {
         self.strategies.write()
     }
 

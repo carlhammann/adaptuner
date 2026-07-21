@@ -2,7 +2,7 @@ use eframe::egui::{self, vec2};
 use ndarray::{Array1, Array2};
 
 use crate::{
-    gui::common::{rational_drag_value, ListEdit, ListEditOpts, ListEditResult, RefListEdit},
+    gui::common::{rational_drag_value, ListEdit, ListEditOptsOld, ListEditResultOld, RefListEdit},
     interval::stacktype::r#trait::{CoordinateSystem, IntervalBasis, NamedInterval, StackType},
     util::subsequences::Subsequences,
 };
@@ -75,7 +75,7 @@ impl<T: StackType> CommaEditor<T> {
                 let res = RefListEdit::new(&mut self.commas, &mut dummy).show(
                     ui,
                     "comma_list_edit",
-                    ListEditOpts {
+                    ListEditOptsOld {
                         empty_allowed: true,
                         select_allowed: false,
                         no_selection_allowed: false,
@@ -90,9 +90,9 @@ impl<T: StackType> CommaEditor<T> {
                     &mut changed,
                 );
                 match res {
-                    ListEditResult::Message(_) => unreachable!(),
-                    ListEditResult::Action(_) => changed = true,
-                    ListEditResult::None => {}
+                    ListEditResultOld::Message(_) => unreachable!(),
+                    ListEditResultOld::Action(_) => changed = true,
+                    ListEditResultOld::None => {}
                 }
             });
 

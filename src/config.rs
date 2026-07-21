@@ -1,16 +1,21 @@
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    backend::pitchbend12::Pitchbend12Config, gui::lattice::LatticeWindowConfig, interval::{
+    backend::pitchbend12::Pitchbend12Config,
+    gui::lattice::LatticeWindowConfig,
+    interval::{
         base::Semitones,
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
-    }, notename::NoteNameStyle, reference::Reference, strategy::{
+    },
+    notename::NoteNameStyle,
+    reference::Reference,
+    strategy::{
         harmony::chordlist::ChordListConfig,
         melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
-    }
+    },
 };
 
 #[derive(Serialize, Deserialize)]
@@ -51,14 +56,28 @@ pub enum StrategyConfig<T: IntervalBasis> {
 impl<T: IntervalBasis> StrategyConfig<T> {
     pub fn name(&self) -> &str {
         match self {
-            StrategyConfig::StaticNeighbourhoods { name, .. } => &name,
+            StrategyConfig::StaticNeighbourhoods { name, .. } => name,
+            StrategyConfig::TwoStep { name, .. } => name,
+        }
+    }
+
+    pub fn name_mut(&mut self) -> &mut String {
+        match self {
+            StrategyConfig::StaticNeighbourhoods { name, .. } => name,
             StrategyConfig::TwoStep { name, .. } => name,
         }
     }
 
     pub fn description(&self) -> &str {
         match self {
-            StrategyConfig::StaticNeighbourhoods { description, .. } => &description,
+            StrategyConfig::StaticNeighbourhoods { description, .. } => description,
+            StrategyConfig::TwoStep { description, .. } => description,
+        }
+    }
+    
+    pub fn description_mut(&mut self) -> &mut String {
+        match self {
+            StrategyConfig::StaticNeighbourhoods { description, .. } => description,
             StrategyConfig::TwoStep { description, .. } => description,
         }
     }

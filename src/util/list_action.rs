@@ -1,15 +1,50 @@
 #[derive(Clone, Copy, PartialEq)]
 pub enum ListAction {
     Delete(usize),
-    SwapWithPrev(usize),
     Select(usize),
-    Deselect,
     Clone(usize),
+    SwapWithPrev(usize),
+    Deselect,
 }
 
 impl ListAction {
+    pub fn apply_to<X>(
+        self,
+        vec: &mut Vec<X>,
+        selected: usize,
+        clone: impl Fn(&X) -> X,
+        replace_selected: impl Fn(usize),
+    ) {
+        match self {
+            ListAction::Delete(i) => {
+                vec.remove(i);
+                if selected == 0 {
+                    return;
+                }
+                if selected >= i {
+                    replace_selected(selected - 1);
+                }
+            }
+            ListAction::Select(i) => replace_selected(i),
+            ListAction::Clone(i) => vec.push(clone(&vec[i])),
+            ListAction::SwapWithPrev(i) => {
+                vec.swap(i, i - 1);
+                if selected == i {
+                    replace_selected(i - 1);
+                } else if selected == i - 1 {
+                    replace_selected(i);
+                }
+            }
+            ListAction::Deselect => panic!("cannot deselect"),
+        }
+    }
 
-    pub fn apply_to<X>(self, clone: impl Fn(&X) -> X, vec: &mut Vec<X>, selected: &mut Option<usize>) {
+    pub fn apply_to_old<X>(
+        self,
+        clone: impl Fn(&X) -> X,
+        vec: &mut Vec<X>,
+        selected: &mut Option<usize>,
+    ) {
         match self {
             ListAction::Delete(i) => {
                 vec.remove(i);

@@ -2,7 +2,7 @@ use eframe::egui::{self, vec2};
 use ndarray::{Array2, ArrayView1};
 
 use crate::{
-    gui::common::{ListEdit, ListEditOpts, RefListEdit},
+    gui::common::{ListEdit, ListEditOptsOld, RefListEdit},
     interval::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
         temperament::TemperamentDefinition,
@@ -117,7 +117,7 @@ impl<T: StackType> TemperamentEditor<T> {
                 RefListEdit::new(&mut self.definitions, &mut dummy).show(
                     ui,
                     "temperament_list_edit",
-                    ListEditOpts {
+                    ListEditOptsOld {
                         empty_allowed: true,
                         select_allowed: false,
                         no_selection_allowed: false,

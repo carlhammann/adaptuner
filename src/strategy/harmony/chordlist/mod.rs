@@ -299,7 +299,7 @@ impl<T: StackType> IsHarmonyStrategyConfig<T> for ChordListConfig<T> {
 pub trait ChordListAdaptor<T: StackType>: HarmonyStrategyAdaptor<T> {
     /// This function is allowed to be not extremely fast; it's only called in situations where we
     /// want to reload (parts of) the configuration.
-    fn config(&self) -> impl DerefMut<Target = ChordListConfig<T>>;
+    fn config(&self) -> impl Deref<Target = ChordListConfig<T>>;
 }
 
 impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T> {

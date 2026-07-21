@@ -36,7 +36,7 @@ use crate::{
         },
         twostep::{TwoStep, TwoStepStrategyAdaptor},
     },
-    util::mapderefmut::MapDerefMut,
+    util::mapderef::MapDeref,
 };
 
 struct RunningStrategy<T: StackType> {
@@ -79,15 +79,13 @@ impl<T: StackType, P: ProcessAdaptor<T> + 'static> StrategyAdaptor<T>
 impl<T: StackType, P: ProcessAdaptor<T> + 'static> StaticNeighbourhoodsAdaptor<T>
     for TheStaticNeighbourhoodsAdaptor<T, P>
 {
-    fn config(&self) -> impl DerefMut<Target = StaticNeighbourhoodsConfig<T>> {
-        self.process_adaptor
-            .config()
-            .map(
-                |c: &mut Vec<StrategyConfig<T>>| match &mut c[self.strategy_index] {
-                    StrategyConfig::StaticNeighbourhoods { config, .. } => config,
-                    _ => panic!("TheStaticNeighbourhoodsAdaptor::config: incorrect config type"),
-                },
-            )
+    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsConfig<T>> {
+        self.process_adaptor.strategy_config().map(
+            |c: &Vec<StrategyConfig<T>>| match &c[self.strategy_index] {
+                StrategyConfig::StaticNeighbourhoods { config, .. } => config,
+                _ => panic!("TheStaticNeighbourhoodsAdaptor::config: incorrect config type"),
+            },
+        )
     }
 }
 
@@ -153,7 +151,7 @@ impl<T: StackType, P: ProcessAdaptor<T>> StrategyAdaptor<T> for TheTwoStepAdapto
     }
 
     #[inline]
-    fn tuning_reference(&self) -> impl Deref<Target=Reference<T>> {
+    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>> {
         self.process_adaptor.tuning_reference()
     }
 }
@@ -161,11 +159,11 @@ impl<T: StackType, P: ProcessAdaptor<T>> StrategyAdaptor<T> for TheTwoStepAdapto
 impl<T: StackType, P: ProcessAdaptor<T>> StaticNeighbourhoodsAsMelodyAdaptor<T>
     for TheTwoStepAdaptor<T, P>
 {
-    fn config(&self) -> impl DerefMut<Target = StaticNeighbourhoodsAsMelodyConfig<T>> {
+    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsAsMelodyConfig<T>> {
         self.process_adaptor
-            .config()
+            .strategy_config()
             .map(
-                |c: &mut Vec<StrategyConfig<T>>| match &mut c[self.strategy_index] {
+                |c: &Vec<StrategyConfig<T>>| match &c[self.strategy_index] {
                     StrategyConfig::TwoStep { melody: MelodyStrategyConfig::StaticNeighbourhoods(config), .. } => config,
                     _ => panic!("TheTwoStepAdaptor::config: incorrect melody config type for static neighbourhoods"),
                 },
@@ -174,20 +172,18 @@ impl<T: StackType, P: ProcessAdaptor<T>> StaticNeighbourhoodsAsMelodyAdaptor<T>
 }
 
 impl<T: StackType, P: ProcessAdaptor<T>> ChordListAdaptor<T> for TheTwoStepAdaptor<T, P> {
-    fn config(&self) -> impl DerefMut<Target = ChordListConfig<T>> {
-        self.process_adaptor
-            .config()
-            .map(
-                |c: &mut Vec<StrategyConfig<T>>| match &mut c[self.strategy_index] {
-                    StrategyConfig::TwoStep {
-                        harmony: HarmonyStrategyConfig::ChordList(config),
-                        ..
-                    } => config,
-                    _ => panic!(
-                        "TheTwoStepAdaptor::config: incorrect harmony config type for chord list"
-                    ),
-                },
-            )
+    fn config(&self) -> impl Deref<Target = ChordListConfig<T>> {
+        self.process_adaptor.strategy_config().map(
+            |c: &Vec<StrategyConfig<T>>| match &c[self.strategy_index] {
+                StrategyConfig::TwoStep {
+                    harmony: HarmonyStrategyConfig::ChordList(config),
+                    ..
+                } => config,
+                _ => panic!(
+                    "TheTwoStepAdaptor::config: incorrect harmony config type for chord list"
+                ),
+            },
+        )
     }
 }
 
@@ -254,7 +250,7 @@ where
     P: ProcessAdaptor<T> + Send + 'static,
 {
     pub fn new(adaptor: P) -> Self {
-        if adaptor.config().len() <= 0 {
+        if adaptor.strategy_config_mut().len() <= 0 {
             panic!("Cannot start process from empty list of strategies");
         }
 
@@ -446,7 +442,7 @@ where
             self.stop(time);
         }
 
-        match &self.adaptor.config()[index] {
+        match &self.adaptor.strategy_config_mut()[index] {
             StrategyConfig::StaticNeighbourhoods { config, .. } => {
                 self.current_strategy = Some(RunningStrategy::start::<StaticNeighbourhoods<T>, _>(
                     time,
@@ -544,6 +540,16 @@ where
                 //         bindings.remove(&bindable);
                 //     }
                 // }
+            }
+            ToProcess::StrategyListAction { action, time } => {
+                self.stop(time);
+                action.apply_to(
+                    &mut *self.adaptor.strategy_config_mut(),
+                    self.adaptor.active_strategy_index(),
+                    |x| x.clone(),
+                    |new| self.adaptor.replace_active_strategy_index(new),
+                );
+                self.start(time, self.adaptor.active_strategy_index());
             }
         }
     }

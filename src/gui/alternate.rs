@@ -33,6 +33,8 @@ pub struct TopLevelGui<T: StackType, A: UiAdaptor<T>> {
 
     tuning_editor: TuningEditor<T>,
 
+    strategy_widgets: StrategyWidgets,
+
     stopped: bool,
 
     config_file_dialog: ConfigFileDialog<T>,
@@ -101,9 +103,10 @@ where
 
                 ui.separator();
 
-                // self.strategy_widgets.show(ui, &self.adaptor);
-                //
-                // ui.separator();
+                ui.label("Tuning strategy");
+                self.strategy_widgets.show(ui, &self.adaptor);
+
+                ui.separator();
 
                 self.connection_window
                     .show_hide_button(ui, "MIDI connections");
@@ -229,6 +232,9 @@ where
                 return; // don't continue updating for this frame
             }
 
+            self.strategy_widgets
+                .show_windows(ui, &self.adaptor, any_modal_open);
+
             self.lattice.show(ui, &self.adaptor);
 
             ui.horizontal(|ui| {
@@ -281,6 +287,7 @@ where
             connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window"), true),
             notifications: Notifications::new(),
             tuning_editor: TuningEditor::new(),
+            strategy_widgets: StrategyWidgets::new(),
             stopped: false,
             config_file_dialog: ConfigFileDialog::new(),
             show_side_panel: false,
@@ -310,6 +317,7 @@ where
         self.backend = BackendWindow::new(self.adaptor.backend_config());
         self.notifications = Notifications::new();
         self.tuning_editor = TuningEditor::new();
+        self.strategy_widgets = StrategyWidgets::new();
         self.config_file_dialog = ConfigFileDialog::new();
         self.lattice = LatticeWindow::new();
         self.latency = LatencyWindow::new(self.adaptor.config().latency_mean_over);
