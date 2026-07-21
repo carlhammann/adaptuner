@@ -3,17 +3,15 @@ use std::time::Instant;
 use eframe::egui;
 
 use crate::{
-    config::{MelodyStrategyConfig, StrategyConfig},
+    config::StrategyConfig,
     gui::{
         common::{
             show_list_edit, show_list_picker, ListEditOpts, ListEditResult, SmallFloatingWindow,
         },
-        editor::tuning::TuningEditor,
         r#trait::{GuiShow, UiAdaptor},
     },
     interval::stacktype::r#trait::StackType,
     msg::FromUi,
-    notename::HasNoteNames,
     util::list_action::ListAction,
 };
 
@@ -74,6 +72,7 @@ impl StrategySelectorWidget {
                                         ))
                                         .desired_rows(1),
                                 );
+                                None::<()>
                             }),
                             clone: Some(Box::new(|ui, _elems, selected| {
                                 ui.separator();
@@ -90,13 +89,14 @@ impl StrategySelectorWidget {
                         },
                     );
                     match res {
+                        ListEditResult::None => {}
                         ListEditResult::Action(action) => {
                             let _ = adaptor.send(FromUi::StrategyListAction {
                                 action,
                                 time: Instant::now(),
                             });
                         }
-                        ListEditResult::None => {}
+                        ListEditResult::Message(_) => unreachable!()
                     }
                 });
             });

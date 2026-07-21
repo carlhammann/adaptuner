@@ -2,7 +2,7 @@ use eframe::egui::{self, vec2};
 use ndarray::{Array1, Array2};
 
 use crate::{
-    gui::common::{rational_drag_value, ListEdit, ListEditOptsOld, ListEditResultOld, RefListEdit},
+    gui::common::{rational_drag_value, show_list_edit, ListEditOpts, ListEditResult},
     interval::stacktype::r#trait::{CoordinateSystem, IntervalBasis, NamedInterval, StackType},
     util::subsequences::Subsequences,
 };
@@ -39,7 +39,8 @@ impl<T: StackType> CommaEditor<T> {
 }
 
 impl<T: IntervalBasis> NamedInterval<T> {
-    fn show(&mut self, ui: &mut egui::Ui, i: usize, changed: &mut bool) {
+    fn show(&mut self, ui: &mut egui::Ui, i: usize) -> bool {
+        let mut changed = false;
         ui.add(egui::TextEdit::singleline(&mut self.name).min_size(vec2(
             ui.style().spacing.text_edit_width / 2.0,
             ui.style().spacing.interact_size.y,
@@ -56,11 +57,12 @@ impl<T: IntervalBasis> NamedInterval<T> {
         ui.vertical(|ui| {
             for (i, c) in self.coeffs.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    *changed |= rational_drag_value(ui, id.with(i), c);
+                    changed |= rational_drag_value(ui, id.with(i), c);
                     ui.label(&T::intervals()[i].name);
                 });
             }
         });
+        changed
     }
 }
 
@@ -70,28 +72,34 @@ impl<T: StackType> CommaEditor<T> {
         egui::ScrollArea::vertical()
             .max_height(ui.ctx().available_rect().height() / 2.0)
             .show(ui, |ui| {
-                let mut dummy = None {};
-                let res = RefListEdit::new(&mut self.commas, &mut dummy).show(
+                let res = show_list_edit(
                     ui,
                     "comma_list_edit",
-                    ListEditOptsOld {
+                    &mut self.commas,
+                    None,
+                    ListEditOpts {
                         empty_allowed: true,
                         select_allowed: false,
                         no_selection_allowed: false,
                         delete_allowed: true,
                         reorder_allowed: true,
-                        show_one: Box::new(|ui, i, t, changed| {
-                            t.show(ui, i, changed);
-                            None::<()> {}
+                        show_one: Box::new(|ui, i, t| {
+                            if t.show(ui, i) {
+                                Some(true)
+                            } else {
+                                None {}
+                            }
                         }),
                         clone: None {},
                     },
-                    &mut changed,
                 );
                 match res {
-                    ListEditResultOld::Message(_) => unreachable!(),
-                    ListEditResultOld::Action(_) => changed = true,
-                    ListEditResultOld::None => {}
+                    ListEditResult::Action(a) => {
+                        a.apply_to_no_select(&mut self.commas, |x| x.clone());
+                        changed = true;
+                    }
+                    ListEditResult::Message(b) => changed = b,
+                    ListEditResult::None => {}
                 }
             });
 
@@ -107,20 +115,21 @@ impl<T: StackType> CommaEditor<T> {
             self.possible_bases = compute_possible_bases(&self.commas);
         }
         if self.possible_bases.is_empty() {
-            ui.label(
-                "These commas won't be usable in note names, because no basis can be formed.",
-            );
+            ui.label("These commas won't be usable in note names, because no basis can be formed.");
         } else {
-            ui.collapsing("Possible bases with these commas, in the order in wich they will be used", |ui| {
-                for b in &self.possible_bases {
-                    self.tmp_str.clear();
-                    for i in b {
-                        self.tmp_str.push_str(&self.commas[*i].short_name);
-                        self.tmp_str.push(' ');
+            ui.collapsing(
+                "Possible bases with these commas, in the order in wich they will be used",
+                |ui| {
+                    for b in &self.possible_bases {
+                        self.tmp_str.clear();
+                        for i in b {
+                            self.tmp_str.push_str(&self.commas[*i].short_name);
+                            self.tmp_str.push(' ');
+                        }
+                        ui.label(&self.tmp_str);
                     }
-                    ui.label(&self.tmp_str);
-                }
-            });
+                },
+            );
         }
 
         ui.separator();

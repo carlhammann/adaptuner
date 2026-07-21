@@ -2,7 +2,7 @@ use eframe::egui::{self, vec2};
 use ndarray::{Array2, ArrayView1};
 
 use crate::{
-    gui::common::{ListEdit, ListEditOptsOld, RefListEdit},
+    gui::common::{show_list_edit, ListEditOpts, ListEditResult},
     interval::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
         temperament::TemperamentDefinition,
@@ -113,24 +113,31 @@ impl<T: StackType> TemperamentEditor<T> {
         egui::ScrollArea::vertical()
             .max_height(ui.ctx().available_rect().height() / 2.0)
             .show(ui, |ui| {
-                let mut dummy = None {};
-                RefListEdit::new(&mut self.definitions, &mut dummy).show(
+                let res = show_list_edit(
                     ui,
                     "temperament_list_edit",
-                    ListEditOptsOld {
+                    &mut self.definitions,
+                    None,
+                    ListEditOpts {
                         empty_allowed: true,
                         select_allowed: false,
                         no_selection_allowed: false,
                         delete_allowed: true,
                         reorder_allowed: true,
-                        show_one: Box::new(|ui, _i, t, _| {
+                        show_one: Box::new(|ui, _i, t| {
                             t.show(ui);
-                            None::<()> {}
+                            None::<()>
                         }),
                         clone: None {},
                     },
-                    &mut (),
                 );
+                match res {
+                    ListEditResult::None {} => {}
+                    ListEditResult::Action(a) => {
+                        a.apply_to_no_select(&mut self.definitions, |x| x.clone())
+                    }
+                    ListEditResult::Message(_) => unreachable!(),
+                }
             });
 
         if ui.button("add new temperament").clicked() {

@@ -4,7 +4,7 @@ use num_rational::Ratio;
 use crate::{
     interval::{
         stack::Stack,
-        stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
+        stacktype::r#trait::{StackCoeff, StackType},
     },
     notename::correction::Correction,
     util::list_action::ListAction,
@@ -30,15 +30,17 @@ pub fn show_list_picker<X>(
     }
 }
 
-pub fn show_list_edit<X>(
+/// Modifications to individual elements applied through the [ListEditOpts::show_one] argument are
+/// applied right away, but [ListAction]s are not applied.
+pub fn show_list_edit<X, M>(
     ui: &mut egui::Ui,
     id_salt: &'static str,
     elems: &mut [X],
     current_selection: Option<usize>,
-    opts: ListEditOpts<X>,
-) -> ListEditResult {
+    opts: ListEditOpts<X, M>,
+) -> ListEditResult<M> {
     let mut res = ListEditResult::None;
-    let mut update_res = |new_res: ListEditResult| match res {
+    let mut update_res = |new_res: ListEditResult<M>| match res {
         ListEditResult::None => {
             res = new_res;
         }
@@ -71,7 +73,9 @@ pub fn show_list_edit<X>(
                     }
                 }
 
-                (opts.show_one)(ui, i, elem);
+                if let Some(msg) = (opts.show_one)(ui, i, elem) {
+                    update_res(ListEditResult::Message(msg));
+                }
 
                 if opts.reorder_allowed {
                     ui.horizontal(|ui| {
@@ -129,252 +133,20 @@ pub fn show_list_edit<X>(
     res
 }
 
-fn show_list_picker_old<'a, X>(
-    elems: &'a [X],
-    selected: &mut Option<usize>,
-    ui: &mut egui::Ui,
-    elem_name: impl Fn(&X) -> &str,
-    elem_description: impl Fn(&X) -> Option<&str>,
-) -> Option<(usize, &'a X)> {
-    let mut new_selection = None {};
-    for (i, elem) in elems.iter().enumerate() {
-        let old_selected = selected.clone();
-        let r = ui.selectable_value(selected, Some(i), elem_name(elem));
-        if r.clicked() {
-            if Some(i) != old_selected {
-                new_selection = Some((i, elem));
-            }
-        }
-        if let Some(description) = elem_description(elem) {
-            r.on_hover_text_at_pointer(description);
-        }
-    }
-    new_selection
-}
-
-pub struct RefListEdit<'a, X> {
-    elems: &'a mut Vec<X>,
-    selected: &'a mut Option<usize>,
-}
-
-pub struct ListEditOpts<X> {
+pub struct ListEditOpts<X, M> {
     pub empty_allowed: bool,
     pub select_allowed: bool,
     pub no_selection_allowed: bool,
     pub delete_allowed: bool,
     pub reorder_allowed: bool,
-    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X)>,
+    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X) -> Option<M>>,
     pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>) -> Option<usize>>>,
 }
 
-#[derive(PartialEq)]
-pub enum ListEditResult {
+pub enum ListEditResult<M> {
     Action(ListAction),
-    None,
-}
-
-pub struct ListEditOptsOld<X, M, H> {
-    pub empty_allowed: bool,
-    pub select_allowed: bool,
-    pub no_selection_allowed: bool,
-    pub delete_allowed: bool,
-    pub reorder_allowed: bool,
-    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X, &mut H) -> Option<M>>,
-    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>, &mut H) -> Option<usize>>>,
-}
-
-#[derive(PartialEq)]
-pub enum ListEditResultOld<M> {
     Message(M),
-    Action(ListAction),
     None,
-}
-
-pub trait ListEdit<X> {
-    fn elems(&self) -> &[X];
-    fn apply(&mut self, action: ListAction)
-    where
-        X: Clone;
-    fn current_selected(&self) -> Option<&X>;
-    fn current_selected_mut(&mut self) -> Option<&mut X>;
-    fn show_as_list_picker(
-        &mut self,
-        ui: &mut egui::Ui,
-        elem_name: impl Fn(&X) -> &str,
-        elem_description: impl Fn(&X) -> Option<&str>,
-    ) -> Option<(usize, &X)>;
-    fn show<M, H>(
-        &mut self,
-        ui: &mut egui::Ui,
-        id_salt: &'static str,
-        opts: ListEditOptsOld<X, M, H>,
-        view_data: &mut H,
-    ) -> ListEditResultOld<M>
-    where
-        X: Clone;
-}
-
-impl<'a, X> RefListEdit<'a, X> {
-    pub fn new(elems: &'a mut Vec<X>, selected: &'a mut Option<usize>) -> Self {
-        Self { elems, selected }
-    }
-
-    fn show_dont_handle<M, H>(
-        &mut self,
-        ui: &mut egui::Ui,
-        id_salt: &'static str,
-        opts: ListEditOptsOld<X, M, H>,
-        view_data: &mut H,
-    ) -> ListEditResultOld<M> {
-        let mut res = ListEditResultOld::None;
-        let mut update_res = |new_res: ListEditResultOld<M>| match res {
-            ListEditResultOld::None => {
-                res = new_res;
-            }
-            _ => {}
-        };
-        let selected = *self.selected;
-        egui::Grid::new(id_salt)
-            .min_col_width(ui.style().spacing.interact_size.y)
-            .with_row_color(move |i, style| {
-                if Some(i) == selected {
-                    Some(style.visuals.selection.bg_fill)
-                } else if i % 2 == 0 {
-                    Some(style.visuals.faint_bg_color)
-                } else {
-                    None {}
-                }
-            })
-            .show(ui, |ui| {
-                let n = self.elems.len();
-                for (i, elem) in self.elems.iter_mut().enumerate() {
-                    if opts.select_allowed {
-                        let is_current = selected == Some(i);
-                        if ui.radio(is_current, "").clicked() {
-                            if !is_current {
-                                update_res(ListEditResultOld::Action(ListAction::Select(i)));
-                            } else {
-                                if opts.no_selection_allowed {
-                                    update_res(ListEditResultOld::Action(ListAction::Deselect));
-                                }
-                            }
-                        }
-                    }
-
-                    if let Some(m) = (opts.show_one)(ui, i, elem, view_data) {
-                        update_res(ListEditResultOld::Message(m));
-                    }
-
-                    if opts.reorder_allowed {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 0.0;
-                            if ui
-                                .add_enabled(
-                                    i > 0,
-                                    egui::Button::new("⏶").corner_radius(egui::CornerRadius {
-                                        ne: 0,
-                                        nw: ui.style().visuals.menu_corner_radius.nw,
-                                        se: 0,
-                                        sw: ui.style().visuals.menu_corner_radius.sw,
-                                    }),
-                                )
-                                .clicked()
-                            {
-                                update_res(ListEditResultOld::Action(ListAction::SwapWithPrev(i)));
-                            }
-                            if ui
-                                .add_enabled(
-                                    i < n - 1,
-                                    egui::Button::new("⏷").corner_radius(egui::CornerRadius {
-                                        nw: 0,
-                                        ne: ui.style().visuals.menu_corner_radius.ne,
-                                        sw: 0,
-                                        se: ui.style().visuals.menu_corner_radius.se,
-                                    }),
-                                )
-                                .clicked()
-                            {
-                                update_res(ListEditResultOld::Action(ListAction::SwapWithPrev(
-                                    i + 1,
-                                )));
-                            }
-                        });
-                    }
-
-                    if opts.delete_allowed {
-                        if ui
-                            .add_enabled(opts.empty_allowed || n > 1, egui::Button::new("delete"))
-                            .clicked()
-                        {
-                            update_res(ListEditResultOld::Action(ListAction::Delete(i)));
-                        }
-                    }
-
-                    ui.end_row();
-                }
-            });
-
-        if let Some(f) = opts.clone {
-            if let Some(i) = f(ui, &self.elems, *self.selected, view_data) {
-                update_res(ListEditResultOld::Action(ListAction::Clone(i)));
-            }
-        }
-
-        res
-    }
-}
-
-impl<'a, X> ListEdit<X> for RefListEdit<'a, X> {
-    fn elems(&self) -> &[X] {
-        &self.elems
-    }
-
-    fn apply(&mut self, action: ListAction)
-    where
-        X: Clone,
-    {
-        action.apply_to_old(|x| x.clone(), &mut self.elems, &mut self.selected);
-    }
-
-    fn current_selected(&self) -> Option<&X> {
-        self.selected.map(|i| &self.elems[i])
-    }
-
-    fn current_selected_mut(&mut self) -> Option<&mut X> {
-        self.selected.map(|i| &mut self.elems[i])
-    }
-
-    fn show_as_list_picker(
-        &mut self,
-        ui: &mut egui::Ui,
-        elem_name: impl Fn(&X) -> &str,
-        elem_description: impl Fn(&X) -> Option<&str>,
-    ) -> Option<(usize, &X)> {
-        show_list_picker_old(
-            &self.elems,
-            &mut self.selected,
-            ui,
-            elem_name,
-            elem_description,
-        )
-    }
-
-    fn show<M, H>(
-        &mut self,
-        ui: &mut egui::Ui,
-        id_salt: &'static str,
-        opts: ListEditOptsOld<X, M, H>,
-        view_data: &mut H,
-    ) -> ListEditResultOld<M>
-    where
-        X: Clone,
-    {
-        let res = self.show_dont_handle(ui, id_salt, opts, view_data);
-        if let ListEditResultOld::Action(action) = &res {
-            action.apply_to_old(|x| x.clone(), &mut self.elems, &mut self.selected);
-        }
-        res
-    }
 }
 
 pub struct SmallFloatingWindow {
