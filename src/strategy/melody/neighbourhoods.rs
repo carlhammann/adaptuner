@@ -37,7 +37,6 @@ pub struct StaticNeighbourhoodsAsMelody<T: StackType> {
     /// This Vec must never be empty
     neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
     curr_neighbourhood_index: usize,
-    reference: Stack<T>,
 
     reanchor: bool,
 
@@ -62,12 +61,12 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         });
         for i in 0..128 {
             if adaptor.key_state(i).is_sounding() {
-                let the_tuning = &mut adaptor.tuning(i);
+                let mut the_tuning = adaptor.tuning_mut(i);
                 self.tmp_stack.clone_from(&the_tuning.stack);
                 self.neighbourhoods[self.curr_neighbourhood_index].write_absolute_stack(
                     &mut the_tuning.stack,
                     i as StackCoeff,
-                    &self.reference,
+                    &adaptor.reference(),
                 );
 
                 let mut retune = self.tmp_stack != the_tuning.stack;
@@ -102,12 +101,12 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
                 pattern_index: *pattern_index,
                 reference: Some(
                     self.neighbourhoods[self.curr_neighbourhood_index]
-                        .get_absolute_stack(*harmony_reference, &self.reference),
+                        .get_absolute_stack(*harmony_reference, &adaptor.reference()),
                 ),
             });
             for i in 0..128 {
                 if adaptor.key_state(i).is_sounding() {
-                    let the_tuning = &mut adaptor.tuning(i);
+                    let mut the_tuning = adaptor.tuning_mut(i);
                     self.tmp_stack.clone_from(&the_tuning.stack);
                     if harmony_neighbourhood.try_write_relative_stack(
                         &mut the_tuning.stack,
@@ -117,13 +116,13 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
                             .increment_by_absolute_stack(
                                 &mut the_tuning.stack,
                                 *harmony_reference,
-                                &self.reference,
+                                &adaptor.reference(),
                             );
                     } else {
                         self.neighbourhoods[self.curr_neighbourhood_index].write_absolute_stack(
                             &mut the_tuning.stack,
                             i as StackCoeff,
-                            &self.reference,
+                            &adaptor.reference(),
                         );
                     }
 
@@ -164,11 +163,9 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         new_reference: Stack<T>,
         adaptor: &impl MelodyStrategyAdaptor<T>,
     ) -> bool {
-        if new_reference != self.reference {
-            self.reference.clone_from(&new_reference);
-            adaptor.send(FromStrategy::SetReference {
-                stack: new_reference,
-            });
+        if new_reference != *adaptor.reference() {
+            adaptor.reference_mut().clone_from(&new_reference);
+            adaptor.send(FromStrategy::UpdateReference {});
             true
         } else {
             false
@@ -181,14 +178,12 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
             self.neighbourhoods[self.curr_neighbourhood_index].write_absolute_stack(
                 &mut self.tmp_stack,
                 adaptor.harmony().reference,
-                &self.reference,
+                &adaptor.reference(),
             );
 
-            if self.reference != self.tmp_stack {
-                self.reference.clone_from(&self.tmp_stack);
-                adaptor.send(FromStrategy::SetReference {
-                    stack: self.reference.clone(),
-                });
+            if *adaptor.reference() != self.tmp_stack {
+                adaptor.reference_mut().clone_from(&self.tmp_stack);
+                adaptor.send(FromStrategy::UpdateReference {});
                 true
             } else {
                 false
@@ -204,7 +199,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         to_highest: bool,
         adaptor: &impl MelodyStrategyAdaptor<T>,
     ) -> bool {
-        self.tmp_stack.clone_from(&self.reference);
+        self.tmp_stack.clone_from(&adaptor.reference());
 
         if to_highest {
             for i in (0..128).rev() {
@@ -222,11 +217,9 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
             }
         }
 
-        if self.reference != self.tmp_stack {
-            self.reference.clone_from(&self.tmp_stack);
-            adaptor.send(FromStrategy::SetReference {
-                stack: self.reference.clone(),
-            });
+        if *adaptor.reference() != self.tmp_stack {
+            adaptor.reference_mut().clone_from(&self.tmp_stack);
+            adaptor.send(FromStrategy::UpdateReference {});
             true
         } else {
             false
@@ -256,7 +249,6 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
         Self {
             neighbourhoods: config.neighbourhoods.drain(..).map(|n| n.named).collect(),
             curr_neighbourhood_index: 0,
-            reference: config.initial_reference,
             reanchor: config.reanchor,
             last_solve: Instant::now(),
             group_start_reference: Stack::new_zero(),
@@ -272,9 +264,7 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
     fn stop(&mut self, _time: Instant, _adaptor: &A) {}
 
     fn start(&mut self, time: Instant, adaptor: &A) {
-        adaptor.send(FromStrategy::SetReference {
-            stack: self.reference.clone(),
-        });
+        adaptor.send(FromStrategy::UpdateReference {});
         adaptor.send(FromStrategy::CurrentNeighbourhoodIndex {
             index: self.curr_neighbourhood_index,
         });
@@ -294,18 +284,20 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
             .map(|n| n.named.clone())
             .collect();
         self.curr_neighbourhood_index = 0;
-        self.reference = adaptor.config().initial_reference.clone();
+        adaptor
+            .reference_mut()
+            .clone_from(&adaptor.config().initial_reference);
         self.reanchor = adaptor.config().reanchor;
     }
 
     fn update_tuning_reference(&mut self, time: Instant, adaptor: &A) {
         for i in 0..128 {
             if adaptor.key_state(i).is_sounding() {
-                // do it like this to avoid double-locking 'adaptor.tuning(i)'
-                let x = &mut adaptor.tuning(i);
-                x.semitones = x
+                let new_semitones = adaptor
+                    .tuning(i)
                     .stack
                     .absolute_semitones(adaptor.tuning_reference().c4_semitones());
+                adaptor.tuning_mut(i).semitones = new_semitones;
                 adaptor.send(FromStrategy::Retune {
                     note: i as u8,
                     time,

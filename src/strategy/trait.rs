@@ -7,7 +7,7 @@ use std::{
 use crate::{
     bindable::BindableStrategyAction,
     config::IsStrategyConfig,
-    interval::stacktype::r#trait::StackType,
+    interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromStrategy, ToStrategy},
     process::r#trait::StackWithTuning,
@@ -20,7 +20,10 @@ pub trait StrategyAdaptor<T: StackType> {
     /// index `i` bust be in the range `0..128`
     fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
     /// index `i` bust be in the range `0..128`
-    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
+    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
+    fn reference(&self) -> impl Deref<Target = Stack<T>>;
+    fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>>;
     fn tuning_reference(&self) -> impl Deref<Target = Reference<T>>;
 }
 
@@ -35,7 +38,7 @@ pub trait Strategy<T: StackType, A: StrategyAdaptor<T>> {
     fn start(&mut self, time: Instant, adaptor: &A) -> bool;
 
     fn stop(&mut self, time: Instant, adaptor: &A);
-    
+
     /// This function should always be called between [Self::stop] and [Self::start]. It should set
     /// everything to the starting values from the configuration in the adaptor.
     fn reset(&mut self, adaptor: &A);

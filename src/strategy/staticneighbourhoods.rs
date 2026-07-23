@@ -18,8 +18,6 @@ pub struct StaticNeighbourhoods<T: StackType> {
     /// this Vec must never be empty
     neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
     curr_neighbourhood_index: usize,
-    reference: Stack<T>,
-
     tmp_stack: Stack<T>,
 }
 
@@ -41,13 +39,13 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         time: Instant,
         adaptor: &impl StaticNeighbourhoodsAdaptor<T>,
     ) {
-        let mut the_tuning = adaptor.tuning(note as usize);
+        let mut the_tuning = adaptor.tuning_mut(note as usize);
 
         self.neighbourhoods[self.curr_neighbourhood_index].write_relative_stack(
             &mut self.tmp_stack,
-            note as StackCoeff - self.reference.key_number(),
+            note as StackCoeff - adaptor.reference().key_number(),
         );
-        self.tmp_stack.scaled_add(1, &self.reference);
+        self.tmp_stack.scaled_add(1, adaptor.reference());
 
         let mut changed = false;
 
@@ -88,7 +86,7 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         to_highest: bool,
         adaptor: &impl StaticNeighbourhoodsAdaptor<T>,
     ) -> bool {
-        self.tmp_stack.clone_from(&self.reference);
+        self.tmp_stack.clone_from(&adaptor.reference());
 
         if to_highest {
             for i in 0..128 {
@@ -106,11 +104,9 @@ impl<T: StackType> StaticNeighbourhoods<T> {
             }
         }
 
-        if self.reference != self.tmp_stack {
-            self.reference.clone_from(&self.tmp_stack);
-            adaptor.send(FromStrategy::SetReference {
-                stack: self.reference.clone(),
-            });
+        if *adaptor.reference() != self.tmp_stack {
+            adaptor.reference_mut().clone_from(&self.tmp_stack);
+            adaptor.send(FromStrategy::UpdateReference {});
             true
         } else {
             false
@@ -134,15 +130,12 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
         Self {
             neighbourhoods: config.neighbourhoods.drain(..).map(|n| n.named).collect(),
             curr_neighbourhood_index: 0,
-            reference: config.initial_reference,
             tmp_stack: Stack::new_zero(),
         }
     }
 
     fn start(&mut self, time: Instant, adaptor: &A) -> bool {
-        adaptor.send(FromStrategy::SetReference {
-            stack: self.reference.clone(),
-        });
+        adaptor.send(FromStrategy::UpdateReference {});
 
         adaptor.send(FromStrategy::CurrentNeighbourhoodIndex {
             index: self.curr_neighbourhood_index,
@@ -168,7 +161,9 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
             .map(|n| n.named.clone())
             .collect();
         self.curr_neighbourhood_index = 0;
-        self.reference = adaptor.config().initial_reference.clone();
+        adaptor
+            .reference_mut()
+            .clone_from(&adaptor.config().initial_reference);
     }
 
     fn note_on(&mut self, note: u8, time: Instant, adaptor: &A) -> bool {
@@ -183,11 +178,11 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
     fn update_tuning_reference(&mut self, time: Instant, adaptor: &A) -> bool {
         for i in 0..128 {
             if adaptor.key_state(i).is_sounding() {
-                // do it like this to avoid double-locking 'adaptor.tunings'
-                let x = &mut adaptor.tuning(i);
-                x.semitones = x
+                let new_semitones = adaptor
+                    .tuning(i)
                     .stack
                     .absolute_semitones(adaptor.tuning_reference().c4_semitones());
+                adaptor.tuning_mut(i).semitones = new_semitones;
                 adaptor.send(FromStrategy::Retune {
                     note: i as u8,
                     time,
@@ -212,8 +207,8 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
                 self.start(time, adaptor);
             }
             ToStaticNeighbourhoods::SetReference { reference, time } => {
-                self.reference.clone_from(&reference);
-                let _ = adaptor.send(FromStrategy::SetReference { stack: reference });
+                adaptor.reference_mut().clone_from(&reference);
+                let _ = adaptor.send(FromStrategy::UpdateReference {});
                 self.update_all_tunings_and_send(time, adaptor);
             }
             ToStaticNeighbourhoods::Consider { stack, time } => {

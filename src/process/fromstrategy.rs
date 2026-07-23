@@ -14,7 +14,7 @@ use parking_lot::RwLock;
 use crate::{
     bindable::BindableEvent,
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
-    interval::stacktype::r#trait::StackType,
+    interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
     process::r#trait::{ProcessAdaptor, StackWithTuning},
@@ -67,8 +67,23 @@ impl<T: StackType, P: ProcessAdaptor<T> + 'static> StrategyAdaptor<T>
     }
 
     #[inline]
-    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
         self.process_adaptor.tuning(i)
+    }
+    
+    #[inline]
+    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+        self.process_adaptor.tuning_mut(i)
+    }
+
+    #[inline]
+    fn reference(&self) -> impl Deref<Target = Stack<T>> {
+        self.process_adaptor.reference()
+    }
+
+    #[inline]
+    fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>> {
+        self.process_adaptor.reference_mut()
     }
 
     #[inline]
@@ -108,8 +123,23 @@ impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStep
     }
 
     #[inline]
-    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
         self.process_adaptor.tuning(i)
+    }
+    
+    #[inline]
+    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+        self.process_adaptor.tuning_mut(i)
+    }
+
+    #[inline]
+    fn reference(&self) -> impl Deref<Target = Stack<T>> {
+        self.process_adaptor.reference()
+    }
+
+    #[inline]
+    fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>> {
+        self.process_adaptor.reference_mut()
     }
 
     #[inline]
@@ -147,8 +177,23 @@ impl<T: StackType, P: ProcessAdaptor<T>> StrategyAdaptor<T> for TheTwoStepAdapto
     }
 
     #[inline]
-    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
         self.process_adaptor.tuning(i)
+    }
+    
+    #[inline]
+    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+        self.process_adaptor.tuning_mut(i)
+    }
+
+    #[inline]
+    fn reference(&self) -> impl Deref<Target = Stack<T>> {
+        self.process_adaptor.reference()
+    }
+
+    #[inline]
+    fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>> {
+        self.process_adaptor.reference_mut()
     }
 
     #[inline]

@@ -409,6 +409,7 @@ impl<T: StackType> RunState<T> {
                 }))
             }),
             key_states: core::array::from_fn(|_| Arc::new(RwLock::new(KeyState::new(now)))),
+            reference: Arc::new(RwLock::new(Stack::new_zero())),
             tuning_reference: Arc::new(RwLock::new(tuning_reference)),
             strategies: Arc::new(RwLock::new(strategies)),
             active_strategy_index: Arc::new(AtomicUsize::new(0)),
@@ -425,13 +426,11 @@ impl<T: StackType> RunState<T> {
             forward: from_ui_tx,
             tunings: core::array::from_fn(|i| process_adaptor.tunings[i].clone()),
             key_states: core::array::from_fn(|i| process_adaptor.key_states[i].clone()),
+            reference: process_adaptor.reference.clone(),
             tuning_reference: process_adaptor.tuning_reference.clone(),
             strategies: process_adaptor.strategies.clone(),
             active_strategy_index: process_adaptor.active_strategy_index.clone(),
             gui_config: RefCell::new(gui_config.clone()),
-            reference: Arc::new(RwLock::new(Stack::new_zero())), // todo, this should also exist in
-            // the strategy, and be changed by
-            // it!
             backend_config: backend_adaptor.config.clone(),
         };
 

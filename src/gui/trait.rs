@@ -21,7 +21,6 @@ use crate::{
         FromUi, ReceiveMsg, ToMelody, ToStaticNeighbourhoods, ToStaticNeighbourhoodsAsMelody,
         ToStrategy, ToTwoStep, ToUi,
     },
-    notename::HasNoteNames,
     process::r#trait::StackWithTuning,
     reference::Reference,
 };

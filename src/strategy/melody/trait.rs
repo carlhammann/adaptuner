@@ -6,7 +6,7 @@ use std::{
 use crate::{
     bindable::BindableStrategyAction,
     config::IsMelodyStrategyConfig,
-    interval::stacktype::r#trait::StackType,
+    interval::{stack::Stack, stacktype::r#trait::StackType},
     keystate::KeyState,
     msg::{FromStrategy, ToMelody},
     process::r#trait::StackWithTuning,
@@ -20,7 +20,10 @@ pub trait MelodyStrategyAdaptor<T: StackType> {
     /// index `i` must be in the range `0..128`
     fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
     /// index `i` must be in the range `0..128`
-    fn tuning(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
+    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
+    fn reference(&self) -> impl Deref<Target = Stack<T>>;
+    fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>>;
     fn tuning_reference(&self) -> impl Deref<Target = Reference<T>>;
     fn harmony(&self) -> impl Deref<Target = Harmony<T>>;
 }

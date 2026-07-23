@@ -176,9 +176,7 @@ pub enum FromStrategy<T: StackType> {
         note: u8,
         time: Instant,
     },
-    SetReference {
-        stack: Stack<T>,
-    },
+    UpdateReference {},
     CurrentNeighbourhoodIndex {
         index: usize,
     },
@@ -303,9 +301,7 @@ pub enum ToUi<T: StackType> {
     OutputDisconnected {
         available_ports: Vec<(MidiOutputPort, String)>,
     },
-    SetReference {
-        stack: Stack<T>,
-    },
+    UpdateReference {},
     CurrentNeighbourhoodIndex {
         index: usize,
     },
@@ -558,7 +554,7 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
                 Some(ToBackend::Retune { note, time }),
                 Some(ToUi::Retune { note }),
             ),
-            FromStrategy::SetReference { stack } => (None {}, Some(ToUi::SetReference { stack })),
+            FromStrategy::UpdateReference {} => (None {}, Some(ToUi::UpdateReference {})),
             FromStrategy::CurrentNeighbourhoodIndex { index } => {
                 (None {}, Some(ToUi::CurrentNeighbourhoodIndex { index }))
             }

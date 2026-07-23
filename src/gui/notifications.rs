@@ -20,7 +20,7 @@ use crate::{
 
 pub struct Notifications<T: StackType> {
     chord: (Option<(usize, Stack<T>)>, Instant),
-    reference: (Stack<T>, bool, Instant),
+    reference: (bool, Instant),
     neighbourhood_index: (Option<usize>, Instant),
     enable_chord_list: (Option<bool>, Instant),
     enable_reanchor: (Option<bool>, Instant),
@@ -32,7 +32,7 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
     pub fn new() -> Self {
         Self {
             chord: (None {}, Instant::now()),
-            reference: (Stack::new_zero(), false, Instant::now()),
+            reference: (false, Instant::now()),
             neighbourhood_index: (None {}, Instant::now()),
             enable_chord_list: (None {}, Instant::now()),
             enable_reanchor: (None {}, Instant::now()),
@@ -48,8 +48,8 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
         //     }
         // }
 
-        if time.duration_since(self.reference.2) > self.cleanup_time {
-            self.reference.1 = false;
+        if time.duration_since(self.reference.1) > self.cleanup_time {
+            self.reference.0 = false;
         }
 
         if let (Some(_), old) = self.neighbourhood_index {
@@ -85,7 +85,7 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
 
     pub fn is_nonempty(&self) -> bool {
         self.chord.0.is_some()
-            || self.reference.1
+            || self.reference.0
             || self.neighbourhood_index.0.is_some()
             || self.enable_chord_list.0.is_some()
             || self.enable_reanchor.0.is_some()
@@ -147,21 +147,22 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                     },
                 );
                 ui.label(" on ");
-                ui.strong(reference.corrected_notename(
-                    &NoteNameStyle::Full,
-                    adaptor.config().use_cent_values,
-                ));
+                ui.strong(
+                    reference
+                        .corrected_notename(&NoteNameStyle::Full, adaptor.config().use_cent_values),
+                );
             });
         }
 
-        if let (reference, true, _) = &self.reference {
+        if let (true, _) = &self.reference {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.label("reference ");
-                ui.strong(reference.corrected_notename(
-                    &NoteNameStyle::Full,
-                    adaptor.config().use_cent_values,
-                ));
+                ui.strong(
+                    adaptor
+                        .reference()
+                        .corrected_notename(&NoteNameStyle::Full, adaptor.config().use_cent_values),
+                );
             });
         }
 
@@ -169,10 +170,10 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
             ui.label(format!(
                 "note {} not tuned correctly: should be \
                 {should_be:.02}, but is {actual:.02}: {explanation}",
-                adaptor.tuning(*note as usize).stack.corrected_notename(
-                    &NoteNameStyle::Full,
-                    adaptor.config().use_cent_values,
-                ),
+                adaptor
+                    .tuning(*note as usize)
+                    .stack
+                    .corrected_notename(&NoteNameStyle::Full, adaptor.config().use_cent_values,),
             ));
         }
     }
@@ -181,10 +182,8 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
 impl<T: StackType> ReceiveMsgRef<ToUi<T>> for Notifications<T> {
     fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
         match msg {
-            ToUi::SetReference { stack } => {
-                if self.reference.0 != *stack {
-                    self.reference = (stack.clone(), true, Instant::now());
-                }
+            ToUi::UpdateReference {} => {
+                self.reference = (true, Instant::now());
             }
             ToUi::CurrentNeighbourhoodIndex { index } => {
                 self.neighbourhood_index = (Some(*index), Instant::now());
