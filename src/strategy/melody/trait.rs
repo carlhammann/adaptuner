@@ -1,10 +1,10 @@
 use std::{
-    marker::PhantomData,
     ops::{Deref, DerefMut},
     time::Instant,
 };
 
 use crate::{
+    bindable::BindableStrategyAction,
     config::IsMelodyStrategyConfig,
     interval::stacktype::r#trait::StackType,
     keystate::KeyState,
@@ -43,6 +43,8 @@ pub trait MelodyStrategy<T: StackType, A: MelodyStrategyAdaptor<T>> {
     ///
     /// The 'with_harmony' argument schould be true iff the 'harmony' is already initialised.
     fn start(&mut self, time: Instant, adaptor: &A);
+    
+    fn reset(&mut self, adaptor: &A);
 
     /// Implementation of [ToMelody::SetTuningReference]
     fn update_tuning_reference(&mut self, time: Instant, adaptor: &A);
@@ -50,4 +52,7 @@ pub trait MelodyStrategy<T: StackType, A: MelodyStrategyAdaptor<T>> {
     fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A);
 
     fn filter_to_melody(msg: ToMelody<T>) -> Option<Self::Msg>;
+
+    /// Should only do something if [StrategyConfig::reacts_to_bound] returns true.
+    fn handle_bound_action(&mut self, action: &BindableStrategyAction, time: Instant, adaptor: &A);
 }

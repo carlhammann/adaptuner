@@ -8,10 +8,11 @@ use std::{
     time::Instant,
 };
 
-use midi_msg::{Channel, ChannelVoiceMsg::*, ControlChange::Hold, MidiMsg};
+use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 use parking_lot::RwLock;
 
 use crate::{
+    bindable::BindableEvent,
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
     interval::stacktype::r#trait::StackType,
     keystate::KeyState,
@@ -80,12 +81,12 @@ impl<T: StackType, P: ProcessAdaptor<T> + 'static> StaticNeighbourhoodsAdaptor<T
     for TheStaticNeighbourhoodsAdaptor<T, P>
 {
     fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsConfig<T>> {
-        self.process_adaptor.strategy_config().map(
-            |c: &Vec<StrategyConfig<T>>| match &c[self.strategy_index] {
+        self.process_adaptor
+            .strategy_config()
+            .map(|c: &Vec<StrategyConfig<T>>| match &c[self.strategy_index] {
                 StrategyConfig::StaticNeighbourhoods { config, .. } => config,
                 _ => panic!("TheStaticNeighbourhoodsAdaptor::config: incorrect config type"),
-            },
-        )
+            })
     }
 }
 
@@ -173,8 +174,9 @@ impl<T: StackType, P: ProcessAdaptor<T>> StaticNeighbourhoodsAsMelodyAdaptor<T>
 
 impl<T: StackType, P: ProcessAdaptor<T>> ChordListAdaptor<T> for TheTwoStepAdaptor<T, P> {
     fn config(&self) -> impl Deref<Target = ChordListConfig<T>> {
-        self.process_adaptor.strategy_config().map(
-            |c: &Vec<StrategyConfig<T>>| match &c[self.strategy_index] {
+        self.process_adaptor
+            .strategy_config()
+            .map(|c: &Vec<StrategyConfig<T>>| match &c[self.strategy_index] {
                 StrategyConfig::TwoStep {
                     harmony: HarmonyStrategyConfig::ChordList(config),
                     ..
@@ -182,8 +184,7 @@ impl<T: StackType, P: ProcessAdaptor<T>> ChordListAdaptor<T> for TheTwoStepAdapt
                 _ => panic!(
                     "TheTwoStepAdaptor::config: incorrect harmony config type for chord list"
                 ),
-            },
-        )
+            })
     }
 }
 
@@ -191,10 +192,12 @@ impl<T: StackType, P: ProcessAdaptor<T>>
     TwoStepStrategyAdaptor<T, ChordList<T>, Self, StaticNeighbourhoodsAsMelody<T>, Self>
     for TheTwoStepAdaptor<T, P>
 {
+    #[inline]
     fn as_melody_adaptor(&self) -> &Self {
         self
     }
 
+    #[inline]
     fn as_harmony_adaptor(&self) -> &Self {
         self
     }
@@ -286,7 +289,7 @@ where
         match msg {
             MidiMsg::ChannelVoice {
                 channel,
-                msg: NoteOn { note, velocity },
+                msg: ChannelVoiceMsg::NoteOn { note, velocity },
             } => {
                 if velocity != 0 {
                     self.handle_note_on(time, note, channel, velocity);
@@ -296,67 +299,79 @@ where
             }
             MidiMsg::ChannelVoice {
                 channel,
-                msg: NoteOff { note, velocity },
+                msg: ChannelVoiceMsg::NoteOff { note, velocity },
             } => self.handle_note_off(time, note, channel, velocity),
             MidiMsg::ChannelVoice {
                 channel,
-                msg: ControlChange {
-                    control: Hold(value),
-                },
+                msg:
+                    ChannelVoiceMsg::ControlChange {
+                        control: ControlChange::Hold(value),
+                    },
             } => self.handle_pedal_hold(time, channel, value),
 
-            // MidiMsg::ChannelVoice {
-            //     channel,
-            //     msg:
-            //         ControlChange {
-            //             control: Sostenuto(value),
-            //         },
-            // } => {
-            //     if let Some(csi) = self.current_strategy_index() {
-            //         let (_, ref bindings) = self.strategies[csi];
-            //         let was_down = self.sostenuto_hold.iter().any(|b| *b);
-            //         self.sostenuto_hold[channel as usize] = value > 0;
-            //         let is_down = self.sostenuto_hold.iter().any(|b| *b);
-            //         let action = match (was_down, is_down) {
-            //             (false, true) => bindings.get(&MidiBindable::SostenutoPedalDown),
-            //             (true, false) => bindings.get(&MidiBindable::SostenutoPedalUp),
-            //             _ => None {},
-            //         };
-            //         if let Some(&action) = action {
-            //             let _ = self.send_to_strategy(ToStrategy::Action { action, time });
-            //         } else {
-            //             self.adaptor.send(untouched_midi());
-            //         }
-            //     }
-            // }
-
-            // MidiMsg::ChannelVoice {
-            //     channel,
-            //     msg:
-            //         ControlChange {
-            //             control: SoftPedal(value),
-            //         },
-            // } => {
-            //     if let Some(csi) = self.current_strategy_index() {
-            //         let (_, ref bindings) = self.strategies[csi];
-            //         let was_down = self.soft_hold.iter().any(|b| *b);
-            //         self.soft_hold[channel as usize] = value > 0;
-            //         let is_down = self.soft_hold.iter().any(|b| *b);
-            //         let action = match (was_down, is_down) {
-            //             (false, true) => bindings.get(&MidiBindable::SoftPedalDown),
-            //             (true, false) => bindings.get(&MidiBindable::SoftPedalUp),
-            //             _ => None {},
-            //         };
-            //         if let Some(&action) = action {
-            //             let _ = self.send_to_strategy(ToStrategy::Action { action, time });
-            //         } else {
-            //             self.adaptor.send(untouched_midi());
-            //         }
-            //     }
-            // }
             MidiMsg::ChannelVoice {
                 channel,
-                msg: ProgramChange { program },
+                msg:
+                    ChannelVoiceMsg::ControlChange {
+                        control: ControlChange::Sostenuto(value),
+                    },
+            } => {
+                let was_down = self.sostenuto_hold.iter().any(|b| *b);
+                self.sostenuto_hold[channel as usize] = value > 0;
+                let is_down = self.sostenuto_hold.iter().any(|b| *b);
+                let action = match (was_down, is_down) {
+                    (false, true) => self.adaptor.strategy_config()
+                        [self.adaptor.active_strategy_index()]
+                    .bindings()
+                    .get(&BindableEvent::SostenutoPedalDown)
+                    .map(|x| *x),
+                    (true, false) => self.adaptor.strategy_config()
+                        [self.adaptor.active_strategy_index()]
+                    .bindings()
+                    .get(&BindableEvent::SostenutoPedalUp)
+                    .map(|x| *x),
+                    _ => None {},
+                };
+                if let Some(action) = action {
+                    let _ = self.send_to_strategy(ToStrategy::BoundAction { action, time });
+                } else {
+                    self.adaptor.send(untouched_midi());
+                }
+            }
+
+            MidiMsg::ChannelVoice {
+                channel,
+                msg:
+                    ChannelVoiceMsg::ControlChange {
+                        control: ControlChange::SoftPedal(value),
+                    },
+            } => {
+                let was_down = self.soft_hold.iter().any(|b| *b);
+                self.soft_hold[channel as usize] = value > 0;
+                let is_down = self.soft_hold.iter().any(|b| *b);
+                let action = match (was_down, is_down) {
+                    (false, true) => self.adaptor.strategy_config()
+                        [self.adaptor.active_strategy_index()]
+                    .bindings()
+                    .get(&BindableEvent::SoftPedalDown)
+                    .map(|x| *x),
+                    (true, false) => self.adaptor.strategy_config()
+                        [self.adaptor.active_strategy_index()]
+                    .bindings()
+                    .get(&BindableEvent::SoftPedalUp)
+                    .map(|x| *x),
+                    _ => None {},
+                };
+                if let Some(action) = action {
+                    let _ = self.send_to_strategy(ToStrategy::BoundAction { action, time });
+                } else {
+                    self.adaptor.send(untouched_midi());
+                }
+            }
+
+            MidiMsg::ChannelVoice {
+                channel,
+                msg: ChannelVoiceMsg::ProgramChange { program },
             } => {
                 let _ = self.adaptor.send(FromProcess::ProgramChange {
                     channel,
@@ -529,17 +544,6 @@ where
             }
             ToProcess::RestartFromConfig { time } => {
                 self.restart(time);
-            }
-            ToProcess::BindAction { action, bindable } => {
-                todo!()
-                // if let Some(csi) = self.current_strategy_index() {
-                //     let (_, bindings) = &mut self.strategies[csi];
-                //     if let Some(action) = action {
-                //         bindings.insert(bindable, action);
-                //     } else {
-                //         bindings.remove(&bindable);
-                //     }
-                // }
             }
             ToProcess::StrategyListAction { action, time } => {
                 self.stop(time);

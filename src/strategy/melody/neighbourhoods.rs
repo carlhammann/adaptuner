@@ -6,6 +6,7 @@ use std::{
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    bindable::BindableStrategyAction,
     config::{IsMelodyStrategyConfig, MelodyStrategyConfig, Named},
     interval::{
         stack::Stack,
@@ -285,6 +286,18 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
         self.tune_with_harmony(time, adaptor);
     }
 
+    fn reset(&mut self, adaptor: &A) {
+        self.neighbourhoods = adaptor
+            .config()
+            .neighbourhoods
+            .iter()
+            .map(|n| n.named.clone())
+            .collect();
+        self.curr_neighbourhood_index = 0;
+        self.reference = adaptor.config().initial_reference.clone();
+        self.reanchor = adaptor.config().reanchor;
+    }
+
     fn update_tuning_reference(&mut self, time: Instant, adaptor: &A) {
         for i in 0..128 {
             if adaptor.key_state(i).is_sounding() {
@@ -308,29 +321,11 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
                     self.update_all_tunings_and_send(time, adaptor);
                 }
             }
-            ToStaticNeighbourhoodsAsMelody::SetReferenceToLowest { time } => {
-                if self.set_reference_to_extreme(false, adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
-                }
-            }
-            ToStaticNeighbourhoodsAsMelody::SetReferenceToHighest { time } => {
-                if self.set_reference_to_extreme(true, adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
-                }
-            }
-            ToStaticNeighbourhoodsAsMelody::SetReferenceToCurrent { time } => {
-                if self.set_reference_to_current(adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
-                }
-            }
             ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time } => self.toggle_reanchor(time),
             ToStaticNeighbourhoodsAsMelody::SetGroupMs { group_ms } => {
                 self.group_duration = Duration::from_millis(group_ms)
             }
             ToStaticNeighbourhoodsAsMelody::UpdateNeighbourhoods { time } => todo!(),
-            ToStaticNeighbourhoodsAsMelody::IncrementNeighbourhoodIndex { increment, time } => {
-                todo!()
-            }
 
             ToStaticNeighbourhoodsAsMelody::Consider { stack, time } => {
                 let inserted_stack = self.neighbourhoods[self.curr_neighbourhood_index]
@@ -347,6 +342,43 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
     fn filter_to_melody(msg: ToMelody<T>) -> Option<Self::Msg> {
         match msg {
             ToMelody::StaticNeighbourhoods(msg) => Some(msg),
+        }
+    }
+
+    // Make sure that [StrategyConfig::reacts_to_bound] exposes exactly the actions that this
+    // function handles!
+    fn handle_bound_action(&mut self, action: &BindableStrategyAction, time: Instant, adaptor: &A) {
+        match action {
+            BindableStrategyAction::IncrementNeighbourhoodIndex(increment) => {
+                let old_index = self.curr_neighbourhood_index;
+                self.curr_neighbourhood_index = (old_index as isize + increment)
+                    .rem_euclid(self.neighbourhoods.len() as isize)
+                    as usize;
+                if old_index != self.curr_neighbourhood_index {
+                    self.start(time, adaptor);
+                }
+            }
+            BindableStrategyAction::SetReferenceToLowest => {
+                if self.set_reference_to_extreme(false, adaptor) {
+                    self.update_all_tunings_and_send(time, adaptor);
+                }
+            }
+            BindableStrategyAction::SetReferenceToHighest => {
+                if self.set_reference_to_extreme(true, adaptor) {
+                    self.update_all_tunings_and_send(time, adaptor);
+                }
+            }
+            BindableStrategyAction::SetReferenceToCurrent => {
+                if self.set_reference_to_current(adaptor) {
+                    self.update_all_tunings_and_send(time, adaptor);
+                }
+            }
+            BindableStrategyAction::Reset => {
+                self.stop(time, adaptor);
+                self.reset(adaptor);
+                self.start(time, adaptor);
+            }
+            _ => {}
         }
     }
 }

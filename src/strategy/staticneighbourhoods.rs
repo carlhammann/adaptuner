@@ -3,6 +3,7 @@ use std::{ops::Deref, time::Instant};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    bindable::BindableStrategyAction,
     config::{IsStrategyConfig, Named},
     interval::{
         stack::{ScaledAdd, Stack},
@@ -159,6 +160,17 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
 
     fn stop(&mut self, _time: Instant, _adaptor: &A) {}
 
+    fn reset(&mut self, adaptor: &A) {
+        self.neighbourhoods = adaptor
+            .config()
+            .neighbourhoods
+            .iter()
+            .map(|n| n.named.clone())
+            .collect();
+        self.curr_neighbourhood_index = 0;
+        self.reference = adaptor.config().initial_reference.clone();
+    }
+
     fn note_on(&mut self, note: u8, time: Instant, adaptor: &A) -> bool {
         self.update_tuning_and_send(note, time, adaptor);
         false
@@ -204,25 +216,6 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
                 let _ = adaptor.send(FromStrategy::SetReference { stack: reference });
                 self.update_all_tunings_and_send(time, adaptor);
             }
-            ToStaticNeighbourhoods::IncrementNeighbourhoodIndex { increment, time } => {
-                let old_index = self.curr_neighbourhood_index;
-                self.curr_neighbourhood_index = (old_index as isize + increment)
-                    .rem_euclid(self.neighbourhoods.len() as isize)
-                    as usize;
-                if old_index != self.curr_neighbourhood_index {
-                    self.start(time, adaptor);
-                }
-            }
-            ToStaticNeighbourhoods::SetReferenceToLowest { time } => {
-                if self.set_reference_to_extreme(false, adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
-                }
-            }
-            ToStaticNeighbourhoods::SetReferenceToHighest { time } => {
-                if self.set_reference_to_extreme(true, adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
-                }
-            }
             ToStaticNeighbourhoods::Consider { stack, time } => {
                 let inserted_stack = self.neighbourhoods[self.curr_neighbourhood_index]
                     .insert(&stack)
@@ -246,5 +239,45 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
             ToStrategy::StaticNeighbourhoods(msg) => Some(msg),
             _ => None {},
         }
+    }
+
+    // Make sure that [StrategyConfig::reacts_to_bound] exposes exactly the actions that this
+    // function handles!
+    fn handle_bound_action(
+        &mut self,
+        action: BindableStrategyAction,
+        time: Instant,
+        adaptor: &A,
+    ) -> bool {
+        match action {
+            BindableStrategyAction::IncrementNeighbourhoodIndex(increment) => {
+                let old_index = self.curr_neighbourhood_index;
+                self.curr_neighbourhood_index = (old_index as isize + increment)
+                    .rem_euclid(self.neighbourhoods.len() as isize)
+                    as usize;
+                if old_index != self.curr_neighbourhood_index {
+                    self.start(time, adaptor);
+                }
+            }
+            BindableStrategyAction::SetReferenceToLowest => {
+                if self.set_reference_to_extreme(false, adaptor) {
+                    self.update_all_tunings_and_send(time, adaptor);
+                }
+            }
+            BindableStrategyAction::SetReferenceToHighest => {
+                if self.set_reference_to_extreme(true, adaptor) {
+                    self.update_all_tunings_and_send(time, adaptor);
+                }
+            }
+            BindableStrategyAction::Reset => {
+                self.stop(time, adaptor);
+                self.reset(adaptor);
+                self.start(time, adaptor);
+            }
+            BindableStrategyAction::SetReferenceToCurrent => {}
+            BindableStrategyAction::ToggleChordMatching => {}
+            BindableStrategyAction::ToggleReanchor => {}
+        }
+        false
     }
 }

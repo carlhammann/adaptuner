@@ -1,11 +1,9 @@
-use std::{
-    ops::{Deref, DerefMut},
-    time::Instant,
-};
+use std::{ops::Deref, time::Instant};
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    bindable::BindableStrategyAction,
     config::{HarmonyStrategyConfig, IsHarmonyStrategyConfig},
     interval::{
         stack::{ScaledAdd, Stack},
@@ -327,6 +325,16 @@ impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T
 
     fn stop(&mut self, _time: Instant, _adaptor: &A) {}
 
+    fn reset(&mut self, adaptor: &A) {
+        self.enable = adaptor.config().enable;
+        self.patterns = adaptor
+            .config()
+            .patterns
+            .iter()
+            .map(|p| Pattern::new(&p))
+            .collect();
+    }
+
     fn start_solve(&mut self, time: Instant, adaptor: &A) -> HarmonyResult {
         if self.enable {
             self.next_pattern_to_try = 0;
@@ -417,6 +425,25 @@ impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T
                 self.enable = !self.enable;
                 Some(time)
             }
+        }
+    }
+
+    fn handle_bound_action(
+        &mut self,
+        action: BindableStrategyAction,
+        time: Instant,
+        adaptor: &A,
+    ) -> Option<Instant> {
+        match action {
+            BindableStrategyAction::Reset => {
+                self.stop(time, adaptor);
+                self.reset(adaptor);
+                Some(time)
+                // returning this will make sure that we call
+                // self.start(time, adaptor)
+                // next
+            }
+            _ => None {}
         }
     }
 }

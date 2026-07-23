@@ -1,4 +1,4 @@
-// pub mod binding;
+pub mod binding;
 // pub mod chordlist;
 pub mod commas;
 // pub mod neighbourhood;

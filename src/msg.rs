@@ -4,7 +4,7 @@ use midi_msg::Channel;
 use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
-    bindable::MidiBindable,
+    bindable::BindableStrategyAction,
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     util::list_action::ListAction,
 };
@@ -65,10 +65,6 @@ pub enum ToProcess<T: StackType> {
         value: u8,
         time: Instant,
     },
-    BindAction {
-        action: Option<ToStrategy<T>>,
-        bindable: MidiBindable,
-    },
     StrategyListAction {
         action: ListAction,
         time: Instant,
@@ -117,23 +113,16 @@ pub enum ToChordList {
 
 pub enum ToStaticNeighbourhoods<T: StackType> {
     UpdateNeighbourhoods { time: Instant },
-    IncrementNeighbourhoodIndex { increment: isize, time: Instant },
 
     SetReference { reference: Stack<T>, time: Instant },
-    SetReferenceToLowest { time: Instant },
-    SetReferenceToHighest { time: Instant },
 
     Consider { stack: Stack<T>, time: Instant },
 }
 
 pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
     UpdateNeighbourhoods { time: Instant },
-    IncrementNeighbourhoodIndex { increment: isize, time: Instant },
 
     SetReference { reference: Stack<T>, time: Instant },
-    SetReferenceToLowest { time: Instant },
-    SetReferenceToHighest { time: Instant },
-    SetReferenceToCurrent { time: Instant },
 
     Consider { stack: Stack<T>, time: Instant },
 
@@ -155,14 +144,31 @@ pub enum ToHarmony {
 }
 
 pub enum ToStrategy<T: StackType> {
-    Start { time: Instant },
-    Stop { time: Instant },
-    NoteOn { note: u8, time: Instant },
-    NoteOff { note: u8, time: Instant },
-    UpdateTuningReference { time: Instant },
+    Start {
+        time: Instant,
+    },
+    Stop {
+        time: Instant,
+    },
+    NoteOn {
+        note: u8,
+        time: Instant,
+    },
+    NoteOff {
+        note: u8,
+        time: Instant,
+    },
+    UpdateTuningReference {
+        time: Instant,
+    },
 
     TwoStep(ToTwoStep<T>),
     StaticNeighbourhoods(ToStaticNeighbourhoods<T>),
+
+    BoundAction {
+        action: BindableStrategyAction,
+        time: Instant,
+    },
 }
 
 pub enum FromStrategy<T: StackType> {
@@ -380,10 +386,6 @@ pub enum FromUi<T: StackType> {
     StrategyListAction {
         action: ListAction,
         time: Instant,
-    },
-    BindAction {
-        action: Option<ToStrategy<T>>,
-        bindable: MidiBindable,
     },
     ToStrategy(ToStrategy<T>), // this should somehow be merged with/include the following messages
     UpdateChordList {
@@ -695,12 +697,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             ),
             FromUi::ToStrategy(action) => (
                 Some(ToProcess::ToStrategy(action)),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::BindAction { action, bindable } => (
-                Some(ToProcess::BindAction { action, bindable }),
                 None {},
                 None {},
                 None {},

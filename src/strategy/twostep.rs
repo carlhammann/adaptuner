@@ -1,6 +1,7 @@
 use std::{marker::PhantomData, time::Instant};
 
 use crate::{
+    bindable::BindableStrategyAction,
     config::{IsHarmonyStrategyConfig, IsMelodyStrategyConfig, IsStrategyConfig},
     interval::stacktype::r#trait::StackType,
     msg::{ToStrategy, ToTwoStep},
@@ -114,6 +115,11 @@ where
         self.melody_strategy.stop(time, adaptor.as_melody_adaptor());
     }
 
+    fn reset(&mut self, adaptor: &A) {
+        self.harmony_strategy.reset(adaptor.as_harmony_adaptor());
+        self.melody_strategy.reset(adaptor.as_melody_adaptor());
+    }
+
     fn note_on(&mut self, _note: u8, time: Instant, adaptor: &A) -> bool {
         self.start_solve(time, adaptor)
     }
@@ -170,5 +176,23 @@ where
             ToStrategy::TwoStep(msg) => Some(msg),
             _ => None {},
         }
+    }
+
+    fn handle_bound_action(
+        &mut self,
+        action: BindableStrategyAction,
+        time: Instant,
+        adaptor: &A,
+    ) -> bool {
+        self.melody_strategy
+            .handle_bound_action(&action, time, adaptor.as_melody_adaptor());
+
+        if let Some(solve_time) =
+            self.harmony_strategy
+                .handle_bound_action(action, time, adaptor.as_harmony_adaptor())
+        {
+            return self.start_solve(solve_time, adaptor);
+        }
+        self.solving_harmony
     }
 }

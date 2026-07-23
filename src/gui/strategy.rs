@@ -3,19 +3,21 @@ use std::time::Instant;
 use eframe::egui;
 
 use crate::{
+    bindable::BindableEvent,
     config::StrategyConfig,
     gui::{
         common::{
             show_list_edit, show_list_picker, ListEditOpts, ListEditResult, SmallFloatingWindow,
         },
+        editor::binding::BindingEditor,
         r#trait::{GuiShow, UiAdaptor},
     },
     interval::stacktype::r#trait::StackType,
-    msg::FromUi,
+    msg::{FromUi, ToStrategy},
     util::list_action::ListAction,
 };
 
-pub struct StrategySelectorWidget {
+struct StrategySelectorWidget {
     strategy_list_editor_window: SmallFloatingWindow,
 }
 
@@ -41,7 +43,7 @@ impl StrategySelectorWidget {
                     if disable {
                         ui.disable();
                     }
-                    // don't handle the ListAction wrapped by `res` here, the process has to do
+                    // Don't handle the ListAction wrapped by `res` here, the process has to do
                     // that. It's a bit funny that we're working with a mut reference
                     // `strategy_config_mut`, but everything is all right, since the only thing
                     // we'll change in this thread are names and descriptions of strategies, and
@@ -96,7 +98,7 @@ impl StrategySelectorWidget {
                                 time: Instant::now(),
                             });
                         }
-                        ListEditResult::Message(_) => unreachable!()
+                        ListEditResult::Message(_) => unreachable!(),
                     }
                 });
             });
@@ -132,14 +134,76 @@ impl<T: StackType> GuiShow<T> for StrategySelectorWidget {
     }
 }
 
+struct BindingEditorWidget {
+    binding_editor: BindingEditor,
+}
+
+impl BindingEditorWidget {
+    fn new() -> Self {
+        Self {
+            binding_editor: BindingEditor::new(),
+        }
+    }
+
+    fn react_to_bound_keys<T: StackType>(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: &impl UiAdaptor<T>,
+        disable: bool,
+    ) {
+        if disable {
+            return;
+        }
+        if ui.ui_contains_pointer() {
+            ui.input(|i| {
+                for e in &i.events {
+                    match e {
+                        egui::Event::Key {
+                            key,
+                            pressed,
+                            repeat,
+                            ..
+                        } => {
+                            if !*pressed || *repeat {
+                                return;
+                            }
+                            if let Some(action) = adaptor.strategy_config()
+                                [adaptor.active_strategy_index()]
+                            .bindings()
+                            .get(&BindableEvent::KeyPress(*key))
+                            .map(|x| *x)
+                            {
+                                let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::BoundAction {
+                                    action,
+                                    time: Instant::now(),
+                                }));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+    }
+}
+
+impl<T: StackType> GuiShow<T> for BindingEditorWidget {
+    #[inline]
+    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+        self.binding_editor.show(ui, adaptor)
+    }
+}
+
 pub struct StrategyWidgets {
     selector_widget: StrategySelectorWidget,
+    binding_editor_widget: BindingEditorWidget,
 }
 
 impl StrategyWidgets {
     pub fn new() -> Self {
         Self {
             selector_widget: StrategySelectorWidget::new(),
+            binding_editor_widget: BindingEditorWidget::new(),
         }
     }
 
@@ -150,28 +214,15 @@ impl StrategyWidgets {
         disable: bool,
     ) {
         self.selector_widget.show_windows(ui, adaptor, disable);
+        self.binding_editor_widget
+            .react_to_bound_keys(ui, adaptor, disable);
     }
 }
 
 impl<T: StackType> GuiShow<T> for StrategyWidgets {
     fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
         self.selector_widget.show(ui, adaptor);
-        // match &adaptor.strategy_config()[adaptor.active_strategy_index()] {
-        //     StrategyConfig::StaticNeighbourhoods {
-        //         name,
-        //         description,
-        //         config,
-        //     } => {}
-        //     StrategyConfig::TwoStep {
-        //         melody:
-        //             MelodyStrategyConfig::StaticNeighbourhoods(StaticNeighbourhoodsAsMelodyConfig {
-        //                 ..
-        //             }),
-        //         ..
-        //     } => {
-        //         self.tuning_editor.show(ui, adaptor);
-        //     }
-        // }
+        self.binding_editor_widget.show(ui, adaptor);
     }
 }
 
@@ -381,40 +432,3 @@ impl<T: StackType> GuiShow<T> for StrategyWidgets {
 // }
 //
 // pub struct AsWindows<'a, T: StackType>(pub &'a mut StrategyWindows<T>);
-//
-// impl<'a, T: OctavePeriodicStackType + HasNoteNames + PartialEq> AsWindows<'a, T> {
-//     pub fn show(&mut self, ui: &mut egui::Ui, disable: bool, forward: &mpsc::Sender<FromUi<T>>) {
-//         self.display_strategy_list_editor_window(ui, disable, forward);
-//         if !disable {
-//             let AsWindows(x) = self;
-//             if let Some(curr) = x.strategies.current_selected_mut() {
-//                 if ui.ui_contains_pointer() {
-//                     ui.input(|i| {
-//                         for e in &i.events {
-//                             match e {
-//                                 egui::Event::Key {
-//                                     key,
-//                                     pressed,
-//                                     repeat,
-//                                     ..
-//                                 } => {
-//                                     if !*pressed || *repeat {
-//                                         return;
-//                                     }
-//                                     let bindings = &curr.1;
-//                                     if let Some(&action) = bindings.get(&Bindable::KeyPress(*key)) {
-//                                         let _ = forward.send(FromUi::Action {
-//                                             action,
-//                                             time: Instant::now(),
-//                                         });
-//                                     }
-//                                 }
-//                                 _ => {}
-//                             }
-//                         }
-//                     });
-//                 }
-//             }
-//         }
-//     }
-// }

@@ -5,11 +5,7 @@ use std::{
 };
 
 use crate::{
-    config::IsHarmonyStrategyConfig,
-    interval::stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
-    keystate::KeyState,
-    msg::ToHarmony,
-    neighbourhood::{Partial, SomeNeighbourhood},
+    bindable::BindableStrategyAction, config::IsHarmonyStrategyConfig, interval::stacktype::r#trait::{IntervalBasis, StackCoeff, StackType}, keystate::KeyState, msg::ToHarmony, neighbourhood::{Partial, SomeNeighbourhood}
 };
 
 #[derive(Clone)]
@@ -90,10 +86,22 @@ pub trait HarmonyStrategy<T: StackType, A: HarmonyStrategyAdaptor<T>> {
     fn step(&mut self, adaptor: &A) -> HarmonyResult;
 
     fn stop(&mut self, time: Instant, adaptor: &A);
+    
+    fn reset(&mut self, adaptor: &A);
 
     fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg>;
 
     /// Should return the time of a [HarmonyStrategy::start_solve] that should be triggered by the
     /// message, if necessary.
     fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) -> Option<Instant>;
+
+    /// Should return the time of a [HarmonyStrategy::start_solve] that should be triggered by the
+    /// message, if necessary.
+    /// Should only do something if [StrategyConfig::reacts_to_bound] returns true.
+    fn handle_bound_action(
+        &mut self,
+        action: BindableStrategyAction,
+        time: Instant,
+        adaptor: &A,
+    ) -> Option<Instant>;
 }

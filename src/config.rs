@@ -1,11 +1,12 @@
+use std::collections::BTreeMap;
+
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
+    bindable::{BindableEvent, BindableStrategyAction},
     gui::lattice::LatticeWindowConfig,
     interval::{
-        base::Semitones,
-        stack::Stack,
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
     },
@@ -42,18 +43,19 @@ pub enum StrategyConfig<T: IntervalBasis> {
         name: String,
         description: String,
         config: StaticNeighbourhoodsConfig<T>,
-        // bindings: BTreeMap<Bindable, StrategyAction>,
+        bindings: BTreeMap<BindableEvent, BindableStrategyAction>,
     },
     TwoStep {
         name: String,
         description: String,
         harmony: HarmonyStrategyConfig<T>,
         melody: MelodyStrategyConfig<T>,
-        // bindings: BTreeMap<Bindable, StrategyAction>,
+        bindings: BTreeMap<BindableEvent, BindableStrategyAction>,
     },
 }
 
 impl<T: IntervalBasis> StrategyConfig<T> {
+    #[inline]
     pub fn name(&self) -> &str {
         match self {
             StrategyConfig::StaticNeighbourhoods { name, .. } => name,
@@ -61,6 +63,7 @@ impl<T: IntervalBasis> StrategyConfig<T> {
         }
     }
 
+    #[inline]
     pub fn name_mut(&mut self) -> &mut String {
         match self {
             StrategyConfig::StaticNeighbourhoods { name, .. } => name,
@@ -68,17 +71,66 @@ impl<T: IntervalBasis> StrategyConfig<T> {
         }
     }
 
+    #[inline]
     pub fn description(&self) -> &str {
         match self {
             StrategyConfig::StaticNeighbourhoods { description, .. } => description,
             StrategyConfig::TwoStep { description, .. } => description,
         }
     }
-    
+
+    #[inline]
     pub fn description_mut(&mut self) -> &mut String {
         match self {
             StrategyConfig::StaticNeighbourhoods { description, .. } => description,
             StrategyConfig::TwoStep { description, .. } => description,
+        }
+    }
+
+    pub fn reacts_to_bound(&self, action: BindableStrategyAction) -> bool {
+        match self {
+            StrategyConfig::StaticNeighbourhoods { .. } => match action {
+                BindableStrategyAction::IncrementNeighbourhoodIndex(_)
+                | BindableStrategyAction::SetReferenceToLowest
+                | BindableStrategyAction::SetReferenceToHighest
+                | BindableStrategyAction::Reset => true,
+                _ => false,
+            },
+            StrategyConfig::TwoStep {
+                harmony, melody, ..
+            } => {
+                (match harmony {
+                    HarmonyStrategyConfig::ChordList(_) => match action {
+                        BindableStrategyAction::Reset => true,
+                        _ => false,
+                    },
+                }) || (match melody {
+                    MelodyStrategyConfig::StaticNeighbourhoods(_) => match action {
+                        BindableStrategyAction::IncrementNeighbourhoodIndex(_)
+                        | BindableStrategyAction::SetReferenceToLowest
+                        | BindableStrategyAction::SetReferenceToHighest
+                        | BindableStrategyAction::SetReferenceToCurrent
+                        | BindableStrategyAction::Reset => true,
+                        _ => false,
+                    },
+                })
+            }
+        }
+    }
+
+    #[inline]
+    pub fn bindings(&self) -> &BTreeMap<BindableEvent, BindableStrategyAction> {
+        match self {
+            StrategyConfig::StaticNeighbourhoods { bindings, .. } => bindings,
+            StrategyConfig::TwoStep { bindings, .. } => bindings,
+        }
+    }
+
+    #[inline]
+    pub fn bindings_mut(&mut self) -> &mut BTreeMap<BindableEvent, BindableStrategyAction> {
+        match self {
+            StrategyConfig::StaticNeighbourhoods { bindings, .. } => bindings,
+            StrategyConfig::TwoStep { bindings, .. } => bindings,
         }
     }
 }
