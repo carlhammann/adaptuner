@@ -24,7 +24,7 @@ use crate::{
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct StaticNeighbourhoodsAsMelodyConfig<T: IntervalBasis> {
-    pub neighbourhoods: Vec<Named<SomeCompleteNeighbourhood<T>>>,
+    pub scales: Vec<Named<SomeCompleteNeighbourhood<T>>>,
     pub initial_reference: Stack<T>,
 
     pub reanchor: bool,
@@ -35,8 +35,8 @@ pub struct StaticNeighbourhoodsAsMelodyConfig<T: IntervalBasis> {
 /// [crate::strategy::staticneighbourhoods::StaticNeighbourhoods]
 pub struct StaticNeighbourhoodsAsMelody<T: StackType> {
     /// This Vec must never be empty
-    neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
-    curr_neighbourhood_index: usize,
+    scales: Vec<SomeCompleteNeighbourhood<T>>,
+    curr_scale_index: usize,
 
     reanchor: bool,
 
@@ -63,7 +63,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
             if adaptor.key_state(i).is_sounding() {
                 let mut the_tuning = adaptor.tuning_mut(i);
                 self.tmp_stack.clone_from(&the_tuning.stack);
-                self.neighbourhoods[self.curr_neighbourhood_index].write_absolute_stack(
+                self.scales[self.curr_scale_index].write_absolute_stack(
                     &mut the_tuning.stack,
                     i as StackCoeff,
                     &adaptor.reference(),
@@ -100,7 +100,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
             adaptor.send(FromStrategy::CurrentHarmony {
                 pattern_index: *pattern_index,
                 reference: Some(
-                    self.neighbourhoods[self.curr_neighbourhood_index]
+                    self.scales[self.curr_scale_index]
                         .get_absolute_stack(*harmony_reference, &adaptor.reference()),
                 ),
             });
@@ -112,14 +112,13 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
                         &mut the_tuning.stack,
                         i as StackCoeff - *harmony_reference,
                     ) {
-                        self.neighbourhoods[self.curr_neighbourhood_index]
-                            .increment_by_absolute_stack(
-                                &mut the_tuning.stack,
-                                *harmony_reference,
-                                &adaptor.reference(),
-                            );
+                        self.scales[self.curr_scale_index].increment_by_absolute_stack(
+                            &mut the_tuning.stack,
+                            *harmony_reference,
+                            &adaptor.reference(),
+                        );
                     } else {
-                        self.neighbourhoods[self.curr_neighbourhood_index].write_absolute_stack(
+                        self.scales[self.curr_scale_index].write_absolute_stack(
                             &mut the_tuning.stack,
                             i as StackCoeff,
                             &adaptor.reference(),
@@ -175,7 +174,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     /// returns true iff the reference changed
     fn set_reference_to_current(&mut self, adaptor: &impl MelodyStrategyAdaptor<T>) -> bool {
         if adaptor.harmony().valid {
-            self.neighbourhoods[self.curr_neighbourhood_index].write_absolute_stack(
+            self.scales[self.curr_scale_index].write_absolute_stack(
                 &mut self.tmp_stack,
                 adaptor.harmony().reference,
                 &adaptor.reference(),
@@ -247,8 +246,8 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
 
     fn new(mut config: Self::Config) -> Self {
         Self {
-            neighbourhoods: config.neighbourhoods.drain(..).map(|n| n.named).collect(),
-            curr_neighbourhood_index: 0,
+            scales: config.scales.drain(..).map(|n| n.named).collect(),
+            curr_scale_index: 0,
             reanchor: config.reanchor,
             last_solve: Instant::now(),
             group_start_reference: Stack::new_zero(),
@@ -265,10 +264,10 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
 
     fn start(&mut self, time: Instant, adaptor: &A) {
         adaptor.send(FromStrategy::UpdateReference {});
-        adaptor.send(FromStrategy::CurrentNeighbourhoodIndex {
-            index: self.curr_neighbourhood_index,
+        adaptor.send(FromStrategy::SelectScale {
+            index: self.curr_scale_index,
         });
-        self.neighbourhoods[self.curr_neighbourhood_index].for_each_stack(|_, stack| {
+        self.scales[self.curr_scale_index].for_each_stack(|_, stack| {
             let _ = adaptor.send(FromStrategy::Consider {
                 stack: stack.clone(),
             });
@@ -277,13 +276,13 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
     }
 
     fn reset(&mut self, adaptor: &A) {
-        self.neighbourhoods = adaptor
+        self.scales = adaptor
             .config()
-            .neighbourhoods
+            .scales
             .iter()
             .map(|n| n.named.clone())
             .collect();
-        self.curr_neighbourhood_index = 0;
+        self.curr_scale_index = 0;
         adaptor
             .reference_mut()
             .clone_from(&adaptor.config().initial_reference);
@@ -308,6 +307,12 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
 
     fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) {
         match msg {
+            ToStaticNeighbourhoodsAsMelody::SelectScale { index, time } => {
+                if index != self.curr_scale_index {
+                    self.curr_scale_index = index;
+                    self.start(time, adaptor);
+                }
+            }
             ToStaticNeighbourhoodsAsMelody::SetReference { reference, time } => {
                 if self.set_reference(reference, adaptor) {
                     self.update_all_tunings_and_send(time, adaptor);
@@ -317,12 +322,32 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
             ToStaticNeighbourhoodsAsMelody::SetGroupMs { group_ms } => {
                 self.group_duration = Duration::from_millis(group_ms)
             }
-            ToStaticNeighbourhoodsAsMelody::UpdateNeighbourhoods { time } => todo!(),
+            ToStaticNeighbourhoodsAsMelody::UpdateScales {
+                only_this_scale,
+                time,
+            } => match only_this_scale {
+                None {} => {
+                    self.scales = adaptor
+                        .config()
+                        .scales
+                        .iter()
+                        .map(|n| n.named.clone())
+                        .collect();
+                    if self.scales.len() <= self.curr_scale_index {
+                        self.curr_scale_index = 0;
+                    }
+                    self.start(time, adaptor);
+                }
+                Some(i) => {
+                    self.scales[i].clone_from(&adaptor.config().scales[i].named);
+                    if i == self.curr_scale_index {
+                        self.start(time, adaptor);
+                    }
+                }
+            },
 
             ToStaticNeighbourhoodsAsMelody::Consider { stack, time } => {
-                let inserted_stack = self.neighbourhoods[self.curr_neighbourhood_index]
-                    .insert(&stack)
-                    .clone();
+                let inserted_stack = self.scales[self.curr_scale_index].insert(&stack).clone();
                 let _ = adaptor.send(FromStrategy::Consider {
                     stack: inserted_stack,
                 });
@@ -342,11 +367,11 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
     fn handle_bound_action(&mut self, action: &BindableStrategyAction, time: Instant, adaptor: &A) {
         match action {
             BindableStrategyAction::IncrementNeighbourhoodIndex(increment) => {
-                let old_index = self.curr_neighbourhood_index;
-                self.curr_neighbourhood_index = (old_index as isize + increment)
-                    .rem_euclid(self.neighbourhoods.len() as isize)
+                let old_index = self.curr_scale_index;
+                self.curr_scale_index = (old_index as isize + increment)
+                    .rem_euclid(self.scales.len() as isize)
                     as usize;
-                if old_index != self.curr_neighbourhood_index {
+                if old_index != self.curr_scale_index {
                     self.start(time, adaptor);
                 }
             }

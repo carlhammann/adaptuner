@@ -13,10 +13,6 @@ pub trait ReceiveMsg<I> {
     fn receive_msg(&mut self, msg: I);
 }
 
-pub trait ReceiveMsgRef<I> {
-    fn receive_msg_ref(&mut self, msg: &I);
-}
-
 pub trait MessageTranslate<B> {
     fn translate(self) -> Option<B>;
 }
@@ -112,22 +108,52 @@ pub enum ToChordList {
 }
 
 pub enum ToStaticNeighbourhoods<T: StackType> {
-    UpdateNeighbourhoods { time: Instant },
+    SelectScale {
+        index: usize,
+        time: Instant,
+    },
+    UpdateScales {
+        only_this_scale: Option<usize>,
+        time: Instant,
+    },
 
-    SetReference { reference: Stack<T>, time: Instant },
+    SetReference {
+        reference: Stack<T>,
+        time: Instant,
+    },
 
-    Consider { stack: Stack<T>, time: Instant },
+    Consider {
+        stack: Stack<T>,
+        time: Instant,
+    },
 }
 
 pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
-    UpdateNeighbourhoods { time: Instant },
+    SelectScale {
+        index: usize,
+        time: Instant,
+    },
+    UpdateScales {
+        only_this_scale: Option<usize>,
+        time: Instant,
+    },
 
-    SetReference { reference: Stack<T>, time: Instant },
+    SetReference {
+        reference: Stack<T>,
+        time: Instant,
+    },
 
-    Consider { stack: Stack<T>, time: Instant },
+    Consider {
+        stack: Stack<T>,
+        time: Instant,
+    },
 
-    ToggleReanchor { time: Instant },
-    SetGroupMs { group_ms: u64 },
+    ToggleReanchor {
+        time: Instant,
+    },
+    SetGroupMs {
+        group_ms: u64,
+    },
 }
 
 pub enum ToTwoStep<T: StackType> {
@@ -177,7 +203,7 @@ pub enum FromStrategy<T: StackType> {
         time: Instant,
     },
     UpdateReference {},
-    CurrentNeighbourhoodIndex {
+    SelectScale {
         index: usize,
     },
     CurrentHarmony {
@@ -302,7 +328,7 @@ pub enum ToUi<T: StackType> {
         available_ports: Vec<(MidiOutputPort, String)>,
     },
     UpdateReference {},
-    CurrentNeighbourhoodIndex {
+    SelectScale {
         index: usize,
     },
     DetunedNote {
@@ -555,9 +581,7 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
                 Some(ToUi::Retune { note }),
             ),
             FromStrategy::UpdateReference {} => (None {}, Some(ToUi::UpdateReference {})),
-            FromStrategy::CurrentNeighbourhoodIndex { index } => {
-                (None {}, Some(ToUi::CurrentNeighbourhoodIndex { index }))
-            }
+            FromStrategy::SelectScale { index } => (None {}, Some(ToUi::SelectScale { index })),
             FromStrategy::CurrentHarmony {
                 pattern_index,
                 reference,

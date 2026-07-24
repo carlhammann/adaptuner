@@ -155,3 +155,8 @@ pub trait GuiShow<T: StackType> {
 pub trait Gui<T: StackType, A: UiAdaptor<T>>: eframe::App + ReceiveMsg<ToUi<T>> {
     fn new(adaptor: A) -> Self;
 }
+
+pub trait ReceiveToUiRef<T:StackType, A: UiAdaptor<T>> {
+    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, adaptor: &A);
+}
+

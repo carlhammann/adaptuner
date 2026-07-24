@@ -7,9 +7,9 @@ use eframe::egui;
 
 use crate::{
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
-    gui::r#trait::{GuiShow, UiAdaptor},
+    gui::r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
-    msg::{ReceiveMsgRef, ToUi},
+    msg::ToUi,
     notename::{HasNoteNames, NoteNameStyle},
     strategy::{
         harmony::chordlist::ChordListConfig,
@@ -98,17 +98,24 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
         if let (Some(neighbourhood_index), _) = self.neighbourhood_index {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
-                ui.label("switched to neighbourhood ");
+                ui.label("scale ");
                 ui.strong(
                     match &adaptor.strategy_config()[adaptor.active_strategy_index()] {
                         StrategyConfig::StaticNeighbourhoods {
-                            config: StaticNeighbourhoodsConfig { neighbourhoods, .. },
+                            config:
+                                StaticNeighbourhoodsConfig {
+                                    scales: neighbourhoods,
+                                    ..
+                                },
                             ..
                         } => &neighbourhoods[neighbourhood_index % neighbourhoods.len()].name,
                         StrategyConfig::TwoStep {
                             melody:
                                 MelodyStrategyConfig::StaticNeighbourhoods(
-                                    StaticNeighbourhoodsAsMelodyConfig { neighbourhoods, .. },
+                                    StaticNeighbourhoodsAsMelodyConfig {
+                                        scales: neighbourhoods,
+                                        ..
+                                    },
                                 ),
                             ..
                         } => &neighbourhoods[neighbourhood_index % neighbourhoods.len()].name,
@@ -179,13 +186,13 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
     }
 }
 
-impl<T: StackType> ReceiveMsgRef<ToUi<T>> for Notifications<T> {
-    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
+impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for Notifications<T> {
+    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, _adaptor: &A) {
         match msg {
             ToUi::UpdateReference {} => {
                 self.reference = (true, Instant::now());
             }
-            ToUi::CurrentNeighbourhoodIndex { index } => {
+            ToUi::SelectScale { index } => {
                 self.neighbourhood_index = (Some(*index), Instant::now());
             }
             ToUi::DetunedNote {

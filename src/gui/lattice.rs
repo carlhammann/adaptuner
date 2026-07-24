@@ -8,14 +8,14 @@ use crate::{
     custom_serde::common::{deserialize_channel, serialize_channel},
     gui::{
         common::temperament_applier,
-        r#trait::{GuiShow, UiAdaptor},
+        r#trait::{ReceiveToUiRef, GuiShow, UiAdaptor},
     },
     interval::{
         base::Semitones,
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{StackCoeff, StackType},
     },
-    msg::{FromUi, ReceiveMsgRef, ToUi},
+    msg::{FromUi, ToUi},
     neighbourhood::{Neighbourhood, Partial},
     notename::{correction::Correction, HasNoteNames},
     process::r#trait::StackWithTuning,
@@ -965,8 +965,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     }
 }
 
-impl<T: StackType> ReceiveMsgRef<ToUi<T>> for LatticeWindow<T> {
-    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
+impl<T: StackType, A:UiAdaptor<T>> ReceiveToUiRef<T, A> for LatticeWindow<T> {
+    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, _adaptor: &A) {
         match msg {
             ToUi::Consider { stack } => {
                 let _ = self.considered_notes.insert(stack);

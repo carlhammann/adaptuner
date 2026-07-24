@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use crate::{
+    gui::r#trait::{ReceiveToUiRef, UiAdaptor},
     interval::stacktype::r#trait::StackType,
-    msg::{self, ReceiveMsgRef, ToUi},
+    msg::ToUi,
 };
 use eframe::{self, egui};
 
@@ -22,10 +23,10 @@ impl LatencyWindow {
     }
 }
 
-impl<T: StackType> ReceiveMsgRef<ToUi<T>> for LatencyWindow {
-    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
+impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for LatencyWindow {
+    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, _adaptor: &A) {
         match msg {
-            msg::ToUi::EventLatency { since_input } => {
+            ToUi::EventLatency { since_input } => {
                 let n = self.values.len();
                 self.values[self.next_to_update] = *since_input;
                 self.next_to_update = (self.next_to_update + 1) % n;

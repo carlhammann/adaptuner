@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, std::hash::Hash)]

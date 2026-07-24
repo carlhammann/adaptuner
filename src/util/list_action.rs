@@ -27,7 +27,7 @@ impl ListAction {
         vec: &mut Vec<X>,
         selected: usize,
         clone: impl Fn(&X) -> X,
-        replace_selected: impl Fn(usize),
+        mut replace_selected: impl FnMut(usize),
     ) {
         match self {
             ListAction::Delete(i) => {

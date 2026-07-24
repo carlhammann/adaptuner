@@ -1,12 +1,12 @@
-use std::{sync::mpsc, time::Instant};
+use std::time::Instant;
 
 use eframe::egui;
 use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
-    gui::r#trait::{GuiShow, UiAdaptor},
+    gui::r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     interval::stacktype::r#trait::StackType,
-    msg::{FromUi, ReceiveMsgRef, ToUi},
+    msg::{FromUi, ToUi},
 };
 
 pub struct Input {}
@@ -128,11 +128,7 @@ where
     X: IO,
     <X as IO>::Port: PartialEq + Clone,
 {
-    fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        adaptor: &impl UiAdaptor<T>,
-    ) {
+    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
         match self {
             ConnectionWindow::Connected { portname } => {
                 if disconnector::<X>(&portname, ui) {
@@ -162,8 +158,8 @@ where
     }
 }
 
-impl<T: StackType> ReceiveMsgRef<ToUi<T>> for ConnectionWindow<Input> {
-    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
+impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for ConnectionWindow<Input> {
+    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, _adaptor: &A) {
         match msg {
             ToUi::InputConnectionError { reason } => match self {
                 ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),
@@ -189,8 +185,8 @@ impl<T: StackType> ReceiveMsgRef<ToUi<T>> for ConnectionWindow<Input> {
     }
 }
 
-impl<T: StackType> ReceiveMsgRef<ToUi<T>> for ConnectionWindow<Output> {
-    fn receive_msg_ref(&mut self, msg: &ToUi<T>) {
+impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for ConnectionWindow<Output> {
+    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, _adaptor: &A) {
         match msg {
             ToUi::OutputConnectionError { reason } => match self {
                 ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),

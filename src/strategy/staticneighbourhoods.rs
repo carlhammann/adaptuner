@@ -16,8 +16,8 @@ use crate::{
 
 pub struct StaticNeighbourhoods<T: StackType> {
     /// this Vec must never be empty
-    neighbourhoods: Vec<SomeCompleteNeighbourhood<T>>,
-    curr_neighbourhood_index: usize,
+    scales: Vec<SomeCompleteNeighbourhood<T>>,
+    curr_scale_index: usize,
     tmp_stack: Stack<T>,
 }
 
@@ -26,7 +26,7 @@ pub struct StaticNeighbourhoods<T: StackType> {
 #[serde(rename_all = "kebab-case")]
 pub struct StaticNeighbourhoodsConfig<T: IntervalBasis> {
     /// this Vec must never be empty
-    pub neighbourhoods: Vec<Named<SomeCompleteNeighbourhood<T>>>,
+    pub scales: Vec<Named<SomeCompleteNeighbourhood<T>>>,
     pub initial_reference: Stack<T>,
 }
 
@@ -41,7 +41,7 @@ impl<T: StackType> StaticNeighbourhoods<T> {
     ) {
         let mut the_tuning = adaptor.tuning_mut(note as usize);
 
-        self.neighbourhoods[self.curr_neighbourhood_index].write_relative_stack(
+        self.scales[self.curr_scale_index].write_relative_stack(
             &mut self.tmp_stack,
             note as StackCoeff - adaptor.reference().key_number(),
         );
@@ -128,8 +128,8 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
 
     fn new(mut config: StaticNeighbourhoodsConfig<T>) -> Self {
         Self {
-            neighbourhoods: config.neighbourhoods.drain(..).map(|n| n.named).collect(),
-            curr_neighbourhood_index: 0,
+            scales: config.scales.drain(..).map(|n| n.named).collect(),
+            curr_scale_index: 0,
             tmp_stack: Stack::new_zero(),
         }
     }
@@ -137,10 +137,10 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
     fn start(&mut self, time: Instant, adaptor: &A) -> bool {
         adaptor.send(FromStrategy::UpdateReference {});
 
-        adaptor.send(FromStrategy::CurrentNeighbourhoodIndex {
-            index: self.curr_neighbourhood_index,
+        adaptor.send(FromStrategy::SelectScale {
+            index: self.curr_scale_index,
         });
-        self.neighbourhoods[self.curr_neighbourhood_index].for_each_stack(|_, stack| {
+        self.scales[self.curr_scale_index].for_each_stack(|_, stack| {
             let _ = adaptor.send(FromStrategy::Consider {
                 stack: stack.clone(),
             });
@@ -154,13 +154,13 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
     fn stop(&mut self, _time: Instant, _adaptor: &A) {}
 
     fn reset(&mut self, adaptor: &A) {
-        self.neighbourhoods = adaptor
+        self.scales = adaptor
             .config()
-            .neighbourhoods
+            .scales
             .iter()
             .map(|n| n.named.clone())
             .collect();
-        self.curr_neighbourhood_index = 0;
+        self.curr_scale_index = 0;
         adaptor
             .reference_mut()
             .clone_from(&adaptor.config().initial_reference);
@@ -194,27 +194,42 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
 
     fn receive_msg(&mut self, msg: ToStaticNeighbourhoods<T>, adaptor: &A) -> bool {
         match msg {
-            ToStaticNeighbourhoods::UpdateNeighbourhoods { time } => {
-                self.neighbourhoods = adaptor
-                    .config()
-                    .neighbourhoods
-                    .iter()
-                    .map(|n| n.named.clone())
-                    .collect();
-                if self.neighbourhoods.len() <= self.curr_neighbourhood_index {
-                    self.curr_neighbourhood_index = 0;
+            ToStaticNeighbourhoods::SelectScale { index, time } => {
+                if index != self.curr_scale_index {
+                    self.curr_scale_index = index;
+                    self.start(time, adaptor);
                 }
-                self.start(time, adaptor);
             }
+            ToStaticNeighbourhoods::UpdateScales {
+                only_this_scale,
+                time,
+            } => match only_this_scale {
+                None {} => {
+                    self.scales = adaptor
+                        .config()
+                        .scales
+                        .iter()
+                        .map(|n| n.named.clone())
+                        .collect();
+                    if self.scales.len() <= self.curr_scale_index {
+                        self.curr_scale_index = 0;
+                    }
+                    self.start(time, adaptor);
+                }
+                Some(i) => {
+                    self.scales[i].clone_from(&adaptor.config().scales[i].named);
+                    if i == self.curr_scale_index {
+                        self.start(time, adaptor);
+                    }
+                }
+            },
             ToStaticNeighbourhoods::SetReference { reference, time } => {
                 adaptor.reference_mut().clone_from(&reference);
                 let _ = adaptor.send(FromStrategy::UpdateReference {});
                 self.update_all_tunings_and_send(time, adaptor);
             }
             ToStaticNeighbourhoods::Consider { stack, time } => {
-                let inserted_stack = self.neighbourhoods[self.curr_neighbourhood_index]
-                    .insert(&stack)
-                    .clone();
+                let inserted_stack = self.scales[self.curr_scale_index].insert(&stack).clone();
                 let _ = adaptor.send(FromStrategy::Consider {
                     stack: inserted_stack,
                 });
@@ -246,11 +261,11 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
     ) -> bool {
         match action {
             BindableStrategyAction::IncrementNeighbourhoodIndex(increment) => {
-                let old_index = self.curr_neighbourhood_index;
-                self.curr_neighbourhood_index = (old_index as isize + increment)
-                    .rem_euclid(self.neighbourhoods.len() as isize)
+                let old_index = self.curr_scale_index;
+                self.curr_scale_index = (old_index as isize + increment)
+                    .rem_euclid(self.scales.len() as isize)
                     as usize;
-                if old_index != self.curr_neighbourhood_index {
+                if old_index != self.curr_scale_index {
                     self.start(time, adaptor);
                 }
             }

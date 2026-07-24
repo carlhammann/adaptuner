@@ -14,11 +14,11 @@ use crate::{
         latency::LatencyWindow,
         lattice::LatticeWindow,
         notifications::Notifications,
-        r#trait::{Gui, GuiShow, UiAdaptor},
+        r#trait::{Gui, GuiShow, ReceiveToUiRef, UiAdaptor},
         strategy::StrategyWidgets,
     },
     interval::stacktype::r#trait::{Reloadable, StackType},
-    msg::{FromUi, ReceiveMsg, ReceiveMsgRef, ToUi},
+    msg::{FromUi, ReceiveMsg, ToUi},
     notename::HasNoteNames,
 };
 
@@ -272,11 +272,12 @@ where
 
 impl<T: StackType, A: UiAdaptor<T>> ReceiveMsg<ToUi<T>> for TopLevelGui<T, A> {
     fn receive_msg(&mut self, msg: ToUi<T>) {
-        self.lattice.receive_msg_ref(&msg);
-        self.latency.receive_msg_ref(&msg);
-        self.input_connection.receive_msg_ref(&msg);
-        self.output_connection.receive_msg_ref(&msg);
-        self.notifications.receive_msg_ref(&msg);
+        self.lattice.receive_to_ui_ref(&msg, &self.adaptor);
+        self.latency.receive_to_ui_ref(&msg, &self.adaptor);
+        self.input_connection.receive_to_ui_ref(&msg, &self.adaptor);
+        self.output_connection.receive_to_ui_ref(&msg, &self.adaptor);
+        self.notifications.receive_to_ui_ref(&msg, &self.adaptor);
+        self.strategy_widgets.receive_to_ui_ref(&msg, &self.adaptor);
     }
 }
 
