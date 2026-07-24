@@ -143,21 +143,20 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
         if let (Some((pattern_index, reference)), _) = &self.chord {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
-                ui.strong(
-                    match &adaptor.strategy_config()[adaptor.active_strategy_index()] {
-                        StrategyConfig::TwoStep {
-                            harmony:
-                                HarmonyStrategyConfig::ChordList(ChordListConfig { patterns, .. }),
-                            ..
-                        } => &patterns[*pattern_index % patterns.len()].name,
-                        _ => "<no name>",
-                    },
-                );
-                ui.label(" on ");
-                ui.strong(
-                    reference
-                        .corrected_notename(&NoteNameStyle::Full, adaptor.config().use_cent_values),
-                );
+                match &adaptor.strategy_config()[adaptor.active_strategy_index()] {
+                    StrategyConfig::TwoStep {
+                        harmony: HarmonyStrategyConfig::ChordList(ChordListConfig { patterns, .. }),
+                        ..
+                    } => {
+                        ui.strong(&patterns[*pattern_index % patterns.len()].name);
+                        ui.label(" on ");
+                        ui.strong(reference.corrected_notename(
+                            &NoteNameStyle::Full,
+                            adaptor.config().use_cent_values,
+                        ));
+                    }
+                    _ => {}
+                }
             });
         }
 
