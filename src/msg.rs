@@ -103,8 +103,20 @@ pub enum FromProcess<T: StackType> {
 }
 
 pub enum ToChordList {
-    UpdateChordList { time: Instant },
-    ToggleEnable { time: Instant },
+    ChordListAction {
+        list_action: ListAction,
+        time: Instant,
+    },
+    UpdateChord {
+        index: usize,
+        time: Instant,
+    },
+    PushNewChord {
+        time: Instant,
+    },
+    ToggleEnable {
+        time: Instant,
+    },
 }
 
 pub enum ToStaticNeighbourhoods<T: StackType> {
@@ -209,9 +221,6 @@ pub enum FromStrategy<T: StackType> {
     CurrentHarmony {
         pattern_index: Option<usize>,
         reference: Option<Stack<T>>,
-    },
-    EnableChordList {
-        enable: bool,
     },
     ReanchorOnMatch {
         reanchor: bool,
@@ -342,9 +351,6 @@ pub enum ToUi<T: StackType> {
         pattern_index: Option<usize>,
         reference: Option<Stack<T>>,
     },
-    EnableChordList {
-        enable: bool,
-    },
     ReanchorOnMatch {
         reanchor: bool,
     },
@@ -410,12 +416,6 @@ pub enum FromUi<T: StackType> {
         time: Instant,
     },
     ToStrategy(ToStrategy<T>), // this should somehow be merged with/include the following messages
-    UpdateChordList {
-        time: Instant,
-    },
-    ToggleChordList {
-        time: Instant,
-    },
     ToggleReanchorOnMatch {
         time: Instant,
     },
@@ -592,9 +592,6 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
                     reference,
                 }),
             ),
-            FromStrategy::EnableChordList { enable } => {
-                (None {}, Some(ToUi::EnableChordList { enable }))
-            }
             FromStrategy::ReanchorOnMatch { reanchor } => {
                 (None {}, Some(ToUi::ReanchorOnMatch { reanchor }))
             }
@@ -730,26 +727,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::RestartFromConfig { time } => (
                 Some(ToProcess::RestartFromConfig { time }),
                 Some(ToBackend::RestartFromConfig { time }),
-                None {},
-                None {},
-            ),
-            FromUi::UpdateChordList { time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
-                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(
-                        ToChordList::UpdateChordList { time },
-                    )),
-                ))),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::ToggleChordList { time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
-                    ToTwoStep::ToHarmonyStrategy(ToHarmony::ChordList(ToChordList::ToggleEnable {
-                        time,
-                    })),
-                ))),
-                None {},
                 None {},
                 None {},
             ),

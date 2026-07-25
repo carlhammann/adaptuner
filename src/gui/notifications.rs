@@ -22,7 +22,6 @@ pub struct Notifications<T: StackType> {
     chord: (Option<(usize, Stack<T>)>, Instant),
     reference: (bool, Instant),
     neighbourhood_index: (Option<usize>, Instant),
-    enable_chord_list: (Option<bool>, Instant),
     enable_reanchor: (Option<bool>, Instant),
     detuned_notes: VecDeque<(u8, Semitones, Semitones, &'static str, Instant)>,
     cleanup_time: Duration,
@@ -34,7 +33,6 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
             chord: (None {}, Instant::now()),
             reference: (false, Instant::now()),
             neighbourhood_index: (None {}, Instant::now()),
-            enable_chord_list: (None {}, Instant::now()),
             enable_reanchor: (None {}, Instant::now()),
             detuned_notes: VecDeque::new(),
             cleanup_time: Duration::from_secs(2),
@@ -55,12 +53,6 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
         if let (Some(_), old) = self.neighbourhood_index {
             if time.duration_since(old) > self.cleanup_time {
                 self.neighbourhood_index = (None {}, time);
-            }
-        }
-
-        if let (Some(_), old) = self.enable_chord_list {
-            if time.duration_since(old) > self.cleanup_time {
-                self.enable_chord_list = (None {}, time);
             }
         }
 
@@ -87,7 +79,6 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
         self.chord.0.is_some()
             || self.reference.0
             || self.neighbourhood_index.0.is_some()
-            || self.enable_chord_list.0.is_some()
             || self.enable_reanchor.0.is_some()
             || !self.detuned_notes.is_empty()
     }
@@ -122,14 +113,6 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                     },
                 );
             });
-        }
-
-        if let (Some(enabled), _) = self.enable_chord_list {
-            if enabled {
-                ui.label("chord matching enabled");
-            } else {
-                ui.label("chord matching disabled");
-            }
         }
 
         if let (Some(enabled), _) = self.enable_reanchor {
@@ -217,9 +200,6 @@ impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for Notifications<T> {
                 } else {
                     self.chord = (None, Instant::now());
                 }
-            }
-            ToUi::EnableChordList { enable } => {
-                self.enable_chord_list = (Some(*enable), Instant::now());
             }
             ToUi::ReanchorOnMatch { reanchor } => {
                 self.enable_reanchor = (Some(*reanchor), Instant::now());

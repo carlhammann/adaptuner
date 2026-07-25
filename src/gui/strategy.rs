@@ -4,22 +4,26 @@ use eframe::egui;
 
 use crate::{
     bindable::BindableEvent,
-    config::{MelodyStrategyConfig, StrategyConfig},
+    config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
     gui::{
         common::{
-            ListEditOpts, ListEditResult, SmallFloatingWindow, show_list_edit, show_list_picker
+            show_list_edit, show_list_picker, ListEditOpts, ListEditResult, SmallFloatingWindow,
         },
         editor::{
             binding::BindingEditor,
+            chordlist::{ChordListEditor, ChordListEditorResult},
             scale::{ScaleEditor, ScaleEditorResult},
         },
         r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     },
-    interval::stacktype::r#trait::StackType,
+    interval::stacktype::r#trait::{OctavePeriodicStackType, StackType},
     msg::{
-        FromUi, ToMelody, ToStaticNeighbourhoods, ToStaticNeighbourhoodsAsMelody, ToStrategy, ToTwoStep, ToUi
+        FromUi, ToChordList, ToHarmony, ToMelody, ToStaticNeighbourhoods,
+        ToStaticNeighbourhoodsAsMelody, ToStrategy, ToTwoStep, ToUi,
     },
+    notename::HasNoteNames,
     strategy::{
+        harmony::chordlist::ChordListConfig,
         melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
@@ -68,7 +72,7 @@ impl StrategySelectorWidget {
                             no_selection_allowed: false,
                             delete_allowed: true,
                             reorder_allowed: true,
-                            show_one: Box::new(|ui, _i, elem: &mut StrategyConfig<T>| {
+                            show_one: Box::new(|ui, _i, elem: &mut StrategyConfig<T>, _| {
                                 ui.add(egui::TextEdit::singleline(elem.name_mut()).min_size(
                                     egui::vec2(
                                         ui.style().spacing.text_edit_width / 2.0,
@@ -85,7 +89,7 @@ impl StrategySelectorWidget {
                                 );
                                 None::<()>
                             }),
-                            clone: Some(Box::new(|ui, _elems, selected| {
+                            clone: Some(Box::new(|ui, _elems, selected, _| {
                                 ui.separator();
                                 if let Some(i) = selected {
                                     if ui.button("create copy of selected").clicked() {
@@ -98,6 +102,7 @@ impl StrategySelectorWidget {
                                 }
                             })),
                         },
+                        &mut (),
                     );
                     match res {
                         ListEditResult::None => {}
@@ -203,75 +208,61 @@ impl<T: StackType> GuiShow<T> for BindingEditorWidget {
     }
 }
 
-pub struct StrategyWidgets {
+pub struct StrategyWidgets<T: StackType> {
     selector_widget: StrategySelectorWidget,
     binding_editor_widget: BindingEditorWidget,
     scale_editor: ScaleEditor,
+    chord_list_editor: ChordListEditor<T>,
 }
 
-impl StrategyWidgets {
+impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
     pub fn new() -> Self {
         Self {
             selector_widget: StrategySelectorWidget::new(),
             binding_editor_widget: BindingEditorWidget::new(),
             scale_editor: ScaleEditor::new(),
+            chord_list_editor: ChordListEditor::new(),
         }
     }
 
-    pub fn show_windows<T: StackType>(
-        &mut self,
-        ui: &mut egui::Ui,
-        adaptor: &impl UiAdaptor<T>,
-        disable: bool,
-    ) {
+    pub fn show_windows(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>, disable: bool) {
         self.selector_widget.show_windows(ui, adaptor, disable);
         self.binding_editor_widget
             .react_to_bound_keys(ui, adaptor, disable);
     }
-}
 
-impl<T: StackType> GuiShow<T> for StrategyWidgets {
-    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
-        self.selector_widget.show(ui, adaptor);
-
-        self.binding_editor_widget.show(ui, adaptor);
-
+    #[inline]
+    fn show_scale_editor(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
         match &mut adaptor.strategy_config_mut()[adaptor.active_strategy_index()] {
             StrategyConfig::StaticNeighbourhoods {
                 config: StaticNeighbourhoodsConfig { scales, .. },
                 ..
             } => {
-                ui.collapsing("scales", |ui| {
-                    let res = self.scale_editor.show(ui, scales);
-                    match res {
-                        ScaleEditorResult::NoChange => {}
-                        ScaleEditorResult::Select(i) => {
-                            let _ =
-                                adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                                    ToStaticNeighbourhoods::SelectScale {
-                                        index: i,
-                                        time: Instant::now(),
-                                    },
-                                )));
-                        }
-                        ScaleEditorResult::ChangeScale(i) => {
-                            let _ =
-                                adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                                    ToStaticNeighbourhoods::UpdateScales {
-                                        only_this_scale: Some(i),
-                                        time: Instant::now(),
-                                    },
-                                )));
-                        }
-                        ScaleEditorResult::ChangeList => {
-                            let _ =
-                                adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                                    ToStaticNeighbourhoods::UpdateScales {
-                                        only_this_scale: None {},
-                                        time: Instant::now(),
-                                    },
-                                )));
-                        }
+                ui.collapsing("scales", |ui| match self.scale_editor.show(ui, scales) {
+                    ScaleEditorResult::NoChange => {}
+                    ScaleEditorResult::Select(i) => {
+                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                            ToStaticNeighbourhoods::SelectScale {
+                                index: i,
+                                time: Instant::now(),
+                            },
+                        )));
+                    }
+                    ScaleEditorResult::ChangeScale(i) => {
+                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                            ToStaticNeighbourhoods::UpdateScales {
+                                only_this_scale: Some(i),
+                                time: Instant::now(),
+                            },
+                        )));
+                    }
+                    ScaleEditorResult::ChangeList => {
+                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                            ToStaticNeighbourhoods::UpdateScales {
+                                only_this_scale: None {},
+                                time: Instant::now(),
+                            },
+                        )));
                     }
                 });
             }
@@ -283,50 +274,104 @@ impl<T: StackType> GuiShow<T> for StrategyWidgets {
                     }),
                 ..
             } => {
-                ui.collapsing("scales", |ui| {
-                    let res = self.scale_editor.show(ui, scales);
-                    match res {
-                        ScaleEditorResult::NoChange => {}
-                        ScaleEditorResult::Select(i) => {
-                            let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
-                                ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
-                                    ToStaticNeighbourhoodsAsMelody::SelectScale {
-                                        index: i,
-                                        time: Instant::now(),
-                                    },
-                                )),
-                            )));
-                        }
-                        ScaleEditorResult::ChangeScale(i) => {
-                            let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
-                                ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
-                                    ToStaticNeighbourhoodsAsMelody::UpdateScales {
-                                        only_this_scale: Some(i),
-                                        time: Instant::now(),
-                                    },
-                                )),
-                            )));
-                        }
-                        ScaleEditorResult::ChangeList => {
-                            let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
-                                ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
-                                    ToStaticNeighbourhoodsAsMelody::UpdateScales {
-                                        only_this_scale: None {},
-                                        time: Instant::now(),
-                                    },
-                                )),
-                            )));
-                        }
+                ui.collapsing("scales", |ui| match self.scale_editor.show(ui, scales) {
+                    ScaleEditorResult::NoChange => {}
+                    ScaleEditorResult::Select(i) => {
+                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
+                            ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
+                                ToStaticNeighbourhoodsAsMelody::SelectScale {
+                                    index: i,
+                                    time: Instant::now(),
+                                },
+                            )),
+                        )));
+                    }
+                    ScaleEditorResult::ChangeScale(i) => {
+                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
+                            ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
+                                ToStaticNeighbourhoodsAsMelody::UpdateScales {
+                                    only_this_scale: Some(i),
+                                    time: Instant::now(),
+                                },
+                            )),
+                        )));
+                    }
+                    ScaleEditorResult::ChangeList => {
+                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
+                            ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
+                                ToStaticNeighbourhoodsAsMelody::UpdateScales {
+                                    only_this_scale: None {},
+                                    time: Instant::now(),
+                                },
+                            )),
+                        )));
                     }
                 });
             }
         }
     }
+
+    #[inline]
+    fn show_chord_list_editor(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+        let wrap = |msg| {
+            FromUi::ToStrategy(ToStrategy::TwoStep(ToTwoStep::ToHarmonyStrategy(
+                ToHarmony::ChordList(msg),
+            )))
+        };
+        match &mut adaptor.strategy_config_mut()[adaptor.active_strategy_index()] {
+            StrategyConfig::TwoStep {
+                harmony: HarmonyStrategyConfig::ChordList(ChordListConfig { enable, patterns }),
+                ..
+            } => match self.chord_list_editor.show(
+                ui,
+                enable,
+                patterns,
+                adaptor,
+                adaptor.config().use_cent_values,
+            ) {
+                ChordListEditorResult::None => {}
+                ChordListEditorResult::ToggleEnable => {
+                    let _ = adaptor.send(wrap(ToChordList::ToggleEnable {
+                        time: Instant::now(),
+                    }));
+                }
+                ChordListEditorResult::UpdateChord(i) => {
+                    let _ = adaptor.send(wrap(ToChordList::UpdateChord {
+                        index: i,
+                        time: Instant::now(),
+                    }));
+                }
+                ChordListEditorResult::ListAction(list_action) => {
+                    let _ = adaptor.send(wrap(ToChordList::ChordListAction {
+                        list_action,
+                        time: Instant::now(),
+                    }));
+                }
+                ChordListEditorResult::PushNewChord => {
+                    let _ = adaptor.send(wrap(ToChordList::PushNewChord {
+                        time: Instant::now(),
+                    }));
+                }
+            },
+
+            _ => {}
+        }
+    }
 }
 
-impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for StrategyWidgets {
+impl<T: OctavePeriodicStackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T> {
+    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+        self.selector_widget.show(ui, adaptor);
+        self.binding_editor_widget.show(ui, adaptor);
+        self.show_scale_editor(ui, adaptor);
+        self.show_chord_list_editor(ui, adaptor);
+    }
+}
+
+impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for StrategyWidgets<T> {
     fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, adaptor: &A) {
         self.scale_editor.receive_to_ui_ref(msg, adaptor);
+        self.chord_list_editor.receive_to_ui_ref(msg, adaptor);
     }
 }
 

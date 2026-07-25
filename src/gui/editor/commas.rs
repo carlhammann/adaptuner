@@ -83,7 +83,7 @@ impl<T: StackType> CommaEditor<T> {
                         no_selection_allowed: false,
                         delete_allowed: true,
                         reorder_allowed: true,
-                        show_one: Box::new(|ui, i, t| {
+                        show_one: Box::new(|ui, i, t, _| {
                             if t.show(ui, i) {
                                 Some(true)
                             } else {
@@ -92,6 +92,7 @@ impl<T: StackType> CommaEditor<T> {
                         }),
                         clone: None {},
                     },
+                    &mut (),
                 );
                 match res {
                     ListEditResult::Action(a) => {

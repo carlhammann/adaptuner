@@ -1,5 +1,5 @@
 pub mod binding;
-// pub mod chordlist;
+pub mod chordlist;
 pub mod commas;
 pub mod scale;
 // pub mod reference;

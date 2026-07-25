@@ -8,6 +8,7 @@ use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    adaptors::{ViewKeyStates, ViewTunings},
     backend::r#trait::{BackendAdaptor, ConcretePitchbend12Adaptor, Pitchbend12Adaptor},
     custom_serde::common::{deserialize_channels, serialize_channels},
     interval::{base::Semitones, stacktype::r#trait::StackType},

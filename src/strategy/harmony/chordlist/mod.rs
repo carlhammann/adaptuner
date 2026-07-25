@@ -3,15 +3,16 @@ use std::{ops::Deref, time::Instant};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    adaptors::ViewKeyStates,
     bindable::BindableStrategyAction,
     config::{HarmonyStrategyConfig, IsHarmonyStrategyConfig},
     interval::{
-        stack::{ScaledAdd, Stack},
-        stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, StackCoeff, StackType},
+        stack::Stack,
+        stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
     msg::{ToChordList, ToHarmony},
-    neighbourhood::{Neighbourhood, Partial, PeriodicPartial, SomeNeighbourhood},
+    neighbourhood::SomeNeighbourhood,
     strategy::harmony::r#trait::{HarmonyResult, HarmonyStrategy, HarmonyStrategyAdaptor},
 };
 
@@ -33,6 +34,12 @@ impl<T: StackType> Pattern<T> {
             allow_extra_high_notes: conf.allow_extra_high_notes,
         }
     }
+
+    fn update_from_config(&mut self, conf: &PatternConfig<T>) {
+        self.key_shape.clone_from(&conf.key_shape);
+        self.neighbourhood.clone_from(&conf.neighbourhood);
+        self.allow_extra_high_notes = conf.allow_extra_high_notes;
+    }
 }
 
 impl HasActivationStatus for KeyState {
@@ -52,106 +59,11 @@ pub struct PatternConfig<T: IntervalBasis> {
     pub original_reference: Stack<T>,
 }
 
-impl<T: IntervalBasis> PatternConfig<T> {
-    /// assumes that at least one of the `keys` is sounding.
-    pub fn exact_fixed_from_current(
-        keys: &[KeyState; 128],
-        tunings: impl Deref<Target = [Stack<T>; 128]>,
-        lowest_sounding: usize,
-        allow_extra_high_notes: bool,
-        name: String,
-        original_reference: Stack<T>,
-    ) -> Self {
-        Self {
-            name,
-            original_reference,
-            key_shape: KeyShape::ExactFixed {
-                keys: keys
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, k)| k.is_sounding())
-                    .map(|(i, _)| i as u8)
-                    .collect(),
-            },
-            neighbourhood: SomeNeighbourhood::Partial({
-                let mut neigh = Partial::new();
-                let mut tmp = Stack::new_zero();
-                for i in 0..128 {
-                    let stack = &tunings[i];
-                    if keys[i].is_sounding() {
-                        tmp.clone_from(stack);
-                        tmp.scaled_add(-1, &tunings[lowest_sounding]);
-                        let _ = neigh.insert(&tmp);
-                    }
-                }
-                neigh
-            }),
-            allow_extra_high_notes,
-        }
-    }
-
-    pub fn exact_relative_from_current(
-        keys: &[KeyState; 128],
-        tunings: impl Deref<Target = [Stack<T>; 128]>,
-        lowest_sounding: usize,
-        allow_extra_high_notes: bool,
-        name: String,
-        original_reference: Stack<T>,
-    ) -> Self {
-        Self {
-            name,
-            original_reference,
-            key_shape: KeyShape::ExactRelative {
-                offsets: keys
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, k)| k.is_sounding())
-                    .map(|(i, _)| i as u8 - lowest_sounding as u8)
-                    .collect(),
-            },
-            neighbourhood: SomeNeighbourhood::Partial({
-                let mut neigh = Partial::new();
-                let mut tmp = Stack::new_zero();
-                for i in 0..128 {
-                    let stack = &tunings[i];
-                    if keys[i].is_sounding() {
-                        tmp.clone_from(stack);
-                        tmp.scaled_add(-1, &tunings[lowest_sounding]);
-                        let _ = neigh.insert(&tmp);
-                    }
-                }
-                neigh
-            }),
-            allow_extra_high_notes,
-        }
-    }
-}
-
-/// Build a [PeriodicPartial] neighbourhood around the lowest sounding note from the other sounding
-/// notes.
-fn sounding_neighbourhood<T: OctavePeriodicIntervalBasis>(
-    keys: &[KeyState; 128],
-    tunings: impl Deref<Target = [Stack<T>; 128]>,
-    lowest_sounding: usize,
-) -> SomeNeighbourhood<T> {
-    SomeNeighbourhood::PeriodicPartial({
-        let mut neigh = PeriodicPartial::new_from_period_index(T::period_index());
-        let mut tmp = Stack::new_zero();
-        for i in 0..128 {
-            let stack = &tunings[i];
-            if keys[i].is_sounding() {
-                tmp.clone_from(stack);
-                tmp.scaled_add(-1, &tunings[lowest_sounding]);
-                let _ = neigh.insert(&tmp);
-            }
-        }
-        neigh
-    })
-}
-
-fn blocks_from_current(
+/// Compute blocks for the [KeyShape::BlockVoicingFixed] and [KeyShape::BlockVoicingRelative] from
+/// the currently sounding notes.
+pub fn blocks_from_current(
     block_sizes: &[usize],
-    keys: &[KeyState; 128],
+    adaptor: &impl ViewKeyStates,
     lowest_sounding: usize,
 ) -> Vec<Vec<u8>> {
     let mut encountered = [false; 12];
@@ -160,7 +72,7 @@ fn blocks_from_current(
     for &n in block_sizes {
         let mut block = vec![];
         while i < 128 && block.len() < n {
-            if keys[i].is_sounding() {
+            if adaptor.key_state(i).is_sounding() {
                 let class = (i as isize - lowest_sounding as isize).rem_euclid(12) as usize;
                 if !encountered[class] {
                     block.push(class as u8);
@@ -176,7 +88,7 @@ fn blocks_from_current(
 
     let mut last_block = vec![];
     while i < 128 {
-        if keys[i].is_sounding() {
+        if adaptor.key_state(i).is_sounding() {
             let class = (i as isize - lowest_sounding as isize).rem_euclid(12) as usize;
             if !encountered[class] {
                 last_block.push(class as u8);
@@ -190,85 +102,6 @@ fn blocks_from_current(
     }
 
     blocks
-}
-
-impl<T: OctavePeriodicIntervalBasis> PatternConfig<T> {
-    // In principle, `lowest_sounding` is computable from the `keys` argument. The additional
-    // argument thus moves the burden of this check to the caller, which might already know
-    // whether there are any notes sounding.
-    pub fn classes_relative_from_current(
-        keys: &[KeyState; 128],
-        tunings: impl Deref<Target = [Stack<T>; 128]>,
-        lowest_sounding: usize,
-        allow_extra_high_notes: bool,
-        name: String,
-        original_reference: Stack<T>,
-    ) -> Self {
-        Self {
-            name,
-            original_reference,
-            key_shape: KeyShape::classes_relative_from_current(keys, lowest_sounding),
-            neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
-            allow_extra_high_notes,
-        }
-    }
-
-    pub fn classes_fixed_from_current(
-        keys: &[KeyState; 128],
-        tunings: impl Deref<Target = [Stack<T>; 128]>,
-        lowest_sounding: usize,
-        allow_extra_high_notes: bool,
-        name: String,
-        original_reference: Stack<T>,
-    ) -> Self {
-        Self {
-            name,
-            original_reference,
-            key_shape: KeyShape::classes_fixed_from_current(keys),
-            neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
-            allow_extra_high_notes,
-        }
-    }
-
-    pub fn block_voicing_fixed_from_current(
-        block_sizes: &[usize],
-        keys: &[KeyState; 128],
-        tunings: impl Deref<Target = [Stack<T>; 128]>,
-        lowest_sounding: usize,
-        allow_extra_high_notes: bool,
-        name: String,
-        original_reference: Stack<T>,
-    ) -> Self {
-        Self {
-            name,
-            original_reference,
-            key_shape: KeyShape::BlockVoicingFixed {
-                blocks: blocks_from_current(block_sizes, keys, lowest_sounding),
-            },
-            neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
-            allow_extra_high_notes,
-        }
-    }
-
-    pub fn block_voicing_relative_from_current(
-        block_sizes: &[usize],
-        keys: &[KeyState; 128],
-        tunings: impl Deref<Target = [Stack<T>; 128]>,
-        lowest_sounding: usize,
-        allow_extra_high_notes: bool,
-        name: String,
-        original_reference: Stack<T>,
-    ) -> Self {
-        Self {
-            name,
-            original_reference,
-            key_shape: KeyShape::BlockVoicingRelative {
-                blocks: blocks_from_current(block_sizes, keys, lowest_sounding),
-            },
-            neighbourhood: sounding_neighbourhood(keys, tunings, lowest_sounding),
-            allow_extra_high_notes,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -340,7 +173,7 @@ impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T
             self.next_pattern_to_try = 0;
             self.best_fit = (0, Fit::Failed);
             self.solve_start = time;
-            self.active_code = active_code(adaptor.key_state_iter());
+            self.active_code = active_code(|i| adaptor.key_state(i));
         }
         adaptor.harmony().valid = false;
         HarmonyResult {
@@ -412,17 +245,21 @@ impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T
 
     fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) -> Option<Instant> {
         match msg {
-            ToChordList::UpdateChordList { time } => {
-                self.patterns = adaptor
-                    .config()
-                    .patterns
-                    .iter()
-                    .map(|p| Pattern::new(p))
-                    .collect();
-                Some(time)
-            }
             ToChordList::ToggleEnable { time } => {
                 self.enable = !self.enable;
+                Some(time)
+            }
+            ToChordList::ChordListAction { list_action, time } => {
+                list_action.apply_to_no_select(&mut self.patterns, |x| x.clone());
+                Some(time)
+            }
+            ToChordList::UpdateChord { index, time } => {
+                self.patterns[index].update_from_config(&adaptor.config().patterns[index]);
+                Some(time)
+            }
+            ToChordList::PushNewChord { time } => {
+                self.patterns
+                    .push(Pattern::new(adaptor.config().patterns.last().unwrap()));
                 Some(time)
             }
         }
@@ -443,7 +280,7 @@ impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T
                 // self.start(time, adaptor)
                 // next
             }
-            _ => None {}
+            _ => None {},
         }
     }
 }

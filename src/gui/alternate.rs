@@ -6,18 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     config::BackendConfig,
     gui::{
-        backend::BackendWindow,
-        common::SmallFloatingWindow,
-        config::ConfigFileDialog,
-        connection::{ConnectionWindow, Input, Output},
-        editor::{commas::CommaEditor, temperament::TemperamentEditor, tuning::TuningEditor},
-        latency::LatencyWindow,
-        lattice::LatticeWindow,
-        notifications::Notifications,
-        r#trait::{Gui, GuiShow, ReceiveToUiRef, UiAdaptor},
-        strategy::StrategyWidgets,
+        backend::BackendWindow, common::SmallFloatingWindow, config::ConfigFileDialog, connection::{ConnectionWindow, Input, Output}, editor::{commas::CommaEditor, temperament::TemperamentEditor, tuning::TuningEditor}, latency::LatencyWindow, lattice::LatticeWindow, notifications::Notifications, strategy::StrategyWidgets, r#trait::{Gui, GuiShow, ReceiveToUiRef, UiAdaptor}
     },
-    interval::stacktype::r#trait::{Reloadable, StackType},
+    interval::stacktype::r#trait::{OctavePeriodicStackType, Reloadable, StackType},
     msg::{FromUi, ReceiveMsg, ToUi},
     notename::HasNoteNames,
 };
@@ -33,7 +24,7 @@ pub struct TopLevelGui<T: StackType, A: UiAdaptor<T>> {
 
     tuning_editor: TuningEditor<T>,
 
-    strategy_widgets: StrategyWidgets,
+    strategy_widgets: StrategyWidgets<T>,
 
     stopped: bool,
 
@@ -55,7 +46,7 @@ pub struct TopLevelGui<T: StackType, A: UiAdaptor<T>> {
 
 impl<T, A> eframe::App for TopLevelGui<T, A>
 where
-    T: StackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
+    T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
     A: UiAdaptor<T>,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -283,7 +274,7 @@ impl<T: StackType, A: UiAdaptor<T>> ReceiveMsg<ToUi<T>> for TopLevelGui<T, A> {
 
 impl<T, A> Gui<T, A> for TopLevelGui<T, A>
 where
-    T: StackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
+    T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
     A: UiAdaptor<T>,
 {
     fn new(adaptor: A) -> Self {
@@ -318,7 +309,7 @@ where
 
 impl<T, A> TopLevelGui<T, A>
 where
-    T: StackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
+    T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
     A: UiAdaptor<T>,
 {
     fn renew(&mut self) {

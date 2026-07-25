@@ -13,6 +13,7 @@ use parking_lot::RwLock;
 use eframe::egui;
 
 use crate::{
+    adaptors::{ViewKeyStates, ViewTunings},
     backend::pitchbend12::Pitchbend12Config,
     config::{GuiConfig, MelodyStrategyConfig, StrategyConfig},
     interval::{stack::Stack, stacktype::r#trait::StackType},
@@ -26,13 +27,9 @@ use crate::{
 };
 
 /// Things must be locked in the order in which the functions in this trait are defined.
-pub trait UiAdaptor<T: StackType> {
+pub trait UiAdaptor<T: StackType>: ViewKeyStates + ViewTunings<T> {
     fn send(&self, msg: FromUi<T>) -> bool;
 
-    /// index `i` must be in the range `0..128`
-    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
-    /// index `i` must be in the range `0..128`
-    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
     fn tuning_reference(&self) -> impl Deref<Target = Reference<T>>;
     fn tuning_reference_mut(&self) -> impl DerefMut<Target = Reference<T>>;
 
@@ -81,20 +78,24 @@ pub struct ConcreteUiAdaptor<T: StackType> {
     pub backend_config: Arc<RwLock<Pitchbend12Config>>,
 }
 
+impl<T: StackType> ViewKeyStates for ConcreteUiAdaptor<T> {
+    #[inline]
+    fn key_state(&self, i: usize) -> KeyState {
+        *self.key_states[i].read()
+    }
+}
+
+impl<T: StackType> ViewTunings<T> for ConcreteUiAdaptor<T> {
+    #[inline]
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
+        self.tunings[i].read()
+    }
+}
+
 impl<T: StackType> UiAdaptor<T> for ConcreteUiAdaptor<T> {
     #[inline]
     fn send(&self, msg: FromUi<T>) -> bool {
         self.forward.send(msg).is_ok()
-    }
-
-    #[inline]
-    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
-        self.key_states[i].read()
-    }
-
-    #[inline]
-    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
-        self.tunings[i].read()
     }
 
     #[inline]
@@ -156,7 +157,6 @@ pub trait Gui<T: StackType, A: UiAdaptor<T>>: eframe::App + ReceiveMsg<ToUi<T>> 
     fn new(adaptor: A) -> Self;
 }
 
-pub trait ReceiveToUiRef<T:StackType, A: UiAdaptor<T>> {
+pub trait ReceiveToUiRef<T: StackType, A: UiAdaptor<T>> {
     fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, adaptor: &A);
 }
-

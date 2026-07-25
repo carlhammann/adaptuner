@@ -5,10 +5,10 @@ use std::collections::BTreeMap;
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::interval::{
+use crate::{adaptors::{ViewKeyStates, ViewTunings}, interval::{
     stack::{ScaledAdd, Stack},
-    stacktype::r#trait::{IntervalBasis, PeriodicIntervalBasis, StackCoeff},
-};
+    stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, PeriodicIntervalBasis, StackCoeff},
+}};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -626,3 +626,46 @@ pub trait PeriodicNeighbourhood<T: IntervalBasis>: Neighbourhood<T> {
 }
 
 impl<T: IntervalBasis> PeriodicNeighbourhood<T> for PeriodicComplete<T> {}
+
+/// Build a [PeriodicPartial] neighbourhood around the lowest sounding note from the other sounding
+/// notes.
+///
+/// lowest_sounding must be the index of the lowest sounding note in the adaptor.
+pub fn sounding_periodic_partial<
+    T: OctavePeriodicIntervalBasis,
+    A: ViewKeyStates + ViewTunings<T>,
+>(
+    adaptor: &A,
+    lowest_sounding: usize,
+) -> PeriodicPartial<T> {
+    let mut neigh = PeriodicPartial::new_from_period_index(T::period_index());
+    let mut tmp = Stack::new_zero();
+    for i in 0..128 {
+        if adaptor.key_state(i).is_sounding() {
+            tmp.clone_from(&adaptor.tuning(i).stack);
+            tmp.scaled_add(-1, &adaptor.tuning(lowest_sounding).stack);
+            let _ = neigh.insert(&tmp);
+        }
+    }
+    neigh
+}
+
+/// Build a [Partial] neighbourhood around the lowest sounding note from the other sounding
+/// notes.
+///
+/// lowest_sounding must be the index of the lowest sounding note in the adaptor.
+pub fn sounding_partial<T: IntervalBasis, A: ViewKeyStates + ViewTunings<T>>(
+    adaptor: &A,
+    lowest_sounding: usize,
+) -> Partial<T> {
+    let mut neigh = Partial::new();
+    let mut tmp = Stack::new_zero();
+    for i in 0..128 {
+        if adaptor.key_state(i).is_sounding() {
+            tmp.clone_from(&adaptor.tuning(i).stack);
+            tmp.scaled_add(-1, &adaptor.tuning(lowest_sounding).stack);
+            let _ = neigh.insert(&tmp);
+        }
+    }
+    neigh
+}

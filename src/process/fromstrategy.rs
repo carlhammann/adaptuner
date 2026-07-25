@@ -12,6 +12,7 @@ use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 use parking_lot::RwLock;
 
 use crate::{
+    adaptors::{ChangeTunings, ViewKeyStates, ViewTunings},
     bindable::BindableEvent,
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
     interval::{stack::Stack, stacktype::r#trait::StackType},
@@ -53,27 +54,39 @@ struct TheStaticNeighbourhoodsAdaptor<T: StackType, P: ProcessAdaptor<T>> {
     process_adaptor: P,
 }
 
+impl<T: StackType, P: ProcessAdaptor<T> + 'static> ViewKeyStates
+    for TheStaticNeighbourhoodsAdaptor<T, P>
+{
+    #[inline]
+    fn key_state(&self, i: usize) -> KeyState {
+        self.process_adaptor.key_state(i)
+    }
+}
+
+impl<T: StackType, P: ProcessAdaptor<T> + 'static> ViewTunings<T>
+    for TheStaticNeighbourhoodsAdaptor<T, P>
+{
+    #[inline]
+    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
+        self.process_adaptor.tuning(i)
+    }
+}
+
+impl<T: StackType, P: ProcessAdaptor<T> + 'static> ChangeTunings<T>
+    for TheStaticNeighbourhoodsAdaptor<T, P>
+{
+    #[inline]
+    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
+        self.process_adaptor.tuning_mut(i)
+    }
+}
+
 impl<T: StackType, P: ProcessAdaptor<T> + 'static> StrategyAdaptor<T>
     for TheStaticNeighbourhoodsAdaptor<T, P>
 {
     #[inline]
     fn send(&self, msg: FromStrategy<T>) -> bool {
         self.process_adaptor.send(FromProcess::FromStrategy(msg))
-    }
-
-    #[inline]
-    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
-        self.process_adaptor.key_state(i)
-    }
-
-    #[inline]
-    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
-        self.process_adaptor.tuning(i)
-    }
-    
-    #[inline]
-    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
-        self.process_adaptor.tuning_mut(i)
     }
 
     #[inline]
@@ -111,25 +124,31 @@ struct TheTwoStepAdaptor<T: StackType, P: ProcessAdaptor<T>> {
     harmony: Arc<RwLock<Harmony<T>>>,
 }
 
-impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
+impl<T: StackType, P: ProcessAdaptor<T>> ViewKeyStates for TheTwoStepAdaptor<T, P> {
     #[inline]
-    fn send(&self, msg: FromStrategy<T>) -> bool {
-        self.process_adaptor.send(FromProcess::FromStrategy(msg))
-    }
-
-    #[inline]
-    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
+    fn key_state(&self, i: usize) -> KeyState {
         self.process_adaptor.key_state(i)
     }
+}
 
+impl<T: StackType, P: ProcessAdaptor<T>> ViewTunings<T> for TheTwoStepAdaptor<T, P> {
     #[inline]
     fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
         self.process_adaptor.tuning(i)
     }
-    
+}
+
+impl<T: StackType, P: ProcessAdaptor<T>> ChangeTunings<T> for TheTwoStepAdaptor<T, P> {
     #[inline]
     fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
         self.process_adaptor.tuning_mut(i)
+    }
+}
+
+impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
+    #[inline]
+    fn send(&self, msg: FromStrategy<T>) -> bool {
+        self.process_adaptor.send(FromProcess::FromStrategy(msg))
     }
 
     #[inline]
@@ -155,11 +174,6 @@ impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStep
 
 impl<T: StackType, P: ProcessAdaptor<T>> HarmonyStrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
     #[inline]
-    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
-        self.process_adaptor.key_state(i)
-    }
-
-    #[inline]
     fn harmony(&self) -> impl DerefMut<Target = Harmony<T>> {
         self.harmony.write()
     }
@@ -169,21 +183,6 @@ impl<T: StackType, P: ProcessAdaptor<T>> StrategyAdaptor<T> for TheTwoStepAdapto
     #[inline]
     fn send(&self, msg: FromStrategy<T>) -> bool {
         self.process_adaptor.send(FromProcess::FromStrategy(msg))
-    }
-
-    #[inline]
-    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState> {
-        self.process_adaptor.key_state(i)
-    }
-
-    #[inline]
-    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
-        self.process_adaptor.tuning(i)
-    }
-    
-    #[inline]
-    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
-        self.process_adaptor.tuning_mut(i)
     }
 
     #[inline]
@@ -433,7 +432,11 @@ where
 
     fn handle_note_on(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.adaptor.key_state(note as usize).note_on(channel, time) {
+            if self
+                .adaptor
+                .key_state_mut(note as usize)
+                .note_on(channel, time)
+            {
                 let _ = self.send_to_strategy(ToStrategy::NoteOn { note, time });
             }
             let _ = self.adaptor.send(FromProcess::NoteOn {
@@ -447,7 +450,7 @@ where
 
     fn handle_note_off(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.adaptor.key_state(note as usize).note_off(
+            if self.adaptor.key_state_mut(note as usize).note_off(
                 channel,
                 self.pedal_hold[channel as usize],
                 time,
@@ -470,7 +473,7 @@ where
             } else {
                 self.pedal_hold[channel as usize] = false;
                 for i in 0..128 {
-                    let changed = self.adaptor.key_state(i).pedal_off(channel, time);
+                    let changed = self.adaptor.key_state_mut(i).pedal_off(channel, time);
                     if changed {
                         let _ = self.send_to_strategy(ToStrategy::NoteOff {
                             note: i as u8,

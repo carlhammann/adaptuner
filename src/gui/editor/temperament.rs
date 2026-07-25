@@ -124,12 +124,13 @@ impl<T: StackType> TemperamentEditor<T> {
                         no_selection_allowed: false,
                         delete_allowed: true,
                         reorder_allowed: true,
-                        show_one: Box::new(|ui, _i, t| {
+                        show_one: Box::new(|ui, _i, t, _| {
                             t.show(ui);
                             None::<()>
                         }),
                         clone: None {},
                     },
+                    &mut (),
                 );
                 match res {
                     ListEditResult::None {} => {}

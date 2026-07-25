@@ -23,7 +23,7 @@ use crate::{
     interval::{
         base::Semitones,
         stack::Stack,
-        stacktype::r#trait::{Reloadable, StackType},
+        stacktype::r#trait::{OctavePeriodicStackType, Reloadable, StackType},
     },
     keystate::KeyState,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
@@ -360,7 +360,14 @@ impl<T: StackType> RunState<T> {
         gui_config: GuiConfig,
     ) -> Result<Self, eframe::Error>
     where
-        T: 'static + Send + Sync + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
+        T: 'static
+            + Reloadable
+            + OctavePeriodicStackType
+            + HasNoteNames
+            + Send
+            + Sync
+            + Serialize
+            + for<'a> Deserialize<'a>,
     {
         let (to_midi_input_tx, to_midi_input_rx) = mpsc::channel();
         let (from_midi_input_tx, from_midi_input_rx) = mpsc::channel();

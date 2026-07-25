@@ -1,11 +1,12 @@
-use std::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    time::Instant,
-};
+use std::{ops::DerefMut, time::Instant};
 
 use crate::{
-    bindable::BindableStrategyAction, config::IsHarmonyStrategyConfig, interval::stacktype::r#trait::{IntervalBasis, StackCoeff, StackType}, keystate::KeyState, msg::ToHarmony, neighbourhood::{Partial, SomeNeighbourhood}
+    adaptors::ViewKeyStates,
+    bindable::BindableStrategyAction,
+    config::IsHarmonyStrategyConfig,
+    interval::stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
+    msg::ToHarmony,
+    neighbourhood::{Partial, SomeNeighbourhood},
 };
 
 #[derive(Clone)]
@@ -35,38 +36,7 @@ pub struct HarmonyResult {
     pub progress: bool,
 }
 
-/// Return value for the Function [HarmonyStrategyAdaptor::key_state_iter]
-struct KeyStateIter<'a, T: StackType, A: HarmonyStrategyAdaptor<T>> {
-    _phantom: PhantomData<T>,
-    adaptor: &'a A,
-    pos: usize,
-}
-
-impl<'a, T: StackType, A: HarmonyStrategyAdaptor<T>> Iterator for KeyStateIter<'a, T, A> {
-    type Item = (usize, KeyState);
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.pos >= 128 {
-            None {}
-        } else {
-            let res = (self.pos, *self.adaptor.key_state(self.pos));
-            self.pos += 1;
-            Some(res)
-        }
-    }
-}
-
-pub trait HarmonyStrategyAdaptor<T: StackType> {
-    fn key_state(&self, i: usize) -> impl Deref<Target = KeyState>;
-    fn key_state_iter(&self) -> impl Iterator<Item = (usize, KeyState)>
-    where
-        Self: Sized,
-    {
-        KeyStateIter {
-            _phantom: PhantomData,
-            adaptor: self,
-            pos: 0,
-        }
-    }
+pub trait HarmonyStrategyAdaptor<T: StackType>: ViewKeyStates {
     fn harmony(&self) -> impl DerefMut<Target = Harmony<T>>;
 }
 
@@ -86,7 +56,7 @@ pub trait HarmonyStrategy<T: StackType, A: HarmonyStrategyAdaptor<T>> {
     fn step(&mut self, adaptor: &A) -> HarmonyResult;
 
     fn stop(&mut self, time: Instant, adaptor: &A);
-    
+
     fn reset(&mut self, adaptor: &A);
 
     fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg>;

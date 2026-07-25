@@ -32,12 +32,13 @@ pub fn show_list_picker<X>(
 
 /// Modifications to individual elements applied through the [ListEditOpts::show_one] argument are
 /// applied right away, but [ListAction]s are not applied.
-pub fn show_list_edit<X, M>(
+pub fn show_list_edit<X, M, H>(
     ui: &mut egui::Ui,
     id_salt: &'static str,
     elems: &mut [X],
     current_selection: Option<usize>,
-    opts: ListEditOpts<X, M>,
+    opts: ListEditOpts<X, M, H>,
+    helper_data: &mut H,
 ) -> ListEditResult<M> {
     let mut res = ListEditResult::None;
     let mut update_res = |new_res: ListEditResult<M>| match res {
@@ -73,7 +74,7 @@ pub fn show_list_edit<X, M>(
                     }
                 }
 
-                if let Some(msg) = (opts.show_one)(ui, i, elem) {
+                if let Some(msg) = (opts.show_one)(ui, i, elem, helper_data) {
                     update_res(ListEditResult::Message(msg));
                 }
 
@@ -125,7 +126,7 @@ pub fn show_list_edit<X, M>(
         });
 
     if let Some(f) = opts.clone {
-        if let Some(i) = f(ui, elems, current_selection) {
+        if let Some(i) = f(ui, elems, current_selection, helper_data) {
             update_res(ListEditResult::Action(ListAction::Clone(i)));
         }
     }
@@ -133,16 +134,17 @@ pub fn show_list_edit<X, M>(
     res
 }
 
-pub struct ListEditOpts<X, M> {
+pub struct ListEditOpts<X, M, H> {
     pub empty_allowed: bool,
     pub select_allowed: bool,
     pub no_selection_allowed: bool,
     pub delete_allowed: bool,
     pub reorder_allowed: bool,
-    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X) -> Option<M>>,
-    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>) -> Option<usize>>>,
+    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X, &mut H) -> Option<M>>,
+    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>, &mut H) -> Option<usize>>>,
 }
 
+#[derive(PartialEq)]
 pub enum ListEditResult<M> {
     Action(ListAction),
     Message(M),

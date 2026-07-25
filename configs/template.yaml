@@ -327,6 +327,77 @@ strategies:
       allow-extra-high-notes: true
       name: sus2
       original-reference: {}
+    - key-shape: !classes-relative
+        classes:
+        - 0
+        - 2
+        - 4
+        - 7
+      neighbourhood: !periodic-partial
+        0: {}
+        2:
+          octave: -1
+          fifth: 2
+        4:
+          third: 1
+        7:
+          fifth: 1
+      allow-extra-high-notes: true
+      name: major add9
+      original-reference:
+        octave: -1
+    - key-shape: !block-voicing-relative
+        blocks:
+        - - 0
+          - 7
+          - 3
+        - - 5
+          - 10
+          - 2
+      neighbourhood: !periodic-partial
+        0: {}
+        2:
+          octave: -1
+          fifth: 2
+        3:
+          fifth: 1
+          third: -1
+        5:
+          octave: -1
+          fifth: 3
+          third: -1
+        7:
+          fifth: 1
+        10:
+          fifth: 2
+          third: -1
+      allow-extra-high-notes: true
+      name: minor 11
+      original-reference:
+        octave: -1
+        fifth: -1
+        third: 1
+    - key-shape: !classes-relative
+        classes:
+        - 9
+        - 1
+        - 4
+        - 8
+      neighbourhood: !periodic-partial
+        0: {}
+        4:
+          third: 1
+        7:
+          fifth: 1
+        11:
+          fifth: 1
+          third: 1
+      allow-extra-high-notes: true
+      name: maj
+      original-reference:
+        octave: -1
+        fifth: 1
+        third: -1
   melody: !static-neighbourhoods
     scales:
     - name: pure

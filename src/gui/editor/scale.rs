@@ -52,7 +52,7 @@ impl ScaleEditor {
                 no_selection_allowed: false,
                 delete_allowed: true,
                 reorder_allowed: true,
-                show_one: Box::new(|ui, i, elem| {
+                show_one: Box::new(|ui, i, elem, _| {
                     ui.add(egui::TextEdit::singleline(&mut elem.name).min_size(vec2(
                         ui.style().spacing.text_edit_width / 2.0,
                         ui.style().spacing.interact_size.y,
@@ -84,7 +84,7 @@ impl ScaleEditor {
                     }
                     msg
                 }),
-                clone: Some(Box::new(|ui, _elems, selected| {
+                clone: Some(Box::new(|ui, _elems, selected, _| {
                     ui.separator();
                     if let Some(i) = selected {
                         if ui.button("create copy of selected").clicked() {
@@ -97,6 +97,7 @@ impl ScaleEditor {
                     }
                 })),
             },
+            &mut (),
         );
 
         match list_edit_res {

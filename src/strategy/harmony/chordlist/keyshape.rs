@@ -86,7 +86,7 @@ impl KeyShape {
     ///
     /// It is ensured that `lowest_sounding % 12` is mapped to `0` in the returned
     /// [KeyShape::ClassesRelative::classes].
-    pub fn classes_relative_from_current<N: HasActivationStatus>(
+    pub fn classes_relative_from_current_old<N: HasActivationStatus>(
         keys: &[N; 128],
         lowest_sounding: usize,
     ) -> Self {
@@ -110,7 +110,7 @@ impl KeyShape {
     }
 
     /// Returns a [KeyShape::ClassesFixed] that fits the currently active notes.
-    pub fn classes_fixed_from_current<N: HasActivationStatus>(keys: &[N; 128]) -> Self {
+    pub fn classes_fixed_from_current_old<N: HasActivationStatus>(keys: &[N; 128]) -> Self {
         Self::ClassesFixed {
             classes: {
                 let mut active = [false; 12];
@@ -149,11 +149,12 @@ impl KeyShape {
     }
 }
 
-/// The iterator `notes` must yield exactly 128 elements describin the actication of MIDI notes.
-pub fn active_code<N: HasActivationStatus>(notes: impl Iterator<Item = (usize, N)>) -> u128 {
+/// The function `notes` return something for the range 0..128 that describes the activation of MIDI
+/// notes.
+pub fn active_code<N: HasActivationStatus>(notes: impl Fn(usize) -> N) -> u128 {
     let mut active_code: u128 = 0;
-    for (i, n) in notes {
-        if n.active() {
+    for i in 0..128 {
+        if notes(i).active() {
             active_code |= 1 << i;
         }
     }

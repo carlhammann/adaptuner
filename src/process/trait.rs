@@ -9,6 +9,7 @@ use std::{
 use parking_lot::RwLock;
 
 use crate::{
+    adaptors::{ChangeKeyStates, ChangeTunings, ViewKeyStates, ViewTunings},
     config::StrategyConfig,
     interval::{
         base::Semitones,
@@ -52,13 +53,10 @@ impl<T: StackType> Clone for ConcreteProcessAdaptor<T> {
 }
 
 /// The `Clone` implementation should make it so that the same underlying data is referenced.
-pub trait ProcessAdaptor<T: StackType>: Clone {
+pub trait ProcessAdaptor<T: StackType>:
+    Clone + ViewKeyStates + ViewTunings<T> + ChangeKeyStates + ChangeTunings<T>
+{
     fn send(&self, msg: FromProcess<T>) -> bool;
-    /// index `i` must be in the range `0..128`
-    fn key_state(&self, i: usize) -> impl DerefMut<Target = KeyState>;
-    /// index `i` must be in the range `0..128`
-    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
-    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
     fn reference(&self) -> impl Deref<Target = Stack<T>>;
     fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>>;
     fn tuning_reference(&self) -> impl Deref<Target = Reference<T>>;
@@ -68,25 +66,37 @@ pub trait ProcessAdaptor<T: StackType>: Clone {
     fn replace_active_strategy_index(&self, new_index: usize);
 }
 
-impl<T: StackType> ProcessAdaptor<T> for ConcreteProcessAdaptor<T> {
+impl<T: StackType> ViewKeyStates for ConcreteProcessAdaptor<T> {
     #[inline]
-    fn send(&self, msg: FromProcess<T>) -> bool {
-        self.forward.send(msg).is_ok()
+    fn key_state(&self, i: usize) -> KeyState {
+        *self.key_states[i].read()
     }
-
+}
+impl<T: StackType> ChangeKeyStates for ConcreteProcessAdaptor<T> {
     #[inline]
-    fn key_state(&self, i: usize) -> impl DerefMut<Target = KeyState> {
+    fn key_state_mut(&self, i: usize) -> impl DerefMut<Target = KeyState> {
         self.key_states[i].write()
     }
+}
 
+impl<T: StackType> ViewTunings<T> for ConcreteProcessAdaptor<T> {
     #[inline]
     fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
         self.tunings[i].read()
     }
+}
 
+impl<T: StackType> ChangeTunings<T> for ConcreteProcessAdaptor<T> {
     #[inline]
     fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
         self.tunings[i].write()
+    }
+}
+
+impl<T: StackType> ProcessAdaptor<T> for ConcreteProcessAdaptor<T> {
+    #[inline]
+    fn send(&self, msg: FromProcess<T>) -> bool {
+        self.forward.send(msg).is_ok()
     }
 
     #[inline]
