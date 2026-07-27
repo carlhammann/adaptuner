@@ -13,7 +13,10 @@ use crate::{
         melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
-    util::list_action::ListAction,
+    util::{
+        list_action::ListAction,
+        ordered_locks::{OrderedLocks, Zero},
+    },
 };
 
 pub struct ScaleEditor {
@@ -124,14 +127,18 @@ impl ScaleEditor {
     }
 }
 
-impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for ScaleEditor {
-    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, adaptor: &A) {
+impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ScaleEditor {
+    fn receive_to_ui_ref(
+        &mut self,
+        msg: &ToUi<T>,
+        mut adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
         match msg {
             ToUi::SelectScale { index } => {
                 self.current_scale_index = *index;
             }
             ToUi::Consider { stack } => {
-                match &mut adaptor.strategy_config_mut()[adaptor.active_strategy_index()] {
+                (_, adaptor) = adaptor.active_strategy_mut(|strat, _| match strat {
                     StrategyConfig::TwoStep {
                         melody:
                             MelodyStrategyConfig::StaticNeighbourhoods(
@@ -145,9 +152,10 @@ impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for ScaleEditor {
                     } => {
                         let _ = scales[self.current_scale_index].named.insert(stack);
                     }
-                }
+                })
             }
             _ => {}
         }
+        adaptor
     }
 }

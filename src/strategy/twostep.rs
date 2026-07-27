@@ -3,7 +3,7 @@ use std::{marker::PhantomData, time::Instant};
 use crate::{
     bindable::BindableStrategyAction,
     config::{IsHarmonyStrategyConfig, IsMelodyStrategyConfig, IsStrategyConfig},
-    interval::stacktype::r#trait::StackType,
+    interval::{stack::Stack, stacktype::r#trait::StackType},
     msg::{ToStrategy, ToTwoStep},
     strategy::{
         harmony::r#trait::{HarmonyStrategy, HarmonyStrategyAdaptor},
@@ -132,6 +132,12 @@ where
         self.melody_strategy
             .update_tuning_reference(time, adaptor.as_melody_adaptor());
         self.solving_harmony
+    }
+
+    fn consider(&mut self, stack: Stack<T>, time: Instant, adaptor: &A) -> bool {
+        self.melody_strategy
+            .consider(stack, time, adaptor.as_melody_adaptor());
+        false
     }
 
     fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) -> bool {

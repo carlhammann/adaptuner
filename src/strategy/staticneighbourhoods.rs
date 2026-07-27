@@ -192,6 +192,15 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
         false
     }
 
+    fn consider(&mut self, stack: Stack<T>, time: Instant, adaptor: &A) -> bool {
+        let inserted_stack = self.scales[self.curr_scale_index].insert(&stack).clone();
+        let _ = adaptor.send(FromStrategy::Consider {
+            stack: inserted_stack,
+        });
+        self.update_all_tunings_and_send(time, adaptor);
+        false
+    }
+
     fn receive_msg(&mut self, msg: ToStaticNeighbourhoods<T>, adaptor: &A) -> bool {
         match msg {
             ToStaticNeighbourhoods::SelectScale { index, time } => {
@@ -226,13 +235,6 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
             ToStaticNeighbourhoods::SetReference { reference, time } => {
                 adaptor.reference_mut().clone_from(&reference);
                 let _ = adaptor.send(FromStrategy::UpdateReference {});
-                self.update_all_tunings_and_send(time, adaptor);
-            }
-            ToStaticNeighbourhoods::Consider { stack, time } => {
-                let inserted_stack = self.scales[self.curr_scale_index].insert(&stack).clone();
-                let _ = adaptor.send(FromStrategy::Consider {
-                    stack: inserted_stack,
-                });
                 self.update_all_tunings_and_send(time, adaptor);
             }
         }

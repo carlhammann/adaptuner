@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    sync::{atomic::AtomicUsize, mpsc, Arc},
+    sync::{mpsc, Arc},
     thread,
     time::Instant,
 };
@@ -126,7 +126,7 @@ fn setup_fonts(ctx: &egui::Context) {
 fn start_gui<T, A, G>(rx: mpsc::Receiver<ToUi<T>>, adaptor: A) -> Result<(), eframe::Error>
 where
     T: StackType + Send + 'static,
-    A: UiAdaptor<T>,
+    A: UiAdaptor<StackType = T>,
     G: Gui<T, A>,
 {
     // create icon.rgba using something like
@@ -419,7 +419,7 @@ impl<T: StackType> RunState<T> {
             reference: Arc::new(RwLock::new(Stack::new_zero())),
             tuning_reference: Arc::new(RwLock::new(tuning_reference)),
             strategies: Arc::new(RwLock::new(strategies)),
-            active_strategy_index: Arc::new(AtomicUsize::new(0)),
+            active_strategy_index: Arc::new(RwLock::new(0)),
         };
 
         let backend_adaptor = ConcretePitchbend12Adaptor {
@@ -435,7 +435,7 @@ impl<T: StackType> RunState<T> {
             key_states: core::array::from_fn(|i| process_adaptor.key_states[i].clone()),
             reference: process_adaptor.reference.clone(),
             tuning_reference: process_adaptor.tuning_reference.clone(),
-            strategies: process_adaptor.strategies.clone(),
+            strategy_config: process_adaptor.strategies.clone(),
             active_strategy_index: process_adaptor.active_strategy_index.clone(),
             gui_config: RefCell::new(gui_config.clone()),
             backend_config: backend_adaptor.config.clone(),

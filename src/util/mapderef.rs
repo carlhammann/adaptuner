@@ -2,6 +2,7 @@ use std::ops::Deref;
 
 use parking_lot::{MappedRwLockReadGuard, RwLockReadGuard};
 
+#[deprecated]
 pub trait MapDeref: Deref {
     fn map<X: 'static>(self, f: impl FnOnce(&Self::Target) -> &X) -> impl MapDeref<Target = X>;
 }

@@ -1,9 +1,6 @@
 use std::{
     ops::{Deref, DerefMut},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc, Arc,
-    },
+    sync::{mpsc, Arc},
 };
 
 use parking_lot::RwLock;
@@ -35,7 +32,7 @@ pub struct ConcreteProcessAdaptor<T: StackType> {
     pub reference: Arc<RwLock<Stack<T>>>,
     pub tuning_reference: Arc<RwLock<Reference<T>>>,
     pub strategies: Arc<RwLock<Vec<StrategyConfig<T>>>>,
-    pub active_strategy_index: Arc<AtomicUsize>,
+    pub active_strategy_index: Arc<RwLock<usize>>,
 }
 
 impl<T: StackType> Clone for ConcreteProcessAdaptor<T> {
@@ -57,13 +54,13 @@ pub trait ProcessAdaptor<T: StackType>:
     Clone + ViewKeyStates + ViewTunings<T> + ChangeKeyStates + ChangeTunings<T>
 {
     fn send(&self, msg: FromProcess<T>) -> bool;
-    fn reference(&self) -> impl Deref<Target = Stack<T>>;
-    fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>>;
     fn tuning_reference(&self) -> impl Deref<Target = Reference<T>>;
     fn strategy_config(&self) -> impl MapDeref<Target = Vec<StrategyConfig<T>>>;
     fn strategy_config_mut(&self) -> impl MapDerefMut<Target = Vec<StrategyConfig<T>>>;
     fn active_strategy_index(&self) -> usize;
     fn replace_active_strategy_index(&self, new_index: usize);
+    fn reference(&self) -> impl Deref<Target = Stack<T>>;
+    fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>>;
 }
 
 impl<T: StackType> ViewKeyStates for ConcreteProcessAdaptor<T> {
@@ -126,12 +123,11 @@ impl<T: StackType> ProcessAdaptor<T> for ConcreteProcessAdaptor<T> {
 
     #[inline]
     fn active_strategy_index(&self) -> usize {
-        self.active_strategy_index.load(Ordering::Acquire)
+        *self.active_strategy_index.read()
     }
 
     #[inline]
     fn replace_active_strategy_index(&self, new_index: usize) {
-        self.active_strategy_index
-            .store(new_index, Ordering::Release);
+        *self.active_strategy_index.write() = new_index;
     }
 }

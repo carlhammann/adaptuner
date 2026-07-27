@@ -2,6 +2,7 @@ use std::ops::DerefMut;
 
 use parking_lot::{MappedRwLockWriteGuard, RwLockWriteGuard};
 
+#[deprecated]
 pub trait MapDerefMut: DerefMut {
     fn map<X: 'static>(
         self,

@@ -16,6 +16,7 @@ use crate::{
         melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
+    util::ordered_locks::{OrderedLocks, Zero},
 };
 
 pub struct Notifications<T: StackType> {
@@ -85,13 +86,17 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
 }
 
 impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
-    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+    fn show<A: UiAdaptor<StackType = T>>(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
         if let (Some(neighbourhood_index), _) = self.neighbourhood_index {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
-                ui.label("scale ");
-                ui.strong(
-                    match &adaptor.strategy_config()[adaptor.active_strategy_index()] {
+            (_, adaptor) = adaptor.active_strategy(|strat, _| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label("scale ");
+                    ui.strong(match strat {
                         StrategyConfig::StaticNeighbourhoods {
                             config:
                                 StaticNeighbourhoodsConfig {
@@ -110,8 +115,8 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                 ),
                             ..
                         } => &neighbourhoods[neighbourhood_index % neighbourhoods.len()].name,
-                    },
-                );
+                    });
+                });
             });
         }
 
@@ -124,52 +129,62 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
         }
 
         if let (Some((pattern_index, reference)), _) = &self.chord {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
-                match &adaptor.strategy_config()[adaptor.active_strategy_index()] {
-                    StrategyConfig::TwoStep {
-                        harmony: HarmonyStrategyConfig::ChordList(ChordListConfig { patterns, .. }),
-                        ..
-                    } => {
-                        ui.strong(&patterns[*pattern_index % patterns.len()].name);
-                        ui.label(" on ");
-                        ui.strong(reference.corrected_notename(
-                            &NoteNameStyle::Full,
-                            adaptor.config().use_cent_values,
-                        ));
+            (_, adaptor) = adaptor.active_strategy(|strat, adaptor| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    match strat {
+                        StrategyConfig::TwoStep {
+                            harmony:
+                                HarmonyStrategyConfig::ChordList(ChordListConfig { patterns, .. }),
+                            ..
+                        } => {
+                            ui.strong(&patterns[*pattern_index % patterns.len()].name);
+                            ui.label(" on ");
+                            ui.strong(reference.corrected_notename(
+                                &NoteNameStyle::Full,
+                                adaptor.config().use_cent_values,
+                            ));
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                }
+                });
             });
         }
 
         if let (true, _) = &self.reference {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
-                ui.label("reference ");
-                ui.strong(
-                    adaptor
-                        .reference()
-                        .corrected_notename(&NoteNameStyle::Full, adaptor.config().use_cent_values),
-                );
+            (_, adaptor) = adaptor.reference(|reference, adaptor| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label("reference ");
+                    ui.strong(reference.corrected_notename(
+                        &NoteNameStyle::Full,
+                        adaptor.config().use_cent_values,
+                    ));
+                });
             });
         }
 
         for (note, should_be, actual, explanation, _) in &self.detuned_notes {
-            ui.label(format!(
-                "note {} not tuned correctly: should be \
-                {should_be:.02}, but is {actual:.02}: {explanation}",
-                adaptor
-                    .tuning(*note as usize)
+            (_, adaptor) = adaptor.tuning(*note as usize, |tuning, adaptor| {
+                ui.label(format!(
+                "note {} not tuned correctly: should be {should_be:.02}, but is {actual:.02}: {explanation}",
+                    tuning
                     .stack
                     .corrected_notename(&NoteNameStyle::Full, adaptor.config().use_cent_values,),
             ));
+            });
         }
+
+        adaptor
     }
 }
 
-impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for Notifications<T> {
-    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, _adaptor: &A) {
+impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for Notifications<T> {
+    fn receive_to_ui_ref(
+        &mut self,
+        msg: &ToUi<T>,
+        adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
         match msg {
             ToUi::UpdateReference {} => {
                 self.reference = (true, Instant::now());
@@ -209,5 +224,7 @@ impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for Notifications<T> {
             ToUi::Notify { .. } => {} // this will only contain MIDI parse errors (which shouldn't happen?)
             _ => {}
         }
+
+        adaptor
     }
 }

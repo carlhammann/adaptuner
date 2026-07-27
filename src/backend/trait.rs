@@ -1,5 +1,5 @@
 use std::{
-    ops::{Deref, DerefMut},
+    ops::Deref,
     sync::{mpsc, Arc},
 };
 
@@ -29,7 +29,7 @@ pub trait BackendAdaptor<T: StackType>: Clone + ViewKeyStates + ViewTunings<T> {
 }
 
 pub trait Pitchbend12Adaptor<T: StackType>: BackendAdaptor<T> {
-    fn config(&self) -> impl DerefMut<Target = Pitchbend12Config>;
+    fn config(&self) -> impl Deref<Target = Pitchbend12Config>;
 }
 
 impl<T: StackType> ViewKeyStates for ConcretePitchbend12Adaptor<T> {
@@ -55,7 +55,7 @@ impl<T: StackType> BackendAdaptor<T> for ConcretePitchbend12Adaptor<T> {
 
 impl<T: StackType> Pitchbend12Adaptor<T> for ConcretePitchbend12Adaptor<T> {
     #[inline]
-    fn config(&self) -> impl DerefMut<Target = Pitchbend12Config> {
-        self.config.write()
+    fn config(&self) -> impl Deref<Target = Pitchbend12Config> {
+        self.config.read()
     }
 }

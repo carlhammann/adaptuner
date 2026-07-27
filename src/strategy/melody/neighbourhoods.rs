@@ -305,6 +305,14 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
         }
     }
 
+    fn consider(&mut self, stack: Stack<T>, time: Instant, adaptor: &A) {
+        let inserted_stack = self.scales[self.curr_scale_index].insert(&stack).clone();
+        let _ = adaptor.send(FromStrategy::Consider {
+            stack: inserted_stack,
+        });
+        self.update_all_tunings_and_send(time, adaptor);
+    }
+
     fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) {
         match msg {
             ToStaticNeighbourhoodsAsMelody::SelectScale { index, time } => {
@@ -345,14 +353,6 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
                     }
                 }
             },
-
-            ToStaticNeighbourhoodsAsMelody::Consider { stack, time } => {
-                let inserted_stack = self.scales[self.curr_scale_index].insert(&stack).clone();
-                let _ = adaptor.send(FromStrategy::Consider {
-                    stack: inserted_stack,
-                });
-                self.update_all_tunings_and_send(time, adaptor);
-            }
         }
     }
 

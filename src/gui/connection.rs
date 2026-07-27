@@ -7,6 +7,7 @@ use crate::{
     gui::r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     interval::stacktype::r#trait::StackType,
     msg::{FromUi, ToUi},
+    util::ordered_locks::{OrderedLocks, Zero},
 };
 
 pub struct Input {}
@@ -81,7 +82,7 @@ impl<X: IO> ConnectionWindow<X> {
 pub fn port_selector<X, T: StackType>(
     available_ports: &[(X::Port, String)],
     ui: &mut egui::Ui,
-    adaptor: &impl UiAdaptor<T>,
+    adaptor: &impl UiAdaptor<StackType = T>,
 ) -> Option<(X::Port, String)>
 where
     X: IO,
@@ -128,11 +129,15 @@ where
     X: IO,
     <X as IO>::Port: PartialEq + Clone,
 {
-    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+    fn show<A: UiAdaptor<StackType = T>>(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
         match self {
             ConnectionWindow::Connected { portname } => {
                 if disconnector::<X>(&portname, ui) {
-                    let _ = adaptor.send(X::disconnect_msg());
+                    adaptor.send(X::disconnect_msg());
                 }
             }
             ConnectionWindow::Unconnected {
@@ -149,17 +154,23 @@ where
                     );
                 }
 
-                if let Some((port, portname)) = port_selector::<X, T>(&available_ports, ui, adaptor)
+                if let Some((port, portname)) =
+                    port_selector::<X, T>(&available_ports, ui, &*adaptor)
                 {
-                    let _ = adaptor.send(X::connect_msg(port, portname));
+                    adaptor.send(X::connect_msg(port, portname));
                 }
             }
         }
+
+        adaptor
     }
 }
-
-impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for ConnectionWindow<Input> {
-    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, _adaptor: &A) {
+impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ConnectionWindow<Input> {
+    fn receive_to_ui_ref(
+        &mut self,
+        msg: &ToUi<T>,
+        adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
         match msg {
             ToUi::InputConnectionError { reason } => match self {
                 ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),
@@ -182,11 +193,17 @@ impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for ConnectionWindow<In
             }
             _ => {}
         }
+
+        adaptor
     }
 }
 
-impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for ConnectionWindow<Output> {
-    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, _adaptor: &A) {
+impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ConnectionWindow<Output> {
+    fn receive_to_ui_ref(
+        &mut self,
+        msg: &ToUi<T>,
+        adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
         match msg {
             ToUi::OutputConnectionError { reason } => match self {
                 ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),
@@ -210,5 +227,7 @@ impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for ConnectionWindow<Ou
 
             _ => {}
         }
+
+        adaptor
     }
 }
