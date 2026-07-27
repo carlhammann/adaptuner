@@ -48,6 +48,8 @@ pub trait MelodyStrategy<T: StackType, A: MelodyStrategyAdaptor<T>> {
     /// Implementation of [ToMelody::SetTuningReference]
     fn update_tuning_reference(&mut self, time: Instant, adaptor: &A);
 
+    fn consider(&mut self, stack: Stack<T>, time: Instant, adaptor: &A);
+
     fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A);
 
     fn filter_to_melody(msg: ToMelody<T>) -> Option<Self::Msg>;

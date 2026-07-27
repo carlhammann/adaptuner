@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{rc::Rc, time::Instant};
 
 use eframe::{self, egui};
 use serde::{Deserialize, Serialize};
@@ -6,15 +6,25 @@ use serde::{Deserialize, Serialize};
 use crate::{
     config::BackendConfig,
     gui::{
-        backend::BackendWindow, common::SmallFloatingWindow, config::ConfigFileDialog, connection::{ConnectionWindow, Input, Output}, editor::{commas::CommaEditor, temperament::TemperamentEditor, tuning::TuningEditor}, latency::LatencyWindow, lattice::LatticeWindow, notifications::Notifications, strategy::StrategyWidgets, r#trait::{Gui, GuiShow, ReceiveToUiRef, UiAdaptor}
+        backend::BackendWindow,
+        common::SmallFloatingWindow,
+        config::ConfigFileDialog,
+        connection::{ConnectionWindow, Input, Output},
+        editor::{commas::CommaEditor, temperament::TemperamentEditor, tuning::TuningEditor},
+        latency::LatencyWindow,
+        lattice::LatticeWindow,
+        notifications::Notifications,
+        r#trait::{Gui, GuiShow, ReceiveToUiRef, UiAdaptor},
+        strategy::StrategyWidgets,
     },
     interval::stacktype::r#trait::{OctavePeriodicStackType, Reloadable, StackType},
     msg::{FromUi, ReceiveMsg, ToUi},
     notename::HasNoteNames,
+    util::ordered_locks::OrderedLocks,
 };
 
-pub struct TopLevelGui<T: StackType, A: UiAdaptor<T>> {
-    adaptor: A,
+pub struct TopLevelGui<T: StackType, A: UiAdaptor<StackType = T>> {
+    adaptor: Rc<A>,
 
     // these four use the same SmallFloatingWindow, namely the connection_window
     input_connection: ConnectionWindow<Input>,
@@ -47,7 +57,7 @@ pub struct TopLevelGui<T: StackType, A: UiAdaptor<T>> {
 impl<T, A> eframe::App for TopLevelGui<T, A>
 where
     T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
-    A: UiAdaptor<T>,
+    A: UiAdaptor<StackType = T>,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // no need to check for the ConfigFileDialog, which is also shown as modal; this has its
@@ -88,14 +98,20 @@ where
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.visuals_mut().collapsing_header_frame = true;
 
-                ui.collapsing("global tuning reference", |ui| {
-                    self.tuning_editor.show(ui, &self.adaptor)
-                });
+                {
+                    let adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                    ui.collapsing("global tuning reference", |ui| {
+                        self.tuning_editor.show(ui, adaptor)
+                    });
+                }
 
                 ui.separator();
 
                 ui.label("Tuning strategy");
-                self.strategy_widgets.show(ui, &self.adaptor);
+                {
+                    let adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                    self.strategy_widgets.show(ui, adaptor);
+                }
 
                 ui.separator();
 
@@ -163,7 +179,10 @@ where
                         if any_modal_open {
                             ui.disable();
                         }
-                        self.notifications.show(ui, &self.adaptor)
+                        {
+                            let adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                            self.notifications.show(ui, adaptor);
+                        }
                     });
             }
 
@@ -172,29 +191,38 @@ where
                     if any_modal_open {
                         ui.disable();
                     }
-                    self.input_connection.show(ui, &self.adaptor);
-                    self.output_connection.show(ui, &self.adaptor);
+                    let mut adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                    adaptor = self.input_connection.show(ui, adaptor);
+                    adaptor = self.output_connection.show(ui, adaptor);
 
                     ui.separator();
 
                     ui.vertical_centered(|ui| ui.label("output settings"));
-                    self.backend.show(ui, &self.adaptor);
+                    self.backend.show(ui, adaptor);
                 });
             });
 
-            let new_config = self.config_file_dialog.show(ui, &self.adaptor);
-            if let Some(config) = new_config {
-                let _ = T::initialise(config.temperaments, config.named_intervals);
+            {
+                let mut adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                let new_config;
+                (new_config, adaptor) = self.config_file_dialog.show(ui, adaptor);
+                if let Some(config) = new_config {
+                    let _ = T::initialise(config.temperaments, config.named_intervals);
 
-                *self.adaptor.config_mut() = config.gui;
-                match config.backend {
-                    BackendConfig::Pitchbend12(c) => *self.adaptor.backend_config_mut() = c,
+                    *self.adaptor.config_mut() = config.gui;
+
+                    match config.backend {
+                        BackendConfig::Pitchbend12(c) => {
+                            (_, adaptor) = adaptor.backend_config_mut(|x, _| x.clone_from(&c));
+                        }
+                    }
+
+                    adaptor.strategy_config_mut(|x, _| x.clone_from(&config.strategies));
+
+                    restart(self);
+
+                    return; // don't continue updating for this frame
                 }
-                *self.adaptor.strategy_config_mut() = config.strategies;
-
-                restart(self);
-
-                return; // don't continue updating for this frame
             }
 
             if let Some(egui::InnerResponse {
@@ -230,10 +258,14 @@ where
                 return; // don't continue updating for this frame
             }
 
-            self.strategy_widgets
-                .show_windows(ui, &self.adaptor, any_modal_open);
+            {
+                let mut adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                adaptor = self
+                    .strategy_widgets
+                    .show_windows(ui, adaptor, any_modal_open);
 
-            self.lattice.show(ui, &self.adaptor);
+                self.lattice.show(ui, adaptor);
+            }
 
             ui.horizontal(|ui| {
                 if !self.show_side_panel {
@@ -261,28 +293,29 @@ where
     }
 }
 
-impl<T: StackType, A: UiAdaptor<T>> ReceiveMsg<ToUi<T>> for TopLevelGui<T, A> {
+impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveMsg<ToUi<T>> for TopLevelGui<T, A> {
     fn receive_msg(&mut self, msg: ToUi<T>) {
-        self.lattice.receive_to_ui_ref(&msg, &self.adaptor);
-        self.latency.receive_to_ui_ref(&msg, &self.adaptor);
-        self.input_connection.receive_to_ui_ref(&msg, &self.adaptor);
-        self.output_connection.receive_to_ui_ref(&msg, &self.adaptor);
-        self.notifications.receive_to_ui_ref(&msg, &self.adaptor);
-        self.strategy_widgets.receive_to_ui_ref(&msg, &self.adaptor);
+        let mut adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+        adaptor = self.lattice.receive_to_ui_ref(&msg, adaptor);
+        adaptor = self.latency.receive_to_ui_ref(&msg, adaptor);
+        adaptor = self.input_connection.receive_to_ui_ref(&msg, adaptor);
+        adaptor = self.output_connection.receive_to_ui_ref(&msg, adaptor);
+        adaptor = self.notifications.receive_to_ui_ref(&msg, adaptor);
+        self.strategy_widgets.receive_to_ui_ref(&msg, adaptor);
     }
 }
 
 impl<T, A> Gui<T, A> for TopLevelGui<T, A>
 where
     T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
-    A: UiAdaptor<T>,
+    A: UiAdaptor<StackType = T>,
 {
     fn new(adaptor: A) -> Self {
         let latency_mean_over = adaptor.config().latency_mean_over;
         Self {
             input_connection: ConnectionWindow::new(),
             output_connection: ConnectionWindow::new(),
-            backend: BackendWindow::new(adaptor.backend_config()),
+            backend: BackendWindow::new(),
             connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window"), true),
             notifications: Notifications::new(),
             tuning_editor: TuningEditor::new(),
@@ -302,7 +335,7 @@ where
                 egui::Id::new("comma_editor_window"),
                 false,
             ),
-            adaptor,
+            adaptor: Rc::new(adaptor),
         }
     }
 }
@@ -310,10 +343,10 @@ where
 impl<T, A> TopLevelGui<T, A>
 where
     T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
-    A: UiAdaptor<T>,
+    A: UiAdaptor<StackType = T>,
 {
     fn renew(&mut self) {
-        self.backend = BackendWindow::new(self.adaptor.backend_config());
+        self.backend = BackendWindow::new();
         self.notifications = Notifications::new();
         self.tuning_editor = TuningEditor::new();
         self.strategy_widgets = StrategyWidgets::new();

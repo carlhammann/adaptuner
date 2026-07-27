@@ -1,7 +1,7 @@
-use eframe::egui;
+use eframe::egui::{self};
 
 use crate::{
-    adaptors::{ViewKeyStates, ViewTunings},
+    adaptors::lock_levels::{KeyStateLevel, TuningStateLevel},
     gui::{
         common::{show_list_edit, ListEditOpts, ListEditResult},
         r#trait::{ReceiveToUiRef, UiAdaptor},
@@ -16,7 +16,10 @@ use crate::{
     },
     notename::{HasNoteNames, NoteNameStyle},
     strategy::harmony::chordlist::{blocks_from_current, keyshape::KeyShape, PatternConfig},
-    util::list_action::ListAction,
+    util::{
+        list_action::ListAction,
+        ordered_locks::{AtMost, OrderedLocks, Zero},
+    },
 };
 
 #[derive(Clone)]
@@ -150,134 +153,192 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         }
     }
 
-    fn recompute_simple<A: ViewKeyStates + ViewTunings<T>>(&mut self, adaptor: &A) {
-        if let Some(lowest_sounding) = (0..128).position(|i| adaptor.key_state(i).is_sounding()) {
-            self.new_config =
-                Some(match (self.match_transpositions, self.match_voicings) {
-                    (true, true) => RememberedChord {
-                        key_shape: KeyShape::ClassesRelative {
-                            classes: {
-                                let mut active = [false; 12];
-                                for i in 0..128 {
-                                    if adaptor.key_state(i).is_sounding() {
-                                        active[((i as isize - lowest_sounding as isize) % 12)
-                                            as usize] = true;
-                                    }
-                                }
-                                let mut classes = vec![];
-                                for (i, b) in active.iter().enumerate() {
-                                    if *b {
-                                        classes.push(
-                                            (i as isize - lowest_sounding as isize).rem_euclid(12)
-                                                as u8,
-                                        );
-                                    }
-                                }
-                                classes
-                            },
-                        },
-                        neighbourhood: SomeNeighbourhood::PeriodicPartial(
-                            sounding_periodic_partial(adaptor, lowest_sounding),
-                        ),
-                        original_reference: adaptor.tuning(lowest_sounding).stack.clone(),
-                    },
-                    (false, true) => RememberedChord {
-                        key_shape: KeyShape::ClassesFixed {
-                            classes: {
-                                let mut active = [false; 12];
-                                for i in 0..128 {
-                                    if adaptor.key_state(i).is_sounding() {
-                                        active[i % 12] = true;
-                                    }
-                                }
+    fn recompute_simple<A, L>(&mut self, mut adaptor: OrderedLocks<A, L>) -> OrderedLocks<A, L>
+    where
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
+    {
+        let lowest_sounding;
+        (lowest_sounding, adaptor) = adaptor.lowest_sounding_key();
+        if let Some(lowest_sounding) = lowest_sounding {
+            self.new_config = Some(match (self.match_transpositions, self.match_voicings) {
+                (true, true) => RememberedChord {
+                    key_shape: KeyShape::ClassesRelative {
+                        classes: {
+                            let mut active = [false; 12];
+                            adaptor = adaptor.for_all_sounding_keys(|i, _, _| {
+                                active[((i as isize - lowest_sounding as isize) % 12) as usize] =
+                                    true;
+                            });
 
-                                let mut classes = vec![];
-                                for (i, b) in active.iter().enumerate() {
-                                    if *b {
-                                        classes.push(i.rem_euclid(12) as u8);
-                                    }
+                            let mut classes = vec![];
+                            for (i, b) in active.iter().enumerate() {
+                                if *b {
+                                    classes.push(
+                                        (i as isize - lowest_sounding as isize).rem_euclid(12)
+                                            as u8,
+                                    );
                                 }
-                                classes
-                            },
+                            }
+                            classes
                         },
-                        neighbourhood: SomeNeighbourhood::PeriodicPartial(
-                            sounding_periodic_partial(adaptor, lowest_sounding),
-                        ),
-                        original_reference: adaptor.tuning(lowest_sounding).stack.clone(),
                     },
-                    (true, false) => RememberedChord {
-                        key_shape: KeyShape::ExactRelative {
-                            offsets: (0..128)
-                                .filter(|i: &u8| adaptor.key_state(*i as usize).is_sounding())
-                                .collect(),
+                    neighbourhood: {
+                        let neigh;
+                        (neigh, adaptor) = sounding_periodic_partial(adaptor, lowest_sounding);
+                        SomeNeighbourhood::PeriodicPartial(neigh)
+                    },
+                    original_reference: {
+                        let stack;
+                        (stack, adaptor) = adaptor.tuning(lowest_sounding, |s, _| s.stack.clone());
+                        stack
+                    },
+                },
+                (false, true) => RememberedChord {
+                    key_shape: KeyShape::ClassesFixed {
+                        classes: {
+                            let mut active = [false; 12];
+                            adaptor = adaptor.for_all_sounding_keys(|i, _, _| {
+                                active[i % 12] = true;
+                            });
+
+                            let mut classes = vec![];
+                            for (i, b) in active.iter().enumerate() {
+                                if *b {
+                                    classes.push(i.rem_euclid(12) as u8);
+                                }
+                            }
+                            classes
                         },
-                        neighbourhood: SomeNeighbourhood::Partial(sounding_partial(
-                            adaptor,
-                            lowest_sounding,
-                        )),
-                        original_reference: adaptor.tuning(lowest_sounding).stack.clone(),
                     },
-                    (false, false) => RememberedChord {
-                        key_shape: KeyShape::ExactFixed {
-                            keys: (0..128)
-                                .filter(|i: &u8| adaptor.key_state(*i as usize).is_sounding())
-                                .collect(),
+                    neighbourhood: {
+                        let neigh;
+                        (neigh, adaptor) = sounding_periodic_partial(adaptor, lowest_sounding);
+                        SomeNeighbourhood::PeriodicPartial(neigh)
+                    },
+                    original_reference: {
+                        let stack;
+                        (stack, adaptor) = adaptor.tuning(lowest_sounding, |s, _| s.stack.clone());
+                        stack
+                    },
+                },
+                (true, false) => RememberedChord {
+                    key_shape: KeyShape::ExactRelative {
+                        offsets: {
+                            let keys;
+                            (keys, adaptor) = adaptor.collect_sounding_keys();
+                            keys
                         },
-                        neighbourhood: SomeNeighbourhood::Partial(sounding_partial(
-                            adaptor,
-                            lowest_sounding,
-                        )),
-                        original_reference: adaptor.tuning(lowest_sounding).stack.clone(),
                     },
-                });
+                    neighbourhood: {
+                        let neigh;
+                        (neigh, adaptor) = sounding_partial(adaptor, lowest_sounding);
+                        SomeNeighbourhood::Partial(neigh)
+                    },
+                    original_reference: {
+                        let stack;
+                        (stack, adaptor) = adaptor.tuning(lowest_sounding, |s, _| s.stack.clone());
+                        stack
+                    },
+                },
+                (false, false) => RememberedChord {
+                    key_shape: KeyShape::ExactFixed {
+                        keys: {
+                            let keys;
+                            (keys, adaptor) = adaptor.collect_sounding_keys();
+                            keys
+                        },
+                    },
+                    neighbourhood: {
+                        let neigh;
+                        (neigh, adaptor) = sounding_partial(adaptor, lowest_sounding);
+                        SomeNeighbourhood::Partial(neigh)
+                    },
+                    original_reference: {
+                        let stack;
+                        (stack, adaptor) = adaptor.tuning(lowest_sounding, |s, _| s.stack.clone());
+                        stack
+                    },
+                },
+            });
         } else {
             self.new_config = None {};
         }
+        adaptor
     }
 
-    fn recompute_block<A: ViewKeyStates + ViewTunings<T>>(&mut self, adaptor: &A) {
-        if let Some(lowest_sounding) = (0..128).position(|i| adaptor.key_state(i).is_sounding()) {
+    fn recompute_block<A, L>(&mut self, mut adaptor: OrderedLocks<A, L>) -> OrderedLocks<A, L>
+    where
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
+    {
+        let lowest_sounding;
+        (lowest_sounding, adaptor) = adaptor.lowest_sounding_key();
+        if let Some(lowest_sounding) = lowest_sounding {
             self.new_config = Some(if self.match_transpositions {
                 RememberedChord {
                     key_shape: KeyShape::BlockVoicingRelative {
-                        blocks: blocks_from_current(&self.block_sizes, adaptor, lowest_sounding),
+                        blocks: {
+                            let blocks;
+                            (blocks, adaptor) =
+                                blocks_from_current(&self.block_sizes, adaptor, lowest_sounding);
+                            blocks
+                        },
                     },
-                    neighbourhood: SomeNeighbourhood::PeriodicPartial(sounding_periodic_partial(
-                        adaptor,
-                        lowest_sounding,
-                    )),
-                    original_reference: adaptor.tuning(lowest_sounding).stack.clone(),
+                    neighbourhood: {
+                        let neigh;
+                        (neigh, adaptor) = sounding_periodic_partial(adaptor, lowest_sounding);
+                        SomeNeighbourhood::PeriodicPartial(neigh)
+                    },
+                    original_reference: {
+                        let stack;
+                        (stack, adaptor) = adaptor.tuning(lowest_sounding, |s, _| s.stack.clone());
+                        stack
+                    },
                 }
             } else {
                 RememberedChord {
                     key_shape: KeyShape::BlockVoicingFixed {
-                        blocks: blocks_from_current(&self.block_sizes, adaptor, lowest_sounding),
+                        blocks: {
+                            let blocks;
+                            (blocks, adaptor) =
+                                blocks_from_current(&self.block_sizes, adaptor, lowest_sounding);
+                            blocks
+                        },
                     },
-                    neighbourhood: SomeNeighbourhood::PeriodicPartial(sounding_periodic_partial(
-                        adaptor,
-                        lowest_sounding,
-                    )),
-                    original_reference: adaptor.tuning(lowest_sounding).stack.clone(),
+                    neighbourhood: {
+                        let neigh;
+                        (neigh, adaptor) = sounding_periodic_partial(adaptor, lowest_sounding);
+                        SomeNeighbourhood::PeriodicPartial(neigh)
+                    },
+                    original_reference: {
+                        let stack;
+                        (stack, adaptor) = adaptor.tuning(lowest_sounding, |s, _| s.stack.clone());
+                        stack
+                    },
                 }
             });
         } else {
             self.new_config = None {};
         }
+        adaptor
     }
 
-    fn recompute_new_config<A: ViewKeyStates + ViewTunings<T>>(&mut self, adaptor: &A) {
+    fn recompute_new_config<A, L>(&mut self, mut adaptor: OrderedLocks<A, L>) -> OrderedLocks<A, L>
+    where
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
+    {
         if self.simple {
-            self.recompute_simple(adaptor);
+            adaptor = self.recompute_simple(adaptor);
         } else {
-            self.recompute_block(adaptor);
+            adaptor = self.recompute_block(adaptor);
         }
+        adaptor
     }
 
-    fn show_new_simple<A: ViewKeyStates + ViewTunings<T>>(
-        &mut self,
-        ui: &mut egui::Ui,
-        adaptor: &A,
-    ) {
+    /// returns true iff [Self::recompute_new_config] should be called next.
+    fn show_new_simple(&mut self, ui: &mut egui::Ui) -> bool {
         let mut recompute = false;
         recompute |= ui
             .checkbox(&mut self.match_voicings, "match all voicings")
@@ -292,16 +353,11 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
             )
             .changed();
 
-        if recompute {
-            self.recompute_new_config(adaptor);
-        }
+        recompute
     }
 
-    fn show_new_block<A: ViewKeyStates + ViewTunings<T>>(
-        &mut self,
-        ui: &mut egui::Ui,
-        adaptor: &A,
-    ) {
+    /// returns true iff [Self::recompute_new_config] should be called next.
+    fn show_new_block(&mut self, ui: &mut egui::Ui) -> bool {
         let mut recompute = false;
         recompute |= ui
             .checkbox(&mut self.match_transpositions, "match all transpositions")
@@ -352,12 +408,11 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
 
         ui.separator();
 
-        if recompute {
-            self.recompute_new_config(adaptor);
-        }
+        recompute
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum ChordListEditorResult {
     None,
     ToggleEnable,
@@ -444,12 +499,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         }
     }
 
-    pub fn show_new_chord<A: ViewKeyStates + ViewTunings<T>>(
-        &mut self,
-        ui: &mut egui::Ui,
-        patterns: &mut Vec<PatternConfig<T>>,
-        adaptor: &A,
-    ) -> ChordListEditorResult {
+    pub fn show_new_chord(&mut self, ui: &mut egui::Ui) {
         ui.label("Add a new entry capturing the currently sounding chord");
 
         ui.horizontal(|ui| {
@@ -477,55 +527,27 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
             }
         });
 
-        if self.simple {
-            self.show_new_simple(ui, adaptor);
+        self.request_recompute |= if self.simple {
+            self.show_new_simple(ui)
         } else {
-            self.show_new_block(ui, adaptor);
-        }
-
-        if ui
-            .vertical_centered(|ui| {
-                ui.add_enabled(
-                    self.new_config.is_some() && self.active_pattern.is_none(),
-                    egui::Button::new("add"),
-                )
-                .clicked()
-            })
-            .inner
-        {
-            let RememberedChord {
-                key_shape,
-                neighbourhood,
-                original_reference,
-            } = self.new_config.take().unwrap();
-            patterns.push(PatternConfig {
-                name: if self.new_name.is_empty() {
-                    String::from("unnamed")
-                } else {
-                    self.new_name.clone()
-                },
-                key_shape,
-                neighbourhood,
-                allow_extra_high_notes: self.allow_extra_high_notes,
-                original_reference,
-            });
-            self.new_name.clear();
-            ChordListEditorResult::PushNewChord
-        } else {
-            ChordListEditorResult::None
-        }
+            self.show_new_block(ui)
+        };
     }
 
-    pub fn show<A: ViewKeyStates + ViewTunings<T>>(
+    pub fn show<A, L>(
         &mut self,
         ui: &mut egui::Ui,
         enable: &mut bool,
         patterns: &mut Vec<PatternConfig<T>>,
-        adaptor: &A,
+        mut adaptor: OrderedLocks<A, L>,
         use_cent_values: bool,
-    ) -> ChordListEditorResult {
+    ) -> (ChordListEditorResult, OrderedLocks<A, L>)
+    where
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
+    {
         if self.request_recompute {
-            self.recompute_new_config(adaptor);
+            adaptor = self.recompute_new_config(adaptor);
             self.request_recompute = false;
         }
 
@@ -553,7 +575,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
 
             ui.separator();
 
-            update_res(self.show_new_chord(ui, patterns, adaptor));
+            self.show_new_chord(ui);
 
             if let (
                 None {},
@@ -573,14 +595,51 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
                     &mut self.tmp_stack,
                 );
             }
+
+            let next_res = if ui
+                .vertical_centered(|ui| {
+                    ui.add_enabled(
+                        self.new_config.is_some() && self.active_pattern.is_none(),
+                        egui::Button::new("add"),
+                    )
+                    .clicked()
+                })
+                .inner
+            {
+                let RememberedChord {
+                    key_shape,
+                    neighbourhood,
+                    original_reference,
+                } = self.new_config.take().unwrap();
+                patterns.push(PatternConfig {
+                    name: if self.new_name.is_empty() {
+                        String::from("unnamed")
+                    } else {
+                        self.new_name.clone()
+                    },
+                    key_shape,
+                    neighbourhood,
+                    allow_extra_high_notes: self.allow_extra_high_notes,
+                    original_reference,
+                });
+                self.new_name.clear();
+                ChordListEditorResult::PushNewChord
+            } else {
+                ChordListEditorResult::None
+            };
+            update_res(next_res);
         });
 
-        res
+        (res, adaptor)
     }
 }
 
-impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for ChordListEditor<T> {
-    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, _adaptor: &A) {
+impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ChordListEditor<T> {
+    fn receive_to_ui_ref(
+        &mut self,
+        msg: &ToUi<T>,
+        adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
         match msg {
             ToUi::CurrentHarmony { pattern_index, .. } => {
                 self.active_pattern = *pattern_index;
@@ -595,5 +654,6 @@ impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for ChordListEditor<T> 
 
             _ => {}
         }
+        adaptor
     }
 }

@@ -134,10 +134,6 @@ pub enum ToStaticNeighbourhoods<T: StackType> {
         time: Instant,
     },
 
-    Consider {
-        stack: Stack<T>,
-        time: Instant,
-    },
 }
 
 pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
@@ -152,11 +148,6 @@ pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
 
     SetReference {
         reference: Stack<T>,
-        time: Instant,
-    },
-
-    Consider {
-        stack: Stack<T>,
         time: Instant,
     },
 
@@ -197,6 +188,10 @@ pub enum ToStrategy<T: StackType> {
         time: Instant,
     },
     UpdateTuningReference {
+        time: Instant,
+    },
+    Consider {
+        stack: Stack<T>,
         time: Instant,
     },
 
@@ -269,13 +264,10 @@ pub enum ToBackend {
         program: u8,
         time: Instant,
     },
-    BendRange {
-        range: Semitones,
+    UpdateBendRange {
         time: Instant,
     },
-    ChannelsToUse {
-        /// i-th bit is set if the i-th channel should be used
-        channels: u16,
+    UpdateChannelsToUse {
         time: Instant,
     },
 }
@@ -396,13 +388,10 @@ pub enum FromUi<T: StackType> {
         value: u8,
         time: Instant,
     },
-    BendRange {
-        range: Semitones,
+    UpdateBendRange {
         time: Instant,
     },
-    ChannelsToUse {
-        /// i-th bit is set if the i-th channel should be used.
-        channels: u16,
+    UpdateChannelsToUse {
         time: Instant,
     },
     Stop {
@@ -694,15 +683,15 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
                 None {},
             ),
-            FromUi::BendRange { range, time } => (
+            FromUi::UpdateBendRange { time } => (
                 None {},
-                Some(ToBackend::BendRange { range, time }),
+                Some(ToBackend::UpdateBendRange { time }),
                 None {},
                 None {},
             ),
-            FromUi::ChannelsToUse { channels, time } => (
+            FromUi::UpdateChannelsToUse { time } => (
                 None {},
-                Some(ToBackend::ChannelsToUse { channels, time }),
+                Some(ToBackend::UpdateChannelsToUse { time }),
                 None {},
                 None {},
             ),

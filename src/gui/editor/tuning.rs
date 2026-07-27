@@ -12,6 +12,7 @@ use crate::{
     msg::FromUi,
     notename::{correction::Correction, HasNoteNames, NoteNameStyle},
     reference::{frequency_from_semitones, semitones_from_frequency, Reference},
+    util::ordered_locks::{OrderedLocks, Zero},
 };
 
 pub struct TuningEditor<T: StackType> {
@@ -41,9 +42,12 @@ impl<T: StackType> TuningEditor<T> {
 }
 
 impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
-    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
-        {
-            let reference = adaptor.tuning_reference();
+    fn show<A: UiAdaptor<StackType = T>>(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
+        (_, adaptor) = adaptor.tuning_reference(|reference, _| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.label("Current tuning is ");
@@ -56,7 +60,8 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
                 ui.strong(format!(" {:.02} Hz", reference.get_frequency()));
                 ui.label(format!(" (MIDI note {:.02})", reference.semitones));
             });
-        }
+        });
+
         ui.separator();
         ui.label("Select new reference, relative to C 4:");
         note_picker(
@@ -88,20 +93,25 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
             ui.label(")");
         });
 
-        let changed = *adaptor.tuning_reference() != self.new_reference;
+        let changed;
+        (changed, adaptor) = adaptor.tuning_reference(|r, _| *r != self.new_reference);
 
-        ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
-            if ui
-                .add_enabled(changed, egui::Button::new("update tuning"))
-                .clicked()
-            {
+        adaptor = ui
+            .with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+                if ui
+                    .add_enabled(changed, egui::Button::new("update tuning"))
+                    .clicked()
+                {
+                    (_, adaptor) =
+                        adaptor.tuning_reference_mut(|r, _| r.clone_from(&self.new_reference));
+                    let _ = adaptor.send(FromUi::UpdateTuningReference {
+                        time: Instant::now(),
+                    });
+                }
                 adaptor
-                    .tuning_reference_mut()
-                    .clone_from(&self.new_reference);
-                let _ = adaptor.send(FromUi::UpdateTuningReference {
-                    time: Instant::now(),
-                });
-            }
-        });
+            })
+            .inner;
+
+        adaptor
     }
 }

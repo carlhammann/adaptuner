@@ -46,6 +46,9 @@ pub trait Strategy<T: StackType, A: StrategyAdaptor<T>> {
     fn update_tuning_reference(&mut self, time: Instant, adaptor: &A) -> bool;
 
     /// returns true iff further [Strategy::step]s are needed.
+    fn consider(&mut self, stack: Stack<T>, time: Instant, adaptor: &A) -> bool;
+
+    /// returns true iff further [Strategy::step]s are needed.
     fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) -> bool;
 
     /// returns true iff further [Strategy::step]s are needed.
@@ -91,6 +94,9 @@ pub trait Strategy<T: StackType, A: StrategyAdaptor<T>> {
                 }
                 Some(ToStrategy::UpdateTuningReference { time }) => {
                     continue_solving = self.update_tuning_reference(time, adaptor)
+                }
+                Some(ToStrategy::Consider { stack, time }) => {
+                    continue_solving = self.consider(stack, time, adaptor)
                 }
                 Some(ToStrategy::Start { time }) => continue_solving = self.start(time, adaptor),
                 Some(ToStrategy::Stop { time }) => {

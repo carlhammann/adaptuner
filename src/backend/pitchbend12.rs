@@ -190,19 +190,11 @@ impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
                 self.handle_retune(note, time);
             }
 
-            ToBackend::BendRange { range, time } => {
-                self.adaptor.config().bend_range = range;
+            ToBackend::UpdateBendRange { time } => {
                 self.reset(time);
             }
 
-            ToBackend::ChannelsToUse { channels, time } => {
-                let mut i = 0;
-                for ch in 0..16 {
-                    if 0 != channels & 1 << i {
-                        self.adaptor.config().channels[i] = Channel::from_u8(ch as u8);
-                        i += 1;
-                    }
-                }
+            ToBackend::UpdateChannelsToUse { time } => {
                 self.reset(time);
             }
         }

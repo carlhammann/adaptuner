@@ -3,7 +3,7 @@ use std::{ops::Deref, time::Instant};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    adaptors::ViewKeyStates,
+    adaptors::lock_levels::KeyStateLevel,
     bindable::BindableStrategyAction,
     config::{HarmonyStrategyConfig, IsHarmonyStrategyConfig},
     interval::{
@@ -14,6 +14,7 @@ use crate::{
     msg::{ToChordList, ToHarmony},
     neighbourhood::SomeNeighbourhood,
     strategy::harmony::r#trait::{HarmonyResult, HarmonyStrategy, HarmonyStrategyAdaptor},
+    util::ordered_locks::{AtMost, IndexedAccess, OrderedLocks},
 };
 
 pub mod keyshape;
@@ -61,25 +62,31 @@ pub struct PatternConfig<T: IntervalBasis> {
 
 /// Compute blocks for the [KeyShape::BlockVoicingFixed] and [KeyShape::BlockVoicingRelative] from
 /// the currently sounding notes.
-pub fn blocks_from_current(
+pub fn blocks_from_current<A, L>(
     block_sizes: &[usize],
-    adaptor: &impl ViewKeyStates,
+    mut adaptor: OrderedLocks<A, L>,
     lowest_sounding: usize,
-) -> Vec<Vec<u8>> {
+) -> (Vec<Vec<u8>>, OrderedLocks<A, L>)
+where
+    A: IndexedAccess<KeyStateLevel, usize, KeyState>,
+    L: AtMost<KeyStateLevel>,
+{
     let mut encountered = [false; 12];
     let mut blocks = vec![];
     let mut i = 0;
     for &n in block_sizes {
         let mut block = vec![];
         while i < 128 && block.len() < n {
-            if adaptor.key_state(i).is_sounding() {
-                let class = (i as isize - lowest_sounding as isize).rem_euclid(12) as usize;
-                if !encountered[class] {
-                    block.push(class as u8);
-                    encountered[class] = true;
+            (_, adaptor) = adaptor.key_state(i, |key_state, _| {
+                if key_state.is_sounding() {
+                    let class = (i as isize - lowest_sounding as isize).rem_euclid(12) as usize;
+                    if !encountered[class] {
+                        block.push(class as u8);
+                        encountered[class] = true;
+                    }
                 }
-            }
-            i += 1;
+                i += 1;
+            });
         }
         if !block.is_empty() {
             blocks.push(block);
@@ -88,20 +95,22 @@ pub fn blocks_from_current(
 
     let mut last_block = vec![];
     while i < 128 {
-        if adaptor.key_state(i).is_sounding() {
-            let class = (i as isize - lowest_sounding as isize).rem_euclid(12) as usize;
-            if !encountered[class] {
-                last_block.push(class as u8);
-                encountered[class] = true;
+        (_, adaptor) = adaptor.key_state(i, |key_state, _| {
+            if key_state.is_sounding() {
+                let class = (i as isize - lowest_sounding as isize).rem_euclid(12) as usize;
+                if !encountered[class] {
+                    last_block.push(class as u8);
+                    encountered[class] = true;
+                }
             }
-        }
-        i += 1;
+            i += 1;
+        });
     }
     if !last_block.is_empty() {
         blocks.push(last_block);
     }
 
-    blocks
+    (blocks, adaptor)
 }
 
 #[derive(Serialize, Deserialize, Clone)]

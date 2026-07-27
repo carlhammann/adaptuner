@@ -5,10 +5,18 @@ use std::collections::BTreeMap;
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::{adaptors::{ViewKeyStates, ViewTunings}, interval::{
-    stack::{ScaledAdd, Stack},
-    stacktype::r#trait::{IntervalBasis, OctavePeriodicIntervalBasis, PeriodicIntervalBasis, StackCoeff},
-}};
+use crate::{
+    adaptors::lock_levels::{KeyStateLevel, TuningStateLevel},
+    interval::{
+        stack::{ScaledAdd, Stack},
+        stacktype::r#trait::{
+            IntervalBasis, OctavePeriodicIntervalBasis, PeriodicIntervalBasis, StackCoeff,
+        },
+    },
+    keystate::KeyState,
+    process::r#trait::StackWithTuning,
+    util::ordered_locks::{AtMost, IndexedAccess, OrderedLocks},
+};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -631,41 +639,67 @@ impl<T: IntervalBasis> PeriodicNeighbourhood<T> for PeriodicComplete<T> {}
 /// notes.
 ///
 /// lowest_sounding must be the index of the lowest sounding note in the adaptor.
-pub fn sounding_periodic_partial<
-    T: OctavePeriodicIntervalBasis,
-    A: ViewKeyStates + ViewTunings<T>,
->(
-    adaptor: &A,
+pub fn sounding_periodic_partial<T, A, L>(
+    mut adaptor: OrderedLocks<A, L>,
     lowest_sounding: usize,
-) -> PeriodicPartial<T> {
+) -> (PeriodicPartial<T>, OrderedLocks<A, L>)
+where
+    T: OctavePeriodicIntervalBasis,
+    A: IndexedAccess<KeyStateLevel, usize, KeyState>
+        + IndexedAccess<TuningStateLevel, usize, StackWithTuning<T>>,
+    L: AtMost<KeyStateLevel>,
+{
     let mut neigh = PeriodicPartial::new_from_period_index(T::period_index());
     let mut tmp = Stack::new_zero();
+
     for i in 0..128 {
-        if adaptor.key_state(i).is_sounding() {
-            tmp.clone_from(&adaptor.tuning(i).stack);
-            tmp.scaled_add(-1, &adaptor.tuning(lowest_sounding).stack);
-            let _ = neigh.insert(&tmp);
-        }
+        (_, adaptor) = adaptor.key_state(i, |key_state, adaptor| {
+            if key_state.is_sounding() {
+                adaptor.pair_of_tunings(
+                    i,
+                    lowest_sounding,
+                    |ith_tuning, lowest_sounding_tuning, _| {
+                        tmp.clone_from(&ith_tuning.stack);
+                        tmp.scaled_add(-1, &lowest_sounding_tuning.stack);
+                        let _ = neigh.insert(&tmp);
+                    },
+                );
+            }
+        });
     }
-    neigh
+    (neigh, adaptor)
 }
 
 /// Build a [Partial] neighbourhood around the lowest sounding note from the other sounding
 /// notes.
 ///
 /// lowest_sounding must be the index of the lowest sounding note in the adaptor.
-pub fn sounding_partial<T: IntervalBasis, A: ViewKeyStates + ViewTunings<T>>(
-    adaptor: &A,
+pub fn sounding_partial<T, A, L>(
+    mut adaptor: OrderedLocks<A, L>,
     lowest_sounding: usize,
-) -> Partial<T> {
+) -> (Partial<T>, OrderedLocks<A, L>)
+where
+    T: IntervalBasis,
+    A: IndexedAccess<KeyStateLevel, usize, KeyState>
+        + IndexedAccess<TuningStateLevel, usize, StackWithTuning<T>>,
+    L: AtMost<KeyStateLevel>,
+{
     let mut neigh = Partial::new();
     let mut tmp = Stack::new_zero();
     for i in 0..128 {
-        if adaptor.key_state(i).is_sounding() {
-            tmp.clone_from(&adaptor.tuning(i).stack);
-            tmp.scaled_add(-1, &adaptor.tuning(lowest_sounding).stack);
-            let _ = neigh.insert(&tmp);
-        }
+        (_, adaptor) = adaptor.key_state(i, |key_state, adaptor| {
+            if key_state.is_sounding() {
+                adaptor.pair_of_tunings(
+                    i,
+                    lowest_sounding,
+                    |ith_tuning, lowest_sounding_tuning, _| {
+                        tmp.clone_from(&ith_tuning.stack);
+                        tmp.scaled_add(-1, &lowest_sounding_tuning.stack);
+                        let _ = neigh.insert(&tmp);
+                    },
+                );
+            }
+        });
     }
-    neigh
+    (neigh, adaptor)
 }

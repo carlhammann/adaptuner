@@ -5,9 +5,11 @@ use egui_file_dialog::{DialogState, DirectoryEntry, FileDialog, FileDialogConfig
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    adaptors::lock_levels::{BackendConfigLevel, StrategyConfigLevel, TuningReferenceLevel},
     config::{AdaptunerVersion, BackendConfig, Config},
     gui::{diffshow::DiffShow, r#trait::UiAdaptor},
     interval::stacktype::r#trait::{IntervalBasis, StackType},
+    util::ordered_locks::{AtMost, OrderedLocks},
 };
 
 #[derive(PartialEq, Eq)]
@@ -82,138 +84,165 @@ impl<T: StackType + Serialize> ConfigFileDialog<T> {
 }
 
 impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
-    fn show_config_file_dialog(
+    fn show_config_file_dialog<A, L>(
         &mut self,
         ui: &mut egui::Ui,
-        adaptor: &impl UiAdaptor<T>,
-    ) -> Option<Config<T>> {
-        self.file_dialog.update_with_right_panel_ui(
-            ui.ctx(),
-            &mut |ui: &mut egui::Ui, file_dialog| {
-                ui.set_min_width(200.0);
-                if let Some(selected_entry) = file_dialog.selected_entry() {
-                    if !selected_entry.is_file() {
-                        self.considered = None {};
-                        return;
-                    }
+        mut adaptor: OrderedLocks<A, L>,
+    ) -> (Option<Config<T>>, OrderedLocks<A, L>)
+    where
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<TuningReferenceLevel> + AtMost<StrategyConfigLevel> + AtMost<BackendConfigLevel>,
+    {
+        let mut new_config = None {};
+        (_, adaptor) = adaptor.strategy_config(|strategy_config, adaptor| {
+            adaptor.tuning_reference(|tuning_reference, adaptor| {
+                adaptor.backend_config(|backend_config, adaptor| {
+                    self.file_dialog.update_with_right_panel_ui(
+                        ui.ctx(),
+                        &mut |ui: &mut egui::Ui, file_dialog| {
+                            ui.set_min_width(200.0);
+                            if let Some(selected_entry) = file_dialog.selected_entry() {
+                                if !selected_entry.is_file() {
+                                    self.considered = None {};
+                                    return;
+                                }
 
-                    let mut update = false;
+                                let mut update = false;
 
-                    if let Some((old_entry, _)) = &self.considered {
-                        update |= !selected_entry.path_eq(old_entry);
-                        if let Ok(metadata) = std::fs::metadata(old_entry.as_path()) {
-                            if let Ok(modified) = metadata.modified() {
-                                update |= self.considered_time.duration_since(modified).is_err();
+                                if let Some((old_entry, _)) = &self.considered {
+                                    update |= !selected_entry.path_eq(old_entry);
+                                    if let Ok(metadata) = std::fs::metadata(old_entry.as_path()) {
+                                        if let Ok(modified) = metadata.modified() {
+                                            update |= self
+                                                .considered_time
+                                                .duration_since(modified)
+                                                .is_err();
+                                        }
+                                    }
+                                } else {
+                                    update = true;
+                                }
+
+                                if update {
+                                    self.considered = None {};
+                                    self.considered_time = SystemTime::now();
+                                    if let Ok(file) = std::fs::File::open(selected_entry.as_path())
+                                    {
+                                        let config_or_err_in_file =
+                                            serde_yml::from_reader::<_, Config<T>>(file);
+                                        if let Ok(config_in_file) = &config_or_err_in_file {
+                                            self.diffshow.update(
+                                                &serde_yml::to_string(config_in_file).unwrap(),
+                                                &serde_yml::to_string(&Config {
+                                                    version: AdaptunerVersion,
+                                                    temperaments: T::temperament_definitions()
+                                                        .clone(),
+                                                    named_intervals: T::named_intervals().clone(),
+                                                    tuning_reference: tuning_reference.clone(),
+                                                    strategies: strategy_config.clone(),
+                                                    backend: BackendConfig::Pitchbend12(
+                                                        backend_config.clone(),
+                                                    ),
+                                                    gui: adaptor.config().clone(),
+                                                })
+                                                .unwrap(),
+                                                ui,
+                                            );
+                                        }
+                                        self.considered =
+                                            Some((selected_entry.clone(), config_or_err_in_file));
+                                    }
+                                }
+
+                                if let Some((direntry, file_config)) = &self.considered {
+                                    let file_name = direntry
+                                        .as_path()
+                                        .file_name()
+                                        .and_then(|x| x.to_str())
+                                        .unwrap_or("selected file");
+                                    if let Err(e) = file_config {
+                                        ui.label(format!(
+                                    "The file '{file_name}' is not a valid configuration file:"
+                                ));
+                                        ui.separator();
+                                        egui::ScrollArea::both().show(ui, |ui| {
+                                            let (line, column) = e
+                                                .location()
+                                                .map(|l| {
+                                                    (
+                                                        format!("{}", l.line()),
+                                                        format!("{}", l.column()),
+                                                    )
+                                                })
+                                                .unwrap_or_else(|| {
+                                                    ("unknown".into(), "unknown".into())
+                                                });
+                                            ui.label(format!(
+                                                "line {line}\ncolumn {column}\n\n{e}",
+                                            ));
+                                        });
+                                    } else {
+                                        self.diffshow.show(
+                                            &format!("in '{file_name}'"),
+                                            "in current configuration",
+                                            &format!(
+                                        "The file '{file_name}' contains a configuration that is \
+                                        equivalent to the current one.",
+                                    ),
+                                            ui,
+                                        );
+                                    }
+                                }
+                            } else {
+                                self.considered = None {};
+                            }
+                        },
+                    );
+
+                    if self.as_load {
+                        if let Some(path) = self.file_dialog.take_picked() {
+                            if let Some((_, Ok(config))) = self.considered.take() {
+                                self.phase = Phase::Closed;
+                                new_config = Some(config);
+                            } else {
+                                self.phase = Phase::ShowingError;
+                                self.error = Some(format!(
+                            "The path '{path:?}' does not contain a valid configuration file"
+                        ));
                             }
                         }
                     } else {
-                        update = true;
-                    }
+                        if let Some(path) = self.file_dialog.take_picked() {
+                            let config = Config {
+                                version: AdaptunerVersion,
+                                temperaments: T::temperament_definitions().clone(),
+                                named_intervals: T::named_intervals().clone(),
+                                tuning_reference: tuning_reference.clone(),
+                                strategies: strategy_config.clone(),
+                                backend: BackendConfig::Pitchbend12(backend_config.clone()),
+                                gui: adaptor.config().clone(),
+                            };
 
-                    if update {
-                        self.considered = None {};
-                        self.considered_time = SystemTime::now();
-                        if let Ok(file) = std::fs::File::open(selected_entry.as_path()) {
-                            let config_or_err_in_file =
-                                serde_yml::from_reader::<_, Config<T>>(file);
-                            if let Ok(config_in_file) = &config_or_err_in_file {
-                                self.diffshow.update(
-                                    &serde_yml::to_string(config_in_file).unwrap(),
-                                    &serde_yml::to_string(&Config {
-                                        version: AdaptunerVersion,
-                                        temperaments: T::temperament_definitions().clone(),
-                                        named_intervals: T::named_intervals().clone(),
-                                        tuning_reference: adaptor.tuning_reference().clone(),
-                                        strategies: adaptor.strategy_config().clone(),
-                                        backend: BackendConfig::Pitchbend12(
-                                            adaptor.backend_config().clone(),
-                                        ),
-                                        gui: adaptor.config().clone(),
-                                    })
-                                    .unwrap(),
-                                    ui,
-                                );
+                            let res: Result<(), String> = {
+                                match std::fs::File::create(path) {
+                                    Ok(file) => serde_yml::to_writer(file, &config)
+                                        .map_err(|e| format!("{e}")),
+                                    Err(e) => Err(format!("{e}")),
+                                }
+                            };
+                            if let Err(e) = res {
+                                self.error = Some(e);
+                                self.phase = Phase::ShowingError;
+                            } else {
+                                self.phase = Phase::Closed;
                             }
-                            self.considered = Some((selected_entry.clone(), config_or_err_in_file));
                         }
                     }
+                });
+            });
+        });
 
-                    if let Some((direntry, file_config)) = &self.considered {
-                        let file_name = direntry
-                            .as_path()
-                            .file_name()
-                            .and_then(|x| x.to_str())
-                            .unwrap_or("selected file");
-                        if let Err(e) = file_config {
-                            ui.label(format!(
-                                "The file '{file_name}' is not a valid configuration file:"
-                            ));
-                            ui.separator();
-                            egui::ScrollArea::both().show(ui, |ui| {
-                                let (line, column) = e
-                                    .location()
-                                    .map(|l| (format!("{}", l.line()), format!("{}", l.column())))
-                                    .unwrap_or_else(|| ("unknown".into(), "unknown".into()));
-                                ui.label(format!("line {line}\ncolumn {column}\n\n{e}",));
-                            });
-                        } else {
-                            self.diffshow.show(
-                                &format!("in '{file_name}'"),
-                                "in current configuration",
-                                &format!(
-                                    "The file '{file_name}' contains a configuration that is \
-                                        equivalent to the current one.",
-                                ),
-                                ui,
-                            );
-                        }
-                    }
-                } else {
-                    self.considered = None {};
-                }
-            },
-        );
-
-        if self.as_load {
-            if let Some(path) = self.file_dialog.take_picked() {
-                if let Some((_, Ok(config))) = self.considered.take() {
-                    self.phase = Phase::Closed;
-                    return Some(config);
-                } else {
-                    self.phase = Phase::ShowingError;
-                    self.error = Some(format!(
-                        "The path '{path:?}' does not contain a valid configuration file"
-                    ));
-                }
-            }
-            None {}
-        } else {
-            if let Some(path) = self.file_dialog.take_picked() {
-                let config = Config {
-                    version: AdaptunerVersion,
-                    temperaments: T::temperament_definitions().clone(),
-                    named_intervals: T::named_intervals().clone(),
-                    tuning_reference: adaptor.tuning_reference().clone(),
-                    strategies: adaptor.strategy_config().clone(),
-                    backend: BackendConfig::Pitchbend12(adaptor.backend_config().clone()),
-                    gui: adaptor.config().clone(),
-                };
-
-                let res: Result<(), String> = {
-                    match std::fs::File::create(path) {
-                        Ok(file) => serde_yml::to_writer(file, &config).map_err(|e| format!("{e}")),
-                        Err(e) => Err(format!("{e}")),
-                    }
-                };
-                if let Err(e) = res {
-                    self.error = Some(e);
-                    self.phase = Phase::ShowingError;
-                } else {
-                    self.phase = Phase::Closed;
-                }
-            }
-            None {}
-        }
+        (new_config, adaptor)
     }
 
     fn show_error(&mut self, ui: &mut egui::Ui) {
@@ -232,14 +261,22 @@ impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) -> Option<Config<T>> {
+    pub fn show<A, L>(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: OrderedLocks<A, L>,
+    ) -> (Option<Config<T>>, OrderedLocks<A, L>)
+    where
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<TuningReferenceLevel> + AtMost<StrategyConfigLevel> + AtMost<BackendConfigLevel>,
+    {
         match &self.phase {
             Phase::ShowingDialog => self.show_config_file_dialog(ui, adaptor),
             Phase::ShowingError => {
                 self.show_error(ui);
-                None {}
+                (None {}, adaptor)
             }
-            Phase::Closed => None {},
+            Phase::Closed => (None {}, adaptor),
         }
     }
 }

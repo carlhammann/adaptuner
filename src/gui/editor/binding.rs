@@ -2,8 +2,10 @@ use eframe::egui::{self, Popup};
 
 use crate::{
     bindable::{BindableEvent, BindableStrategyAction},
+    config::StrategyConfig,
     gui::r#trait::{GuiShow, UiAdaptor},
     interval::stacktype::r#trait::StackType,
+    util::ordered_locks::{OrderedLocks, Zero},
 };
 
 pub struct BindingEditor {
@@ -27,72 +29,73 @@ impl BindingEditor {
 }
 
 impl<T: StackType> GuiShow<T> for BindingEditor {
-    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
-        ui.collapsing("key bindings", |ui| {
-            ui.vertical(|ui| {
-                ui.shrink_width_to_current();
-                egui::Grid::new("binding_editor_grid").show(ui, |ui| {
-                    for (k, v) in adaptor.strategy_config()[adaptor.active_strategy_index()]
-                        .bindings()
-                        .iter()
-                    {
-                        ui.label(format!("{k}"));
+    fn show<A: UiAdaptor<StackType = T>>(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
+        (_, adaptor) = adaptor.active_strategy_mut(|strat, _| {
+            ui.collapsing("key bindings", |ui| {
+                ui.vertical(|ui| {
+                    ui.shrink_width_to_current();
+                    egui::Grid::new("binding_editor_grid").show(ui, |ui| {
+                        for (k, v) in strat.bindings().iter() {
+                            ui.label(format!("{k}"));
 
-                        self.tmp_action = Some(*v);
-                        if strategy_action_selector(ui, adaptor, *k, &mut self.tmp_action) {
-                            if self.changed_binding.is_none() {
-                                self.changed_binding = Some((*k, self.tmp_action));
+                            self.tmp_action = Some(*v);
+                            if strategy_action_selector(ui, strat, *k, &mut self.tmp_action) {
+                                if self.changed_binding.is_none() {
+                                    self.changed_binding = Some((*k, self.tmp_action));
+                                }
                             }
-                        }
 
-                        if ui.button("delete").clicked() {
-                            if self.changed_binding.is_none() {
-                                self.changed_binding = Some((*k, None {}));
+                            if ui.button("delete").clicked() {
+                                if self.changed_binding.is_none() {
+                                    self.changed_binding = Some((*k, None {}));
+                                }
                             }
+
+                            ui.end_row();
                         }
+                    });
 
-                        ui.end_row();
-                    }
-                });
+                    ui.separator();
 
-                ui.separator();
+                    self.tmp_action = None {};
 
-                self.tmp_action = None {};
-
-                ui.add(egui::Label::new("add a binding:").wrap_mode(egui::TextWrapMode::Extend));
-                ui.horizontal(|ui| {
-                    bindable_selector(
-                        ui,
-                        &mut self.tmp_event,
-                        &mut self.tmp_key_name,
-                        &mut self.tmp_key_name_invalid,
+                    ui.add(
+                        egui::Label::new("add a binding:").wrap_mode(egui::TextWrapMode::Extend),
                     );
-                    self.tmp_action = adaptor.strategy_config()[adaptor.active_strategy_index()]
-                        .bindings()
-                        .get(&self.tmp_event)
-                        .map(|x| *x);
-                    if strategy_action_selector(ui, adaptor, self.tmp_event, &mut self.tmp_action) {
-                        if self.changed_binding.is_none() {
-                            self.changed_binding = Some((self.tmp_event, self.tmp_action));
-                        }
-                    }
-
-                    if let Some((bindable, action)) = self.changed_binding {
-                        if let Some(action) = action {
-                            adaptor.strategy_config_mut()[adaptor.active_strategy_index()]
-                                .bindings_mut()
-                                .insert(bindable, action);
-                        } else {
-                            adaptor.strategy_config_mut()[adaptor.active_strategy_index()]
-                                .bindings_mut()
-                                .remove(&bindable);
+                    ui.horizontal(|ui| {
+                        bindable_selector(
+                            ui,
+                            &mut self.tmp_event,
+                            &mut self.tmp_key_name,
+                            &mut self.tmp_key_name_invalid,
+                        );
+                        self.tmp_action = strat.bindings().get(&self.tmp_event).map(|x| *x);
+                        if strategy_action_selector(ui, strat, self.tmp_event, &mut self.tmp_action)
+                        {
+                            if self.changed_binding.is_none() {
+                                self.changed_binding = Some((self.tmp_event, self.tmp_action));
+                            }
                         }
 
-                        self.changed_binding = None {}
-                    }
+                        if let Some((bindable, action)) = self.changed_binding {
+                            if let Some(action) = action {
+                                strat.bindings_mut().insert(bindable, action);
+                            } else {
+                                strat.bindings_mut().remove(&bindable);
+                            }
+
+                            self.changed_binding = None {}
+                        }
+                    });
                 });
             });
         });
+
+        adaptor
     }
 }
 
@@ -180,7 +183,7 @@ fn bindable_selector(
                     );
                     *tmp_key_name = "Space".into();
                     *tmp_key_name_invalid = false;
-                    ui.add_enabled(false, egui::TextEdit::singleline(tmp_key_name));
+                    ui.add_enabled_ui(false, |ui| ui.text_edit_singleline(tmp_key_name));
                 }
             });
         });
@@ -188,7 +191,7 @@ fn bindable_selector(
 
 fn strategy_action_selector<T: StackType>(
     ui: &mut egui::Ui,
-    adaptor: &impl UiAdaptor<T>,
+    active_strategy: &StrategyConfig<T>,
     event: BindableEvent,
     tmp_action: &mut Option<BindableStrategyAction>,
 ) -> bool {
@@ -201,7 +204,7 @@ fn strategy_action_selector<T: StackType>(
             let popup_id = ui.id();
             let close_popup = |ui: &mut egui::Ui| Popup::close_id(ui.ctx(), popup_id);
 
-            if adaptor.strategy_config()[adaptor.active_strategy_index()]
+            if active_strategy
                 .reacts_to_bound(BindableStrategyAction::IncrementNeighbourhoodIndex(0))
             {
                 ui.horizontal(|ui| {
@@ -233,9 +236,7 @@ fn strategy_action_selector<T: StackType>(
                 });
             }
 
-            if adaptor.strategy_config()[adaptor.active_strategy_index()]
-                .reacts_to_bound(BindableStrategyAction::SetReferenceToLowest)
-            {
+            if active_strategy.reacts_to_bound(BindableStrategyAction::SetReferenceToLowest) {
                 let r = ui.selectable_value(
                     tmp_action,
                     Some(BindableStrategyAction::SetReferenceToLowest),
@@ -247,9 +248,7 @@ fn strategy_action_selector<T: StackType>(
                 }
             }
 
-            if adaptor.strategy_config()[adaptor.active_strategy_index()]
-                .reacts_to_bound(BindableStrategyAction::SetReferenceToHighest)
-            {
+            if active_strategy.reacts_to_bound(BindableStrategyAction::SetReferenceToHighest) {
                 let r = ui.selectable_value(
                     tmp_action,
                     Some(BindableStrategyAction::SetReferenceToHighest),
@@ -261,9 +260,7 @@ fn strategy_action_selector<T: StackType>(
                 }
             }
 
-            if adaptor.strategy_config()[adaptor.active_strategy_index()]
-                .reacts_to_bound(BindableStrategyAction::SetReferenceToCurrent)
-            {
+            if active_strategy.reacts_to_bound(BindableStrategyAction::SetReferenceToCurrent) {
                 let r = ui.selectable_value(
                     tmp_action,
                     Some(BindableStrategyAction::SetReferenceToCurrent),
@@ -275,9 +272,7 @@ fn strategy_action_selector<T: StackType>(
                 }
             }
 
-            if adaptor.strategy_config()[adaptor.active_strategy_index()]
-                .reacts_to_bound(BindableStrategyAction::ToggleChordMatching)
-            {
+            if active_strategy.reacts_to_bound(BindableStrategyAction::ToggleChordMatching) {
                 let r = ui.selectable_value(
                     tmp_action,
                     Some(BindableStrategyAction::ToggleChordMatching),
@@ -289,9 +284,7 @@ fn strategy_action_selector<T: StackType>(
                 }
             }
 
-            if adaptor.strategy_config()[adaptor.active_strategy_index()]
-                .reacts_to_bound(BindableStrategyAction::ToggleReanchor)
-            {
+            if active_strategy.reacts_to_bound(BindableStrategyAction::ToggleReanchor) {
                 let r = ui.selectable_value(
                     tmp_action,
                     Some(BindableStrategyAction::ToggleReanchor),
@@ -303,9 +296,7 @@ fn strategy_action_selector<T: StackType>(
                 }
             }
 
-            if adaptor.strategy_config()[adaptor.active_strategy_index()]
-                .reacts_to_bound(BindableStrategyAction::Reset)
-            {
+            if active_strategy.reacts_to_bound(BindableStrategyAction::Reset) {
                 let r = ui.selectable_value(
                     tmp_action,
                     Some(BindableStrategyAction::Reset),

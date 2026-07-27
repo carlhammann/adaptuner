@@ -3,6 +3,7 @@ use std::time::Instant;
 use eframe::egui;
 
 use crate::{
+    adaptors::lock_levels::StrategyConfigLevel,
     bindable::BindableEvent,
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
     gui::{
@@ -27,7 +28,10 @@ use crate::{
         melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
-    util::list_action::ListAction,
+    util::{
+        list_action::ListAction,
+        ordered_locks::{AtMost, OrderedLocks, Zero},
+    },
 };
 
 struct StrategySelectorWidget {
@@ -44,107 +48,129 @@ impl StrategySelectorWidget {
         }
     }
 
-    fn show_windows<T: StackType>(
+    fn show_windows<T, A, L>(
         &mut self,
         ui: &mut egui::Ui,
-        adaptor: &impl UiAdaptor<T>,
+        mut adaptor: OrderedLocks<A, L>,
         disable: bool,
-    ) {
-        self.strategy_list_editor_window
-            .show("edit strategies", ui.ctx(), |ui| {
-                ui.vertical(|ui| {
-                    if disable {
-                        ui.disable();
-                    }
-                    // Don't handle the ListAction wrapped by `res` here, the process has to do
-                    // that. It's a bit funny that we're working with a mut reference
-                    // `strategy_config_mut`, but everything is all right, since the only thing
-                    // we'll change in this thread are names and descriptions of strategies, and
-                    // these aren't important in the process thread.
-                    let res = show_list_edit(
-                        ui,
-                        "strategy_editor",
-                        &mut *adaptor.strategy_config_mut(),
-                        Some(adaptor.active_strategy_index()),
-                        ListEditOpts {
-                            empty_allowed: false,
-                            select_allowed: true,
-                            no_selection_allowed: false,
-                            delete_allowed: true,
-                            reorder_allowed: true,
-                            show_one: Box::new(|ui, _i, elem: &mut StrategyConfig<T>, _| {
-                                ui.add(egui::TextEdit::singleline(elem.name_mut()).min_size(
-                                    egui::vec2(
-                                        ui.style().spacing.text_edit_width / 2.0,
-                                        ui.style().spacing.interact_size.y,
+    ) -> OrderedLocks<A, L>
+    where
+        T: StackType,
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<StrategyConfigLevel>,
+    {
+        (_, adaptor) = adaptor.strategy_config_mut(|strategy_configs, adaptor| {
+            adaptor.active_strategy_index(|active_strategy_index, adaptor| {
+                self.strategy_list_editor_window
+                    .show("edit strategies", ui.ctx(), |ui| {
+                        ui.vertical(|ui| {
+                            if disable {
+                                ui.disable();
+                            }
+                            // Don't handle the ListAction wrapped by `res` here, the process has to do
+                            // that. It's a bit funny that we're working with a mut reference
+                            // `strategy_config_mut`, but everything is all right, since the only thing
+                            // we'll change in this thread are names and descriptions of strategies, and
+                            // these aren't important in the process thread.
+                            let res = show_list_edit(
+                                ui,
+                                "strategy_editor",
+                                strategy_configs,
+                                Some(*active_strategy_index),
+                                ListEditOpts {
+                                    empty_allowed: false,
+                                    select_allowed: true,
+                                    no_selection_allowed: false,
+                                    delete_allowed: true,
+                                    reorder_allowed: true,
+                                    show_one: Box::new(
+                                        |ui, _i, elem: &mut StrategyConfig<T>, _| {
+                                            ui.add(
+                                                egui::TextEdit::singleline(elem.name_mut())
+                                                    .min_size(egui::vec2(
+                                                        ui.style().spacing.text_edit_width / 2.0,
+                                                        ui.style().spacing.interact_size.y,
+                                                    )),
+                                            );
+                                            ui.add(
+                                                egui::TextEdit::multiline(elem.description_mut())
+                                                    .min_size(egui::vec2(
+                                                        ui.style().spacing.text_edit_width,
+                                                        ui.style().spacing.interact_size.y,
+                                                    ))
+                                                    .desired_rows(1),
+                                            );
+                                            None::<()>
+                                        },
                                     ),
-                                ));
-                                ui.add(
-                                    egui::TextEdit::multiline(elem.description_mut())
-                                        .min_size(egui::vec2(
-                                            ui.style().spacing.text_edit_width,
-                                            ui.style().spacing.interact_size.y,
-                                        ))
-                                        .desired_rows(1),
-                                );
-                                None::<()>
-                            }),
-                            clone: Some(Box::new(|ui, _elems, selected, _| {
-                                ui.separator();
-                                if let Some(i) = selected {
-                                    if ui.button("create copy of selected").clicked() {
-                                        Some(i)
-                                    } else {
-                                        None {}
-                                    }
-                                } else {
-                                    None {}
+                                    clone: Some(Box::new(|ui, _elems, selected, _| {
+                                        ui.separator();
+                                        if let Some(i) = selected {
+                                            if ui.button("create copy of selected").clicked() {
+                                                Some(i)
+                                            } else {
+                                                None {}
+                                            }
+                                        } else {
+                                            None {}
+                                        }
+                                    })),
+                                },
+                                &mut (),
+                            );
+                            match res {
+                                ListEditResult::None => {}
+                                ListEditResult::Action(action) => {
+                                    let _ = adaptor.send(FromUi::StrategyListAction {
+                                        action,
+                                        time: Instant::now(),
+                                    });
                                 }
-                            })),
-                        },
-                        &mut (),
-                    );
-                    match res {
-                        ListEditResult::None => {}
-                        ListEditResult::Action(action) => {
-                            let _ = adaptor.send(FromUi::StrategyListAction {
-                                action,
-                                time: Instant::now(),
-                            });
-                        }
-                        ListEditResult::Message(_) => unreachable!(),
-                    }
-                });
+                                ListEditResult::Message(_) => unreachable!(),
+                            }
+                        });
+                    });
             });
+        });
+
+        adaptor
     }
 }
 
 impl<T: StackType> GuiShow<T> for StrategySelectorWidget {
-    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
-        let asi = adaptor.active_strategy_index();
-        egui::ComboBox::from_id_salt("strategy selector widget")
-            .selected_text(adaptor.strategy_config()[asi].name())
-            .show_ui(ui, |ui| {
-                if let Some(i) = show_list_picker(
-                    &*adaptor.strategy_config(),
-                    asi,
-                    ui,
-                    |x| x.name(),
-                    |x| x.description(),
-                ) {
-                    let _ = adaptor.send(FromUi::StrategyListAction {
-                        action: ListAction::Select(i),
-                        time: Instant::now(),
+    fn show<A: UiAdaptor<StackType = T>>(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
+        (_, adaptor) = adaptor.strategy_config(|strategy_configs, adaptor| {
+            adaptor.active_strategy_index(|asi, adaptor| {
+                egui::ComboBox::from_id_salt("strategy selector widget")
+                    .selected_text(strategy_configs[*asi].name())
+                    .show_ui(ui, |ui| {
+                        if let Some(i) = show_list_picker(
+                            &strategy_configs,
+                            *asi,
+                            ui,
+                            |x| x.name(),
+                            |x| x.description(),
+                        ) {
+                            let _ = adaptor.send(FromUi::StrategyListAction {
+                                action: ListAction::Select(i),
+                                time: Instant::now(),
+                            });
+                        }
+
+                        ui.separator();
+
+                        self.strategy_list_editor_window
+                            .show_hide_button(ui, "edit strategies");
+
+                        ui.shrink_width_to_current();
                     });
-                }
-
-                ui.separator();
-
-                self.strategy_list_editor_window
-                    .show_hide_button(ui, "edit strategies");
-
-                ui.shrink_width_to_current();
             });
+        });
+        adaptor
     }
 }
 
@@ -159,17 +185,22 @@ impl BindingEditorWidget {
         }
     }
 
-    fn react_to_bound_keys<T: StackType>(
+    fn react_to_bound_keys<T, A, L>(
         &mut self,
         ui: &mut egui::Ui,
-        adaptor: &impl UiAdaptor<T>,
+        mut adaptor: OrderedLocks<A, L>,
         disable: bool,
-    ) {
+    ) -> OrderedLocks<A, L>
+    where
+        T: StackType,
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<StrategyConfigLevel>,
+    {
         if disable {
-            return;
+            return adaptor;
         }
         if ui.ui_contains_pointer() {
-            ui.input(|i| {
+            adaptor = ui.input(|i| {
                 for e in &i.events {
                     match e {
                         egui::Event::Key {
@@ -179,31 +210,40 @@ impl BindingEditorWidget {
                             ..
                         } => {
                             if !*pressed || *repeat {
-                                return;
+                                return adaptor;
                             }
-                            if let Some(action) = adaptor.strategy_config()
-                                [adaptor.active_strategy_index()]
-                            .bindings()
-                            .get(&BindableEvent::KeyPress(*key))
-                            .map(|x| *x)
-                            {
-                                let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::BoundAction {
-                                    action,
-                                    time: Instant::now(),
-                                }));
-                            }
+                            (_, adaptor) = adaptor.active_strategy(|strat, adaptor| {
+                                if let Some(action) = strat
+                                    .bindings()
+                                    .get(&BindableEvent::KeyPress(*key))
+                                    .map(|x| *x)
+                                {
+                                    let _ =
+                                        adaptor.send(FromUi::ToStrategy(ToStrategy::BoundAction {
+                                            action,
+                                            time: Instant::now(),
+                                        }));
+                                }
+                            });
                         }
                         _ => {}
                     }
                 }
+                adaptor
             });
         }
+
+        adaptor
     }
 }
 
 impl<T: StackType> GuiShow<T> for BindingEditorWidget {
     #[inline]
-    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+    fn show<A: UiAdaptor<StackType = T>>(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
         self.binding_editor.show(ui, adaptor)
     }
 }
@@ -225,15 +265,32 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
         }
     }
 
-    pub fn show_windows(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>, disable: bool) {
-        self.selector_widget.show_windows(ui, adaptor, disable);
+    pub fn show_windows<A, L>(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: OrderedLocks<A, L>,
+        disable: bool,
+    ) -> OrderedLocks<A, L>
+    where
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<StrategyConfigLevel>,
+    {
+        adaptor = self.selector_widget.show_windows(ui, adaptor, disable);
         self.binding_editor_widget
-            .react_to_bound_keys(ui, adaptor, disable);
+            .react_to_bound_keys(ui, adaptor, disable)
     }
 
     #[inline]
-    fn show_scale_editor(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
-        match &mut adaptor.strategy_config_mut()[adaptor.active_strategy_index()] {
+    fn show_scale_editor<A, L>(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: OrderedLocks<A, L>,
+    ) -> OrderedLocks<A, L>
+    where
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<StrategyConfigLevel>,
+    {
+        (_, adaptor) = adaptor.active_strategy_mut(|strat, adaptor| match strat {
             StrategyConfig::StaticNeighbourhoods {
                 config: StaticNeighbourhoodsConfig { scales, .. },
                 ..
@@ -308,70 +365,95 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
                     }
                 });
             }
-        }
+        });
+
+        adaptor
     }
 
     #[inline]
-    fn show_chord_list_editor(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
+    fn show_chord_list_editor<A, L>(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: OrderedLocks<A, L>,
+    ) -> OrderedLocks<A, L>
+    where
+        A: UiAdaptor<StackType = T>,
+        L: AtMost<StrategyConfigLevel>,
+    {
         let wrap = |msg| {
             FromUi::ToStrategy(ToStrategy::TwoStep(ToTwoStep::ToHarmonyStrategy(
                 ToHarmony::ChordList(msg),
             )))
         };
-        match &mut adaptor.strategy_config_mut()[adaptor.active_strategy_index()] {
+        (_, adaptor) = adaptor.active_strategy_mut(|strat, mut adaptor| match strat {
             StrategyConfig::TwoStep {
-                harmony: HarmonyStrategyConfig::ChordList(ChordListConfig { enable, patterns }),
+                harmony:
+                    HarmonyStrategyConfig::ChordList(ChordListConfig {
+                        ref mut enable,
+                        patterns,
+                    }),
                 ..
-            } => match self.chord_list_editor.show(
-                ui,
-                enable,
-                patterns,
-                adaptor,
-                adaptor.config().use_cent_values,
-            ) {
-                ChordListEditorResult::None => {}
-                ChordListEditorResult::ToggleEnable => {
-                    let _ = adaptor.send(wrap(ToChordList::ToggleEnable {
-                        time: Instant::now(),
-                    }));
+            } => {
+                let use_cent_values = adaptor.config().use_cent_values;
+                let res;
+                (res, adaptor) =
+                    self.chord_list_editor
+                        .show(ui, enable, patterns, adaptor, use_cent_values);
+                match res {
+                    ChordListEditorResult::None => {}
+                    ChordListEditorResult::ToggleEnable => {
+                        let _ = adaptor.send(wrap(ToChordList::ToggleEnable {
+                            time: Instant::now(),
+                        }));
+                    }
+                    ChordListEditorResult::UpdateChord(i) => {
+                        let _ = adaptor.send(wrap(ToChordList::UpdateChord {
+                            index: i,
+                            time: Instant::now(),
+                        }));
+                    }
+                    ChordListEditorResult::ListAction(list_action) => {
+                        let _ = adaptor.send(wrap(ToChordList::ChordListAction {
+                            list_action,
+                            time: Instant::now(),
+                        }));
+                    }
+                    ChordListEditorResult::PushNewChord => {
+                        let _ = adaptor.send(wrap(ToChordList::PushNewChord {
+                            time: Instant::now(),
+                        }));
+                    }
                 }
-                ChordListEditorResult::UpdateChord(i) => {
-                    let _ = adaptor.send(wrap(ToChordList::UpdateChord {
-                        index: i,
-                        time: Instant::now(),
-                    }));
-                }
-                ChordListEditorResult::ListAction(list_action) => {
-                    let _ = adaptor.send(wrap(ToChordList::ChordListAction {
-                        list_action,
-                        time: Instant::now(),
-                    }));
-                }
-                ChordListEditorResult::PushNewChord => {
-                    let _ = adaptor.send(wrap(ToChordList::PushNewChord {
-                        time: Instant::now(),
-                    }));
-                }
-            },
+            }
 
             _ => {}
-        }
+        });
+
+        adaptor
     }
 }
 
 impl<T: OctavePeriodicStackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T> {
-    fn show(&mut self, ui: &mut egui::Ui, adaptor: &impl UiAdaptor<T>) {
-        self.selector_widget.show(ui, adaptor);
-        self.binding_editor_widget.show(ui, adaptor);
-        self.show_scale_editor(ui, adaptor);
-        self.show_chord_list_editor(ui, adaptor);
+    fn show<A: UiAdaptor<StackType = T>>(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
+        adaptor = self.selector_widget.show(ui, adaptor);
+        adaptor = self.binding_editor_widget.show(ui, adaptor);
+        adaptor = self.show_scale_editor(ui, adaptor);
+        self.show_chord_list_editor(ui, adaptor)
     }
 }
 
-impl<T: StackType, A: UiAdaptor<T>> ReceiveToUiRef<T, A> for StrategyWidgets<T> {
-    fn receive_to_ui_ref(&mut self, msg: &ToUi<T>, adaptor: &A) {
-        self.scale_editor.receive_to_ui_ref(msg, adaptor);
-        self.chord_list_editor.receive_to_ui_ref(msg, adaptor);
+impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for StrategyWidgets<T> {
+    fn receive_to_ui_ref(
+        &mut self,
+        msg: &ToUi<T>,
+        mut adaptor: OrderedLocks<A, Zero>,
+    ) -> OrderedLocks<A, Zero> {
+        adaptor = self.scale_editor.receive_to_ui_ref(msg, adaptor);
+        self.chord_list_editor.receive_to_ui_ref(msg, adaptor)
     }
 }
 

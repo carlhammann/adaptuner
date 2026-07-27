@@ -1,4 +1,3 @@
-#![feature(mapped_lock_guards)]
 pub mod adaptors;
 pub mod backend;
 pub mod bindable;
