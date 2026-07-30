@@ -2,24 +2,25 @@
 //! [OctavePeriodicStackType].
 //!
 
-use std::time::Instant;
+use std::{rc::Rc, time::Instant};
 
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    adaptors::{ViewKeyStates, ViewTunings},
     backend::r#trait::{BackendAdaptor, ConcretePitchbend12Adaptor, Pitchbend12Adaptor},
     custom_serde::common::{deserialize_channels, serialize_channels},
     interval::{base::Semitones, stacktype::r#trait::StackType},
     msg::{self, FromBackend, ReceiveMsg, ToBackend},
+    process::r#trait::StackWithTuning,
+    util::ordered_locks::OrderedLocks,
 };
 
 pub struct Pitchbend12<T: StackType> {
     /// invariant: the bend pertaining to `channels[i]` is in `bends[i]`
     bends: [u16; 12],
 
-    adaptor: ConcretePitchbend12Adaptor<T>,
+    adaptor: Rc<ConcretePitchbend12Adaptor<T>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,7 +55,7 @@ impl<T: StackType> Pitchbend12<T> {
     pub fn new(adaptor: ConcretePitchbend12Adaptor<T>) -> Self {
         Self {
             bends: [8192; 12],
-            adaptor,
+            adaptor: Rc::new(adaptor),
         }
     }
 
@@ -82,7 +83,12 @@ impl<T: StackType> Pitchbend12<T> {
     }
 
     fn handle_retune(&mut self, note: u8, time: Instant) {
-        let tuning: Semitones = self.adaptor.tuning(note as usize).semitones;
+        let adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+
+        let tuning;
+        (tuning, _) = adaptor.tuning(note as usize, |StackWithTuning { semitones, .. }, _| {
+            *semitones
+        });
 
         let channel_index = note as usize % 12;
         let desired_bend = self.bend_from_semitones(tuning - note as Semitones);
@@ -109,8 +115,11 @@ impl<T: StackType> Pitchbend12<T> {
     }
 
     fn reset(&mut self, time: Instant) {
+        let mut adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
         for note in 0..128 {
-            if self.adaptor.key_state(note).is_sounding() {
+            let sounding;
+            (sounding, adaptor) = adaptor.key_state(note, |k, _| k.is_sounding());
+            if sounding {
                 self.handle_retune(note as u8, time);
             }
         }

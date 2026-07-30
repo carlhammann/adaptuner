@@ -6,12 +6,15 @@ use std::{
 use parking_lot::RwLock;
 
 use crate::{
-    adaptors::{ViewKeyStates, ViewTunings},
+    adaptors::{
+        lock_levels::{BackendConfigLevel, KeyStateLevel, TuningStateLevel},
+    },
     backend::pitchbend12::Pitchbend12Config,
     interval::stacktype::r#trait::StackType,
     keystate::KeyState,
     msg::FromBackend,
     process::r#trait::StackWithTuning,
+    util::ordered_locks::{impl_access, impl_indexed_access, Access, IndexedAccess},
 };
 
 /// todo: remove the generic? -- this is only possible if we somehow take sub-views of the 'tunings'
@@ -24,29 +27,25 @@ pub struct ConcretePitchbend12Adaptor<T: StackType> {
     pub config: Arc<RwLock<Pitchbend12Config>>,
 }
 
-pub trait BackendAdaptor<T: StackType>: Clone + ViewKeyStates + ViewTunings<T> {
+pub trait BackendAdaptor:
+    IndexedAccess<KeyStateLevel, usize, KeyState>
+    + IndexedAccess<TuningStateLevel, usize, StackWithTuning<Self::StackType>>
+    + Access<BackendConfigLevel, Pitchbend12Config>
+{
+    type StackType: StackType;
     fn send(&self, msg: FromBackend) -> bool;
 }
 
-pub trait Pitchbend12Adaptor<T: StackType>: BackendAdaptor<T> {
+pub trait Pitchbend12Adaptor<T: StackType>: BackendAdaptor<StackType = T> {
     fn config(&self) -> impl Deref<Target = Pitchbend12Config>;
 }
 
-impl<T: StackType> ViewKeyStates for ConcretePitchbend12Adaptor<T> {
-    #[inline]
-    fn key_state(&self, i: usize) -> KeyState {
-        *self.key_states[i].read()
-    }
-}
+impl_indexed_access! {<T:StackType>, ConcretePitchbend12Adaptor<T>, KeyStateLevel, usize, KeyState, |self, i| &self.key_states[i].read()}
+impl_indexed_access! {<T:StackType>, ConcretePitchbend12Adaptor<T>, TuningStateLevel, usize, StackWithTuning<T>, |self, i| &self.tunings[i].read()}
+impl_access! {<T:StackType>, ConcretePitchbend12Adaptor<T>, BackendConfigLevel, Pitchbend12Config, |self| &self.config.read()}
 
-impl<T: StackType> ViewTunings<T> for ConcretePitchbend12Adaptor<T> {
-    #[inline]
-    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
-        self.tunings[i].read()
-    }
-}
-
-impl<T: StackType> BackendAdaptor<T> for ConcretePitchbend12Adaptor<T> {
+impl<T: StackType> BackendAdaptor for ConcretePitchbend12Adaptor<T> {
+    type StackType = T;
     #[inline]
     fn send(&self, msg: FromBackend) -> bool {
         self.forward.send(msg).is_ok()
