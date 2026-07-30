@@ -4,7 +4,7 @@ use crate::{
     config::{MelodyStrategyConfig, Named, StrategyConfig},
     gui::{
         common::{show_list_edit, ListEditOpts, ListEditResult},
-        r#trait::{ReceiveToUiRef, UiAdaptor},
+        r#trait::{GuiTag, ReceiveToUiRef, UiAdaptor},
     },
     interval::stacktype::r#trait::StackType,
     msg::ToUi,
@@ -108,11 +108,8 @@ impl ScaleEditor {
             ListEditResult::Action(action) => {
                 action.apply_to(
                     scales,
-                    self.current_scale_index,
+                    &mut self.current_scale_index,
                     |x| x.clone(),
-                    |new_scale_index| {
-                        self.current_scale_index = new_scale_index;
-                    },
                 );
                 match action {
                     ListAction::Select(i) => ScaleEditorResult::Select(i),
@@ -131,8 +128,8 @@ impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ScaleEd
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        mut adaptor: OrderedLocks<A, Zero>,
-    ) -> OrderedLocks<A, Zero> {
+        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
+    ) -> OrderedLocks<GuiTag, A, Zero> {
         match msg {
             ToUi::SelectScale { index } => {
                 self.current_scale_index = *index;

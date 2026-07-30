@@ -1,44 +1,21 @@
-use std::{
-    fmt,
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    sync::mpsc,
-    sync::Arc,
-    thread,
-    time::Instant,
-};
+use std::{fmt, sync::mpsc, sync::Arc, thread, time::Instant};
 
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
-use parking_lot::RwLock;
 
 use crate::{
-    adaptors::{ChangeTunings, ViewKeyStates, ViewTunings},
     bindable::BindableEvent,
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
-    interval::{stack::Stack, stacktype::r#trait::StackType},
-    keystate::KeyState,
-    msg::{FromProcess, FromStrategy, ReceiveMsg, ToProcess, ToStrategy},
-    process::r#trait::{ProcessAdaptor, StackWithTuning},
-    reference::Reference,
+    interval::stacktype::r#trait::StackType,
+    msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy},
+    process::r#trait::{ProcessAdaptor, ProcessTag},
     strategy::{
-        harmony::{
-            chordlist::{ChordList, ChordListAdaptor, ChordListConfig},
-            r#trait::{Harmony, HarmonyStrategyAdaptor},
-        },
-        melody::{
-            neighbourhoods::{
-                StaticNeighbourhoodsAsMelody, StaticNeighbourhoodsAsMelodyAdaptor,
-                StaticNeighbourhoodsAsMelodyConfig,
-            },
-            r#trait::MelodyStrategyAdaptor,
-        },
+        harmony::chordlist::ChordList,
+        melody::neighbourhoods::StaticNeighbourhoodsAsMelody,
         r#trait::{Strategy, StrategyAdaptor},
-        staticneighbourhoods::{
-            StaticNeighbourhoods, StaticNeighbourhoodsAdaptor, StaticNeighbourhoodsConfig,
-        },
-        twostep::{TwoStep, TwoStepStrategyAdaptor},
+        staticneighbourhoods::StaticNeighbourhoods,
+        twostep::TwoStep,
     },
-    util::mapderef::MapDeref,
+    util::ordered_locks::OrderedLocks,
 };
 
 struct RunningStrategy<T: StackType> {
@@ -48,218 +25,21 @@ struct RunningStrategy<T: StackType> {
     strategy_thread: thread::JoinHandle<()>,
 }
 
-struct TheStaticNeighbourhoodsAdaptor<T: StackType, P: ProcessAdaptor<T>> {
-    _phantom: PhantomData<T>,
-    strategy_index: usize,
-    process_adaptor: P,
-}
-
-impl<T: StackType, P: ProcessAdaptor<T> + 'static> ViewKeyStates
-    for TheStaticNeighbourhoodsAdaptor<T, P>
-{
-    #[inline]
-    fn key_state(&self, i: usize) -> KeyState {
-        self.process_adaptor.key_state(i)
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T> + 'static> ViewTunings<T>
-    for TheStaticNeighbourhoodsAdaptor<T, P>
-{
-    #[inline]
-    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
-        self.process_adaptor.tuning(i)
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T> + 'static> ChangeTunings<T>
-    for TheStaticNeighbourhoodsAdaptor<T, P>
-{
-    #[inline]
-    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
-        self.process_adaptor.tuning_mut(i)
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T> + 'static> StrategyAdaptor<T>
-    for TheStaticNeighbourhoodsAdaptor<T, P>
-{
-    #[inline]
-    fn send(&self, msg: FromStrategy<T>) -> bool {
-        self.process_adaptor.send(FromProcess::FromStrategy(msg))
-    }
-
-    #[inline]
-    fn reference(&self) -> impl Deref<Target = Stack<T>> {
-        self.process_adaptor.reference()
-    }
-
-    #[inline]
-    fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>> {
-        self.process_adaptor.reference_mut()
-    }
-
-    #[inline]
-    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>> {
-        self.process_adaptor.tuning_reference()
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T> + 'static> StaticNeighbourhoodsAdaptor<T>
-    for TheStaticNeighbourhoodsAdaptor<T, P>
-{
-    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsConfig<T>> {
-        self.process_adaptor
-            .strategy_config()
-            .map(|c: &Vec<StrategyConfig<T>>| match &c[self.strategy_index] {
-                StrategyConfig::StaticNeighbourhoods { config, .. } => config,
-                _ => panic!("TheStaticNeighbourhoodsAdaptor::config: incorrect config type"),
-            })
-    }
-}
-
-struct TheTwoStepAdaptor<T: StackType, P: ProcessAdaptor<T>> {
-    process_adaptor: P,
-    strategy_index: usize,
-    harmony: Arc<RwLock<Harmony<T>>>,
-}
-
-impl<T: StackType, P: ProcessAdaptor<T>> ViewKeyStates for TheTwoStepAdaptor<T, P> {
-    #[inline]
-    fn key_state(&self, i: usize) -> KeyState {
-        self.process_adaptor.key_state(i)
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T>> ViewTunings<T> for TheTwoStepAdaptor<T, P> {
-    #[inline]
-    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>> {
-        self.process_adaptor.tuning(i)
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T>> ChangeTunings<T> for TheTwoStepAdaptor<T, P> {
-    #[inline]
-    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>> {
-        self.process_adaptor.tuning_mut(i)
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T>> MelodyStrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
-    #[inline]
-    fn send(&self, msg: FromStrategy<T>) -> bool {
-        self.process_adaptor.send(FromProcess::FromStrategy(msg))
-    }
-
-    #[inline]
-    fn reference(&self) -> impl Deref<Target = Stack<T>> {
-        self.process_adaptor.reference()
-    }
-
-    #[inline]
-    fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>> {
-        self.process_adaptor.reference_mut()
-    }
-
-    #[inline]
-    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>> {
-        self.process_adaptor.tuning_reference()
-    }
-
-    #[inline]
-    fn harmony(&self) -> impl Deref<Target = Harmony<T>> {
-        self.harmony.read()
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T>> HarmonyStrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
-    #[inline]
-    fn harmony(&self) -> impl DerefMut<Target = Harmony<T>> {
-        self.harmony.write()
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T>> StrategyAdaptor<T> for TheTwoStepAdaptor<T, P> {
-    #[inline]
-    fn send(&self, msg: FromStrategy<T>) -> bool {
-        self.process_adaptor.send(FromProcess::FromStrategy(msg))
-    }
-
-    #[inline]
-    fn reference(&self) -> impl Deref<Target = Stack<T>> {
-        self.process_adaptor.reference()
-    }
-
-    #[inline]
-    fn reference_mut(&self) -> impl DerefMut<Target = Stack<T>> {
-        self.process_adaptor.reference_mut()
-    }
-
-    #[inline]
-    fn tuning_reference(&self) -> impl Deref<Target = Reference<T>> {
-        self.process_adaptor.tuning_reference()
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T>> StaticNeighbourhoodsAsMelodyAdaptor<T>
-    for TheTwoStepAdaptor<T, P>
-{
-    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsAsMelodyConfig<T>> {
-        self.process_adaptor
-            .strategy_config()
-            .map(
-                |c: &Vec<StrategyConfig<T>>| match &c[self.strategy_index] {
-                    StrategyConfig::TwoStep { melody: MelodyStrategyConfig::StaticNeighbourhoods(config), .. } => config,
-                    _ => panic!("TheTwoStepAdaptor::config: incorrect melody config type for static neighbourhoods"),
-                },
-            )
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T>> ChordListAdaptor<T> for TheTwoStepAdaptor<T, P> {
-    fn config(&self) -> impl Deref<Target = ChordListConfig<T>> {
-        self.process_adaptor
-            .strategy_config()
-            .map(|c: &Vec<StrategyConfig<T>>| match &c[self.strategy_index] {
-                StrategyConfig::TwoStep {
-                    harmony: HarmonyStrategyConfig::ChordList(config),
-                    ..
-                } => config,
-                _ => panic!(
-                    "TheTwoStepAdaptor::config: incorrect harmony config type for chord list"
-                ),
-            })
-    }
-}
-
-impl<T: StackType, P: ProcessAdaptor<T>>
-    TwoStepStrategyAdaptor<T, ChordList<T>, Self, StaticNeighbourhoodsAsMelody<T>, Self>
-    for TheTwoStepAdaptor<T, P>
-{
-    #[inline]
-    fn as_melody_adaptor(&self) -> &Self {
-        self
-    }
-
-    #[inline]
-    fn as_harmony_adaptor(&self) -> &Self {
-        self
-    }
-}
-
 impl<T: StackType + Send + Sync> RunningStrategy<T> {
-    fn start<S, A>(time: Instant, index: usize, config: S::Config, adaptor: A) -> Self
+    fn start<S, P>(time: Instant, index: usize, config: S::Config, adaptor_inner: Arc<P>) -> Self
     where
-        S: Strategy<T, A>,
+        S: Strategy<T>,
         S::Config: Send + 'static,
-        A: StrategyAdaptor<T> + Send + 'static,
+        P: ProcessAdaptor<StackType = T> + 'static,
     {
         let (to_strategy_tx, to_strategy_rx) = mpsc::channel();
 
         let strategy_thread = thread::spawn(move || {
             let mut strategy = S::new(config);
-            strategy.start(time, &adaptor);
-            strategy.receive_solve_loop(to_strategy_rx, &adaptor);
+            let mut adaptor = unsafe { StrategyAdaptor::new_zero(adaptor_inner) };
+            let needs_steps_at_first_iteration;
+            (needs_steps_at_first_iteration, adaptor) = strategy.start(time, adaptor);
+            strategy.receive_solve_loop(needs_steps_at_first_iteration, to_strategy_rx, adaptor);
         });
 
         Self {
@@ -281,32 +61,28 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
     }
 }
 
-pub struct ProcessFromStrategy<T: StackType, A: ProcessAdaptor<T>> {
+pub struct ProcessFromStrategy<T: StackType, A: ProcessAdaptor<StackType = T>> {
     pedal_hold: [bool; 16],
     sostenuto_hold: [bool; 16],
     soft_hold: [bool; 16],
 
     current_strategy: Option<RunningStrategy<T>>,
 
-    adaptor: A,
+    adaptor: Arc<A>,
 }
 
 impl<T, P> ProcessFromStrategy<T, P>
 where
     T: StackType + Send + Sync,
-    P: ProcessAdaptor<T> + Send + 'static,
+    P: ProcessAdaptor<StackType = T> + Send + 'static,
 {
     pub fn new(adaptor: P) -> Self {
-        if adaptor.strategy_config_mut().len() <= 0 {
-            panic!("Cannot start process from empty list of strategies");
-        }
-
         Self {
             pedal_hold: [false; 16],
             sostenuto_hold: [false; 16],
             soft_hold: [false; 16],
             current_strategy: None {},
-            adaptor,
+            adaptor: Arc::new(adaptor),
         }
     }
 
@@ -364,16 +140,30 @@ where
                 self.sostenuto_hold[channel as usize] = value > 0;
                 let is_down = self.sostenuto_hold.iter().any(|b| *b);
                 let action = match (was_down, is_down) {
-                    (false, true) => self.adaptor.strategy_config()
-                        [self.adaptor.active_strategy_index()]
-                    .bindings()
-                    .get(&BindableEvent::SostenutoPedalDown)
-                    .map(|x| *x),
-                    (true, false) => self.adaptor.strategy_config()
-                        [self.adaptor.active_strategy_index()]
-                    .bindings()
-                    .get(&BindableEvent::SostenutoPedalUp)
-                    .map(|x| *x),
+                    (false, true) => {
+                        let locks =
+                            unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+                        locks
+                            .active_strategy(|strat, _| {
+                                strat
+                                    .bindings()
+                                    .get(&BindableEvent::SostenutoPedalDown)
+                                    .map(|x| *x)
+                            })
+                            .0
+                    }
+                    (true, false) => {
+                        let locks =
+                            unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+                        locks
+                            .active_strategy(|strat, _| {
+                                strat
+                                    .bindings()
+                                    .get(&BindableEvent::SostenutoPedalUp)
+                                    .map(|x| *x)
+                            })
+                            .0
+                    }
                     _ => None {},
                 };
                 if let Some(action) = action {
@@ -394,16 +184,30 @@ where
                 self.soft_hold[channel as usize] = value > 0;
                 let is_down = self.soft_hold.iter().any(|b| *b);
                 let action = match (was_down, is_down) {
-                    (false, true) => self.adaptor.strategy_config()
-                        [self.adaptor.active_strategy_index()]
-                    .bindings()
-                    .get(&BindableEvent::SoftPedalDown)
-                    .map(|x| *x),
-                    (true, false) => self.adaptor.strategy_config()
-                        [self.adaptor.active_strategy_index()]
-                    .bindings()
-                    .get(&BindableEvent::SoftPedalUp)
-                    .map(|x| *x),
+                    (false, true) => {
+                        let locks =
+                            unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+                        locks
+                            .active_strategy(|strat, _| {
+                                strat
+                                    .bindings()
+                                    .get(&BindableEvent::SoftPedalDown)
+                                    .map(|x| *x)
+                            })
+                            .0
+                    }
+                    (true, false) => {
+                        let locks =
+                            unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+                        locks
+                            .active_strategy(|strat, _| {
+                                strat
+                                    .bindings()
+                                    .get(&BindableEvent::SoftPedalUp)
+                                    .map(|x| *x)
+                            })
+                            .0
+                    }
                     _ => None {},
                 };
                 if let Some(action) = action {
@@ -432,10 +236,10 @@ where
 
     fn handle_note_on(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self
-                .adaptor
-                .key_state_mut(note as usize)
-                .note_on(channel, time)
+            let locks = unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+            if locks
+                .key_state_mut(note as usize, |k, _| k.note_on(channel, time))
+                .0
             {
                 let _ = self.send_to_strategy(ToStrategy::NoteOn { note, time });
             }
@@ -450,11 +254,13 @@ where
 
     fn handle_note_off(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            if self.adaptor.key_state_mut(note as usize).note_off(
-                channel,
-                self.pedal_hold[channel as usize],
-                time,
-            ) {
+            let locks = unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+            if locks
+                .key_state_mut(note as usize, |k, _| {
+                    k.note_off(channel, self.pedal_hold[channel as usize], time)
+                })
+                .0
+            {
                 let _ = self.send_to_strategy(ToStrategy::NoteOff { note, time });
             }
             let _ = self.adaptor.send(FromProcess::NoteOff {
@@ -472,8 +278,11 @@ where
                 self.pedal_hold[channel as usize] = true;
             } else {
                 self.pedal_hold[channel as usize] = false;
+                let mut locks =
+                    unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
                 for i in 0..128 {
-                    let changed = self.adaptor.key_state_mut(i).pedal_off(channel, time);
+                    let changed;
+                    (changed, locks) = locks.key_state_mut(i, |k, _| k.pedal_off(channel, time));
                     if changed {
                         let _ = self.send_to_strategy(ToStrategy::NoteOff {
                             note: i as u8,
@@ -505,38 +314,35 @@ where
             self.stop(time);
         }
 
-        match &self.adaptor.strategy_config_mut()[index] {
-            StrategyConfig::StaticNeighbourhoods { config, .. } => {
-                self.current_strategy = Some(RunningStrategy::start::<StaticNeighbourhoods<T>, _>(
-                    time,
-                    index,
-                    config.clone(),
-                    TheStaticNeighbourhoodsAdaptor {
-                        _phantom: PhantomData,
-                        strategy_index: index,
-                        process_adaptor: self.adaptor.clone(),
-                    },
-                ))
-            }
-            StrategyConfig::TwoStep {
-                harmony: HarmonyStrategyConfig::ChordList(harmony_config),
-                melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
-                ..
-            } => {
-                self.current_strategy = Some(RunningStrategy::start::<
-                    TwoStep<T, ChordList<T>, _, StaticNeighbourhoodsAsMelody<T>, _>,
-                    _,
-                >(
-                    time,
-                    index,
-                    (harmony_config.clone(), melody_config.clone()),
-                    TheTwoStepAdaptor {
-                        strategy_index: index,
-                        process_adaptor: self.adaptor.clone(),
-                        harmony: Arc::new(RwLock::new(Harmony::new_dummy())),
-                    },
-                ))
-            }
+        {
+            let locks = unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+
+            locks.active_strategy(|strat, _| match strat {
+                StrategyConfig::StaticNeighbourhoods { config, .. } => {
+                    self.current_strategy =
+                        Some(RunningStrategy::start::<StaticNeighbourhoods<T>, _>(
+                            time,
+                            index,
+                            config.clone(),
+                            self.adaptor.clone(),
+                        ))
+                }
+                StrategyConfig::TwoStep {
+                    harmony: HarmonyStrategyConfig::ChordList(harmony_config),
+                    melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
+                    ..
+                } => {
+                    self.current_strategy = Some(RunningStrategy::start::<
+                        TwoStep<T, ChordList<T>, StaticNeighbourhoodsAsMelody<T>>,
+                        _,
+                    >(
+                        time,
+                        index,
+                        (harmony_config.clone(), melody_config.clone()),
+                        self.adaptor.clone(),
+                    ))
+                }
+            });
         }
 
         self.adaptor
@@ -553,7 +359,7 @@ where
 impl<T, A> ReceiveMsg<ToProcess<T>> for ProcessFromStrategy<T, A>
 where
     T: StackType + fmt::Debug + Send + Sync,
-    A: ProcessAdaptor<T> + Send + 'static,
+    A: ProcessAdaptor<StackType = T> + Send + 'static,
 {
     fn receive_msg(&mut self, msg: ToProcess<T>) {
         match msg {
@@ -592,16 +398,6 @@ where
             }
             ToProcess::RestartFromConfig { time } => {
                 self.restart(time);
-            }
-            ToProcess::StrategyListAction { action, time } => {
-                self.stop(time);
-                action.apply_to(
-                    &mut *self.adaptor.strategy_config_mut(),
-                    self.adaptor.active_strategy_index(),
-                    |x| x.clone(),
-                    |new| self.adaptor.replace_active_strategy_index(new),
-                );
-                self.start(time, self.adaptor.active_strategy_index());
             }
         }
     }

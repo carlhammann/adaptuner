@@ -6,7 +6,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::{
     gui::{
         common::note_picker,
-        r#trait::{GuiShow, UiAdaptor},
+        r#trait::{GuiShow, GuiTag, UiAdaptor},
     },
     interval::{stack::Stack, stacktype::r#trait::StackType},
     msg::FromUi,
@@ -45,8 +45,8 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
     fn show<A: UiAdaptor<StackType = T>>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<A, Zero>,
-    ) -> OrderedLocks<A, Zero> {
+        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
+    ) -> OrderedLocks<GuiTag, A, Zero> {
         (_, adaptor) = adaptor.tuning_reference(|reference, _| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;

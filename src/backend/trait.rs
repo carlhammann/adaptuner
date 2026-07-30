@@ -6,15 +6,13 @@ use std::{
 use parking_lot::RwLock;
 
 use crate::{
-    adaptors::{
-        lock_levels::{BackendConfigLevel, KeyStateLevel, TuningStateLevel},
-    },
+    adaptors::lock_levels::{BackendConfigLevel, KeyStateLevel, TuningStateLevel},
     backend::pitchbend12::Pitchbend12Config,
     interval::stacktype::r#trait::StackType,
     keystate::KeyState,
     msg::FromBackend,
     process::r#trait::StackWithTuning,
-    util::ordered_locks::{impl_access, impl_indexed_access, Access, IndexedAccess},
+    util::ordered_locks::{Access, IndexedAccess, ReadAllowed, impl_access, impl_indexed_access},
 };
 
 /// todo: remove the generic? -- this is only possible if we somehow take sub-views of the 'tunings'
@@ -26,6 +24,12 @@ pub struct ConcretePitchbend12Adaptor<T: StackType> {
     pub tunings: [Arc<RwLock<StackWithTuning<T>>>; 128],
     pub config: Arc<RwLock<Pitchbend12Config>>,
 }
+
+pub struct BackendTag {}
+
+impl ReadAllowed<KeyStateLevel> for BackendTag {}
+impl ReadAllowed<TuningStateLevel> for BackendTag {}
+impl ReadAllowed<BackendConfigLevel> for BackendTag {}
 
 pub trait BackendAdaptor:
     IndexedAccess<KeyStateLevel, usize, KeyState>

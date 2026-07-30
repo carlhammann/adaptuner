@@ -18,10 +18,25 @@ use crate::{
     process::r#trait::StackWithTuning,
     reference::Reference,
     util::ordered_locks::{
-        impl_access, impl_access_mut, impl_indexed_access, Access, AccessMut, IndexedAccess,
-        OrderedLocks, Zero,
+        impl_access, impl_access_mut, impl_indexed_access, Access, AccessMut, IndexedAccess, Nat,
+        OrderedLocks, ReadAllowed, WriteAllowed, Zero,
     },
 };
+
+pub struct GuiTag {}
+
+impl ReadAllowed<KeyStateLevel> for GuiTag {}
+impl ReadAllowed<TuningStateLevel> for GuiTag {}
+impl ReadAllowed<StrategyConfigLevel> for GuiTag {}
+impl ReadAllowed<ActiveStrategyIndexLevel> for GuiTag {}
+impl ReadAllowed<TuningReferenceLevel> for GuiTag {}
+impl ReadAllowed<ReferenceLevel> for GuiTag {}
+impl ReadAllowed<BackendConfigLevel> for GuiTag {}
+
+impl WriteAllowed<StrategyConfigLevel> for GuiTag {}
+impl WriteAllowed<ActiveStrategyIndexLevel> for GuiTag {}
+impl WriteAllowed<TuningReferenceLevel> for GuiTag {}
+impl WriteAllowed<BackendConfigLevel> for GuiTag {}
 
 pub trait UiAdaptor:
     IndexedAccess<KeyStateLevel, usize, KeyState>
@@ -29,6 +44,7 @@ pub trait UiAdaptor:
     + Access<StrategyConfigLevel, Vec<StrategyConfig<Self::StackType>>>
     + AccessMut<StrategyConfigLevel, Vec<StrategyConfig<Self::StackType>>>
     + Access<ActiveStrategyIndexLevel, usize>
+    + AccessMut<ActiveStrategyIndexLevel, usize>
     + Access<TuningReferenceLevel, Reference<Self::StackType>>
     + AccessMut<TuningReferenceLevel, Reference<Self::StackType>>
     + Access<ReferenceLevel, Stack<Self::StackType>>
@@ -61,9 +77,27 @@ impl_access_mut! {<T:StackType>, ConcreteUiAdaptor<T>, TuningReferenceLevel, Ref
 impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, StrategyConfigLevel, Vec<StrategyConfig<T>>, |self| &self.strategy_config.read()}
 impl_access_mut! {<T:StackType>, ConcreteUiAdaptor<T>, StrategyConfigLevel, Vec<StrategyConfig<T>>, |self| &mut self.strategy_config.write()}
 impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, ActiveStrategyIndexLevel, usize, |self| &self.active_strategy_index.read()}
+impl_access_mut! {<T:StackType>, ConcreteUiAdaptor<T>, ActiveStrategyIndexLevel, usize, |self| &mut self.active_strategy_index.write()}
 impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, ReferenceLevel, Stack<T>, |self| &self.reference.read()}
 impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, BackendConfigLevel, Pitchbend12Config, |self| &self.backend_config.read()}
 impl_access_mut! {<T:StackType>, ConcreteUiAdaptor<T>, BackendConfigLevel, Pitchbend12Config, |self| &mut self.backend_config.write()}
+
+impl<T: StackType, A: UiAdaptor<StackType = T>, L: Nat> OrderedLocks<GuiTag, A, L> {
+    #[inline]
+    pub fn send(&self, msg: FromUi<T>) {
+        unsafe { self.inner() }.send(msg)
+    }
+    
+    #[inline]
+    pub fn config(&self) -> impl Deref<Target = GuiConfig> + use<'_, T, A, L> {
+        unsafe { self.inner() }.config()
+    }
+    
+    #[inline]
+    pub fn config_mut(&self) -> impl DerefMut<Target = GuiConfig> + use<'_, T, A, L> {
+        unsafe { self.inner() }.config_mut()
+    }
+}
 
 impl<T: StackType> UiAdaptor for ConcreteUiAdaptor<T> {
     type StackType = T;
@@ -88,8 +122,8 @@ pub trait GuiShow<T: StackType> {
     fn show<A: UiAdaptor<StackType = T>>(
         &mut self,
         ui: &mut egui::Ui,
-        adaptor: OrderedLocks<A, Zero>,
-    ) -> OrderedLocks<A, Zero>;
+        adaptor: OrderedLocks<GuiTag, A, Zero>,
+    ) -> OrderedLocks<GuiTag, A, Zero>;
 }
 
 pub trait Gui<T: StackType, A: UiAdaptor<StackType = T>>:
@@ -102,6 +136,6 @@ pub trait ReceiveToUiRef<T: StackType, A: UiAdaptor<StackType = T>> {
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<A, Zero>,
-    ) -> OrderedLocks<A, Zero>;
+        adaptor: OrderedLocks<GuiTag, A, Zero>,
+    ) -> OrderedLocks<GuiTag, A, Zero>;
 }

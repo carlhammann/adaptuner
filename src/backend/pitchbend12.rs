@@ -2,13 +2,13 @@
 //! [OctavePeriodicStackType].
 //!
 
-use std::{rc::Rc, time::Instant};
+use std::{sync::Arc, time::Instant};
 
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    backend::r#trait::{BackendAdaptor, ConcretePitchbend12Adaptor, Pitchbend12Adaptor},
+    backend::r#trait::{BackendAdaptor, BackendTag, ConcretePitchbend12Adaptor, Pitchbend12Adaptor},
     custom_serde::common::{deserialize_channels, serialize_channels},
     interval::{base::Semitones, stacktype::r#trait::StackType},
     msg::{self, FromBackend, ReceiveMsg, ToBackend},
@@ -20,7 +20,7 @@ pub struct Pitchbend12<T: StackType> {
     /// invariant: the bend pertaining to `channels[i]` is in `bends[i]`
     bends: [u16; 12],
 
-    adaptor: Rc<ConcretePitchbend12Adaptor<T>>,
+    adaptor: Arc<ConcretePitchbend12Adaptor<T>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -55,7 +55,7 @@ impl<T: StackType> Pitchbend12<T> {
     pub fn new(adaptor: ConcretePitchbend12Adaptor<T>) -> Self {
         Self {
             bends: [8192; 12],
-            adaptor: Rc::new(adaptor),
+            adaptor: Arc::new(adaptor),
         }
     }
 
@@ -83,7 +83,7 @@ impl<T: StackType> Pitchbend12<T> {
     }
 
     fn handle_retune(&mut self, note: u8, time: Instant) {
-        let adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+        let adaptor = unsafe { OrderedLocks::<BackendTag, _, _>::new_zero(self.adaptor.clone()) };
 
         let tuning;
         (tuning, _) = adaptor.tuning(note as usize, |StackWithTuning { semitones, .. }, _| {
@@ -115,7 +115,7 @@ impl<T: StackType> Pitchbend12<T> {
     }
 
     fn reset(&mut self, time: Instant) {
-        let mut adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+        let mut adaptor = unsafe { OrderedLocks::<BackendTag, _, _>::new_zero(self.adaptor.clone()) };
         for note in 0..128 {
             let sounding;
             (sounding, adaptor) = adaptor.key_state(note, |k, _| k.is_sounding());

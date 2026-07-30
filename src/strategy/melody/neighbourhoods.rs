@@ -1,23 +1,25 @@
-use std::{
-    ops::Deref,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    adaptors::lock_levels::{
+        ActiveStrategyIndexLevel, HarmonyLevel, KeyStateLevel, ReferenceLevel, StrategyConfigLevel,
+    },
     bindable::BindableStrategyAction,
-    config::{IsMelodyStrategyConfig, MelodyStrategyConfig, Named},
+    config::{IsMelodyStrategyConfig, MelodyStrategyConfig, Named, StrategyConfig},
     interval::{
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     msg::{FromStrategy, ToMelody, ToStaticNeighbourhoodsAsMelody},
     neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
+    process::r#trait::ProcessAdaptor,
     strategy::{
         harmony::r#trait::Harmony,
-        melody::r#trait::{MelodyStrategy, MelodyStrategyAdaptor},
+        melody::r#trait::{MelodyAdaptor, MelodyStrategy},
     },
+    util::ordered_locks::{AtMost, Succ, Zero},
 };
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -54,25 +56,102 @@ impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyCon
 }
 
 impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
-    fn tune_without_harmony(&mut self, time: Instant, adaptor: &impl MelodyStrategyAdaptor<T>) {
+    fn tune_without_harmony<P, L>(
+        &mut self,
+        time: Instant,
+        adaptor: MelodyAdaptor<T, Self, P, L>,
+    ) -> MelodyAdaptor<T, Self, P, L>
+    where
+        P: ProcessAdaptor<StackType = T>,
+        L: AtMost<KeyStateLevel>,
+    {
         adaptor.send(FromStrategy::CurrentHarmony {
             pattern_index: None {},
             reference: None {},
         });
-        for i in 0..128 {
-            if adaptor.key_state(i).is_sounding() {
-                let mut the_tuning = adaptor.tuning_mut(i);
-                self.tmp_stack.clone_from(&the_tuning.stack);
+        adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
+            self.tmp_stack.clone_from(&the_tuning.stack);
+            (_, adaptor) = adaptor.reference(|reference, _| {
                 self.scales[self.curr_scale_index].write_absolute_stack(
                     &mut the_tuning.stack,
                     i as StackCoeff,
-                    &adaptor.reference(),
-                );
+                    reference,
+                )
+            });
+
+            let mut retune = self.tmp_stack != the_tuning.stack;
+            let c4_semitones;
+            (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
+            let new_semitones = the_tuning.stack.absolute_semitones(c4_semitones);
+            if new_semitones != the_tuning.semitones {
+                the_tuning.semitones = new_semitones;
+                retune = true;
+            }
+            if retune {
+                adaptor.send(FromStrategy::Retune {
+                    note: i as u8,
+                    time,
+                });
+            }
+        })
+    }
+
+    fn tune_with_valid_harmony<P, L>(
+        &mut self,
+        time: Instant,
+        harmony: &Harmony<T>,
+        mut adaptor: MelodyAdaptor<T, Self, P, L>,
+    ) -> MelodyAdaptor<T, Self, P, L>
+    where
+        P: ProcessAdaptor<StackType = T>,
+        L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
+    {
+        if self.reanchor {
+            todo!();
+            adaptor
+        } else {
+            let Harmony {
+                neighbourhood: harmony_neighbourhood,
+                reference: harmony_reference,
+                pattern_index,
+                ..
+            } = harmony;
+            (_, adaptor) = adaptor.reference(|adaptor_reference, adaptor| {
+                adaptor.send(FromStrategy::CurrentHarmony {
+                    pattern_index: *pattern_index,
+                    reference: Some(
+                        self.scales[self.curr_scale_index]
+                            .get_absolute_stack(*harmony_reference, adaptor_reference),
+                    ),
+                })
+            });
+            adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
+                self.tmp_stack.clone_from(&the_tuning.stack);
+                if harmony_neighbourhood.try_write_relative_stack(
+                    &mut the_tuning.stack,
+                    i as StackCoeff - *harmony_reference,
+                ) {
+                    (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
+                        self.scales[self.curr_scale_index].increment_by_absolute_stack(
+                            &mut the_tuning.stack,
+                            *harmony_reference,
+                            adaptor_reference,
+                        )
+                    });
+                } else {
+                    (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
+                        self.scales[self.curr_scale_index].write_absolute_stack(
+                            &mut the_tuning.stack,
+                            i as StackCoeff,
+                            adaptor_reference,
+                        )
+                    });
+                }
 
                 let mut retune = self.tmp_stack != the_tuning.stack;
-                let new_semitones = the_tuning
-                    .stack
-                    .absolute_semitones(adaptor.tuning_reference().c4_semitones());
+                let c4_semitones;
+                (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
+                let new_semitones = the_tuning.stack.absolute_semitones(c4_semitones);
                 if new_semitones != the_tuning.semitones {
                     the_tuning.semitones = new_semitones;
                     retune = true;
@@ -83,146 +162,135 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
                         time,
                     });
                 }
-            }
+            })
         }
     }
 
-    fn tune_with_valid_harmony(&mut self, time: Instant, adaptor: &impl MelodyStrategyAdaptor<T>) {
-        if self.reanchor {
-            todo!()
-        } else {
-            let Harmony {
-                neighbourhood: harmony_neighbourhood,
-                reference: harmony_reference,
-                pattern_index,
-                ..
-            } = &*adaptor.harmony();
-            adaptor.send(FromStrategy::CurrentHarmony {
-                pattern_index: *pattern_index,
-                reference: Some(
-                    self.scales[self.curr_scale_index]
-                        .get_absolute_stack(*harmony_reference, &adaptor.reference()),
-                ),
-            });
-            for i in 0..128 {
-                if adaptor.key_state(i).is_sounding() {
-                    let mut the_tuning = adaptor.tuning_mut(i);
-                    self.tmp_stack.clone_from(&the_tuning.stack);
-                    if harmony_neighbourhood.try_write_relative_stack(
-                        &mut the_tuning.stack,
-                        i as StackCoeff - *harmony_reference,
-                    ) {
-                        self.scales[self.curr_scale_index].increment_by_absolute_stack(
-                            &mut the_tuning.stack,
-                            *harmony_reference,
-                            &adaptor.reference(),
-                        );
-                    } else {
-                        self.scales[self.curr_scale_index].write_absolute_stack(
-                            &mut the_tuning.stack,
-                            i as StackCoeff,
-                            &adaptor.reference(),
-                        );
-                    }
-
-                    let mut retune = self.tmp_stack != the_tuning.stack;
-                    let new_semitones = the_tuning
-                        .stack
-                        .absolute_semitones(adaptor.tuning_reference().c4_semitones());
-                    if new_semitones != the_tuning.semitones {
-                        the_tuning.semitones = new_semitones;
-                        retune = true;
-                    }
-                    if retune {
-                        adaptor.send(FromStrategy::Retune {
-                            note: i as u8,
-                            time,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    fn update_all_tunings_and_send(
+    fn update_all_tunings_and_send<P, L>(
         &mut self,
         time: Instant,
-        adaptor: &impl MelodyStrategyAdaptor<T>,
-    ) {
-        if adaptor.harmony().valid {
-            self.tune_with_valid_harmony(time, adaptor);
-        } else {
-            self.tune_without_harmony(time, adaptor);
-        }
+        mut adaptor: MelodyAdaptor<T, Self, P, L>,
+    ) -> MelodyAdaptor<T, Self, P, L>
+    where
+        P: ProcessAdaptor<StackType = T>,
+        L: AtMost<HarmonyLevel>, // for the called sub-methods: + AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
+    {
+        (_, adaptor) = adaptor.harmony(|m_harmony, adaptor| match m_harmony {
+            Some(harmony) => {
+                if harmony.valid {
+                    self.tune_with_valid_harmony(time, harmony, adaptor)
+                } else {
+                    self.tune_without_harmony(time, adaptor)
+                }
+            }
+            None {} => self.tune_without_harmony(time, adaptor),
+        });
+        adaptor
     }
 
     /// returns true iff the reference changed
-    fn set_reference(
+    fn set_reference<P: ProcessAdaptor<StackType = T>, L: AtMost<ReferenceLevel>>(
         &mut self,
         new_reference: Stack<T>,
-        adaptor: &impl MelodyStrategyAdaptor<T>,
-    ) -> bool {
-        if new_reference != *adaptor.reference() {
-            adaptor.reference_mut().clone_from(&new_reference);
-            adaptor.send(FromStrategy::UpdateReference {});
-            true
-        } else {
-            false
-        }
-    }
-
-    /// returns true iff the reference changed
-    fn set_reference_to_current(&mut self, adaptor: &impl MelodyStrategyAdaptor<T>) -> bool {
-        if adaptor.harmony().valid {
-            self.scales[self.curr_scale_index].write_absolute_stack(
-                &mut self.tmp_stack,
-                adaptor.harmony().reference,
-                &adaptor.reference(),
-            );
-
-            if *adaptor.reference() != self.tmp_stack {
-                adaptor.reference_mut().clone_from(&self.tmp_stack);
+        adaptor: MelodyAdaptor<T, Self, P, L>,
+    ) -> (bool, MelodyAdaptor<T, Self, P, L>) {
+        adaptor.reference_mut(|reference, adaptor| {
+            if new_reference != *reference {
+                reference.clone_from(&new_reference);
                 adaptor.send(FromStrategy::UpdateReference {});
                 true
             } else {
                 false
             }
-        } else {
-            false
-        }
+        })
     }
 
     /// returns true iff the reference changed
-    fn set_reference_to_extreme(
+    fn set_reference_to_current<P, L>(
+        &mut self,
+        adaptor: MelodyAdaptor<T, Self, P, L>,
+    ) -> (bool, MelodyAdaptor<T, Self, P, L>)
+    where
+        P: ProcessAdaptor<StackType = T>,
+        L: AtMost<HarmonyLevel>, // + AtMost<ReferenceLevel>
+    {
+        adaptor.harmony(|m_harmony, adaptor| match m_harmony {
+            Some(harmony) => {
+                if harmony.valid {
+                    adaptor
+                        .reference_mut(|adaptor_reference, adaptor| {
+                            self.scales[self.curr_scale_index].write_absolute_stack(
+                                &mut self.tmp_stack,
+                                harmony.reference,
+                                adaptor_reference,
+                            );
+
+                            if *adaptor_reference != self.tmp_stack {
+                                adaptor_reference.clone_from(&self.tmp_stack);
+                                adaptor.send(FromStrategy::UpdateReference {});
+                                true
+                            } else {
+                                false
+                            }
+                        })
+                        .0
+                } else {
+                    false
+                }
+            }
+            None {} => false,
+        })
+    }
+
+    /// returns true iff the reference changed
+    fn set_reference_to_extreme<P, L>(
         &mut self,
         to_highest: bool,
-        adaptor: &impl MelodyStrategyAdaptor<T>,
-    ) -> bool {
-        self.tmp_stack.clone_from(&adaptor.reference());
+        mut adaptor: MelodyAdaptor<T, Self, P, L>,
+    ) -> (bool, MelodyAdaptor<T, Self, P, L>)
+    where
+        P: ProcessAdaptor<StackType = T>,
+        L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
+    {
+        (_, adaptor) = adaptor.reference(|r, _| self.tmp_stack.clone_from(r));
 
         if to_highest {
             for i in (0..128).rev() {
-                if adaptor.key_state(i).is_sounding() {
-                    self.tmp_stack.clone_from(&adaptor.tuning(i).stack);
+                let mut found = false;
+                (_, adaptor) = adaptor.key_state(i, |k, adaptor| {
+                    if k.is_sounding() {
+                        adaptor.tuning(i, |t, _| self.tmp_stack.clone_from(&t.stack));
+                        found = true;
+                    }
+                });
+                if found {
                     break;
                 }
             }
         } else {
             for i in 0..128 {
-                if adaptor.key_state(i).is_sounding() {
-                    self.tmp_stack.clone_from(&adaptor.tuning(i).stack);
+                let mut found = false;
+                (_, adaptor) = adaptor.key_state(i, |k, adaptor| {
+                    if k.is_sounding() {
+                        adaptor.tuning(i, |t, _| self.tmp_stack.clone_from(&t.stack));
+                        found = true;
+                    }
+                });
+                if found {
                     break;
                 }
             }
         }
 
-        if *adaptor.reference() != self.tmp_stack {
-            adaptor.reference_mut().clone_from(&self.tmp_stack);
-            adaptor.send(FromStrategy::UpdateReference {});
-            true
-        } else {
-            false
-        }
+        adaptor.reference_mut(|old_reference, adaptor| {
+            if *old_reference != self.tmp_stack {
+                old_reference.clone_from(&self.tmp_stack);
+                adaptor.send(FromStrategy::UpdateReference {});
+                true
+            } else {
+                false
+            }
+        })
     }
 
     fn toggle_reanchor(&mut self, time: Instant) {
@@ -231,15 +299,29 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     }
 }
 
-pub trait StaticNeighbourhoodsAsMelodyAdaptor<T: StackType>: MelodyStrategyAdaptor<T> {
-    /// This function is allowed to be not extremely fast; it's only called in situations where we
-    /// want to reload (parts of) the configuration.
-    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsAsMelodyConfig<T>>;
+impl<T: StackType, P: ProcessAdaptor<StackType = T>, L: AtMost<StrategyConfigLevel>>
+    MelodyAdaptor<T, StaticNeighbourhoodsAsMelody<T>, P, L>
+{
+    fn config<R>(
+        self,
+        mut f: impl FnMut(
+            &StaticNeighbourhoodsAsMelodyConfig<T>,
+            MelodyAdaptor<T, StaticNeighbourhoodsAsMelody<T>, P, Succ<ActiveStrategyIndexLevel>>,
+        ) -> R,
+    ) -> (R, Self) {
+        self.active_strategy(|conf, adaptor| match conf {
+            StrategyConfig::TwoStep {
+                melody: MelodyStrategyConfig::StaticNeighbourhoods(config),
+                ..
+            } => f(config, adaptor),
+            _ => panic!(
+                "Wrong type of melody strategy config: expected StaticNeighbourhoodsAsMelodyConfig"
+            ),
+        })
+    }
 }
 
-impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, A>
-    for StaticNeighbourhoodsAsMelody<T>
-{
+impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
     type Config = StaticNeighbourhoodsAsMelodyConfig<T>;
 
     type Msg = ToStaticNeighbourhoodsAsMelody<T>;
@@ -256,13 +338,27 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
         }
     }
 
-    fn tune_with_harmony(&mut self, time: Instant, adaptor: &A) {
-        self.update_all_tunings_and_send(time, adaptor);
+    fn tune_with_harmony<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        time: Instant,
+        adaptor: MelodyAdaptor<T, Self, P, Zero>,
+    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        self.update_all_tunings_and_send(time, adaptor)
     }
 
-    fn stop(&mut self, _time: Instant, _adaptor: &A) {}
+    fn stop<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        _time: Instant,
+        adaptor: MelodyAdaptor<T, Self, P, Zero>,
+    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        adaptor
+    }
 
-    fn start(&mut self, time: Instant, adaptor: &A) {
+    fn start<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        time: Instant,
+        adaptor: MelodyAdaptor<T, Self, P, Zero>,
+    ) -> MelodyAdaptor<T, Self, P, Zero> {
         adaptor.send(FromStrategy::UpdateReference {});
         adaptor.send(FromStrategy::SelectScale {
             index: self.curr_scale_index,
@@ -272,84 +368,103 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
                 stack: stack.clone(),
             });
         });
-        self.tune_with_harmony(time, adaptor);
+        self.tune_with_harmony(time, adaptor)
     }
 
-    fn reset(&mut self, adaptor: &A) {
-        self.scales = adaptor
-            .config()
-            .scales
-            .iter()
-            .map(|n| n.named.clone())
-            .collect();
-        self.curr_scale_index = 0;
+    fn reset<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        mut adaptor: MelodyAdaptor<T, Self, P, Zero>,
+    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        (_, adaptor) = adaptor.config(|config, adaptor| {
+            self.scales = config.scales.iter().map(|n| n.named.clone()).collect();
+            self.curr_scale_index = 0;
+            self.reanchor = config.reanchor;
+            adaptor.reference_mut(|reference, _| reference.clone_from(&config.initial_reference));
+        });
         adaptor
-            .reference_mut()
-            .clone_from(&adaptor.config().initial_reference);
-        self.reanchor = adaptor.config().reanchor;
     }
 
-    fn update_tuning_reference(&mut self, time: Instant, adaptor: &A) {
-        for i in 0..128 {
-            if adaptor.key_state(i).is_sounding() {
-                let new_semitones = adaptor
-                    .tuning(i)
-                    .stack
-                    .absolute_semitones(adaptor.tuning_reference().c4_semitones());
-                adaptor.tuning_mut(i).semitones = new_semitones;
-                adaptor.send(FromStrategy::Retune {
-                    note: i as u8,
-                    time,
-                });
-            }
-        }
+    fn update_tuning_reference<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        time: Instant,
+        adaptor: MelodyAdaptor<T, Self, P, Zero>,
+    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
+            let c4_semitones;
+            (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
+            let new_semitones = the_tuning.stack.absolute_semitones(c4_semitones);
+            the_tuning.semitones = new_semitones;
+            adaptor.send(FromStrategy::Retune {
+                note: i as u8,
+                time,
+            });
+        })
     }
 
-    fn consider(&mut self, stack: Stack<T>, time: Instant, adaptor: &A) {
+    fn consider<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        stack: Stack<T>,
+        time: Instant,
+        adaptor: MelodyAdaptor<T, Self, P, Zero>,
+    ) -> MelodyAdaptor<T, Self, P, Zero> {
         let inserted_stack = self.scales[self.curr_scale_index].insert(&stack).clone();
         let _ = adaptor.send(FromStrategy::Consider {
             stack: inserted_stack,
         });
-        self.update_all_tunings_and_send(time, adaptor);
+        self.update_all_tunings_and_send(time, adaptor)
     }
 
-    fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) {
+    fn receive_msg<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        msg: Self::Msg,
+        mut adaptor: MelodyAdaptor<T, Self, P, Zero>,
+    ) -> MelodyAdaptor<T, Self, P, Zero> {
         match msg {
             ToStaticNeighbourhoodsAsMelody::SelectScale { index, time } => {
                 if index != self.curr_scale_index {
                     self.curr_scale_index = index;
-                    self.start(time, adaptor);
+                    self.start(time, adaptor)
+                } else {
+                    adaptor
                 }
             }
             ToStaticNeighbourhoodsAsMelody::SetReference { reference, time } => {
-                if self.set_reference(reference, adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
+                let b;
+                (b, adaptor) = self.set_reference(reference, adaptor);
+                if b {
+                    self.update_all_tunings_and_send(time, adaptor)
+                } else {
+                    adaptor
                 }
             }
-            ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time } => self.toggle_reanchor(time),
+            ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time } => {
+                self.toggle_reanchor(time);
+                adaptor
+            }
             ToStaticNeighbourhoodsAsMelody::SetGroupMs { group_ms } => {
-                self.group_duration = Duration::from_millis(group_ms)
+                self.group_duration = Duration::from_millis(group_ms);
+                adaptor
             }
             ToStaticNeighbourhoodsAsMelody::UpdateScales {
                 only_this_scale,
                 time,
             } => match only_this_scale {
                 None {} => {
-                    self.scales = adaptor
-                        .config()
-                        .scales
-                        .iter()
-                        .map(|n| n.named.clone())
-                        .collect();
+                    (_, adaptor) = adaptor.config(|config, _| {
+                        self.scales = config.scales.iter().map(|n| n.named.clone()).collect();
+                    });
                     if self.scales.len() <= self.curr_scale_index {
                         self.curr_scale_index = 0;
                     }
-                    self.start(time, adaptor);
+                    self.start(time, adaptor)
                 }
                 Some(i) => {
-                    self.scales[i].clone_from(&adaptor.config().scales[i].named);
+                    (_, adaptor) = adaptor
+                        .config(|config, _| self.scales[i].clone_from(&config.scales[i].named));
                     if i == self.curr_scale_index {
-                        self.start(time, adaptor);
+                        self.start(time, adaptor)
+                    } else {
+                        adaptor
                     }
                 }
             },
@@ -364,7 +479,12 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
 
     // Make sure that [StrategyConfig::reacts_to_bound] exposes exactly the actions that this
     // function handles!
-    fn handle_bound_action(&mut self, action: &BindableStrategyAction, time: Instant, adaptor: &A) {
+    fn handle_bound_action<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        action: &BindableStrategyAction,
+        time: Instant,
+        mut adaptor: MelodyAdaptor<T, Self, P, Zero>,
+    ) -> MelodyAdaptor<T, Self, P, Zero> {
         match action {
             BindableStrategyAction::IncrementNeighbourhoodIndex(increment) => {
                 let old_index = self.curr_scale_index;
@@ -372,30 +492,44 @@ impl<T: StackType, A: StaticNeighbourhoodsAsMelodyAdaptor<T>> MelodyStrategy<T, 
                     .rem_euclid(self.scales.len() as isize)
                     as usize;
                 if old_index != self.curr_scale_index {
-                    self.start(time, adaptor);
+                    self.start(time, adaptor)
+                } else {
+                    adaptor
                 }
             }
             BindableStrategyAction::SetReferenceToLowest => {
-                if self.set_reference_to_extreme(false, adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
+                let b;
+                (b, adaptor) = self.set_reference_to_extreme(false, adaptor);
+                if b {
+                    self.update_all_tunings_and_send(time, adaptor)
+                } else {
+                    adaptor
                 }
             }
             BindableStrategyAction::SetReferenceToHighest => {
-                if self.set_reference_to_extreme(true, adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
+                let b;
+                (b, adaptor) = self.set_reference_to_extreme(true, adaptor);
+                if b {
+                    self.update_all_tunings_and_send(time, adaptor)
+                } else {
+                    adaptor
                 }
             }
             BindableStrategyAction::SetReferenceToCurrent => {
-                if self.set_reference_to_current(adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
+                let b;
+                (b, adaptor) = self.set_reference_to_current(adaptor);
+                if b {
+                    self.update_all_tunings_and_send(time, adaptor)
+                } else {
+                    adaptor
                 }
             }
             BindableStrategyAction::Reset => {
-                self.stop(time, adaptor);
-                self.reset(adaptor);
-                self.start(time, adaptor);
+                adaptor = self.stop(time, adaptor);
+                adaptor = self.reset(adaptor);
+                self.start(time, adaptor)
             }
-            _ => {}
+            _ => adaptor,
         }
     }
 }

@@ -1,11 +1,11 @@
-use std::{ops::Deref, time::Instant};
+use std::time::Instant;
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    adaptors::lock_levels::KeyStateLevel,
+    adaptors::lock_levels::{ActiveStrategyIndexLevel, KeyStateLevel, StrategyConfigLevel},
     bindable::BindableStrategyAction,
-    config::{HarmonyStrategyConfig, IsHarmonyStrategyConfig},
+    config::{HarmonyStrategyConfig, IsHarmonyStrategyConfig, StrategyConfig},
     interval::{
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
@@ -13,8 +13,9 @@ use crate::{
     keystate::KeyState,
     msg::{ToChordList, ToHarmony},
     neighbourhood::SomeNeighbourhood,
-    strategy::harmony::r#trait::{HarmonyResult, HarmonyStrategy, HarmonyStrategyAdaptor},
-    util::ordered_locks::{AtMost, IndexedAccess, OrderedLocks},
+    process::r#trait::ProcessAdaptor,
+    strategy::harmony::r#trait::{Harmony, HarmonyAdaptor, HarmonyResult, HarmonyStrategy},
+    util::ordered_locks::{AtMost, IndexedAccess, OrderedLocks, ReadAllowed, Succ, Zero},
 };
 
 pub mod keyshape;
@@ -62,14 +63,15 @@ pub struct PatternConfig<T: IntervalBasis> {
 
 /// Compute blocks for the [KeyShape::BlockVoicingFixed] and [KeyShape::BlockVoicingRelative] from
 /// the currently sounding notes.
-pub fn blocks_from_current<A, L>(
+pub fn blocks_from_current<T, A, L>(
     block_sizes: &[usize],
-    mut adaptor: OrderedLocks<A, L>,
+    mut adaptor: OrderedLocks<T, A, L>,
     lowest_sounding: usize,
-) -> (Vec<Vec<u8>>, OrderedLocks<A, L>)
+) -> (Vec<Vec<u8>>, OrderedLocks<T, A, L>)
 where
     A: IndexedAccess<KeyStateLevel, usize, KeyState>,
     L: AtMost<KeyStateLevel>,
+    T: ReadAllowed<KeyStateLevel>,
 {
     let mut encountered = [false; 12];
     let mut blocks = vec![];
@@ -136,13 +138,29 @@ impl<T: StackType> IsHarmonyStrategyConfig<T> for ChordListConfig<T> {
     }
 }
 
-pub trait ChordListAdaptor<T: StackType>: HarmonyStrategyAdaptor<T> {
-    /// This function is allowed to be not extremely fast; it's only called in situations where we
-    /// want to reload (parts of) the configuration.
-    fn config(&self) -> impl Deref<Target = ChordListConfig<T>>;
+impl<T: StackType, P: ProcessAdaptor<StackType = T>, L: AtMost<StrategyConfigLevel>>
+    HarmonyAdaptor<T, ChordList<T>, P, L>
+{
+    pub fn config<R>(
+        self,
+        mut f: impl FnMut(
+            &ChordListConfig<T>,
+            HarmonyAdaptor<T, ChordList<T>, P, Succ<ActiveStrategyIndexLevel>>,
+        ) -> R,
+    ) -> (R, Self) {
+        self.active_strategy(|strat, adaptor| match strat {
+            StrategyConfig::TwoStep {
+                harmony: HarmonyStrategyConfig::ChordList(conf),
+                ..
+            } => f(conf, adaptor),
+            _ => panic!(
+                "config() method on HarmonyAdaptor: expected ChordListConfig, got something else"
+            ),
+        })
+    }
 }
 
-impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T> {
+impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
     type Config = ChordListConfig<T>;
     type Msg = ToChordList;
 
@@ -161,89 +179,144 @@ impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T
         }
     }
 
-    fn start(&mut self, time: Instant, adaptor: &A) -> HarmonyResult {
+    fn start<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        time: Instant,
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, P, Zero>) {
         self.start_solve(time, adaptor)
     }
 
-    fn stop(&mut self, _time: Instant, _adaptor: &A) {}
-
-    fn reset(&mut self, adaptor: &A) {
-        self.enable = adaptor.config().enable;
-        self.patterns = adaptor
-            .config()
-            .patterns
-            .iter()
-            .map(|p| Pattern::new(&p))
-            .collect();
+    fn stop<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        time: Instant,
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> HarmonyAdaptor<T, Self, P, Zero> {
+        adaptor
     }
 
-    fn start_solve(&mut self, time: Instant, adaptor: &A) -> HarmonyResult {
+    fn reset<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> HarmonyAdaptor<T, Self, P, Zero> {
+        todo!();
+        adaptor
+        // self.enable = adaptor.config().enable;
+        // self.patterns = adaptor
+        //     .config()
+        //     .patterns
+        //     .iter()
+        //     .map(|p| Pattern::new(&p))
+        //     .collect();
+    }
+
+    fn start_solve<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        time: Instant,
+        mut adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, P, Zero>) {
         if self.enable {
             self.next_pattern_to_try = 0;
             self.best_fit = (0, Fit::Failed);
             self.solve_start = time;
-            self.active_code = active_code(|i| adaptor.key_state(i));
+            (self.active_code, adaptor) = active_code(adaptor);
         }
-        adaptor.harmony().valid = false;
-        HarmonyResult {
-            finished: !self.enable,
-            progress: false,
-        }
+        (_, adaptor) = adaptor.harmony_mut(|h, _| {
+            if let Some(h) = h {
+                h.valid = false
+            }
+        });
+        (
+            HarmonyResult {
+                finished: !self.enable,
+                progress: false,
+            },
+            adaptor,
+        )
     }
 
-    fn step(&mut self, adaptor: &A) -> HarmonyResult {
+    fn step<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        mut adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, P, Zero>) {
         if self.next_pattern_to_try >= self.patterns.len() {
             let progress = self.best_fit.1.matches_something();
-            adaptor.harmony().valid = progress;
-            return HarmonyResult {
-                finished: true,
-                progress,
-            };
+
+            (_, adaptor) = adaptor.harmony_mut(|h, _| {
+                if let Some(h) = h {
+                    h.valid = progress
+                }
+            });
+            return (
+                HarmonyResult {
+                    finished: true,
+                    progress,
+                },
+                adaptor,
+            );
         }
 
         let the_pattern = &self.patterns[self.next_pattern_to_try];
 
         let fit = the_pattern.key_shape.fit_code(self.active_code);
 
-        let update_harmony = || {
+        let update_harmony = |mut adaptor: HarmonyAdaptor<T, Self, P, Zero>| {
+            (_, adaptor) = adaptor.harmony_mut(|h, _| {
+                if let Some(h) = h {
+                    h.neighbourhood.clone_from(&the_pattern.neighbourhood);
+                    h.reference = fit.reference() as StackCoeff;
+                    h.pattern_index = Some(self.next_pattern_to_try);
+                    h.valid = true;
+                } else {
+                    *h = Some(Harmony {
+                        neighbourhood: the_pattern.neighbourhood.clone(),
+                        reference: fit.reference() as StackCoeff,
+                        pattern_index: Some(self.next_pattern_to_try),
+                        valid: true,
+                    });
+                }
+            });
             adaptor
-                .harmony()
-                .neighbourhood
-                .clone_from(&the_pattern.neighbourhood);
-            adaptor.harmony().reference = fit.reference() as StackCoeff;
-            adaptor.harmony().pattern_index = Some(self.next_pattern_to_try);
-            adaptor.harmony().valid = true;
         };
 
         if fit.is_complete() {
-            update_harmony();
+            adaptor = update_harmony(adaptor);
 
             self.best_fit = (self.next_pattern_to_try, fit);
             self.next_pattern_to_try = self.patterns.len(); // we won't look at more patterns.
 
-            return HarmonyResult {
-                finished: true,
-                progress: true,
-            };
+            return (
+                HarmonyResult {
+                    finished: true,
+                    progress: true,
+                },
+                adaptor,
+            );
         }
 
         if fit.is_better_than(&self.best_fit.1) {
-            update_harmony();
+            adaptor = update_harmony(adaptor);
 
             self.best_fit = (self.next_pattern_to_try, fit);
             self.next_pattern_to_try += 1;
 
-            return HarmonyResult {
-                finished: false,
-                progress: true,
-            };
+            return (
+                HarmonyResult {
+                    finished: false,
+                    progress: true,
+                },
+                adaptor,
+            );
         }
 
         self.next_pattern_to_try += 1;
-        HarmonyResult {
-            finished: false,
-            progress: false,
-        }
+        (
+            HarmonyResult {
+                finished: false,
+                progress: false,
+            },
+            adaptor,
+        )
     }
 
     fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg> {
@@ -252,44 +325,55 @@ impl<T: StackType, A: ChordListAdaptor<T>> HarmonyStrategy<T, A> for ChordList<T
         }
     }
 
-    fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) -> Option<Instant> {
+    fn receive_msg<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        msg: Self::Msg,
+        mut adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> (Option<Instant>, HarmonyAdaptor<T, Self, P, Zero>) {
         match msg {
             ToChordList::ToggleEnable { time } => {
                 self.enable = !self.enable;
-                Some(time)
+                (Some(time), adaptor)
             }
             ToChordList::ChordListAction { list_action, time } => {
                 list_action.apply_to_no_select(&mut self.patterns, |x| x.clone());
-                Some(time)
+                (Some(time), adaptor)
             }
             ToChordList::UpdateChord { index, time } => {
-                self.patterns[index].update_from_config(&adaptor.config().patterns[index]);
-                Some(time)
+                (_, adaptor) = adaptor.config(|conf, _| {
+                    self.patterns[index].update_from_config(&conf.patterns[index]);
+                });
+                (Some(time), adaptor)
             }
             ToChordList::PushNewChord { time } => {
-                self.patterns
-                    .push(Pattern::new(adaptor.config().patterns.last().unwrap()));
-                Some(time)
+                (_, adaptor) = adaptor.config(|conf, _| {
+                    self.patterns
+                        .push(Pattern::new(conf.patterns.last().unwrap()))
+                });
+                (Some(time), adaptor)
             }
         }
     }
 
-    fn handle_bound_action(
+    fn handle_bound_action<P: ProcessAdaptor<StackType = T>>(
         &mut self,
         action: BindableStrategyAction,
         time: Instant,
-        adaptor: &A,
-    ) -> Option<Instant> {
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> (Option<Instant>, HarmonyAdaptor<T, Self, P, Zero>) {
         match action {
             BindableStrategyAction::Reset => {
-                self.stop(time, adaptor);
-                self.reset(adaptor);
-                Some(time)
+                todo!();
+                (None {}, adaptor)
+
+                // self.stop(time, adaptor);
+                // self.reset(adaptor);
+                // Some(time)
                 // returning this will make sure that we call
                 // self.start(time, adaptor)
                 // next
             }
-            _ => None {},
+            _ => (None {}, adaptor),
         }
     }
 }

@@ -1,17 +1,23 @@
-use std::{ops::Deref, time::Instant};
+use std::time::Instant;
 
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
+    adaptors::lock_levels::{
+        ActiveStrategyIndexLevel, KeyStateLevel, ReferenceLevel, StrategyConfigLevel,
+        TuningStateLevel,
+    },
     bindable::BindableStrategyAction,
-    config::{IsStrategyConfig, Named},
+    config::{IsStrategyConfig, Named, StrategyConfig},
     interval::{
         stack::{ScaledAdd, Stack},
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     msg::{FromStrategy, ToStaticNeighbourhoods, ToStrategy},
     neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
+    process::r#trait::ProcessAdaptor,
     strategy::r#trait::{Strategy, StrategyAdaptor},
+    util::ordered_locks::{AtMost, Succ, Zero},
 };
 
 pub struct StaticNeighbourhoods<T: StackType> {
@@ -33,96 +39,136 @@ pub struct StaticNeighbourhoodsConfig<T: IntervalBasis> {
 impl<T: StackType> StaticNeighbourhoods<T> {
     /// Only does something iff the tuning stack, as accessed through the adaptor, changes. That
     /// is: You can't use this for retunes caused by a changing tuning reference.
-    fn update_tuning_and_send(
+    fn update_tuning_and_send<P, L>(
         &mut self,
         note: u8,
         time: Instant,
-        adaptor: &impl StaticNeighbourhoodsAdaptor<T>,
-    ) {
-        let mut the_tuning = adaptor.tuning_mut(note as usize);
+        mut adaptor: StrategyAdaptor<T, Self, P, L>,
+    ) -> StrategyAdaptor<T, Self, P, L>
+    where
+        P: ProcessAdaptor<StackType = T>,
+        L: AtMost<TuningStateLevel>,
+    {
+        (_, adaptor) = adaptor.tuning_mut(note as usize, |the_tuning, mut adaptor| {
+            (_, adaptor) = adaptor.reference(|reference, _| {
+                self.scales[self.curr_scale_index].write_relative_stack(
+                    &mut self.tmp_stack,
+                    note as StackCoeff - reference.key_number(),
+                );
+                self.tmp_stack.scaled_add(1, reference);
+            });
 
-        self.scales[self.curr_scale_index].write_relative_stack(
-            &mut self.tmp_stack,
-            note as StackCoeff - adaptor.reference().key_number(),
-        );
-        self.tmp_stack.scaled_add(1, adaptor.reference());
+            let mut changed = false;
 
-        let mut changed = false;
+            if the_tuning.stack != self.tmp_stack {
+                the_tuning.stack.clone_from(&self.tmp_stack);
+                changed = true;
+            }
 
-        if the_tuning.stack != self.tmp_stack {
-            the_tuning.stack.clone_from(&self.tmp_stack);
-            changed = true;
-        }
+            let c4_semitones;
+            (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
+            let the_semitones = self.tmp_stack.absolute_semitones(c4_semitones);
+            if the_semitones != the_tuning.semitones {
+                the_tuning.semitones = the_semitones;
+                changed = true;
+            }
 
-        let the_semitones = self
-            .tmp_stack
-            .absolute_semitones(adaptor.tuning_reference().c4_semitones());
-        if the_semitones != the_tuning.semitones {
-            the_tuning.semitones = the_semitones;
-            changed = true;
-        }
+            if changed {
+                adaptor.send(FromStrategy::Retune { note, time });
+            }
+        });
 
-        if changed {
-            adaptor.send(FromStrategy::Retune { note, time });
-        }
+        adaptor
     }
 
-    fn update_all_tunings_and_send(
+    fn update_all_tunings_and_send<P, L>(
         &mut self,
         time: Instant,
-        adaptor: &impl StaticNeighbourhoodsAdaptor<T>,
-    ) {
-        for i in 0..128 {
-            if adaptor.key_state(i).is_sounding() {
-                self.update_tuning_and_send(i as u8, time, adaptor);
-            }
-        }
+        mut adaptor: StrategyAdaptor<T, Self, P, L>,
+    ) -> StrategyAdaptor<T, Self, P, L>
+    where
+        P: ProcessAdaptor<StackType = T>,
+        L: AtMost<KeyStateLevel>,
+    {
+        adaptor = adaptor.for_all_sounding_keys(|i, _, adaptor| {
+            self.update_tuning_and_send(i as u8, time, adaptor);
+        });
+        adaptor
     }
 
     /// Returns true iff the reference changed. In that case, a re-tuning using
     /// [Self::update_all_tunings_and_send] will become necessary.
-    fn set_reference_to_extreme(
+    fn set_reference_to_extreme<P, L>(
         &mut self,
         to_highest: bool,
-        adaptor: &impl StaticNeighbourhoodsAdaptor<T>,
-    ) -> bool {
-        self.tmp_stack.clone_from(&adaptor.reference());
+        mut adaptor: StrategyAdaptor<T, Self, P, L>,
+    ) -> (bool, StrategyAdaptor<T, Self, P, L>)
+    where
+        P: ProcessAdaptor<StackType = T>,
+        L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
+    {
+        (_, adaptor) = adaptor.reference(|r, _| self.tmp_stack.clone_from(r));
 
         if to_highest {
-            for i in 0..128 {
-                if adaptor.key_state(i).is_sounding() {
-                    self.tmp_stack.clone_from(&adaptor.tuning(i).stack);
+            for i in (0..128).rev() {
+                let mut found = false;
+                (_, adaptor) = adaptor.key_state(i, |k, adaptor| {
+                    if k.is_sounding() {
+                        adaptor.tuning(i, |t, _| self.tmp_stack.clone_from(&t.stack));
+                        found = true;
+                    }
+                });
+                if found {
                     break;
                 }
             }
         } else {
             for i in 0..128 {
-                if adaptor.key_state(i).is_sounding() {
-                    self.tmp_stack.clone_from(&adaptor.tuning(i).stack);
+                let mut found = false;
+                (_, adaptor) = adaptor.key_state(i, |k, adaptor| {
+                    if k.is_sounding() {
+                        adaptor.tuning(i, |t, _| self.tmp_stack.clone_from(&t.stack));
+                        found = true;
+                    }
+                });
+                if found {
                     break;
                 }
             }
         }
 
-        if *adaptor.reference() != self.tmp_stack {
-            adaptor.reference_mut().clone_from(&self.tmp_stack);
-            adaptor.send(FromStrategy::UpdateReference {});
-            true
-        } else {
-            false
-        }
+        adaptor.reference_mut(|old_reference, adaptor| {
+            if *old_reference != self.tmp_stack {
+                old_reference.clone_from(&self.tmp_stack);
+                adaptor.send(FromStrategy::UpdateReference {});
+                true
+            } else {
+                false
+            }
+        })
     }
 }
 
 impl<T: StackType> IsStrategyConfig<T> for StaticNeighbourhoodsConfig<T> {}
 
-pub trait StaticNeighbourhoodsAdaptor<T: StackType>: StrategyAdaptor<T> {
-    /// This function is allowed to be not extremely fast; it's only called in situations where we
-    /// want to reload (parts of) the configuration.
-    fn config(&self) -> impl Deref<Target = StaticNeighbourhoodsConfig<T>>;
+impl<T: StackType, P: ProcessAdaptor<StackType = T>, L: AtMost<StrategyConfigLevel>>
+    StrategyAdaptor<T, StaticNeighbourhoods<T>, P, L>
+{
+    fn config<R>(
+        self,
+        mut f: impl FnMut(
+            &StaticNeighbourhoodsConfig<T>,
+            StrategyAdaptor<T, StaticNeighbourhoods<T>, P, Succ<ActiveStrategyIndexLevel>>,
+        ) -> R,
+    ) -> (R, Self) {
+        self.active_strategy(|conf, adaptor| match conf {
+            StrategyConfig::StaticNeighbourhoods { config, .. } => f(config, adaptor),
+            _ => panic!("Wrong type of strategy config: expected StaticNeighbourhoodsConfig"),
+        })
+    }
 }
 
-impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticNeighbourhoods<T> {
+impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
     type Msg = ToStaticNeighbourhoods<T>;
     type Config = StaticNeighbourhoodsConfig<T>;
 
@@ -134,7 +180,14 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
         }
     }
 
-    fn start(&mut self, time: Instant, adaptor: &A) -> bool {
+    fn start<P>(
+        &mut self,
+        time: Instant,
+        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>)
+    where
+        P: ProcessAdaptor<StackType = T>,
+    {
         adaptor.send(FromStrategy::UpdateReference {});
 
         adaptor.send(FromStrategy::SelectScale {
@@ -146,67 +199,92 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
             });
         });
 
-        self.update_all_tunings_and_send(time, adaptor);
+        adaptor = self.update_all_tunings_and_send(time, adaptor);
 
-        false
+        (false, adaptor)
     }
 
-    fn stop(&mut self, _time: Instant, _adaptor: &A) {}
-
-    fn reset(&mut self, adaptor: &A) {
-        self.scales = adaptor
-            .config()
-            .scales
-            .iter()
-            .map(|n| n.named.clone())
-            .collect();
-        self.curr_scale_index = 0;
+    fn stop<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        _time: Instant,
+        adaptor: StrategyAdaptor<T, Self, P, Zero>,
+    ) -> StrategyAdaptor<T, Self, P, Zero> {
         adaptor
-            .reference_mut()
-            .clone_from(&adaptor.config().initial_reference);
     }
 
-    fn note_on(&mut self, note: u8, time: Instant, adaptor: &A) -> bool {
-        self.update_tuning_and_send(note, time, adaptor);
-        false
+    fn reset<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
+    ) -> StrategyAdaptor<T, Self, P, Zero> {
+        (_, adaptor) = adaptor.config(|config, adaptor| {
+            self.scales = config.scales.iter().map(|n| n.named.clone()).collect();
+            self.curr_scale_index = 0;
+            adaptor.reference_mut(|reference, _| reference.clone_from(&config.initial_reference));
+        });
+        adaptor
     }
 
-    fn note_off(&mut self, _note: u8, _time: Instant, _adaptor: &A) -> bool {
-        false
+    fn note_on<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        note: u8,
+        time: Instant,
+        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor = self.update_tuning_and_send(note, time, adaptor);
+        (false, adaptor)
     }
 
-    fn update_tuning_reference(&mut self, time: Instant, adaptor: &A) -> bool {
-        for i in 0..128 {
-            if adaptor.key_state(i).is_sounding() {
-                let new_semitones = adaptor
-                    .tuning(i)
-                    .stack
-                    .absolute_semitones(adaptor.tuning_reference().c4_semitones());
-                adaptor.tuning_mut(i).semitones = new_semitones;
-                adaptor.send(FromStrategy::Retune {
-                    note: i as u8,
-                    time,
-                });
-            }
-        }
-        false
+    fn note_off<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        _note: u8,
+        _time: Instant,
+        adaptor: StrategyAdaptor<T, Self, P, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        (false, adaptor)
     }
 
-    fn consider(&mut self, stack: Stack<T>, time: Instant, adaptor: &A) -> bool {
+    fn update_tuning_reference<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        time: Instant,
+        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor = adaptor.for_all_sounding_tunings_mut(|i, tuning, mut adaptor| {
+            let c4_semitones;
+            (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
+            let new_semitones = tuning.stack.absolute_semitones(c4_semitones);
+            tuning.semitones = new_semitones;
+            adaptor.send(FromStrategy::Retune {
+                note: i as u8,
+                time,
+            });
+        });
+        (false, adaptor)
+    }
+
+    fn consider<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        stack: Stack<T>,
+        time: Instant,
+        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
         let inserted_stack = self.scales[self.curr_scale_index].insert(&stack).clone();
         let _ = adaptor.send(FromStrategy::Consider {
             stack: inserted_stack,
         });
-        self.update_all_tunings_and_send(time, adaptor);
-        false
+        adaptor = self.update_all_tunings_and_send(time, adaptor);
+        (false, adaptor)
     }
 
-    fn receive_msg(&mut self, msg: ToStaticNeighbourhoods<T>, adaptor: &A) -> bool {
+    fn receive_msg<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        msg: Self::Msg,
+        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
         match msg {
             ToStaticNeighbourhoods::SelectScale { index, time } => {
                 if index != self.curr_scale_index {
                     self.curr_scale_index = index;
-                    self.start(time, adaptor);
+                    (_, adaptor) = self.start(time, adaptor);
                 }
             }
             ToStaticNeighbourhoods::UpdateScales {
@@ -214,36 +292,36 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
                 time,
             } => match only_this_scale {
                 None {} => {
-                    self.scales = adaptor
-                        .config()
-                        .scales
-                        .iter()
-                        .map(|n| n.named.clone())
-                        .collect();
+                    (self.scales, adaptor) = adaptor
+                        .config(|conf, _| conf.scales.iter().map(|n| n.named.clone()).collect());
                     if self.scales.len() <= self.curr_scale_index {
                         self.curr_scale_index = 0;
                     }
-                    self.start(time, adaptor);
+                    (_, adaptor) = self.start(time, adaptor);
                 }
                 Some(i) => {
-                    self.scales[i].clone_from(&adaptor.config().scales[i].named);
+                    (_, adaptor) =
+                        adaptor.config(|conf, _| self.scales[i].clone_from(&conf.scales[i].named));
                     if i == self.curr_scale_index {
-                        self.start(time, adaptor);
+                        (_, adaptor) = self.start(time, adaptor);
                     }
                 }
             },
             ToStaticNeighbourhoods::SetReference { reference, time } => {
-                adaptor.reference_mut().clone_from(&reference);
+                (_, adaptor) = adaptor.reference_mut(|r, _| r.clone_from(&reference));
                 let _ = adaptor.send(FromStrategy::UpdateReference {});
-                self.update_all_tunings_and_send(time, adaptor);
+                adaptor = self.update_all_tunings_and_send(time, adaptor);
             }
         }
-        false
+        (false, adaptor)
     }
 
-    fn step(&mut self, _adaptor: &A) -> bool {
+    fn step<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        adaptor: StrategyAdaptor<T, Self, P, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
         // no steps are needed for anything.
-        false
+        (false, adaptor)
     }
 
     fn filter_to_strategy(msg: ToStrategy<T>) -> Option<Self::Msg> {
@@ -255,12 +333,12 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
 
     // Make sure that [StrategyConfig::reacts_to_bound] exposes exactly the actions that this
     // function handles!
-    fn handle_bound_action(
+    fn handle_bound_action<P: ProcessAdaptor<StackType = T>>(
         &mut self,
         action: BindableStrategyAction,
         time: Instant,
-        adaptor: &A,
-    ) -> bool {
+        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
         match action {
             BindableStrategyAction::IncrementNeighbourhoodIndex(increment) => {
                 let old_index = self.curr_scale_index;
@@ -268,28 +346,32 @@ impl<T: StackType, A: StaticNeighbourhoodsAdaptor<T>> Strategy<T, A> for StaticN
                     .rem_euclid(self.scales.len() as isize)
                     as usize;
                 if old_index != self.curr_scale_index {
-                    self.start(time, adaptor);
+                    (_, adaptor) = self.start(time, adaptor);
                 }
             }
             BindableStrategyAction::SetReferenceToLowest => {
-                if self.set_reference_to_extreme(false, adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
+                let update;
+                (update, adaptor) = self.set_reference_to_extreme(false, adaptor);
+                if update {
+                    adaptor = self.update_all_tunings_and_send(time, adaptor);
                 }
             }
             BindableStrategyAction::SetReferenceToHighest => {
-                if self.set_reference_to_extreme(true, adaptor) {
-                    self.update_all_tunings_and_send(time, adaptor);
+                let update;
+                (update, adaptor) = self.set_reference_to_extreme(true, adaptor);
+                if update {
+                    adaptor = self.update_all_tunings_and_send(time, adaptor);
                 }
             }
             BindableStrategyAction::Reset => {
-                self.stop(time, adaptor);
-                self.reset(adaptor);
-                self.start(time, adaptor);
+                adaptor = self.stop(time, adaptor);
+                adaptor = self.reset(adaptor);
+                (_, adaptor) = self.start(time, adaptor);
             }
             BindableStrategyAction::SetReferenceToCurrent => {}
             BindableStrategyAction::ToggleChordMatching => {}
             BindableStrategyAction::ToggleReanchor => {}
         }
-        false
+        (false, adaptor)
     }
 }

@@ -15,7 +15,7 @@ use crate::{
     },
     keystate::KeyState,
     process::r#trait::StackWithTuning,
-    util::ordered_locks::{AtMost, IndexedAccess, OrderedLocks},
+    util::ordered_locks::{AtMost, IndexedAccess, OrderedLocks, ReadAllowed},
 };
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -639,15 +639,16 @@ impl<T: IntervalBasis> PeriodicNeighbourhood<T> for PeriodicComplete<T> {}
 /// notes.
 ///
 /// lowest_sounding must be the index of the lowest sounding note in the adaptor.
-pub fn sounding_periodic_partial<T, A, L>(
-    mut adaptor: OrderedLocks<A, L>,
+pub fn sounding_periodic_partial<T, X, A, L>(
+    mut adaptor: OrderedLocks<X, A, L>,
     lowest_sounding: usize,
-) -> (PeriodicPartial<T>, OrderedLocks<A, L>)
+) -> (PeriodicPartial<T>, OrderedLocks<X, A, L>)
 where
     T: OctavePeriodicIntervalBasis,
     A: IndexedAccess<KeyStateLevel, usize, KeyState>
         + IndexedAccess<TuningStateLevel, usize, StackWithTuning<T>>,
     L: AtMost<KeyStateLevel>,
+    X: ReadAllowed<KeyStateLevel> + ReadAllowed<TuningStateLevel>
 {
     let mut neigh = PeriodicPartial::new_from_period_index(T::period_index());
     let mut tmp = Stack::new_zero();
@@ -674,15 +675,16 @@ where
 /// notes.
 ///
 /// lowest_sounding must be the index of the lowest sounding note in the adaptor.
-pub fn sounding_partial<T, A, L>(
-    mut adaptor: OrderedLocks<A, L>,
+pub fn sounding_partial<T, X, A, L>(
+    mut adaptor: OrderedLocks<X, A, L>,
     lowest_sounding: usize,
-) -> (Partial<T>, OrderedLocks<A, L>)
+) -> (Partial<T>, OrderedLocks<X, A, L>)
 where
     T: IntervalBasis,
     A: IndexedAccess<KeyStateLevel, usize, KeyState>
         + IndexedAccess<TuningStateLevel, usize, StackWithTuning<T>>,
     L: AtMost<KeyStateLevel>,
+    X: ReadAllowed<KeyStateLevel> + ReadAllowed<TuningStateLevel>
 {
     let mut neigh = Partial::new();
     let mut tmp = Stack::new_zero();

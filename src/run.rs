@@ -420,6 +420,7 @@ impl<T: StackType> RunState<T> {
             tuning_reference: Arc::new(RwLock::new(tuning_reference)),
             strategies: Arc::new(RwLock::new(strategies)),
             active_strategy_index: Arc::new(RwLock::new(0)),
+            harmony: Arc::new(RwLock::new(None{})),
         };
 
         let backend_adaptor = ConcretePitchbend12Adaptor {

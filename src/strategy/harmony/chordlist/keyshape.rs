@@ -1,5 +1,11 @@
 use serde_derive::{Deserialize, Serialize};
 
+use crate::{
+    adaptors::lock_levels::KeyStateLevel,
+    process::r#trait::ProcessAdaptor,
+    util::ordered_locks::{AtMost, OrderedLocks, ReadAllowed},
+};
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, std::hash::Hash)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
@@ -149,16 +155,14 @@ impl KeyShape {
     }
 }
 
-/// The function `notes` return something for the range 0..128 that describes the activation of MIDI
-/// notes.
-pub fn active_code<N: HasActivationStatus>(notes: impl Fn(usize) -> N) -> u128 {
+pub fn active_code<T: ReadAllowed<KeyStateLevel>, P: ProcessAdaptor, L: AtMost<KeyStateLevel>>(
+    mut adaptor: OrderedLocks<T, P, L>,
+) -> (u128, OrderedLocks<T, P, L>) {
     let mut active_code: u128 = 0;
-    for i in 0..128 {
-        if notes(i).active() {
-            active_code |= 1 << i;
-        }
-    }
-    active_code
+    adaptor = adaptor.for_all_sounding_keys(|i, _, _| {
+        active_code |= 1 << i;
+    });
+    (active_code, adaptor)
 }
 
 /// Assumes that the `keys` argument is nonemtpy (it comes from [KeyShape::ExactFixed])

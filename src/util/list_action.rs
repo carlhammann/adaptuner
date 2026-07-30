@@ -17,36 +17,32 @@ impl ListAction {
             ListAction::SwapWithPrev(i) => {
                 vec.swap(i, i - 1);
             }
-            ListAction::Select(_) => {}
-            ListAction::Deselect => {}
+            ListAction::Select(_) => panic!("apply_to_no_select encountered ListAction::Select(_)"),
+            ListAction::Deselect => panic!("apply_to_no_select encountered ListAction::Deselect"),
         }
     }
 
-    pub fn apply_to<X>(
-        self,
-        vec: &mut Vec<X>,
-        selected: usize,
-        clone: impl Fn(&X) -> X,
-        mut replace_selected: impl FnMut(usize),
-    ) {
+    pub fn apply_to<X>(self, vec: &mut Vec<X>, selected: &mut usize, clone: impl Fn(&X) -> X) {
         match self {
             ListAction::Delete(i) => {
                 vec.remove(i);
-                if selected == 0 {
+                if *selected == 0 {
                     return;
                 }
-                if selected >= i {
-                    replace_selected(selected - 1);
+                if *selected >= i {
+                    *selected -= 1;
                 }
             }
-            ListAction::Select(i) => replace_selected(i),
+            ListAction::Select(i) => {
+                *selected = i;
+            }
             ListAction::Clone(i) => vec.push(clone(&vec[i])),
             ListAction::SwapWithPrev(i) => {
                 vec.swap(i, i - 1);
-                if selected == i {
-                    replace_selected(i - 1);
-                } else if selected == i - 1 {
-                    replace_selected(i);
+                if *selected == i {
+                    *selected = i - 1;
+                } else if *selected == i - 1 {
+                    *selected = i;
                 }
             }
             ListAction::Deselect => panic!("cannot deselect"),

@@ -61,10 +61,6 @@ pub enum ToProcess<T: StackType> {
         value: u8,
         time: Instant,
     },
-    StrategyListAction {
-        action: ListAction,
-        time: Instant,
-    },
     RestartFromConfig {
         time: Instant,
     },
@@ -213,6 +209,9 @@ pub enum FromStrategy<T: StackType> {
     SelectScale {
         index: usize,
     },
+    /// not sure if this should be deprectad altogether, but the form isn't right any more: The
+    /// current harmony lives in the adaptor.
+    #[deprecated]
     CurrentHarmony {
         pattern_index: Option<usize>,
         reference: Option<Stack<T>>,
@@ -398,10 +397,6 @@ pub enum FromUi<T: StackType> {
         time: Instant,
     },
     RestartFromConfig {
-        time: Instant,
-    },
-    StrategyListAction {
-        action: ListAction,
         time: Instant,
     },
     ToStrategy(ToStrategy<T>), // this should somehow be merged with/include the following messages
@@ -692,12 +687,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::UpdateChannelsToUse { time } => (
                 None {},
                 Some(ToBackend::UpdateChannelsToUse { time }),
-                None {},
-                None {},
-            ),
-            FromUi::StrategyListAction { action, time } => (
-                Some(ToProcess::StrategyListAction { action, time }),
-                None {},
                 None {},
                 None {},
             ),

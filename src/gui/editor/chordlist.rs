@@ -4,7 +4,7 @@ use crate::{
     adaptors::lock_levels::{KeyStateLevel, TuningStateLevel},
     gui::{
         common::{show_list_edit, ListEditOpts, ListEditResult},
-        r#trait::{ReceiveToUiRef, UiAdaptor},
+        r#trait::{GuiTag, ReceiveToUiRef, UiAdaptor},
     },
     interval::{
         stack::{ScaledAdd, Stack},
@@ -153,7 +153,10 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         }
     }
 
-    fn recompute_simple<A, L>(&mut self, mut adaptor: OrderedLocks<A, L>) -> OrderedLocks<A, L>
+    fn recompute_simple<A, L>(
+        &mut self,
+        mut adaptor: OrderedLocks<GuiTag, A, L>,
+    ) -> OrderedLocks<GuiTag, A, L>
     where
         A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
@@ -267,7 +270,10 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         adaptor
     }
 
-    fn recompute_block<A, L>(&mut self, mut adaptor: OrderedLocks<A, L>) -> OrderedLocks<A, L>
+    fn recompute_block<A, L>(
+        &mut self,
+        mut adaptor: OrderedLocks<GuiTag, A, L>,
+    ) -> OrderedLocks<GuiTag, A, L>
     where
         A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
@@ -324,7 +330,10 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         adaptor
     }
 
-    fn recompute_new_config<A, L>(&mut self, mut adaptor: OrderedLocks<A, L>) -> OrderedLocks<A, L>
+    fn recompute_new_config<A, L>(
+        &mut self,
+        mut adaptor: OrderedLocks<GuiTag, A, L>,
+    ) -> OrderedLocks<GuiTag, A, L>
     where
         A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
@@ -539,9 +548,9 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         ui: &mut egui::Ui,
         enable: &mut bool,
         patterns: &mut Vec<PatternConfig<T>>,
-        mut adaptor: OrderedLocks<A, L>,
+        mut adaptor: OrderedLocks<GuiTag, A, L>,
         use_cent_values: bool,
-    ) -> (ChordListEditorResult, OrderedLocks<A, L>)
+    ) -> (ChordListEditorResult, OrderedLocks<GuiTag, A, L>)
     where
         A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
@@ -638,8 +647,8 @@ impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ChordLi
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<A, Zero>,
-    ) -> OrderedLocks<A, Zero> {
+        adaptor: OrderedLocks<GuiTag, A, Zero>,
+    ) -> OrderedLocks<GuiTag, A, Zero> {
         match msg {
             ToUi::CurrentHarmony { pattern_index, .. } => {
                 self.active_pattern = *pattern_index;

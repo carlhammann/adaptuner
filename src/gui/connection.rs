@@ -4,7 +4,7 @@ use eframe::egui;
 use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
-    gui::r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
+    gui::r#trait::{GuiShow, GuiTag, ReceiveToUiRef, UiAdaptor},
     interval::stacktype::r#trait::StackType,
     msg::{FromUi, ToUi},
     util::ordered_locks::{OrderedLocks, Zero},
@@ -82,7 +82,7 @@ impl<X: IO> ConnectionWindow<X> {
 pub fn port_selector<X, T: StackType>(
     available_ports: &[(X::Port, String)],
     ui: &mut egui::Ui,
-    adaptor: &impl UiAdaptor<StackType = T>,
+    send: impl FnOnce(FromUi<T>),
 ) -> Option<(X::Port, String)>
 where
     X: IO,
@@ -106,7 +106,7 @@ where
         .response
         .clicked()
     {
-        let _ = adaptor.send(X::disconnect_msg());
+        send(X::disconnect_msg());
     }
 
     selected_port
@@ -132,8 +132,8 @@ where
     fn show<A: UiAdaptor<StackType = T>>(
         &mut self,
         ui: &mut egui::Ui,
-        adaptor: OrderedLocks<A, Zero>,
-    ) -> OrderedLocks<A, Zero> {
+        adaptor: OrderedLocks<GuiTag, A, Zero>,
+    ) -> OrderedLocks<GuiTag, A, Zero> {
         match self {
             ConnectionWindow::Connected { portname } => {
                 if disconnector::<X>(&portname, ui) {
@@ -155,7 +155,7 @@ where
                 }
 
                 if let Some((port, portname)) =
-                    port_selector::<X, T>(&available_ports, ui, &*adaptor)
+                    port_selector::<X, T>(&available_ports, ui, |msg| adaptor.send(msg))
                 {
                     adaptor.send(X::connect_msg(port, portname));
                 }
@@ -169,8 +169,8 @@ impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for Connect
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<A, Zero>,
-    ) -> OrderedLocks<A, Zero> {
+        adaptor: OrderedLocks<GuiTag, A, Zero>,
+    ) -> OrderedLocks<GuiTag, A, Zero> {
         match msg {
             ToUi::InputConnectionError { reason } => match self {
                 ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),
@@ -202,8 +202,8 @@ impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for Connect
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<A, Zero>,
-    ) -> OrderedLocks<A, Zero> {
+        adaptor: OrderedLocks<GuiTag, A, Zero>,
+    ) -> OrderedLocks<GuiTag, A, Zero> {
         match msg {
             ToUi::OutputConnectionError { reason } => match self {
                 ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),

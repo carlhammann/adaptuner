@@ -1,12 +1,17 @@
-use std::{ops::DerefMut, time::Instant};
+use std::{marker::PhantomData, time::Instant};
 
 use crate::{
-    adaptors::ViewKeyStates,
+    adaptors::lock_levels::{
+        ActiveStrategyIndexLevel, HarmonyLevel, KeyStateLevel, StrategyConfigLevel,
+        TuningStateLevel,
+    },
     bindable::BindableStrategyAction,
     config::IsHarmonyStrategyConfig,
     interval::stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     msg::ToHarmony,
     neighbourhood::{Partial, SomeNeighbourhood},
+    process::r#trait::ProcessAdaptor,
+    util::ordered_locks::{OrderedLocks, ReadAllowed, WriteAllowed, Zero},
 };
 
 #[derive(Clone)]
@@ -36,42 +41,92 @@ pub struct HarmonyResult {
     pub progress: bool,
 }
 
-pub trait HarmonyStrategyAdaptor<T: StackType>: ViewKeyStates {
-    fn harmony(&self) -> impl DerefMut<Target = Harmony<T>>;
+pub struct HarmonyAdaptorTag {}
+
+impl<T: StackType, S: HarmonyStrategy<T>> ReadAllowed<KeyStateLevel>
+    for (HarmonyAdaptorTag, PhantomData<T>, S)
+{
+}
+impl<T: StackType, S: HarmonyStrategy<T>> ReadAllowed<TuningStateLevel>
+    for (HarmonyAdaptorTag, PhantomData<T>, S)
+{
+}
+impl<T: StackType, S: HarmonyStrategy<T>> ReadAllowed<StrategyConfigLevel>
+    for (HarmonyAdaptorTag, PhantomData<T>, S)
+{
+}
+impl<T: StackType, S: HarmonyStrategy<T>> ReadAllowed<ActiveStrategyIndexLevel>
+    for (HarmonyAdaptorTag, PhantomData<T>, S)
+{
+}
+impl<T: StackType, S: HarmonyStrategy<T>> ReadAllowed<HarmonyLevel>
+    for (HarmonyAdaptorTag, PhantomData<T>, S)
+{
 }
 
-pub trait HarmonyStrategy<T: StackType, A: HarmonyStrategyAdaptor<T>> {
+impl<T: StackType, S: HarmonyStrategy<T>> WriteAllowed<HarmonyLevel>
+    for (HarmonyAdaptorTag, PhantomData<T>, S)
+{
+}
+
+pub type HarmonyAdaptor<T, S, P, L> = OrderedLocks<(HarmonyAdaptorTag, PhantomData<T>, S), P, L>;
+
+pub trait HarmonyStrategy<T: StackType>: Sized {
     type Config: IsHarmonyStrategyConfig<T>;
     type Msg;
 
     fn new(config: Self::Config) -> Self;
 
     /// returns true iff further [HarmonyStrategy::step]s are needed.
-    fn start(&mut self, time: Instant, adaptor: &A) -> HarmonyResult;
+    fn start<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        time: Instant,
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, P, Zero>);
 
     /// returns true iff further [HarmonyStrategy::step]s are needed.
-    fn start_solve(&mut self, time: Instant, adaptor: &A) -> HarmonyResult;
+    fn start_solve<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        time: Instant,
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, P, Zero>);
 
     /// returns true iff further [HarmonyStrategy::step]s are needed.
-    fn step(&mut self, adaptor: &A) -> HarmonyResult;
+    fn step<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, P, Zero>);
 
-    fn stop(&mut self, time: Instant, adaptor: &A);
+    fn stop<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        time: Instant,
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> HarmonyAdaptor<T, Self, P, Zero>;
 
-    fn reset(&mut self, adaptor: &A);
+    /// deprecated for the same reason as [Strategy::reset]
+    #[deprecated]
+    fn reset<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> HarmonyAdaptor<T, Self, P, Zero>;
 
     fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg>;
 
     /// Should return the time of a [HarmonyStrategy::start_solve] that should be triggered by the
     /// message, if necessary.
-    fn receive_msg(&mut self, msg: Self::Msg, adaptor: &A) -> Option<Instant>;
+    fn receive_msg<P: ProcessAdaptor<StackType = T>>(
+        &mut self,
+        msg: Self::Msg,
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> (Option<Instant>, HarmonyAdaptor<T, Self, P, Zero>);
 
     /// Should return the time of a [HarmonyStrategy::start_solve] that should be triggered by the
     /// message, if necessary.
     /// Should only do something if [StrategyConfig::reacts_to_bound] returns true.
-    fn handle_bound_action(
+    fn handle_bound_action<P: ProcessAdaptor<StackType = T>>(
         &mut self,
         action: BindableStrategyAction,
         time: Instant,
-        adaptor: &A,
-    ) -> Option<Instant>;
+        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
+    ) -> (Option<Instant>, HarmonyAdaptor<T, Self, P, Zero>);
 }

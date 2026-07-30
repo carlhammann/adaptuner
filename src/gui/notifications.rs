@@ -7,7 +7,7 @@ use eframe::egui;
 
 use crate::{
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
-    gui::r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
+    gui::r#trait::{GuiShow, GuiTag, ReceiveToUiRef, UiAdaptor},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     msg::ToUi,
     notename::{HasNoteNames, NoteNameStyle},
@@ -89,8 +89,8 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
     fn show<A: UiAdaptor<StackType = T>>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<A, Zero>,
-    ) -> OrderedLocks<A, Zero> {
+        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
+    ) -> OrderedLocks<GuiTag, A, Zero> {
         if let (Some(neighbourhood_index), _) = self.neighbourhood_index {
             (_, adaptor) = adaptor.active_strategy(|strat, _| {
                 ui.horizontal(|ui| {
@@ -183,8 +183,8 @@ impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for Notific
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<A, Zero>,
-    ) -> OrderedLocks<A, Zero> {
+        adaptor: OrderedLocks<GuiTag, A, Zero>,
+    ) -> OrderedLocks<GuiTag, A, Zero> {
         match msg {
             ToUi::UpdateReference {} => {
                 self.reference = (true, Instant::now());

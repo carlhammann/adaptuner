@@ -1,4 +1,4 @@
-use std::{rc::Rc, time::Instant};
+use std::{sync::Arc, time::Instant};
 
 use eframe::{self, egui};
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ use crate::{
 };
 
 pub struct TopLevelGui<T: StackType, A: UiAdaptor<StackType = T>> {
-    adaptor: Rc<A>,
+    adaptor: Arc<A>,
 
     // these four use the same SmallFloatingWindow, namely the connection_window
     input_connection: ConnectionWindow<Input>,
@@ -99,7 +99,7 @@ where
                 ui.visuals_mut().collapsing_header_frame = true;
 
                 {
-                    let adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                    let adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
                     ui.collapsing("global tuning reference", |ui| {
                         self.tuning_editor.show(ui, adaptor)
                     });
@@ -109,7 +109,7 @@ where
 
                 ui.label("Tuning strategy");
                 {
-                    let adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                    let adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
                     self.strategy_widgets.show(ui, adaptor);
                 }
 
@@ -180,7 +180,7 @@ where
                             ui.disable();
                         }
                         {
-                            let adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                            let adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
                             self.notifications.show(ui, adaptor);
                         }
                     });
@@ -191,7 +191,7 @@ where
                     if any_modal_open {
                         ui.disable();
                     }
-                    let mut adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                    let mut adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
                     adaptor = self.input_connection.show(ui, adaptor);
                     adaptor = self.output_connection.show(ui, adaptor);
 
@@ -203,7 +203,7 @@ where
             });
 
             {
-                let mut adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                let mut adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
                 let new_config;
                 (new_config, adaptor) = self.config_file_dialog.show(ui, adaptor);
                 if let Some(config) = new_config {
@@ -259,7 +259,7 @@ where
             }
 
             {
-                let mut adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+                let mut adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
                 adaptor = self
                     .strategy_widgets
                     .show_windows(ui, adaptor, any_modal_open);
@@ -295,7 +295,7 @@ where
 
 impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveMsg<ToUi<T>> for TopLevelGui<T, A> {
     fn receive_msg(&mut self, msg: ToUi<T>) {
-        let mut adaptor = unsafe { OrderedLocks::zero(self.adaptor.clone()) };
+        let mut adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
         adaptor = self.lattice.receive_to_ui_ref(&msg, adaptor);
         adaptor = self.latency.receive_to_ui_ref(&msg, adaptor);
         adaptor = self.input_connection.receive_to_ui_ref(&msg, adaptor);
@@ -335,7 +335,7 @@ where
                 egui::Id::new("comma_editor_window"),
                 false,
             ),
-            adaptor: Rc::new(adaptor),
+            adaptor: Arc::new(adaptor),
         }
     }
 }
