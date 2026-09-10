@@ -172,6 +172,13 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
                             adaptor = adaptor.for_all_sounding_keys(|i, _, _| {
                                 active[((i as isize - lowest_sounding as isize) % 12) as usize] =
                                     true;
+                                // The preceding line crashed with this message:
+                                //
+                                // thread 'main' (17176) panicked at src/gui/editor/chordlist.rs:173:33:
+                                // index out of bounds: the len is 12 but the index is 18446744073709551615
+                                // note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+                                //
+                                // What gives?
                             });
 
                             let mut classes = vec![];
