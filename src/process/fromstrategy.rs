@@ -3,7 +3,7 @@ use std::{fmt, sync::mpsc, sync::Arc, thread, time::Instant};
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    bindable::BindableEvent,
+    bindable::{BindableEvent, BindableProcessAction},
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
     interval::stacktype::r#trait::StackType,
     msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy},
@@ -141,8 +141,9 @@ where
                 let is_down = self.sostenuto_hold.iter().any(|b| *b);
                 let action = match (was_down, is_down) {
                     (false, true) => {
-                        let locks =
-                            unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+                        let locks = unsafe {
+                            OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone())
+                        };
                         locks
                             .active_strategy(|strat, _| {
                                 strat
@@ -153,8 +154,9 @@ where
                             .0
                     }
                     (true, false) => {
-                        let locks =
-                            unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+                        let locks = unsafe {
+                            OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone())
+                        };
                         locks
                             .active_strategy(|strat, _| {
                                 strat
@@ -166,10 +168,13 @@ where
                     }
                     _ => None {},
                 };
-                if let Some(action) = action {
-                    let _ = self.send_to_strategy(ToStrategy::BoundAction { action, time });
-                } else {
-                    self.adaptor.send(untouched_midi());
+
+                match action {
+                    Some(BindableProcessAction::Reset) => self.restart(time),
+                    Some(BindableProcessAction::ToStrategy(action)) => {
+                        self.send_to_strategy(ToStrategy::BoundAction { action, time })
+                    }
+                    None {} => self.adaptor.send(untouched_midi()),
                 }
             }
 
@@ -185,8 +190,9 @@ where
                 let is_down = self.soft_hold.iter().any(|b| *b);
                 let action = match (was_down, is_down) {
                     (false, true) => {
-                        let locks =
-                            unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+                        let locks = unsafe {
+                            OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone())
+                        };
                         locks
                             .active_strategy(|strat, _| {
                                 strat
@@ -197,8 +203,9 @@ where
                             .0
                     }
                     (true, false) => {
-                        let locks =
-                            unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+                        let locks = unsafe {
+                            OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone())
+                        };
                         locks
                             .active_strategy(|strat, _| {
                                 strat
@@ -210,10 +217,13 @@ where
                     }
                     _ => None {},
                 };
-                if let Some(action) = action {
-                    let _ = self.send_to_strategy(ToStrategy::BoundAction { action, time });
-                } else {
-                    self.adaptor.send(untouched_midi());
+
+                match action {
+                    Some(BindableProcessAction::Reset) => self.restart(time),
+                    Some(BindableProcessAction::ToStrategy(action)) => {
+                        self.send_to_strategy(ToStrategy::BoundAction { action, time })
+                    }
+                    None {} => self.adaptor.send(untouched_midi()),
                 }
             }
 
@@ -399,6 +409,12 @@ where
             ToProcess::RestartFromConfig { time } => {
                 self.restart(time);
             }
+            ToProcess::BoundAction { action, time } => match action {
+                BindableProcessAction::Reset => self.restart(time),
+                BindableProcessAction::ToStrategy(action) => {
+                    self.send_to_strategy(ToStrategy::BoundAction { action, time })
+                }
+            },
         }
     }
 }

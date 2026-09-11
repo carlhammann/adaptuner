@@ -94,13 +94,6 @@ pub trait MelodyStrategy<T: StackType>: Sized {
         adaptor: MelodyAdaptor<T, Self, P, Zero>,
     ) -> MelodyAdaptor<T, Self, P, Zero>;
 
-    /// deprecated for the same reason as [Strategy::reset]
-    #[deprecated]
-    fn reset<P: ProcessAdaptor<StackType = T>>(
-        &mut self,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero>;
-
     /// Implementation of [ToMelody::SetTuningReference]
     fn update_tuning_reference<P: ProcessAdaptor<StackType = T>>(
         &mut self,

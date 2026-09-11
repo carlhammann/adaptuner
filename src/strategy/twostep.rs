@@ -216,16 +216,6 @@ where
             .as_two_step_adaptor()
     }
 
-    fn reset<P: ProcessAdaptor<StackType = T>>(
-        &mut self,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> StrategyAdaptor<T, Self, P, Zero> {
-        let ha = self.harmony_strategy.reset(adaptor.as_harmony_adaptor());
-        self.melody_strategy
-            .reset(ha.as_melody_adaptor())
-            .as_two_step_adaptor()
-    }
-
     fn note_on<P: ProcessAdaptor<StackType = T>>(
         &mut self,
         note: u8,

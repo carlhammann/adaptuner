@@ -345,7 +345,7 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
     fn start<P: ProcessAdaptor<StackType = T>>(
         &mut self,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
+        mut adaptor: MelodyAdaptor<T, Self, P, Zero>,
     ) -> MelodyAdaptor<T, Self, P, Zero> {
         adaptor.send(FromStrategy::UpdateReference {});
         adaptor.send(FromStrategy::SelectScale {
@@ -356,20 +356,10 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
                 stack: stack.clone(),
             });
         });
-        self.tune_with_harmony(time, adaptor)
-    }
-
-    fn reset<P: ProcessAdaptor<StackType = T>>(
-        &mut self,
-        mut adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero> {
         (_, adaptor) = adaptor.config(|config, adaptor| {
-            self.scales = config.scales.iter().map(|n| n.named.clone()).collect();
-            self.curr_scale_index = 0;
-            self.reanchor = config.reanchor;
             adaptor.reference_mut(|reference, _| reference.clone_from(&config.initial_reference));
         });
-        adaptor
+        self.tune_with_harmony(time, adaptor)
     }
 
     fn update_tuning_reference<P: ProcessAdaptor<StackType = T>>(
@@ -511,11 +501,6 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
                 } else {
                     adaptor
                 }
-            }
-            BindableStrategyAction::Reset => {
-                adaptor = self.stop(time, adaptor);
-                adaptor = self.reset(adaptor);
-                self.start(time, adaptor)
             }
             _ => adaptor,
         }

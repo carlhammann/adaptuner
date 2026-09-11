@@ -217,11 +217,10 @@ impl BindingEditorWidget {
                                     .get(&BindableEvent::KeyPress(*key))
                                     .map(|x| *x)
                                 {
-                                    let _ =
-                                        adaptor.send(FromUi::ToStrategy(ToStrategy::BoundAction {
-                                            action,
-                                            time: Instant::now(),
-                                        }));
+                                    let _ = adaptor.send(FromUi::BoundAction {
+                                        action,
+                                        time: Instant::now(),
+                                    });
                                 }
                             });
                         }

@@ -53,17 +53,6 @@ pub trait Strategy<T: StackType>: Sized {
         adaptor: StrategyAdaptor<T, Self, P, Zero>,
     ) -> StrategyAdaptor<T, Self, P, Zero>;
 
-    /// This function should always be called between [Self::stop] and [Self::start]. It should set
-    /// everything to the starting values from the configuration in the adaptor.
-    ///
-    /// This function is deprecated because it should be a restart of the strategy from the process
-    /// loop.
-    #[deprecated]
-    fn reset<P: ProcessAdaptor<StackType = T>>(
-        &mut self,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> StrategyAdaptor<T, Self, P, Zero>;
-
     /// returns true iff further [Strategy::step]s are needed.
     fn note_on<P: ProcessAdaptor<StackType = T>>(
         &mut self,

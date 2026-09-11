@@ -199,6 +199,10 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
             });
         });
 
+        (_, adaptor) = adaptor.config(|config, adaptor| {
+            adaptor.reference_mut(|reference, _| reference.clone_from(&config.initial_reference));
+        });
+
         adaptor = self.update_all_tunings_and_send(time, adaptor);
 
         (false, adaptor)
@@ -209,18 +213,6 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
         _time: Instant,
         adaptor: StrategyAdaptor<T, Self, P, Zero>,
     ) -> StrategyAdaptor<T, Self, P, Zero> {
-        adaptor
-    }
-
-    fn reset<P: ProcessAdaptor<StackType = T>>(
-        &mut self,
-        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> StrategyAdaptor<T, Self, P, Zero> {
-        (_, adaptor) = adaptor.config(|config, adaptor| {
-            self.scales = config.scales.iter().map(|n| n.named.clone()).collect();
-            self.curr_scale_index = 0;
-            adaptor.reference_mut(|reference, _| reference.clone_from(&config.initial_reference));
-        });
         adaptor
     }
 
@@ -362,11 +354,6 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
                 if update {
                     adaptor = self.update_all_tunings_and_send(time, adaptor);
                 }
-            }
-            BindableStrategyAction::Reset => {
-                adaptor = self.stop(time, adaptor);
-                adaptor = self.reset(adaptor);
-                (_, adaptor) = self.start(time, adaptor);
             }
             BindableStrategyAction::SetReferenceToCurrent => {}
             BindableStrategyAction::ToggleChordMatching => {}

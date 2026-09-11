@@ -103,13 +103,6 @@ pub trait HarmonyStrategy<T: StackType>: Sized {
         adaptor: HarmonyAdaptor<T, Self, P, Zero>,
     ) -> HarmonyAdaptor<T, Self, P, Zero>;
 
-    /// deprecated for the same reason as [Strategy::reset]
-    #[deprecated]
-    fn reset<P: ProcessAdaptor<StackType = T>>(
-        &mut self,
-        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
-    ) -> HarmonyAdaptor<T, Self, P, Zero>;
-
     fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg>;
 
     /// Should return the time of a [HarmonyStrategy::start_solve] that should be triggered by the

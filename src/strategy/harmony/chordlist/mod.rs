@@ -195,21 +195,6 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         adaptor
     }
 
-    fn reset<P: ProcessAdaptor<StackType = T>>(
-        &mut self,
-        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
-    ) -> HarmonyAdaptor<T, Self, P, Zero> {
-        todo!();
-        adaptor
-        // self.enable = adaptor.config().enable;
-        // self.patterns = adaptor
-        //     .config()
-        //     .patterns
-        //     .iter()
-        //     .map(|p| Pattern::new(&p))
-        //     .collect();
-    }
-
     fn start_solve<P: ProcessAdaptor<StackType = T>>(
         &mut self,
         time: Instant,
@@ -362,17 +347,6 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         adaptor: HarmonyAdaptor<T, Self, P, Zero>,
     ) -> (Option<Instant>, HarmonyAdaptor<T, Self, P, Zero>) {
         match action {
-            BindableStrategyAction::Reset => {
-                todo!();
-                (None {}, adaptor)
-
-                // self.stop(time, adaptor);
-                // self.reset(adaptor);
-                // Some(time)
-                // returning this will make sure that we call
-                // self.start(time, adaptor)
-                // next
-            }
             _ => (None {}, adaptor),
         }
     }

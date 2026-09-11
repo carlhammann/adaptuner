@@ -4,7 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
-    bindable::{BindableEvent, BindableStrategyAction},
+    bindable::{BindableEvent, BindableProcessAction, BindableStrategyAction},
     gui::lattice::LatticeWindowConfig,
     interval::{
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
@@ -43,14 +43,14 @@ pub enum StrategyConfig<T: IntervalBasis> {
         name: String,
         description: String,
         config: StaticNeighbourhoodsConfig<T>,
-        bindings: BTreeMap<BindableEvent, BindableStrategyAction>,
+        bindings: BTreeMap<BindableEvent, BindableProcessAction>,
     },
     TwoStep {
         name: String,
         description: String,
         harmony: HarmonyStrategyConfig<T>,
         melody: MelodyStrategyConfig<T>,
-        bindings: BTreeMap<BindableEvent, BindableStrategyAction>,
+        bindings: BTreeMap<BindableEvent, BindableProcessAction>,
     },
 }
 
@@ -92,8 +92,7 @@ impl<T: IntervalBasis> StrategyConfig<T> {
             StrategyConfig::StaticNeighbourhoods { .. } => match action {
                 BindableStrategyAction::IncrementNeighbourhoodIndex(_)
                 | BindableStrategyAction::SetReferenceToLowest
-                | BindableStrategyAction::SetReferenceToHighest
-                | BindableStrategyAction::Reset => true,
+                | BindableStrategyAction::SetReferenceToHighest => true,
                 _ => false,
             },
             StrategyConfig::TwoStep {
@@ -101,7 +100,6 @@ impl<T: IntervalBasis> StrategyConfig<T> {
             } => {
                 (match harmony {
                     HarmonyStrategyConfig::ChordList(_) => match action {
-                        BindableStrategyAction::Reset => true,
                         _ => false,
                     },
                 }) || (match melody {
@@ -109,8 +107,7 @@ impl<T: IntervalBasis> StrategyConfig<T> {
                         BindableStrategyAction::IncrementNeighbourhoodIndex(_)
                         | BindableStrategyAction::SetReferenceToLowest
                         | BindableStrategyAction::SetReferenceToHighest
-                        | BindableStrategyAction::SetReferenceToCurrent
-                        | BindableStrategyAction::Reset => true,
+                        | BindableStrategyAction::SetReferenceToCurrent => true,
                         _ => false,
                     },
                 })
@@ -119,7 +116,7 @@ impl<T: IntervalBasis> StrategyConfig<T> {
     }
 
     #[inline]
-    pub fn bindings(&self) -> &BTreeMap<BindableEvent, BindableStrategyAction> {
+    pub fn bindings(&self) -> &BTreeMap<BindableEvent, BindableProcessAction> {
         match self {
             StrategyConfig::StaticNeighbourhoods { bindings, .. } => bindings,
             StrategyConfig::TwoStep { bindings, .. } => bindings,
@@ -127,7 +124,7 @@ impl<T: IntervalBasis> StrategyConfig<T> {
     }
 
     #[inline]
-    pub fn bindings_mut(&mut self) -> &mut BTreeMap<BindableEvent, BindableStrategyAction> {
+    pub fn bindings_mut(&mut self) -> &mut BTreeMap<BindableEvent, BindableProcessAction> {
         match self {
             StrategyConfig::StaticNeighbourhoods { bindings, .. } => bindings,
             StrategyConfig::TwoStep { bindings, .. } => bindings,

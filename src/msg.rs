@@ -4,7 +4,7 @@ use midi_msg::Channel;
 use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
-    bindable::BindableStrategyAction,
+    bindable::{BindableProcessAction, BindableStrategyAction},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     util::list_action::ListAction,
 };
@@ -61,7 +61,13 @@ pub enum ToProcess<T: StackType> {
         value: u8,
         time: Instant,
     },
+    /// redundant with [ToProcess::Reset]?
+    #[deprecated]
     RestartFromConfig {
+        time: Instant,
+    },
+    BoundAction {
+        action: BindableProcessAction,
         time: Instant,
     },
 }
@@ -380,10 +386,16 @@ pub enum FromUi<T: StackType> {
     RestartFromConfig {
         time: Instant,
     },
+    BoundAction {
+        action: BindableProcessAction,
+        time: Instant,
+    },
     ToStrategy(ToStrategy<T>), // this should somehow be merged with/include the following messages
+    #[deprecated]
     ToggleReanchorOnMatch {
         time: Instant,
     },
+    #[deprecated]
     SetGroupMs {
         group_ms: u64,
     },
@@ -659,6 +671,12 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::UpdateChannelsToUse { time } => (
                 None {},
                 Some(ToBackend::UpdateChannelsToUse { time }),
+                None {},
+                None {},
+            ),
+            FromUi::BoundAction { action, time } => (
+                Some(ToProcess::BoundAction { action, time }),
+                None {},
                 None {},
                 None {},
             ),

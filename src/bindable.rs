@@ -3,9 +3,7 @@ use std::fmt;
 use eframe::egui;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::{
-    custom_serde::common::{deserialize_egui_key, serialize_egui_key},
-};
+use crate::custom_serde::common::{deserialize_egui_key, serialize_egui_key};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(deny_unknown_fields)]
@@ -35,6 +33,7 @@ impl fmt::Display for BindableEvent {
 }
 
 #[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum BindableStrategyAction {
     IncrementNeighbourhoodIndex(isize),
     SetReferenceToLowest,
@@ -42,7 +41,6 @@ pub enum BindableStrategyAction {
     SetReferenceToCurrent,
     ToggleChordMatching,
     ToggleReanchor,
-    Reset,
 }
 
 impl fmt::Display for BindableStrategyAction {
@@ -64,7 +62,23 @@ impl fmt::Display for BindableStrategyAction {
             BindableStrategyAction::ToggleReanchor => {
                 write!(f, "toggle re-setting of the reference on chord match")
             }
-            BindableStrategyAction::Reset => write!(f, "reset"),
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BindableProcessAction {
+    Reset,
+    #[serde(with = "serde_yml::with::singleton_map")]
+    ToStrategy(BindableStrategyAction),
+}
+
+impl fmt::Display for BindableProcessAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BindableProcessAction::Reset => write!(f, "reset"),
+            BindableProcessAction::ToStrategy(a) => a.fmt(f),
         }
     }
 }

@@ -198,10 +198,12 @@ strategies:
           third: 1
     initial-reference: {}
   bindings:
-    sostenuto-pedal-down: !IncrementNeighbourhoodIndex 1
-    sostenuto-pedal-up: !IncrementNeighbourhoodIndex -1
-    soft-pedal-down: SetReferenceToLowest
-    !key-press Space: !IncrementNeighbourhoodIndex 1
+    sostenuto-pedal-down: !to-strategy
+      increment-neighbourhood-index: 1
+    soft-pedal-down: !to-strategy set-reference-to-lowest
+    !key-press Escape: reset
+    !key-press Space: !to-strategy
+      increment-neighbourhood-index: 1
 - !two-step
   name: static scales + list of chords
   description: |-
@@ -511,9 +513,12 @@ strategies:
     reanchor: false
     group-ms: 100
   bindings:
-    sostenuto-pedal-down: !IncrementNeighbourhoodIndex 1
-    soft-pedal-down: SetReferenceToCurrent
-    !key-press Escape: Reset
+    sostenuto-pedal-down: !to-strategy
+      increment-neighbourhood-index: 1
+    soft-pedal-down: !to-strategy set-reference-to-current
+    !key-press Escape: reset
+    !key-press Space: !to-strategy
+      increment-neighbourhood-index: 1
 backend: !pitchbend12
   bend-range: 2.0
   channels:

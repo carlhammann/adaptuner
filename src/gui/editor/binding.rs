@@ -1,7 +1,7 @@
 use eframe::egui::{self, Popup};
 
 use crate::{
-    bindable::{BindableEvent, BindableStrategyAction},
+    bindable::{BindableEvent, BindableProcessAction, BindableStrategyAction},
     config::StrategyConfig,
     gui::r#trait::{GuiShow, GuiTag, UiAdaptor},
     interval::stacktype::r#trait::StackType,
@@ -12,8 +12,8 @@ pub struct BindingEditor {
     tmp_event: BindableEvent,
     tmp_key_name: String,
     tmp_key_name_invalid: bool,
-    tmp_action: Option<BindableStrategyAction>,
-    changed_binding: Option<(BindableEvent, Option<BindableStrategyAction>)>,
+    tmp_action: Option<BindableProcessAction>,
+    changed_binding: Option<(BindableEvent, Option<BindableProcessAction>)>,
 }
 
 impl BindingEditor {
@@ -43,7 +43,7 @@ impl<T: StackType> GuiShow<T> for BindingEditor {
                             ui.label(format!("{k}"));
 
                             self.tmp_action = Some(*v);
-                            if strategy_action_selector(ui, strat, *k, &mut self.tmp_action) {
+                            if process_action_selector(ui, strat, *k, &mut self.tmp_action) {
                                 if self.changed_binding.is_none() {
                                     self.changed_binding = Some((*k, self.tmp_action));
                                 }
@@ -74,7 +74,7 @@ impl<T: StackType> GuiShow<T> for BindingEditor {
                             &mut self.tmp_key_name_invalid,
                         );
                         self.tmp_action = strat.bindings().get(&self.tmp_event).map(|x| *x);
-                        if strategy_action_selector(ui, strat, self.tmp_event, &mut self.tmp_action)
+                        if process_action_selector(ui, strat, self.tmp_event, &mut self.tmp_action)
                         {
                             if self.changed_binding.is_none() {
                                 self.changed_binding = Some((self.tmp_event, self.tmp_action));
@@ -189,11 +189,11 @@ fn bindable_selector(
         });
 }
 
-fn strategy_action_selector<T: StackType>(
+fn process_action_selector<T: StackType>(
     ui: &mut egui::Ui,
     active_strategy: &StrategyConfig<T>,
     event: BindableEvent,
-    tmp_action: &mut Option<BindableStrategyAction>,
+    tmp_action: &mut Option<BindableProcessAction>,
 ) -> bool {
     let mut changed = false;
 
@@ -208,7 +208,9 @@ fn strategy_action_selector<T: StackType>(
                 .reacts_to_bound(BindableStrategyAction::IncrementNeighbourhoodIndex(0))
             {
                 ui.horizontal(|ui| {
-                    if let Some(BindableStrategyAction::IncrementNeighbourhoodIndex(i)) = tmp_action
+                    if let Some(BindableProcessAction::ToStrategy(
+                        BindableStrategyAction::IncrementNeighbourhoodIndex(i),
+                    )) = tmp_action
                     {
                         let mut b = true;
                         ui.selectable_value(&mut b, true, "skip to scale at offset");
@@ -223,7 +225,9 @@ fn strategy_action_selector<T: StackType>(
                         if ui
                             .selectable_value(
                                 tmp_action,
-                                Some(BindableStrategyAction::IncrementNeighbourhoodIndex(1)),
+                                Some(BindableProcessAction::ToStrategy(
+                                    BindableStrategyAction::IncrementNeighbourhoodIndex(1),
+                                )),
                                 "skip to scale at offset",
                             )
                             .changed()
@@ -239,7 +243,9 @@ fn strategy_action_selector<T: StackType>(
             if active_strategy.reacts_to_bound(BindableStrategyAction::SetReferenceToLowest) {
                 let r = ui.selectable_value(
                     tmp_action,
-                    Some(BindableStrategyAction::SetReferenceToLowest),
+                    Some(BindableProcessAction::ToStrategy(
+                        BindableStrategyAction::SetReferenceToLowest,
+                    )),
                     format!("{}", BindableStrategyAction::SetReferenceToLowest),
                 );
                 if r.clicked() {
@@ -251,7 +257,9 @@ fn strategy_action_selector<T: StackType>(
             if active_strategy.reacts_to_bound(BindableStrategyAction::SetReferenceToHighest) {
                 let r = ui.selectable_value(
                     tmp_action,
-                    Some(BindableStrategyAction::SetReferenceToHighest),
+                    Some(BindableProcessAction::ToStrategy(
+                        BindableStrategyAction::SetReferenceToHighest,
+                    )),
                     format!("{}", BindableStrategyAction::SetReferenceToHighest),
                 );
                 if r.clicked() {
@@ -263,7 +271,9 @@ fn strategy_action_selector<T: StackType>(
             if active_strategy.reacts_to_bound(BindableStrategyAction::SetReferenceToCurrent) {
                 let r = ui.selectable_value(
                     tmp_action,
-                    Some(BindableStrategyAction::SetReferenceToCurrent),
+                    Some(BindableProcessAction::ToStrategy(
+                        BindableStrategyAction::SetReferenceToCurrent,
+                    )),
                     format!("{}", BindableStrategyAction::SetReferenceToCurrent),
                 );
                 if r.clicked() {
@@ -275,7 +285,9 @@ fn strategy_action_selector<T: StackType>(
             if active_strategy.reacts_to_bound(BindableStrategyAction::ToggleChordMatching) {
                 let r = ui.selectable_value(
                     tmp_action,
-                    Some(BindableStrategyAction::ToggleChordMatching),
+                    Some(BindableProcessAction::ToStrategy(
+                        BindableStrategyAction::ToggleChordMatching,
+                    )),
                     format!("{}", BindableStrategyAction::ToggleChordMatching),
                 );
                 if r.clicked() {
@@ -287,7 +299,9 @@ fn strategy_action_selector<T: StackType>(
             if active_strategy.reacts_to_bound(BindableStrategyAction::ToggleReanchor) {
                 let r = ui.selectable_value(
                     tmp_action,
-                    Some(BindableStrategyAction::ToggleReanchor),
+                    Some(BindableProcessAction::ToStrategy(
+                        BindableStrategyAction::ToggleReanchor,
+                    )),
                     format!("{}", BindableStrategyAction::ToggleReanchor),
                 );
                 if r.clicked() {
@@ -296,16 +310,14 @@ fn strategy_action_selector<T: StackType>(
                 }
             }
 
-            if active_strategy.reacts_to_bound(BindableStrategyAction::Reset) {
-                let r = ui.selectable_value(
-                    tmp_action,
-                    Some(BindableStrategyAction::Reset),
-                    format!("{}", BindableStrategyAction::Reset),
-                );
-                if r.clicked() {
-                    changed = r.changed();
-                    close_popup(ui);
-                }
+            let r = ui.selectable_value(
+                tmp_action,
+                Some(BindableProcessAction::Reset),
+                format!("{}", BindableProcessAction::Reset),
+            );
+            if r.clicked() {
+                changed = r.changed();
+                close_popup(ui);
             }
         });
 
