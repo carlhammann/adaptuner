@@ -1,11 +1,9 @@
-use std::ops::{Deref, DerefMut};
-
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
     config::{MelodyStrategyConfig, Named, StrategyConfig},
     interval::{stack::Stack, stacktype::r#trait::IntervalBasis},
     keystate::KeyState,
-    neighbourhood::{SomeCompleteNeighbourhood, SomeNeighbourhood},
+    neighbourhood::SomeCompleteNeighbourhood,
     process::r#trait::StackWithTuning,
     reference::Reference,
     strategy::{
@@ -17,30 +15,6 @@ use crate::{
         Succ, WriteAllowed,
     },
 };
-
-#[deprecated]
-pub trait ViewKeyStates {
-    /// Index `i` must be in the range `0..128`
-    fn key_state(&self, i: usize) -> KeyState;
-}
-
-#[deprecated]
-pub trait ChangeKeyStates {
-    /// Index `i` must be in the range `0..128`
-    fn key_state_mut(&self, i: usize) -> impl DerefMut<Target = KeyState>;
-}
-
-#[deprecated]
-pub trait ViewTunings<T: IntervalBasis> {
-    /// Index `i` must be in the range `0..128`
-    fn tuning(&self, i: usize) -> impl Deref<Target = StackWithTuning<T>>;
-}
-
-#[deprecated]
-pub trait ChangeTunings<T: IntervalBasis> {
-    /// Index `i` must be in the range `0..128`
-    fn tuning_mut(&self, i: usize) -> impl DerefMut<Target = StackWithTuning<T>>;
-}
 
 /// The following type definitions define an ordering of locks:
 ///
