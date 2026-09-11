@@ -14,7 +14,7 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     msg::{FromStrategy, ToStaticNeighbourhoods, ToStrategy},
-    neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
+    neighbourhood::{CompleteNeighbourhood, Neighbourhood, SomeCompleteNeighbourhood},
     process::r#trait::ProcessAdaptor,
     strategy::r#trait::{Strategy, StrategyAdaptor},
     util::ordered_locks::{AtMost, Succ, Zero},

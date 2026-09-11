@@ -6,23 +6,20 @@ use std::{
 use eframe::egui;
 
 use crate::{
-    config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
+    config::{HarmonyStrategyConfig, StrategyConfig},
     gui::r#trait::{GuiShow, GuiTag, ReceiveToUiRef, UiAdaptor},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     msg::ToUi,
+    neighbourhood::CompleteNeighbourhood,
     notename::{HasNoteNames, NoteNameStyle},
-    strategy::{
-        harmony::chordlist::ChordListConfig,
-        melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
-        staticneighbourhoods::StaticNeighbourhoodsConfig,
-    },
+    strategy::harmony::{chordlist::ChordListConfig, r#trait::Harmony},
     util::ordered_locks::{OrderedLocks, Zero},
 };
 
 pub struct Notifications<T: StackType> {
-    chord: (Option<(usize, Stack<T>)>, Instant),
+    harmony: (Option<usize>, Option<Stack<T>>, Instant),
     reference: (bool, Instant),
-    neighbourhood_index: (Option<usize>, Instant),
+    scale_index: (Option<usize>, bool, Instant),
     enable_reanchor: (Option<bool>, Instant),
     detuned_notes: VecDeque<(u8, Semitones, Semitones, &'static str, Instant)>,
     cleanup_time: Duration,
@@ -31,9 +28,9 @@ pub struct Notifications<T: StackType> {
 impl<T: StackType + HasNoteNames> Notifications<T> {
     pub fn new() -> Self {
         Self {
-            chord: (None {}, Instant::now()),
+            harmony: (None {}, None {}, Instant::now()),
             reference: (false, Instant::now()),
-            neighbourhood_index: (None {}, Instant::now()),
+            scale_index: (None {}, false, Instant::now()),
             enable_reanchor: (None {}, Instant::now()),
             detuned_notes: VecDeque::new(),
             cleanup_time: Duration::from_secs(2),
@@ -41,19 +38,13 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
     }
 
     pub fn clear_old(&mut self, time: Instant) {
-        // if let (Some(_), chord_time) = self.chord {
-        //     if time.duration_since(chord_time) > self.cleanup_time {
-        //         self.chord = (None {}, time);
-        //     }
-        // }
-
         if time.duration_since(self.reference.1) > self.cleanup_time {
             self.reference.0 = false;
         }
 
-        if let (Some(_), old) = self.neighbourhood_index {
+        if let (x, true, old) = self.scale_index {
             if time.duration_since(old) > self.cleanup_time {
-                self.neighbourhood_index = (None {}, time);
+                self.scale_index = (x, false, time);
             }
         }
 
@@ -77,9 +68,9 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
     }
 
     pub fn is_nonempty(&self) -> bool {
-        self.chord.0.is_some()
+        self.harmony.0.is_some()
             || self.reference.0
-            || self.neighbourhood_index.0.is_some()
+            || self.scale_index.0.is_some()
             || self.enable_reanchor.0.is_some()
             || !self.detuned_notes.is_empty()
     }
@@ -91,32 +82,18 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
         ui: &mut egui::Ui,
         mut adaptor: OrderedLocks<GuiTag, A, Zero>,
     ) -> OrderedLocks<GuiTag, A, Zero> {
-        if let (Some(neighbourhood_index), _) = self.neighbourhood_index {
-            (_, adaptor) = adaptor.active_strategy(|strat, _| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label("scale ");
-                    ui.strong(match strat {
-                        StrategyConfig::StaticNeighbourhoods {
-                            config:
-                                StaticNeighbourhoodsConfig {
-                                    scales: neighbourhoods,
-                                    ..
-                                },
-                            ..
-                        } => &neighbourhoods[neighbourhood_index % neighbourhoods.len()].name,
-                        StrategyConfig::TwoStep {
-                            melody:
-                                MelodyStrategyConfig::StaticNeighbourhoods(
-                                    StaticNeighbourhoodsAsMelodyConfig {
-                                        scales: neighbourhoods,
-                                        ..
-                                    },
-                                ),
-                            ..
-                        } => &neighbourhoods[neighbourhood_index % neighbourhoods.len()].name,
+        if let (Some(scale_index), true, _) = self.scale_index {
+            (_, adaptor) = adaptor.scales(|m_scales, _| match m_scales {
+                Some(scales) => {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        ui.label("scale ");
+                        ui.strong(&scales[scale_index % scales.len()].name);
                     });
-                });
+                }
+                None {} => {
+                    ui.label("no scales for this strategy");
+                }
             });
         }
 
@@ -128,7 +105,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
             }
         }
 
-        if let (Some((pattern_index, reference)), _) = &self.chord {
+        if let (Some(pattern_index), m_reference, _) = &self.harmony {
             (_, adaptor) = adaptor.active_strategy(|strat, adaptor| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
@@ -139,11 +116,13 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                             ..
                         } => {
                             ui.strong(&patterns[*pattern_index % patterns.len()].name);
-                            ui.label(" on ");
-                            ui.strong(reference.corrected_notename(
-                                &NoteNameStyle::Full,
-                                adaptor.config().use_cent_values,
-                            ));
+                            if let Some(reference) = m_reference {
+                                ui.label(" on ");
+                                ui.strong(reference.corrected_notename(
+                                    &NoteNameStyle::Full,
+                                    adaptor.config().use_cent_values,
+                                ));
+                            }
                         }
                         _ => {}
                     }
@@ -183,14 +162,14 @@ impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for Notific
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<GuiTag, A, Zero>,
+        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
     ) -> OrderedLocks<GuiTag, A, Zero> {
         match msg {
             ToUi::UpdateReference {} => {
                 self.reference = (true, Instant::now());
             }
             ToUi::SelectScale { index } => {
-                self.neighbourhood_index = (Some(*index), Instant::now());
+                self.scale_index = (Some(*index), true, Instant::now());
             }
             ToUi::DetunedNote {
                 note,
@@ -206,15 +185,38 @@ impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for Notific
                     Instant::now(),
                 ));
             }
-            ToUi::CurrentHarmony {
-                pattern_index,
-                reference,
-            } => {
-                if let (Some(i), Some(r)) = (pattern_index, reference) {
-                    self.chord = (Some((*i, r.clone())), Instant::now());
-                } else {
-                    self.chord = (None, Instant::now());
-                }
+            ToUi::UpdateHarmony {} => {
+                (_, adaptor) = adaptor.harmony(|m_harmony, adaptor| match m_harmony {
+                    Some(Harmony {
+                        pattern_index: Some(pattern_index),
+                        reference,
+                        valid: true,
+                        ..
+                    }) => {
+                        if let Some(scale_index) = self.scale_index.0 {
+                            adaptor.scales(|m_scales, adaptor| match m_scales {
+                                Some(scales) => {
+                                    adaptor.reference(|adaptor_reference, _| {
+                                        let reference_stack = scales[scale_index]
+                                            .named
+                                            .get_absolute_stack(*reference, adaptor_reference);
+                                        self.harmony = (
+                                            Some(*pattern_index),
+                                            Some(reference_stack),
+                                            Instant::now(),
+                                        )
+                                    });
+                                }
+                                None {} => {
+                                    self.harmony = (Some(*pattern_index), None {}, Instant::now());
+                                }
+                            });
+                        } else {
+                            self.harmony = (Some(*pattern_index), None {}, Instant::now())
+                        }
+                    }
+                    _ => self.harmony = (None, None, Instant::now()),
+                });
             }
             ToUi::ReanchorOnMatch { reanchor } => {
                 self.enable_reanchor = (Some(*reanchor), Instant::now());

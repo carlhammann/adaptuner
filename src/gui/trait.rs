@@ -9,18 +9,9 @@ use parking_lot::RwLock;
 use eframe::egui;
 
 use crate::{
-    adaptors::lock_levels::*,
-    backend::pitchbend12::Pitchbend12Config,
-    config::{GuiConfig, StrategyConfig},
-    interval::{stack::Stack, stacktype::r#trait::StackType},
-    keystate::KeyState,
-    msg::{FromUi, ReceiveMsg, ToUi},
-    process::r#trait::StackWithTuning,
-    reference::Reference,
-    util::ordered_locks::{
-        impl_access, impl_access_mut, impl_indexed_access, Access, AccessMut, IndexedAccess, Nat,
-        OrderedLocks, ReadAllowed, WriteAllowed, Zero,
-    },
+    adaptors::lock_levels::*, backend::pitchbend12::Pitchbend12Config, config::{GuiConfig, StrategyConfig}, interval::{stack::Stack, stacktype::r#trait::StackType}, keystate::KeyState, msg::{FromUi, ReceiveMsg, ToUi}, process::r#trait::StackWithTuning, reference::Reference, strategy::harmony::r#trait::Harmony, util::ordered_locks::{
+        Access, AccessMut, IndexedAccess, Nat, OrderedLocks, ReadAllowed, WriteAllowed, Zero, impl_access, impl_access_mut, impl_indexed_access
+    }
 };
 
 pub struct GuiTag {}
@@ -32,6 +23,7 @@ impl ReadAllowed<ActiveStrategyIndexLevel> for GuiTag {}
 impl ReadAllowed<TuningReferenceLevel> for GuiTag {}
 impl ReadAllowed<ReferenceLevel> for GuiTag {}
 impl ReadAllowed<BackendConfigLevel> for GuiTag {}
+impl ReadAllowed<HarmonyLevel> for GuiTag {}
 
 impl WriteAllowed<StrategyConfigLevel> for GuiTag {}
 impl WriteAllowed<ActiveStrategyIndexLevel> for GuiTag {}
@@ -50,6 +42,7 @@ pub trait UiAdaptor:
     + Access<ReferenceLevel, Stack<Self::StackType>>
     + Access<BackendConfigLevel, Pitchbend12Config>
     + AccessMut<BackendConfigLevel, Pitchbend12Config>
+    + Access<HarmonyLevel, Option<Harmony<Self::StackType>>>
 {
     type StackType: StackType;
     fn send(&self, msg: FromUi<Self::StackType>);
@@ -68,6 +61,7 @@ pub struct ConcreteUiAdaptor<T: StackType> {
     pub active_strategy_index: Arc<RwLock<usize>>,
     pub gui_config: RefCell<GuiConfig>,
     pub backend_config: Arc<RwLock<Pitchbend12Config>>,
+    pub harmony: Arc<RwLock<Option<Harmony<T>>>>,
 }
 
 impl_indexed_access! {<T:StackType>, ConcreteUiAdaptor<T>, KeyStateLevel, usize, KeyState, |self, i| &self.key_states[i].read()}
@@ -81,18 +75,19 @@ impl_access_mut! {<T:StackType>, ConcreteUiAdaptor<T>, ActiveStrategyIndexLevel,
 impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, ReferenceLevel, Stack<T>, |self| &self.reference.read()}
 impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, BackendConfigLevel, Pitchbend12Config, |self| &self.backend_config.read()}
 impl_access_mut! {<T:StackType>, ConcreteUiAdaptor<T>, BackendConfigLevel, Pitchbend12Config, |self| &mut self.backend_config.write()}
+impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, HarmonyLevel, Option<Harmony<T>>, |self| &self.harmony.read()}
 
 impl<T: StackType, A: UiAdaptor<StackType = T>, L: Nat> OrderedLocks<GuiTag, A, L> {
     #[inline]
     pub fn send(&self, msg: FromUi<T>) {
         unsafe { self.inner() }.send(msg)
     }
-    
+
     #[inline]
     pub fn config(&self) -> impl Deref<Target = GuiConfig> + use<'_, T, A, L> {
         unsafe { self.inner() }.config()
     }
-    
+
     #[inline]
     pub fn config_mut(&self) -> impl DerefMut<Target = GuiConfig> + use<'_, T, A, L> {
         unsafe { self.inner() }.config_mut()

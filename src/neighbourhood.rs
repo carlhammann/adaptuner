@@ -449,7 +449,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
     }
 }
 
-impl<T: IntervalBasis> CompleteNeigbourhood<T> for SomeCompleteNeighbourhood<T> {}
+impl<T: IntervalBasis> CompleteNeighbourhood<T> for SomeCompleteNeighbourhood<T> {}
 
 impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
     fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
@@ -579,7 +579,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
 }
 
 /// Marker trait of neighbourhoods that can return a note for every offset.
-pub trait CompleteNeigbourhood<T: IntervalBasis>: Neighbourhood<T> {
+pub trait CompleteNeighbourhood<T: IntervalBasis>: Neighbourhood<T> {
     fn write_absolute_stack(
         &self,
         target: &mut Stack<T>,
@@ -617,7 +617,7 @@ pub trait CompleteNeigbourhood<T: IntervalBasis>: Neighbourhood<T> {
     }
 }
 
-impl<T: IntervalBasis> CompleteNeigbourhood<T> for PeriodicComplete<T> {}
+impl<T: IntervalBasis> CompleteNeighbourhood<T> for PeriodicComplete<T> {}
 
 pub trait PeriodicNeighbourhood<T: IntervalBasis>: Neighbourhood<T> {
     /// The "octave": keys will be tuned relative to the highest note that can be obtained by

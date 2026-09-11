@@ -129,7 +129,6 @@ pub enum ToStaticNeighbourhoods<T: StackType> {
         reference: Stack<T>,
         time: Instant,
     },
-
 }
 
 pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
@@ -201,27 +200,12 @@ pub enum ToStrategy<T: StackType> {
 }
 
 pub enum FromStrategy<T: StackType> {
-    Retune {
-        note: u8,
-        time: Instant,
-    },
+    Retune { note: u8, time: Instant },
     UpdateReference {},
-    SelectScale {
-        index: usize,
-    },
-    /// not sure if this should be deprectad altogether, but the form isn't right any more: The
-    /// current harmony lives in the adaptor.
-    #[deprecated]
-    CurrentHarmony {
-        pattern_index: Option<usize>,
-        reference: Option<Stack<T>>,
-    },
-    ReanchorOnMatch {
-        reanchor: bool,
-    },
-    Consider {
-        stack: Stack<T>,
-    },
+    SelectScale { index: usize },
+    UpdateHarmony {},
+    ReanchorOnMatch { reanchor: bool },
+    Consider { stack: Stack<T> },
 }
 
 pub enum ToBackend {
@@ -338,10 +322,7 @@ pub enum ToUi<T: StackType> {
         explanation: &'static str,
     },
     CurrentStrategyIndex(Option<usize>),
-    CurrentHarmony {
-        pattern_index: Option<usize>,
-        reference: Option<Stack<T>>,
-    },
+    UpdateHarmony {},
     ReanchorOnMatch {
         reanchor: bool,
     },
@@ -566,16 +547,7 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
             ),
             FromStrategy::UpdateReference {} => (None {}, Some(ToUi::UpdateReference {})),
             FromStrategy::SelectScale { index } => (None {}, Some(ToUi::SelectScale { index })),
-            FromStrategy::CurrentHarmony {
-                pattern_index,
-                reference,
-            } => (
-                None {},
-                Some(ToUi::CurrentHarmony {
-                    pattern_index,
-                    reference,
-                }),
-            ),
+            FromStrategy::UpdateHarmony {} => (None {}, Some(ToUi::UpdateHarmony {})),
             FromStrategy::ReanchorOnMatch { reanchor } => {
                 (None {}, Some(ToUi::ReanchorOnMatch { reanchor }))
             }

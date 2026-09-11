@@ -13,7 +13,7 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     msg::{FromStrategy, ToMelody, ToStaticNeighbourhoodsAsMelody},
-    neighbourhood::{CompleteNeigbourhood, Neighbourhood, SomeCompleteNeighbourhood},
+    neighbourhood::{CompleteNeighbourhood, Neighbourhood, SomeCompleteNeighbourhood},
     process::r#trait::ProcessAdaptor,
     strategy::{
         harmony::r#trait::Harmony,
@@ -65,10 +65,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         P: ProcessAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel>,
     {
-        adaptor.send(FromStrategy::CurrentHarmony {
-            pattern_index: None {},
-            reference: None {},
-        });
+        adaptor.send(FromStrategy::UpdateHarmony {});
         adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
             self.tmp_stack.clone_from(&the_tuning.stack);
             (_, adaptor) = adaptor.reference(|reference, _| {
@@ -113,18 +110,9 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
             let Harmony {
                 neighbourhood: harmony_neighbourhood,
                 reference: harmony_reference,
-                pattern_index,
                 ..
             } = harmony;
-            (_, adaptor) = adaptor.reference(|adaptor_reference, adaptor| {
-                adaptor.send(FromStrategy::CurrentHarmony {
-                    pattern_index: *pattern_index,
-                    reference: Some(
-                        self.scales[self.curr_scale_index]
-                            .get_absolute_stack(*harmony_reference, adaptor_reference),
-                    ),
-                })
-            });
+            adaptor.send(FromStrategy::UpdateHarmony {});
             adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
                 self.tmp_stack.clone_from(&the_tuning.stack);
                 if harmony_neighbourhood.try_write_relative_stack(

@@ -1,9 +1,21 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::{
-    backend::pitchbend12::Pitchbend12Config, config::StrategyConfig, interval::{stack::Stack, stacktype::r#trait::IntervalBasis}, keystate::KeyState, process::r#trait::StackWithTuning, reference::Reference, strategy::harmony::r#trait::Harmony, util::ordered_locks::{
-        Access, AccessMut, AtMost, IndexedAccess, IndexedAccessMut, Nat, OrderedLocks, ReadAllowed, Succ, WriteAllowed
-    }
+    backend::pitchbend12::Pitchbend12Config,
+    config::{MelodyStrategyConfig, Named, StrategyConfig},
+    interval::{stack::Stack, stacktype::r#trait::IntervalBasis},
+    keystate::KeyState,
+    neighbourhood::{SomeCompleteNeighbourhood, SomeNeighbourhood},
+    process::r#trait::StackWithTuning,
+    reference::Reference,
+    strategy::{
+        harmony::r#trait::Harmony, melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
+        staticneighbourhoods::StaticNeighbourhoodsConfig,
+    },
+    util::ordered_locks::{
+        Access, AccessMut, AtMost, IndexedAccess, IndexedAccessMut, Nat, OrderedLocks, ReadAllowed,
+        Succ, WriteAllowed,
+    },
 };
 
 #[deprecated]
@@ -34,7 +46,7 @@ pub trait ChangeTunings<T: IntervalBasis> {
 ///
 /// In principle it should be fine to change the ordering, but:
 ///
-/// - The functions [OrderedLocks::active_strategy] and [OrderedLocks::active_strategy_mut] assumes
+/// - The functions [OrderedLocks::active_strategy] and [OrderedLocks::active_strategy_mut] assume
 ///   that [StrategyConfigLevel] and [ActiveStrategyIndexLevel] are immediate successors.
 ///
 /// - The functions [OrderedLocks::for_all_sounding_tunings] and
@@ -43,9 +55,9 @@ pub trait ChangeTunings<T: IntervalBasis> {
 #[rustfmt::skip]
 pub mod lock_levels {
     use crate::util::ordered_locks::{Zero, Succ};
-    pub type StrategyConfigLevel      = Zero;
-    pub type ActiveStrategyIndexLevel = Succ<Zero>;
-    pub type HarmonyLevel             = Succ<Succ<Zero>>; 
+    pub type HarmonyLevel             = Zero;
+    pub type StrategyConfigLevel      = Succ<Zero>;
+    pub type ActiveStrategyIndexLevel = Succ<Succ<Zero>>;
     pub type KeyStateLevel            = Succ<Succ<Succ<Zero>>>;
     pub type TuningStateLevel         = Succ<Succ<Succ<Succ<Zero>>>>;
     pub type TuningReferenceLevel     = Succ<Succ<Succ<Succ<Succ<Zero>>>>>;
@@ -53,7 +65,6 @@ pub mod lock_levels {
     pub type BackendConfigLevel       = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>;
 }
 use lock_levels::*;
-
 
 // helper macro for the next impl. Only to save some writing and reading effort
 macro_rules! accessor {
@@ -141,7 +152,7 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
         M: Access<ActiveStrategyIndexLevel, usize>
             + Access<StrategyConfigLevel, Vec<StrategyConfig<T>>>,
         L: AtMost<StrategyConfigLevel>,
-        X: ReadAllowed<StrategyConfigLevel>+ ReadAllowed<ActiveStrategyIndexLevel>
+        X: ReadAllowed<StrategyConfigLevel> + ReadAllowed<ActiveStrategyIndexLevel>,
     {
         self.strategy_config(|conf, r| r.active_strategy_index(|i, s| f(&conf[*i], s)).0)
     }
@@ -149,14 +160,17 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
     #[inline]
     pub fn active_strategy_mut<R, T>(
         self,
-        mut f: impl FnMut(&mut StrategyConfig<T>, OrderedLocks<X, M, Succ<ActiveStrategyIndexLevel>>) -> R,
+        mut f: impl FnMut(
+            &mut StrategyConfig<T>,
+            OrderedLocks<X, M, Succ<ActiveStrategyIndexLevel>>,
+        ) -> R,
     ) -> (R, Self)
     where
         T: IntervalBasis,
         M: Access<ActiveStrategyIndexLevel, usize>
             + AccessMut<StrategyConfigLevel, Vec<StrategyConfig<T>>>,
         L: AtMost<StrategyConfigLevel>,
-        X: WriteAllowed<StrategyConfigLevel>+ ReadAllowed<ActiveStrategyIndexLevel>
+        X: WriteAllowed<StrategyConfigLevel> + ReadAllowed<ActiveStrategyIndexLevel>,
     {
         self.strategy_config_mut(|conf, r| r.active_strategy_index(|i, s| f(&mut conf[*i], s)).0)
     }
@@ -241,7 +255,7 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
         }
         self
     }
-    
+
     #[inline]
     pub fn for_all_sounding_tunings_mut<T>(
         mut self,
@@ -311,5 +325,36 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
         X: ReadAllowed<TuningStateLevel>,
     {
         self.ith_indexed_pair(i, j, |x, y, r| f(x, y, r))
+    }
+
+    #[inline]
+    pub fn scales<R, T>(
+        self,
+        mut f: impl FnMut(
+            Option<&[Named<SomeCompleteNeighbourhood<T>>]>,
+            OrderedLocks<X, M, Succ<ActiveStrategyIndexLevel>>,
+        ) -> R,
+    ) -> (R, Self)
+    where
+        T: IntervalBasis,
+        M: Access<ActiveStrategyIndexLevel, usize>
+            + Access<StrategyConfigLevel, Vec<StrategyConfig<T>>>,
+        L: AtMost<StrategyConfigLevel>,
+        X: ReadAllowed<StrategyConfigLevel> + ReadAllowed<ActiveStrategyIndexLevel>,
+    {
+        self.active_strategy(|strat, r| match strat {
+            StrategyConfig::StaticNeighbourhoods {
+                config: StaticNeighbourhoodsConfig { scales, .. },
+                ..
+            }
+            | StrategyConfig::TwoStep {
+                melody:
+                    MelodyStrategyConfig::StaticNeighbourhoods(StaticNeighbourhoodsAsMelodyConfig {
+                        scales,
+                        ..
+                    }),
+                ..
+            } => f(Some(scales), r),
+        })
     }
 }

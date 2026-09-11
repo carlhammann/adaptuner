@@ -15,7 +15,10 @@ use crate::{
         sounding_partial, sounding_periodic_partial, Neighbourhood, SomeNeighbourhood,
     },
     notename::{HasNoteNames, NoteNameStyle},
-    strategy::harmony::chordlist::{blocks_from_current, keyshape::KeyShape, PatternConfig},
+    strategy::harmony::{
+        chordlist::{blocks_from_current, keyshape::KeyShape, PatternConfig},
+        r#trait::Harmony,
+    },
     util::{
         list_action::ListAction,
         ordered_locks::{AtMost, OrderedLocks, Zero},
@@ -654,11 +657,18 @@ impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ChordLi
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<GuiTag, A, Zero>,
+        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
     ) -> OrderedLocks<GuiTag, A, Zero> {
         match msg {
-            ToUi::CurrentHarmony { pattern_index, .. } => {
-                self.active_pattern = *pattern_index;
+            ToUi::UpdateHarmony {} => {
+                (_, adaptor) = adaptor.harmony(|m_harmony, _| match m_harmony {
+                    Some(Harmony {
+                        pattern_index: Some(pattern_index),
+                        valid: true,
+                        ..
+                    }) => self.active_pattern = Some(*pattern_index),
+                    _ => self.active_pattern = None {},
+                });
             }
 
             ToUi::NoteOn { .. }

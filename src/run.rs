@@ -440,6 +440,7 @@ impl<T: StackType> RunState<T> {
             active_strategy_index: process_adaptor.active_strategy_index.clone(),
             gui_config: RefCell::new(gui_config.clone()),
             backend_config: backend_adaptor.config.clone(),
+            harmony: process_adaptor.harmony.clone(),
         };
 
         let res = Self {
