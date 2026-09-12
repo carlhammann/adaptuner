@@ -186,7 +186,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
 
     fn stop(
         &mut self,
-        time: Instant,
+        _time: Instant,
         adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> HarmonyAdaptor<T, Self, Zero> {
         adaptor
@@ -340,7 +340,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
     fn handle_bound_action(
         &mut self,
         action: BindableStrategyAction,
-        time: Instant,
+        _time: Instant,
         adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (Option<Instant>, HarmonyAdaptor<T, Self, Zero>) {
         match action {

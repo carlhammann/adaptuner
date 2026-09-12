@@ -320,14 +320,14 @@ where
 }
 
 pub struct RunState<T: StackType> {
-    midi_input: thread::JoinHandle<mpsc::Receiver<ToMidiIn>>,
-    midi_output: thread::JoinHandle<mpsc::Receiver<ToMidiOut>>,
-    process: thread::JoinHandle<mpsc::Receiver<ToProcess<T>>>,
-    backend: thread::JoinHandle<mpsc::Receiver<ToBackend>>,
-    to_process_tx: mpsc::Sender<ToProcess<T>>,
-    to_backend_tx: mpsc::Sender<ToBackend>,
-    to_midi_input_tx: mpsc::Sender<ToMidiIn>,
-    to_midi_output_tx: mpsc::Sender<ToMidiOut>,
+    _midi_input: thread::JoinHandle<mpsc::Receiver<ToMidiIn>>,
+    _midi_output: thread::JoinHandle<mpsc::Receiver<ToMidiOut>>,
+    _process: thread::JoinHandle<mpsc::Receiver<ToProcess<T>>>,
+    _backend: thread::JoinHandle<mpsc::Receiver<ToBackend>>,
+    _to_process_tx: mpsc::Sender<ToProcess<T>>,
+    _to_backend_tx: mpsc::Sender<ToBackend>,
+    _to_midi_input_tx: mpsc::Sender<ToMidiIn>,
+    _to_midi_output_tx: mpsc::Sender<ToMidiOut>,
 }
 
 #[derive(Debug)]
@@ -440,20 +440,20 @@ impl<T: StackType> RunState<T> {
         let gui_adaptor: UiAdaptor<T, Zero> = unsafe { OrderedLocks::new_zero(locks.clone()) };
 
         let backend_adaptor: BackendAdaptorNew<T, Zero> =
-            unsafe { OrderedLocks::new_zero(locks.clone()) };
+            unsafe { OrderedLocks::new_zero(locks) };
 
         let res = Self {
-            midi_input: start_receiver_thread(|| midi_input, to_midi_input_rx),
-            midi_output: start_receiver_thread(|| midi_output, to_midi_output_rx),
-            process: start_receiver_thread(
+            _midi_input: start_receiver_thread(|| midi_input, to_midi_input_rx),
+            _midi_output: start_receiver_thread(|| midi_output, to_midi_output_rx),
+            _process: start_receiver_thread(
                 || ProcessFromStrategy::new(process_adaptor),
                 to_process_rx,
             ),
-            backend: start_receiver_thread(|| Pitchbend12::new(backend_adaptor), to_backend_rx),
-            to_process_tx: to_process_tx.clone(),
-            to_backend_tx,
-            to_midi_input_tx: to_midi_input_tx.clone(),
-            to_midi_output_tx: to_midi_output_tx.clone(),
+            _backend: start_receiver_thread(|| Pitchbend12::new(backend_adaptor), to_backend_rx),
+            _to_process_tx: to_process_tx.clone(),
+            _to_backend_tx: to_backend_tx,
+            _to_midi_input_tx: to_midi_input_tx.clone(),
+            _to_midi_output_tx: to_midi_output_tx.clone(),
         };
 
         let _ = to_midi_input_tx.send(ToMidiIn::Start);

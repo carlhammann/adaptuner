@@ -275,9 +275,9 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         })
     }
 
-    fn toggle_reanchor(&mut self, time: Instant) {
+    fn toggle_reanchor(&mut self, _time: Instant) {
+        todo!();
         self.reanchor = !self.reanchor;
-        todo!()
     }
 }
 

@@ -173,7 +173,7 @@ where
 
     fn note_on(
         &mut self,
-        note: u8,
+        _note: u8,
         time: Instant,
         adaptor: StrategyAdaptor<T, Self, Zero>,
     ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
@@ -182,7 +182,7 @@ where
 
     fn note_off(
         &mut self,
-        note: u8,
+        _note: u8,
         time: Instant,
         adaptor: StrategyAdaptor<T, Self, Zero>,
     ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
