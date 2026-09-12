@@ -510,6 +510,7 @@ strategies:
           actual:
             octave: '11/12'
     initial-reference: {}
+  melody-harmony-coordination:
     reanchor: false
     group-ms: 100
   bindings:

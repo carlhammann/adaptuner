@@ -14,6 +14,7 @@ use crate::{
             binding::BindingEditor,
             chordlist::{ChordListEditor, ChordListEditorResult},
             scale::{ScaleEditor, ScaleEditorResult},
+            twostep::TwoStepEditor,
         },
         r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     },
@@ -136,11 +137,7 @@ impl StrategySelectorWidget {
 }
 
 impl<T: StackType> GuiShow<T> for StrategySelectorWidget {
-    fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, Zero>,
-    ) -> UiAdaptor<T, Zero> {
+    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.strategy_config(|strategy_configs, adaptor| {
             adaptor.active_strategy_index_mut(|active_strategy_index, adaptor| {
                 egui::ComboBox::from_id_salt("strategy selector widget")
@@ -245,6 +242,7 @@ pub struct StrategyWidgets<T: StackType> {
     binding_editor_widget: BindingEditorWidget,
     scale_editor: ScaleEditor,
     chord_list_editor: ChordListEditor<T>,
+    twostep_editor: TwoStepEditor,
 }
 
 impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
@@ -254,6 +252,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
             binding_editor_widget: BindingEditorWidget::new(),
             scale_editor: ScaleEditor::new(),
             chord_list_editor: ChordListEditor::new(),
+            twostep_editor: TwoStepEditor::new(),
         }
     }
 
@@ -361,11 +360,11 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
     }
 
     #[inline]
-    fn show_chord_list_editor< L>(
+    fn show_chord_list_editor<L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, L>
-    ) ->UiAdaptor<T, L>
+        mut adaptor: UiAdaptor<T, L>,
+    ) -> UiAdaptor<T, L>
     where
         L: AtMost<StrategyConfigLevel>,
     {
@@ -420,18 +419,24 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
 
         adaptor
     }
+
+    #[inline]
+    fn show_twostep_editor(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
+        self.twostep_editor.show(ui, adaptor)
+    }
 }
 
 impl<T: OctavePeriodicStackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T> {
-    fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, Zero>
-    ) -> UiAdaptor<T, Zero> {
+    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         adaptor = self.selector_widget.show(ui, adaptor);
         adaptor = self.binding_editor_widget.show(ui, adaptor);
         adaptor = self.show_scale_editor(ui, adaptor);
-        self.show_chord_list_editor(ui, adaptor)
+        adaptor = self.show_chord_list_editor(ui, adaptor);
+        self.show_twostep_editor(ui, adaptor)
     }
 }
 
@@ -439,7 +444,7 @@ impl<T: StackType> ReceiveToUiRef<T> for StrategyWidgets<T> {
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        mut adaptor: UiAdaptor<T, Zero>
+        mut adaptor: UiAdaptor<T, Zero>,
     ) -> UiAdaptor<T, Zero> {
         adaptor = self.scale_editor.receive_to_ui_ref(msg, adaptor);
         self.chord_list_editor.receive_to_ui_ref(msg, adaptor)

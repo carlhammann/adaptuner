@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -27,9 +27,6 @@ use crate::{
 pub struct StaticNeighbourhoodsAsMelodyConfig<T: IntervalBasis> {
     pub scales: Vec<Named<SomeCompleteNeighbourhood<T>>>,
     pub initial_reference: Stack<T>,
-
-    pub reanchor: bool,
-    pub group_ms: u64,
 }
 
 /// The first three fields are exacly the same as for
@@ -38,12 +35,6 @@ pub struct StaticNeighbourhoodsAsMelody<T: StackType> {
     /// This Vec must never be empty
     scales: Vec<SomeCompleteNeighbourhood<T>>,
     curr_scale_index: usize,
-
-    reanchor: bool,
-
-    last_solve: Instant,
-    group_start_reference: Stack<T>,
-    group_duration: Duration,
 
     tmp_stack: Stack<T>,
 }
@@ -100,55 +91,50 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     where
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
-        if self.reanchor {
-            todo!();
-            adaptor
-        } else {
-            let Harmony {
-                neighbourhood: harmony_neighbourhood,
-                reference: harmony_reference,
-                ..
-            } = harmony;
-            adaptor.send(FromStrategy::UpdateHarmony {});
-            adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
-                self.tmp_stack.clone_from(&the_tuning.stack);
-                if harmony_neighbourhood.try_write_relative_stack(
-                    &mut the_tuning.stack,
-                    i as StackCoeff - *harmony_reference,
-                ) {
-                    (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
-                        self.scales[self.curr_scale_index].increment_by_absolute_stack(
-                            &mut the_tuning.stack,
-                            *harmony_reference,
-                            adaptor_reference,
-                        )
-                    });
-                } else {
-                    (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
-                        self.scales[self.curr_scale_index].write_absolute_stack(
-                            &mut the_tuning.stack,
-                            i as StackCoeff,
-                            adaptor_reference,
-                        )
-                    });
-                }
+        let Harmony {
+            neighbourhood: harmony_neighbourhood,
+            reference_key: harmony_reference_key,
+            ..
+        } = harmony;
+        adaptor.send(FromStrategy::UpdateHarmony {});
+        adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
+            self.tmp_stack.clone_from(&the_tuning.stack);
+            if harmony_neighbourhood.try_write_relative_stack(
+                &mut the_tuning.stack,
+                i as StackCoeff - *harmony_reference_key,
+            ) {
+                (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
+                    self.scales[self.curr_scale_index].increment_by_absolute_stack(
+                        &mut the_tuning.stack,
+                        *harmony_reference_key,
+                        adaptor_reference,
+                    )
+                });
+            } else {
+                (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
+                    self.scales[self.curr_scale_index].write_absolute_stack(
+                        &mut the_tuning.stack,
+                        i as StackCoeff,
+                        adaptor_reference,
+                    )
+                });
+            }
 
-                let mut retune = self.tmp_stack != the_tuning.stack;
-                let c4_semitones;
-                (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
-                let new_semitones = the_tuning.stack.absolute_semitones(c4_semitones);
-                if new_semitones != the_tuning.semitones {
-                    the_tuning.semitones = new_semitones;
-                    retune = true;
-                }
-                if retune {
-                    adaptor.send(FromStrategy::Retune {
-                        note: i as u8,
-                        time,
-                    });
-                }
-            })
-        }
+            let mut retune = self.tmp_stack != the_tuning.stack;
+            let c4_semitones;
+            (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
+            let new_semitones = the_tuning.stack.absolute_semitones(c4_semitones);
+            if new_semitones != the_tuning.semitones {
+                the_tuning.semitones = new_semitones;
+                retune = true;
+            }
+            if retune {
+                adaptor.send(FromStrategy::Retune {
+                    note: i as u8,
+                    time,
+                });
+            }
+        })
     }
 
     fn update_all_tunings_and_send<L>(
@@ -204,7 +190,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
                         .reference_mut(|adaptor_reference, adaptor| {
                             self.scales[self.curr_scale_index].write_absolute_stack(
                                 &mut self.tmp_stack,
-                                harmony.reference,
+                                harmony.reference_key,
                                 adaptor_reference,
                             );
 
@@ -274,11 +260,6 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
             }
         })
     }
-
-    fn toggle_reanchor(&mut self, _time: Instant) {
-        todo!();
-        self.reanchor = !self.reanchor;
-    }
 }
 
 impl<T: StackType, L: AtMost<StrategyConfigLevel>>
@@ -312,10 +293,6 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
         Self {
             scales: config.scales.drain(..).map(|n| n.named).collect(),
             curr_scale_index: 0,
-            reanchor: config.reanchor,
-            last_solve: Instant::now(),
-            group_start_reference: Stack::new_zero(),
-            group_duration: Duration::from_millis(config.group_ms),
             tmp_stack: Stack::new_zero(),
         }
     }
@@ -408,14 +385,6 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
                 } else {
                     adaptor
                 }
-            }
-            ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time } => {
-                self.toggle_reanchor(time);
-                adaptor
-            }
-            ToStaticNeighbourhoodsAsMelody::SetGroupMs { group_ms } => {
-                self.group_duration = Duration::from_millis(group_ms);
-                adaptor
             }
             ToStaticNeighbourhoodsAsMelody::UpdateScales {
                 only_this_scale,

@@ -151,13 +151,6 @@ pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
         reference: Stack<T>,
         time: Instant,
     },
-
-    ToggleReanchor {
-        time: Instant,
-    },
-    SetGroupMs {
-        group_ms: u64,
-    },
 }
 
 pub enum ToTwoStep<T: StackType> {
@@ -391,14 +384,6 @@ pub enum FromUi<T: StackType> {
         time: Instant,
     },
     ToStrategy(ToStrategy<T>), // this should somehow be merged with/include the following messages
-    #[deprecated]
-    ToggleReanchorOnMatch {
-        time: Instant,
-    },
-    #[deprecated]
-    SetGroupMs {
-        group_ms: u64,
-    },
 }
 
 pub enum ToMidiIn {
@@ -695,26 +680,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::RestartFromConfig { time } => (
                 Some(ToProcess::RestartFromConfig { time }),
                 Some(ToBackend::RestartFromConfig { time }),
-                None {},
-                None {},
-            ),
-            FromUi::ToggleReanchorOnMatch { time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
-                    ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
-                        ToStaticNeighbourhoodsAsMelody::ToggleReanchor { time },
-                    )),
-                ))),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::SetGroupMs { group_ms } => (
-                Some(ToProcess::ToStrategy(ToStrategy::TwoStep(
-                    ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
-                        ToStaticNeighbourhoodsAsMelody::SetGroupMs { group_ms },
-                    )),
-                ))),
-                None {},
                 None {},
                 None {},
             ),

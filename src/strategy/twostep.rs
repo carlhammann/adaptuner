@@ -1,8 +1,12 @@
 use std::{marker::PhantomData, time::Instant};
 
 use crate::{
+    adaptors::lock_levels::{ActiveStrategyIndexLevel, StrategyConfigLevel},
     bindable::BindableStrategyAction,
-    config::{IsHarmonyStrategyConfig, IsMelodyStrategyConfig, IsStrategyConfig},
+    config::{
+        IsHarmonyStrategyConfig, IsMelodyStrategyConfig, IsStrategyConfig,
+        MelodyHarmonyCoordinationConfig, StrategyConfig,
+    },
     interval::{stack::Stack, stacktype::r#trait::StackType},
     msg::{ToStrategy, ToTwoStep},
     strategy::{
@@ -10,7 +14,7 @@ use crate::{
         melody::r#trait::{MelodyAdaptor, MelodyStrategy},
         r#trait::{Strategy, StrategyAdaptor},
     },
-    util::ordered_locks::{Nat, OrderedLocks, Zero},
+    util::ordered_locks::{AtMost, Nat, OrderedLocks, Succ, Zero},
 };
 
 pub struct TwoStep<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>> {
@@ -21,6 +25,9 @@ pub struct TwoStep<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>> {
 
     solve_start: Instant,
     solving_harmony: bool,
+
+    group_start: Instant,
+    group_start_reference: Stack<T>,
 }
 
 impl<T, HC, MC> IsStrategyConfig<T> for (HC, MC)
@@ -97,17 +104,83 @@ impl<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>, L: Nat> AsTwoSte
     }
 }
 
+impl<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>, L: AtMost<StrategyConfigLevel>>
+    StrategyAdaptor<T, TwoStep<T, H, M>, L>
+{
+    fn melody_harmony_coordination<R>(
+        self,
+        mut f: impl FnMut(
+            &MelodyHarmonyCoordinationConfig,
+            StrategyAdaptor<T, TwoStep<T, H, M>, Succ<ActiveStrategyIndexLevel>>,
+        ) -> R,
+    ) -> (R, Self) {
+        self.active_strategy(|conf, adaptor| match conf {
+            StrategyConfig::TwoStep {
+                melody_harmony_coordination,
+                ..
+            } => f(melody_harmony_coordination, adaptor),
+            _ => panic!("Wrong type of strategy config: expected TwoStepConfig"),
+        })
+    }
+}
+
 impl<T, H, M> TwoStep<T, H, M>
 where
     T: StackType,
     H: HarmonyStrategy<T>,
     M: MelodyStrategy<T>,
 {
+    #[inline]
+    fn finish_solve(
+        &mut self,
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> StrategyAdaptor<T, Self, Zero> {
+        let reanchor;
+        let group_ms;
+        ((reanchor, group_ms), adaptor) = adaptor.melody_harmony_coordination(
+            |MelodyHarmonyCoordinationConfig { reanchor, group_ms }, _| (*reanchor, *group_ms),
+        );
+        if reanchor
+            && (self
+                .solve_start
+                .duration_since(self.group_start)
+                .as_millis()
+                <= group_ms as u128)
+        {
+            (_, adaptor) = adaptor
+                .reference_mut(|reference, _| reference.clone_from(&self.group_start_reference));
+        }
+
+        let mut ma = self
+            .melody_strategy
+            .tune_with_harmony(self.solve_start, adaptor.as_melody_adaptor());
+
+        if reanchor {
+            ma = self.melody_strategy.handle_bound_action(
+                &BindableStrategyAction::SetReferenceToCurrent,
+                self.solve_start,
+                ma,
+            );
+        }
+        ma.as_two_step_adaptor()
+    }
+
+    #[inline]
     fn start_solve(
         &mut self,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, Zero>,
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
     ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
+        let group_ms;
+        (group_ms, adaptor) = adaptor.melody_harmony_coordination(
+            |MelodyHarmonyCoordinationConfig { group_ms, .. }, _| *group_ms,
+        );
+        if time.duration_since(self.group_start).as_millis() > group_ms as u128 {
+            self.group_start = time;
+            (_, adaptor) =
+                adaptor.reference(|reference, _| self.group_start_reference.clone_from(reference));
+        }
+
         let (res, ha) = self
             .harmony_strategy
             .start_solve(time, adaptor.as_harmony_adaptor());
@@ -115,10 +188,8 @@ where
         self.solving_harmony = !res.finished;
 
         if res.progress | res.finished {
-            let ma = self
-                .melody_strategy
-                .tune_with_harmony(self.solve_start, ha.as_melody_adaptor());
-            (self.solving_harmony, ma.as_two_step_adaptor())
+            adaptor = self.finish_solve(ha.as_two_step_adaptor());
+            (self.solving_harmony, adaptor)
         } else {
             (self.solving_harmony, ha.as_two_step_adaptor())
         }
@@ -142,6 +213,8 @@ where
             melody_strategy: M::new(config.1),
             solve_start: Instant::now(),
             solving_harmony: false,
+            group_start: Instant::now(),
+            group_start_reference: Stack::new_zero(),
         }
     }
 
@@ -247,7 +320,7 @@ where
 
     fn step(
         &mut self,
-        adaptor: StrategyAdaptor<T, Self, Zero>,
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
     ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         if self.solving_harmony {
             let (res, ha) = self.harmony_strategy.step(adaptor.as_harmony_adaptor());
@@ -255,10 +328,8 @@ where
             self.solving_harmony = !res.finished;
 
             if res.progress | res.finished {
-                let ma = self
-                    .melody_strategy
-                    .tune_with_harmony(self.solve_start, ha.as_melody_adaptor());
-                (self.solving_harmony, ma.as_two_step_adaptor())
+                adaptor = self.finish_solve(ha.as_two_step_adaptor());
+                (self.solving_harmony, adaptor)
             } else {
                 (self.solving_harmony, ha.as_two_step_adaptor())
             }

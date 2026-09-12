@@ -246,13 +246,13 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
             (_, adaptor) = adaptor.harmony_mut(|h, _| {
                 if let Some(h) = h {
                     h.neighbourhood.clone_from(&the_pattern.neighbourhood);
-                    h.reference = fit.reference() as StackCoeff;
+                    h.reference_key = fit.reference() as StackCoeff;
                     h.pattern_index = Some(self.next_pattern_to_try);
                     h.valid = true;
                 } else {
                     *h = Some(Harmony {
                         neighbourhood: the_pattern.neighbourhood.clone(),
-                        reference: fit.reference() as StackCoeff,
+                        reference_key: fit.reference() as StackCoeff,
                         pattern_index: Some(self.next_pattern_to_try),
                         valid: true,
                     });

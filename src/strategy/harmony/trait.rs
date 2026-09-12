@@ -20,7 +20,7 @@ use crate::{
 pub struct Harmony<T: IntervalBasis> {
     pub neighbourhood: SomeNeighbourhood<T>,
     /// MIDI key number of the reference note, but may be outside the MIDI range
-    pub reference: StackCoeff,
+    pub reference_key: StackCoeff,
     pub pattern_index: Option<usize>,
 
     /// does this harmony describe a valid tuning nof the current keys?
@@ -31,7 +31,7 @@ impl<T: IntervalBasis> Harmony<T> {
     pub fn new_dummy() -> Self {
         Self {
             neighbourhood: SomeNeighbourhood::Partial(Partial::new()),
-            reference: 0,
+            reference_key: 0,
             pattern_index: None {},
             valid: false,
         }

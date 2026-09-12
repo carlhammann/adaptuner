@@ -3,7 +3,20 @@ use std::{fmt, sync::mpsc, sync::Arc, thread, time::Instant};
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    adaptors::{ConcreteLocks, take_replace}, bindable::{BindableEvent, BindableProcessAction}, config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig}, interval::stacktype::r#trait::StackType, msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy}, process::r#trait::ProcessAdaptor, strategy::{harmony::chordlist::ChordList, melody::neighbourhoods::StaticNeighbourhoodsAsMelody, staticneighbourhoods::StaticNeighbourhoods, r#trait::{Strategy, StrategyAdaptor}, twostep::TwoStep}, util::ordered_locks::Zero
+    adaptors::{take_replace, ConcreteLocks},
+    bindable::{BindableEvent, BindableProcessAction},
+    config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
+    interval::stacktype::r#trait::StackType,
+    msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy},
+    process::r#trait::ProcessAdaptor,
+    strategy::{
+        harmony::chordlist::ChordList,
+        melody::neighbourhoods::StaticNeighbourhoodsAsMelody,
+        r#trait::{Strategy, StrategyAdaptor},
+        staticneighbourhoods::StaticNeighbourhoods,
+        twostep::TwoStep,
+    },
+    util::ordered_locks::Zero,
 };
 
 struct RunningStrategy<T: StackType> {

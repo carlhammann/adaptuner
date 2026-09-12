@@ -189,7 +189,7 @@ impl<T: StackType> ReceiveToUiRef<T> for Notifications<T> {
                 (_, adaptor) = adaptor.harmony(|m_harmony, adaptor| match m_harmony {
                     Some(Harmony {
                         pattern_index: Some(pattern_index),
-                        reference,
+                        reference_key: reference,
                         valid: true,
                         ..
                     }) => {

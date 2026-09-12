@@ -5,4 +5,4 @@ pub mod scale;
 // pub mod reference;
 pub mod temperament;
 pub mod tuning;
-// pub mod twostep;
+pub mod twostep;

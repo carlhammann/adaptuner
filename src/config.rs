@@ -39,19 +39,30 @@ pub struct AdaptunerVersion;
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum StrategyConfig<T: IntervalBasis> {
+    #[serde(rename_all = "kebab-case")]
     StaticNeighbourhoods {
         name: String,
         description: String,
         config: StaticNeighbourhoodsConfig<T>,
         bindings: BTreeMap<BindableEvent, BindableProcessAction>,
     },
+    #[serde(rename_all = "kebab-case")]
     TwoStep {
         name: String,
         description: String,
         harmony: HarmonyStrategyConfig<T>,
         melody: MelodyStrategyConfig<T>,
         bindings: BTreeMap<BindableEvent, BindableProcessAction>,
+        melody_harmony_coordination: MelodyHarmonyCoordinationConfig,
     },
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub struct MelodyHarmonyCoordinationConfig {
+    pub reanchor: bool,
+    pub group_ms: u64,
 }
 
 impl<T: IntervalBasis> StrategyConfig<T> {
