@@ -132,6 +132,22 @@ impl<T: StackType> Pitchbend12<T> {
     }
 
     fn reset(&mut self, time: Instant) {
+        self.bends = [8192; 12];
+        take_replace(&mut self.adaptor, |adaptor| {
+            adaptor.backend_config(|config, adaptor| {
+                for channel in config.channels {
+                    adaptor.send(msg::FromBackend::OutgoingMidi {
+                        time,
+                        bytes: (MidiMsg::ChannelVoice {
+                            channel,
+                            msg: ChannelVoiceMsg::PitchBend { bend: 8192 },
+                        })
+                        .to_midi(),
+                    });
+                }
+            })
+        });
+
         for note in 0..128 {
             let mut sounding = false; // dummy initialisation
             take_replace(&mut self.adaptor, |mut adaptor| {
@@ -158,11 +174,6 @@ impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
             }
 
             msg::ToBackend::Stop { .. } => {}
-
-            msg::ToBackend::RestartFromConfig { time } => {
-                self.bends = [8192; 12];
-                self.reset(time);
-            }
 
             ToBackend::NoteOn {
                 time,

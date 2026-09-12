@@ -345,7 +345,10 @@ where
             })
         });
 
-        self.send(FromProcess::CurrentStrategyIndex(Some(index)));
+        self.send(FromProcess::StartedStrategy {
+            index: Some(index),
+            time,
+        })
     }
 
     /// Will start strategy 0 if there's no running strategy at the moment.
@@ -393,9 +396,6 @@ where
                 if self.current_strategy_index().is_some() {
                     let _ = self.send_to_strategy(msg);
                 }
-            }
-            ToProcess::RestartFromConfig { time } => {
-                self.restart(time);
             }
             ToProcess::BoundAction { action, time } => match action {
                 BindableProcessAction::Reset => self.restart(time),

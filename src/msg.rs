@@ -61,11 +61,6 @@ pub enum ToProcess<T: StackType> {
         value: u8,
         time: Instant,
     },
-    /// redundant with [ToProcess::Reset]?
-    #[deprecated]
-    RestartFromConfig {
-        time: Instant,
-    },
     BoundAction {
         action: BindableProcessAction,
         time: Instant,
@@ -101,7 +96,10 @@ pub enum FromProcess<T: StackType> {
         program: u8,
         time: Instant,
     },
-    CurrentStrategyIndex(Option<usize>),
+    StartedStrategy {
+        index: Option<usize>,
+        time: Instant,
+    },
 }
 
 pub enum ToChordList {
@@ -217,9 +215,6 @@ pub enum ToBackend {
     Stop {
         time: Instant,
     },
-    RestartFromConfig {
-        time: Instant,
-    },
     NoteOn {
         channel: Channel,
         note: u8,
@@ -320,7 +315,7 @@ pub enum ToUi<T: StackType> {
         actual: Semitones,
         explanation: &'static str,
     },
-    CurrentStrategyIndex(Option<usize>),
+    StartedStrategy(Option<usize>),
     UpdateHarmony {},
     ReanchorOnMatch {
         reanchor: bool,
@@ -528,9 +523,11 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
                 None {},
                 None {},
             ),
-            FromProcess::CurrentStrategyIndex(i) => {
-                (None {}, None {}, Some(ToUi::CurrentStrategyIndex(i)))
-            }
+            FromProcess::StartedStrategy { index, time } => (
+                Some(ToBackend::Reset { time }), // if we start a new strategy, the backend should reset
+                None {},
+                Some(ToUi::StartedStrategy(index)),
+            ),
         }
     }
 }
@@ -678,8 +675,8 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 None {},
             ),
             FromUi::RestartFromConfig { time } => (
-                Some(ToProcess::RestartFromConfig { time }),
-                Some(ToBackend::RestartFromConfig { time }),
+                Some(ToProcess::Reset { time }),
+                Some(ToBackend::Reset { time }),
                 None {},
                 None {},
             ),

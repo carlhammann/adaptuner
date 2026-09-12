@@ -222,7 +222,7 @@ impl<T: StackType> ReceiveToUiRef<T> for Notifications<T> {
                 self.enable_reanchor = (Some(*reanchor), Instant::now());
             }
 
-            ToUi::CurrentStrategyIndex(_) => {}
+            ToUi::StartedStrategy(_) => {}
             ToUi::Notify { .. } => {} // this will only contain MIDI parse errors (which shouldn't happen?)
             _ => {}
         }
