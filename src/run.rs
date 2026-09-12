@@ -17,7 +17,7 @@ use crate::{
     },
     config::{GuiConfig, StrategyConfig},
     gui::{
-        alternate::TopLevelGui,
+        toplevel::TopLevelGui,
         r#trait::{Gui, UiAdaptor},
     },
     interval::{
