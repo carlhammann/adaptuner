@@ -1,17 +1,13 @@
-use std::{
-    cell::RefCell,
-    ops::{Deref, DerefMut},
-    sync::{mpsc, Arc},
-};
-
-use parking_lot::RwLock;
+use std::ops::{Deref, DerefMut};
 
 use eframe::egui;
 
 use crate::{
-    adaptors::lock_levels::*, backend::pitchbend12::Pitchbend12Config, config::{GuiConfig, StrategyConfig}, interval::{stack::Stack, stacktype::r#trait::StackType}, keystate::KeyState, msg::{FromUi, ReceiveMsg, ToUi}, process::r#trait::StackWithTuning, reference::Reference, strategy::harmony::r#trait::Harmony, util::ordered_locks::{
-        Access, AccessMut, IndexedAccess, Nat, OrderedLocks, ReadAllowed, WriteAllowed, Zero, impl_access, impl_access_mut, impl_indexed_access
-    }
+    adaptors::{lock_levels::*, ConcreteLocks},
+    config::GuiConfig,
+    interval::stacktype::r#trait::StackType,
+    msg::{FromUi, ReceiveMsg, ToUi},
+    util::ordered_locks::{Nat, OrderedLocks, ReadAllowed, WriteAllowed, Zero},
 };
 
 pub struct GuiTag {}
@@ -30,107 +26,37 @@ impl WriteAllowed<ActiveStrategyIndexLevel> for GuiTag {}
 impl WriteAllowed<TuningReferenceLevel> for GuiTag {}
 impl WriteAllowed<BackendConfigLevel> for GuiTag {}
 
-pub trait UiAdaptor:
-    IndexedAccess<KeyStateLevel, usize, KeyState>
-    + IndexedAccess<TuningStateLevel, usize, StackWithTuning<Self::StackType>>
-    + Access<StrategyConfigLevel, Vec<StrategyConfig<Self::StackType>>>
-    + AccessMut<StrategyConfigLevel, Vec<StrategyConfig<Self::StackType>>>
-    + Access<ActiveStrategyIndexLevel, usize>
-    + AccessMut<ActiveStrategyIndexLevel, usize>
-    + Access<TuningReferenceLevel, Reference<Self::StackType>>
-    + AccessMut<TuningReferenceLevel, Reference<Self::StackType>>
-    + Access<ReferenceLevel, Stack<Self::StackType>>
-    + Access<BackendConfigLevel, Pitchbend12Config>
-    + AccessMut<BackendConfigLevel, Pitchbend12Config>
-    + Access<HarmonyLevel, Option<Harmony<Self::StackType>>>
-{
-    type StackType: StackType;
-    fn send(&self, msg: FromUi<Self::StackType>);
+pub type UiAdaptor<T, L> = OrderedLocks<GuiTag, ConcreteLocks<T>, L>;
 
-    fn config(&self) -> impl Deref<Target = GuiConfig>;
-    fn config_mut(&self) -> impl DerefMut<Target = GuiConfig>;
-}
-
-pub struct ConcreteUiAdaptor<T: StackType> {
-    pub forward: mpsc::Sender<FromUi<T>>,
-    pub key_states: [Arc<RwLock<KeyState>>; 128],
-    pub tunings: [Arc<RwLock<StackWithTuning<T>>>; 128],
-    pub tuning_reference: Arc<RwLock<Reference<T>>>,
-    pub reference: Arc<RwLock<Stack<T>>>,
-    pub strategy_config: Arc<RwLock<Vec<StrategyConfig<T>>>>,
-    pub active_strategy_index: Arc<RwLock<usize>>,
-    pub gui_config: RefCell<GuiConfig>,
-    pub backend_config: Arc<RwLock<Pitchbend12Config>>,
-    pub harmony: Arc<RwLock<Option<Harmony<T>>>>,
-}
-
-impl_indexed_access! {<T:StackType>, ConcreteUiAdaptor<T>, KeyStateLevel, usize, KeyState, |self, i| &self.key_states[i].read()}
-impl_indexed_access! {<T:StackType>, ConcreteUiAdaptor<T>, TuningStateLevel, usize, StackWithTuning<T>, |self, i| &self.tunings[i].read()}
-impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, TuningReferenceLevel, Reference<T>, |self| &self.tuning_reference.read()}
-impl_access_mut! {<T:StackType>, ConcreteUiAdaptor<T>, TuningReferenceLevel, Reference<T>, |self| &mut self.tuning_reference.write()}
-impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, StrategyConfigLevel, Vec<StrategyConfig<T>>, |self| &self.strategy_config.read()}
-impl_access_mut! {<T:StackType>, ConcreteUiAdaptor<T>, StrategyConfigLevel, Vec<StrategyConfig<T>>, |self| &mut self.strategy_config.write()}
-impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, ActiveStrategyIndexLevel, usize, |self| &self.active_strategy_index.read()}
-impl_access_mut! {<T:StackType>, ConcreteUiAdaptor<T>, ActiveStrategyIndexLevel, usize, |self| &mut self.active_strategy_index.write()}
-impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, ReferenceLevel, Stack<T>, |self| &self.reference.read()}
-impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, BackendConfigLevel, Pitchbend12Config, |self| &self.backend_config.read()}
-impl_access_mut! {<T:StackType>, ConcreteUiAdaptor<T>, BackendConfigLevel, Pitchbend12Config, |self| &mut self.backend_config.write()}
-impl_access! {<T:StackType>, ConcreteUiAdaptor<T>, HarmonyLevel, Option<Harmony<T>>, |self| &self.harmony.read()}
-
-impl<T: StackType, A: UiAdaptor<StackType = T>, L: Nat> OrderedLocks<GuiTag, A, L> {
+impl<T: StackType, L: Nat> UiAdaptor<T, L> {
     #[inline]
     pub fn send(&self, msg: FromUi<T>) {
-        unsafe { self.inner() }.send(msg)
+        let _ = unsafe { self.inner() }.from_ui_tx.send(msg);
     }
 
     #[inline]
-    pub fn config(&self) -> impl Deref<Target = GuiConfig> + use<'_, T, A, L> {
-        unsafe { self.inner() }.config()
+    pub fn config(&self) -> impl Deref<Target = GuiConfig> + use<'_, T, L> {
+        unsafe { self.inner() }.gui_config.read()
     }
 
     #[inline]
-    pub fn config_mut(&self) -> impl DerefMut<Target = GuiConfig> + use<'_, T, A, L> {
-        unsafe { self.inner() }.config_mut()
-    }
-}
-
-impl<T: StackType> UiAdaptor for ConcreteUiAdaptor<T> {
-    type StackType = T;
-
-    #[inline]
-    fn send(&self, msg: FromUi<T>) {
-        self.forward.send(msg);
-    }
-
-    #[inline]
-    fn config(&self) -> impl Deref<Target = GuiConfig> {
-        self.gui_config.borrow()
-    }
-
-    #[inline]
-    fn config_mut(&self) -> impl DerefMut<Target = GuiConfig> {
-        self.gui_config.borrow_mut()
+    pub fn config_mut(&self) -> impl DerefMut<Target = GuiConfig> + use<'_, T, L> {
+        unsafe { self.inner() }.gui_config.write()
     }
 }
 
 pub trait GuiShow<T: StackType> {
-    fn show<A: UiAdaptor<StackType = T>>(
-        &mut self,
-        ui: &mut egui::Ui,
-        adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero>;
+    fn show(&mut self, ui: &mut egui::Ui, adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero>;
 }
 
-pub trait Gui<T: StackType, A: UiAdaptor<StackType = T>>:
-    eframe::App + ReceiveMsg<ToUi<T>>
-{
-    fn new(adaptor: A) -> Self;
+pub trait Gui<T: StackType>: eframe::App + ReceiveMsg<ToUi<T>> {
+    fn new(adaptor: UiAdaptor<T, Zero>) -> Self;
 }
 
-pub trait ReceiveToUiRef<T: StackType, A: UiAdaptor<StackType = T>> {
+pub trait ReceiveToUiRef<T: StackType> {
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero>;
+        adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero>;
 }

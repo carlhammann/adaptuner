@@ -1,8 +1,16 @@
+use std::sync::mpsc;
+
+use parking_lot::RwLock;
+
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
-    config::{MelodyStrategyConfig, Named, StrategyConfig},
-    interval::{stack::Stack, stacktype::r#trait::IntervalBasis},
+    config::{GuiConfig, MelodyStrategyConfig, Named, StrategyConfig},
+    interval::{
+        stack::Stack,
+        stacktype::r#trait::{IntervalBasis, StackType},
+    },
     keystate::KeyState,
+    msg::{FromBackend, FromProcess, FromUi},
     neighbourhood::SomeCompleteNeighbourhood,
     process::r#trait::StackWithTuning,
     reference::Reference,
@@ -11,10 +19,32 @@ use crate::{
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
     util::ordered_locks::{
-        Access, AccessMut, AtMost, IndexedAccess, IndexedAccessMut, Nat, OrderedLocks, ReadAllowed,
-        Succ, WriteAllowed,
+        impl_access, impl_access_mut, impl_indexed_access, impl_indexed_access_mut, Access,
+        AccessMut, AtMost, IndexedAccess, IndexedAccessMut, Nat, OrderedLocks, ReadAllowed, Succ,
+        WriteAllowed,
     },
 };
+
+pub struct ConcreteLocks<T: StackType> {
+    pub from_ui_tx: mpsc::Sender<FromUi<T>>,
+    pub from_process_tx: mpsc::Sender<FromProcess<T>>,
+    pub from_backend_tx: mpsc::Sender<FromBackend>,
+
+    pub pedal_hold: RwLock<[bool; 16]>,
+    pub sostenuto_hold: RwLock<[bool; 16]>,
+    pub soft_hold: RwLock<[bool; 16]>,
+    pub key_states: [RwLock<KeyState>; 128],
+    pub tunings: [RwLock<StackWithTuning<T>>; 128],
+    pub tuning_reference: RwLock<Reference<T>>,
+    pub reference: RwLock<Stack<T>>,
+    pub strategy_config: RwLock<Vec<StrategyConfig<T>>>,
+    pub active_strategy_index: RwLock<usize>,
+    /// Because this field isn't actually shared between threads, it won't be accessed through the
+    /// machinery in this module, but through [UiAdaptor::config]
+    pub gui_config: RwLock<GuiConfig>,
+    pub backend_config: RwLock<Pitchbend12Config>,
+    pub harmony: RwLock<Option<Harmony<T>>>,
+}
 
 /// The following type definitions define an ordering of locks:
 ///
@@ -32,13 +62,43 @@ pub mod lock_levels {
     pub type HarmonyLevel             = Zero;
     pub type StrategyConfigLevel      = Succ<Zero>;
     pub type ActiveStrategyIndexLevel = Succ<Succ<Zero>>;
-    pub type KeyStateLevel            = Succ<Succ<Succ<Zero>>>;
-    pub type TuningStateLevel         = Succ<Succ<Succ<Succ<Zero>>>>;
-    pub type TuningReferenceLevel     = Succ<Succ<Succ<Succ<Succ<Zero>>>>>;
-    pub type ReferenceLevel           = Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>;
-    pub type BackendConfigLevel       = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>;
+    pub type PedalHoldLevel           = Succ<Succ<Succ<Zero>>>;
+    pub type SostenutoHoldLevel       = Succ<Succ<Succ<Succ<Zero>>>>;
+    pub type SoftHoldLevel            = Succ<Succ<Succ<Succ<Succ<Zero>>>>>;
+    pub type KeyStateLevel            = Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>;
+    pub type TuningStateLevel         = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>;
+    pub type TuningReferenceLevel     = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>; 
+    pub type ReferenceLevel           = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>>;
+    pub type BackendConfigLevel       = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>>>;
+    // pub type GuiConfigLevel           = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>>>>;
 }
 use lock_levels::*;
+
+impl_access! {<T:StackType>, ConcreteLocks<T>, PedalHoldLevel, [bool;16], |self| &self.pedal_hold.read()}
+impl_access! {<T:StackType>, ConcreteLocks<T>, SostenutoHoldLevel, [bool;16], |self| &self.sostenuto_hold.read()}
+impl_access! {<T:StackType>, ConcreteLocks<T>, SoftHoldLevel, [bool;16], |self| &self.soft_hold.read()}
+impl_indexed_access! {<T:StackType>, ConcreteLocks<T>, KeyStateLevel, usize, KeyState, |self, i| &self.key_states[i].read()}
+impl_indexed_access! {<T:StackType>, ConcreteLocks<T>, TuningStateLevel, usize, StackWithTuning<T>, |self, i| &self.tunings[i].read()}
+impl_access! {<T:StackType>, ConcreteLocks<T>, TuningReferenceLevel, Reference<T>, |self| &self.tuning_reference.read()}
+impl_access! {<T:StackType>, ConcreteLocks<T>, ReferenceLevel, Stack<T>, |self| &self.reference.read()}
+impl_access! {<T:StackType>, ConcreteLocks<T>, StrategyConfigLevel, Vec<StrategyConfig<T>>, |self| &self.strategy_config.read()}
+impl_access! {<T:StackType>, ConcreteLocks<T>, ActiveStrategyIndexLevel, usize, |self| &self.active_strategy_index.read()}
+impl_access! {<T:StackType>, ConcreteLocks<T>, BackendConfigLevel, Pitchbend12Config, |self| &self.backend_config.read()}
+// impl_access! {<T:StackType>, ConcreteLocks<T>, GuiConfigLevel, GuiConfig, |self| &self.gui_config.read()}
+impl_access! {<T:StackType>, ConcreteLocks<T>, HarmonyLevel, Option<Harmony<T>>, |self| &self.harmony.read()}
+
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, PedalHoldLevel, [bool;16], |self| &mut self.pedal_hold.write()}
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, SostenutoHoldLevel, [bool;16], |self| &mut self.sostenuto_hold.write()}
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, SoftHoldLevel, [bool;16], |self| &mut self.soft_hold.write()}
+impl_indexed_access_mut! {<T:StackType>, ConcreteLocks<T>, KeyStateLevel, usize, KeyState, |self, i| &mut self.key_states[i].write()}
+impl_indexed_access_mut! {<T:StackType>, ConcreteLocks<T>, TuningStateLevel, usize, StackWithTuning<T>, |self, i| &mut self.tunings[i].write()}
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, TuningReferenceLevel, Reference<T>, |self| &mut self.tuning_reference.write()}
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, ReferenceLevel, Stack<T>, |self| &mut self.reference.write()}
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, StrategyConfigLevel, Vec<StrategyConfig<T>>, |self| &mut self.strategy_config.write()}
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, ActiveStrategyIndexLevel, usize, |self| &mut self.active_strategy_index.write()}
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, BackendConfigLevel, Pitchbend12Config, |self| &mut self.backend_config.write()}
+// impl_access_mut! {<T:StackType>, ConcreteLocks<T>, GuiConfigLevel, GuiConfig, |self| &mut self.gui_config.write()}
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, HarmonyLevel, Option<Harmony<T>>, |self| &mut self.harmony.write()}
 
 // helper macro for the next impl. Only to save some writing and reading effort
 macro_rules! accessor {
@@ -92,6 +152,15 @@ macro_rules! accessor {
 }
 
 impl<X, M, L: Nat> OrderedLocks<X, M, L> {
+    accessor! {pedal_hold <>, X,  M, L, PedalHoldLevel, [bool;16]}
+    accessor! {@mut pedal_hold_mut <>, X,  M, L, PedalHoldLevel, [bool;16]}
+
+    accessor! {sostenuto_hold <>, X,  M, L, SostenutoHoldLevel, [bool;16]}
+    accessor! {@mut sostenuto_hold_mut <>, X,  M, L, SostenutoHoldLevel, [bool;16]}
+
+    accessor! {soft_hold <>, X,  M, L, SoftHoldLevel, [bool;16]}
+    accessor! {@mut soft_hold_mut <>, X,  M, L, SoftHoldLevel, [bool;16]}
+
     accessor! {@indexed key_state <>, X,  M, L, KeyStateLevel, usize, KeyState}
     accessor! {@indexed @mut key_state_mut <>, X,  M, L, KeyStateLevel, usize, KeyState}
 
@@ -199,7 +268,7 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
     {
         let mut res = vec![];
         for i in 0..128 {
-            (_, self) = self.key_state(i, |k, r| {
+            (_, self) = self.key_state(i, |k, _| {
                 if k.is_sounding() {
                     res.push(i as u8);
                 }
@@ -331,4 +400,15 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
             } => f(Some(scales), r),
         })
     }
+}
+
+/// Helper function to apply the accessors in this module to the `Option<...>`. This makes it possible
+/// to have a struct field with an adaptor (wrapped in `Option`).
+///
+/// Panics if `a` is `None`.
+#[inline]
+pub fn take_replace<A, R>(a: &mut Option<A>, mut f: impl FnMut(A) -> (R, A)) -> R {
+    let (res, a_new) = f(a.take().unwrap());
+    *a = Some(a_new);
+    res
 }

@@ -1,9 +1,10 @@
-use std::{sync::Arc, time::Instant};
+use std::time::Instant;
 
 use eframe::{self, egui};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    adaptors::take_replace,
     config::BackendConfig,
     gui::{
         backend::BackendWindow,
@@ -20,11 +21,11 @@ use crate::{
     interval::stacktype::r#trait::{OctavePeriodicStackType, Reloadable, StackType},
     msg::{FromUi, ReceiveMsg, ToUi},
     notename::HasNoteNames,
-    util::ordered_locks::OrderedLocks,
+    util::ordered_locks::Zero,
 };
 
-pub struct TopLevelGui<T: StackType, A: UiAdaptor<StackType = T>> {
-    adaptor: Arc<A>,
+pub struct TopLevelGui<T: StackType> {
+    adaptor: Option<UiAdaptor<T, Zero>>,
 
     // these four use the same SmallFloatingWindow, namely the connection_window
     input_connection: ConnectionWindow<Input>,
@@ -54,10 +55,16 @@ pub struct TopLevelGui<T: StackType, A: UiAdaptor<StackType = T>> {
     comma_editor_window: SmallFloatingWindow,
 }
 
-impl<T, A> eframe::App for TopLevelGui<T, A>
+impl<T: StackType> TopLevelGui<T> {
+    #[inline]
+    fn send(&self, msg: FromUi<T>) {
+        self.adaptor.as_ref().unwrap().send(msg);
+    }
+}
+
+impl<T> eframe::App for TopLevelGui<T>
 where
     T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
-    A: UiAdaptor<StackType = T>,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // no need to check for the ConfigFileDialog, which is also shown as modal; this has its
@@ -65,16 +72,16 @@ where
         let any_modal_open =
             self.temperament_editor_window.is_open() || self.comma_editor_window.is_open();
 
-        let stop = |tlg: &mut TopLevelGui<T, A>| {
-            let _ = tlg.adaptor.send(FromUi::Stop {
+        let stop = |tlg: &mut TopLevelGui<T>| {
+            let _ = tlg.send(FromUi::Stop {
                 time: Instant::now(),
             });
             tlg.stopped = true;
         };
 
-        let restart = |tlg: &mut TopLevelGui<T, A>| {
+        let restart = |tlg: &mut TopLevelGui<T>| {
             tlg.renew();
-            let _ = tlg.adaptor.send(FromUi::RestartFromConfig {
+            let _ = tlg.send(FromUi::RestartFromConfig {
                 time: Instant::now(),
             });
             tlg.stopped = false;
@@ -98,20 +105,20 @@ where
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.visuals_mut().collapsing_header_frame = true;
 
-                {
-                    let adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
-                    ui.collapsing("global tuning reference", |ui| {
-                        self.tuning_editor.show(ui, adaptor)
+                ui.collapsing("global tuning reference", |ui| {
+                    take_replace(&mut self.adaptor, |mut adaptor| {
+                        adaptor = self.tuning_editor.show(ui, adaptor);
+                        ((), adaptor)
                     });
-                }
+                });
 
                 ui.separator();
 
                 ui.label("Tuning strategy");
-                {
-                    let adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
-                    self.strategy_widgets.show(ui, adaptor);
-                }
+                take_replace(&mut self.adaptor, |mut adaptor| {
+                    adaptor = self.strategy_widgets.show(ui, adaptor);
+                    ((), adaptor)
+                });
 
                 ui.separator();
 
@@ -149,7 +156,7 @@ where
                 ui.separator();
 
                 ui.checkbox(
-                    &mut self.adaptor.config_mut().use_cent_values,
+                    &mut self.adaptor.as_ref().unwrap().config_mut().use_cent_values,
                     "use cent values",
                 );
 
@@ -180,8 +187,10 @@ where
                             ui.disable();
                         }
                         {
-                            let adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
-                            self.notifications.show(ui, adaptor);
+                            take_replace(&mut self.adaptor, |mut adaptor| {
+                                adaptor = self.notifications.show(ui, adaptor);
+                                ((), adaptor)
+                            });
                         }
                     });
             }
@@ -191,25 +200,26 @@ where
                     if any_modal_open {
                         ui.disable();
                     }
-                    let mut adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
-                    adaptor = self.input_connection.show(ui, adaptor);
-                    adaptor = self.output_connection.show(ui, adaptor);
+                    take_replace(&mut self.adaptor, |mut adaptor| {
+                        adaptor = self.input_connection.show(ui, adaptor);
+                        adaptor = self.output_connection.show(ui, adaptor);
 
-                    ui.separator();
+                        ui.separator();
 
-                    ui.vertical_centered(|ui| ui.label("output settings"));
-                    self.backend.show(ui, adaptor);
+                        ui.vertical_centered(|ui| ui.label("output settings"));
+                        adaptor = self.backend.show(ui, adaptor);
+                        ((), adaptor)
+                    });
                 });
             });
 
-            {
-                let mut adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
+            let do_restart = take_replace(&mut self.adaptor, |mut adaptor| {
                 let new_config;
                 (new_config, adaptor) = self.config_file_dialog.show(ui, adaptor);
                 if let Some(config) = new_config {
                     let _ = T::initialise(config.temperaments, config.named_intervals);
 
-                    *self.adaptor.config_mut() = config.gui;
+                    *adaptor.config_mut() = config.gui;
 
                     match config.backend {
                         BackendConfig::Pitchbend12(c) => {
@@ -217,12 +227,17 @@ where
                         }
                     }
 
-                    adaptor.strategy_config_mut(|x, _| x.clone_from(&config.strategies));
+                    (_, adaptor) =
+                        adaptor.strategy_config_mut(|x, _| x.clone_from(&config.strategies));
 
-                    restart(self);
-
-                    return; // don't continue updating for this frame
+                    (true, adaptor)
+                } else {
+                    (false, adaptor)
                 }
+            });
+            if do_restart {
+                restart(self);
+                return; // don't continue updating for this frame
             }
 
             if let Some(egui::InnerResponse {
@@ -258,14 +273,13 @@ where
                 return; // don't continue updating for this frame
             }
 
-            {
-                let mut adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
+            take_replace(&mut self.adaptor, |mut adaptor| {
                 adaptor = self
                     .strategy_widgets
                     .show_windows(ui, adaptor, any_modal_open);
-
-                self.lattice.show(ui, adaptor);
-            }
+                adaptor = self.lattice.show(ui, adaptor);
+                ((), adaptor)
+            });
 
             ui.horizontal(|ui| {
                 if !self.show_side_panel {
@@ -279,10 +293,10 @@ where
                 }
 
                 if ui.button("🔍+").clicked() {
-                    self.adaptor.config_mut().lattice.zoom *= 1.1;
+                    self.adaptor.as_ref().unwrap().config_mut().lattice.zoom *= 1.1;
                 }
                 if ui.button("🔍-").clicked() {
-                    self.adaptor.config_mut().lattice.zoom /= 1.1;
+                    self.adaptor.as_ref().unwrap().config_mut().lattice.zoom /= 1.1;
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
@@ -293,24 +307,25 @@ where
     }
 }
 
-impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveMsg<ToUi<T>> for TopLevelGui<T, A> {
+impl<T: StackType> ReceiveMsg<ToUi<T>> for TopLevelGui<T> {
     fn receive_msg(&mut self, msg: ToUi<T>) {
-        let mut adaptor = unsafe { OrderedLocks::new_zero(self.adaptor.clone()) };
-        adaptor = self.lattice.receive_to_ui_ref(&msg, adaptor);
-        adaptor = self.latency.receive_to_ui_ref(&msg, adaptor);
-        adaptor = self.input_connection.receive_to_ui_ref(&msg, adaptor);
-        adaptor = self.output_connection.receive_to_ui_ref(&msg, adaptor);
-        adaptor = self.notifications.receive_to_ui_ref(&msg, adaptor);
-        self.strategy_widgets.receive_to_ui_ref(&msg, adaptor);
+        take_replace(&mut self.adaptor, |mut adaptor| {
+            adaptor = self.lattice.receive_to_ui_ref(&msg, adaptor);
+            adaptor = self.latency.receive_to_ui_ref(&msg, adaptor);
+            adaptor = self.input_connection.receive_to_ui_ref(&msg, adaptor);
+            adaptor = self.output_connection.receive_to_ui_ref(&msg, adaptor);
+            adaptor = self.notifications.receive_to_ui_ref(&msg, adaptor);
+            adaptor = self.strategy_widgets.receive_to_ui_ref(&msg, adaptor);
+            ((), adaptor)
+        });
     }
 }
 
-impl<T, A> Gui<T, A> for TopLevelGui<T, A>
+impl<T> Gui<T> for TopLevelGui<T>
 where
     T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
-    A: UiAdaptor<StackType = T>,
 {
-    fn new(adaptor: A) -> Self {
+    fn new(adaptor: UiAdaptor<T, Zero>) -> Self {
         let latency_mean_over = adaptor.config().latency_mean_over;
         Self {
             input_connection: ConnectionWindow::new(),
@@ -335,15 +350,14 @@ where
                 egui::Id::new("comma_editor_window"),
                 false,
             ),
-            adaptor: Arc::new(adaptor),
+            adaptor: Some(adaptor),
         }
     }
 }
 
-impl<T, A> TopLevelGui<T, A>
+impl<T> TopLevelGui<T>
 where
     T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
-    A: UiAdaptor<StackType = T>,
 {
     fn renew(&mut self) {
         self.backend = BackendWindow::new();
@@ -352,7 +366,8 @@ where
         self.strategy_widgets = StrategyWidgets::new();
         self.config_file_dialog = ConfigFileDialog::new();
         self.lattice = LatticeWindow::new();
-        self.latency = LatencyWindow::new(self.adaptor.config().latency_mean_over);
+        self.latency =
+            LatencyWindow::new(self.adaptor.as_ref().unwrap().config().latency_mean_over);
         self.temperament_editor = TemperamentEditor::new();
         self.comma_editor = CommaEditor::new();
     }

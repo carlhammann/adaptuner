@@ -13,7 +13,6 @@ use crate::{
     keystate::KeyState,
     msg::{ToChordList, ToHarmony},
     neighbourhood::SomeNeighbourhood,
-    process::r#trait::ProcessAdaptor,
     strategy::harmony::r#trait::{Harmony, HarmonyAdaptor, HarmonyResult, HarmonyStrategy},
     util::ordered_locks::{AtMost, IndexedAccess, OrderedLocks, ReadAllowed, Succ, Zero},
 };
@@ -138,14 +137,12 @@ impl<T: StackType> IsHarmonyStrategyConfig<T> for ChordListConfig<T> {
     }
 }
 
-impl<T: StackType, P: ProcessAdaptor<StackType = T>, L: AtMost<StrategyConfigLevel>>
-    HarmonyAdaptor<T, ChordList<T>, P, L>
-{
+impl<T: StackType, L: AtMost<StrategyConfigLevel>> HarmonyAdaptor<T, ChordList<T>, L> {
     pub fn config<R>(
         self,
         mut f: impl FnMut(
             &ChordListConfig<T>,
-            HarmonyAdaptor<T, ChordList<T>, P, Succ<ActiveStrategyIndexLevel>>,
+            HarmonyAdaptor<T, ChordList<T>, Succ<ActiveStrategyIndexLevel>>,
         ) -> R,
     ) -> (R, Self) {
         self.active_strategy(|strat, adaptor| match strat {
@@ -179,27 +176,27 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         }
     }
 
-    fn start<P: ProcessAdaptor<StackType = T>>(
+    fn start(
         &mut self,
         time: Instant,
-        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
-    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, P, Zero>) {
+        adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
         self.start_solve(time, adaptor)
     }
 
-    fn stop<P: ProcessAdaptor<StackType = T>>(
+    fn stop(
         &mut self,
         time: Instant,
-        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
-    ) -> HarmonyAdaptor<T, Self, P, Zero> {
+        adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> HarmonyAdaptor<T, Self, Zero> {
         adaptor
     }
 
-    fn start_solve<P: ProcessAdaptor<StackType = T>>(
+    fn start_solve(
         &mut self,
         time: Instant,
-        mut adaptor: HarmonyAdaptor<T, Self, P, Zero>,
-    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, P, Zero>) {
+        mut adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
         if self.enable {
             self.next_pattern_to_try = 0;
             self.best_fit = (0, Fit::Failed);
@@ -220,10 +217,10 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         )
     }
 
-    fn step<P: ProcessAdaptor<StackType = T>>(
+    fn step(
         &mut self,
-        mut adaptor: HarmonyAdaptor<T, Self, P, Zero>,
-    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, P, Zero>) {
+        mut adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
         if self.next_pattern_to_try >= self.patterns.len() {
             let progress = self.best_fit.1.matches_something();
 
@@ -245,7 +242,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
 
         let fit = the_pattern.key_shape.fit_code(self.active_code);
 
-        let update_harmony = |mut adaptor: HarmonyAdaptor<T, Self, P, Zero>| {
+        let update_harmony = |mut adaptor: HarmonyAdaptor<T, Self, Zero>| {
             (_, adaptor) = adaptor.harmony_mut(|h, _| {
                 if let Some(h) = h {
                     h.neighbourhood.clone_from(&the_pattern.neighbourhood);
@@ -310,11 +307,11 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         }
     }
 
-    fn receive_msg<P: ProcessAdaptor<StackType = T>>(
+    fn receive_msg(
         &mut self,
         msg: Self::Msg,
-        mut adaptor: HarmonyAdaptor<T, Self, P, Zero>,
-    ) -> (Option<Instant>, HarmonyAdaptor<T, Self, P, Zero>) {
+        mut adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (Option<Instant>, HarmonyAdaptor<T, Self, Zero>) {
         match msg {
             ToChordList::ToggleEnable { time } => {
                 self.enable = !self.enable;
@@ -340,12 +337,12 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         }
     }
 
-    fn handle_bound_action<P: ProcessAdaptor<StackType = T>>(
+    fn handle_bound_action(
         &mut self,
         action: BindableStrategyAction,
         time: Instant,
-        adaptor: HarmonyAdaptor<T, Self, P, Zero>,
-    ) -> (Option<Instant>, HarmonyAdaptor<T, Self, P, Zero>) {
+        adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (Option<Instant>, HarmonyAdaptor<T, Self, Zero>) {
         match action {
             _ => (None {}, adaptor),
         }

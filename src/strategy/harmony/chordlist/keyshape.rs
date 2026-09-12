@@ -2,8 +2,8 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     adaptors::lock_levels::KeyStateLevel,
-    process::r#trait::ProcessAdaptor,
-    util::ordered_locks::{AtMost, OrderedLocks, ReadAllowed},
+    keystate::KeyState,
+    util::ordered_locks::{AtMost, IndexedAccess, OrderedLocks, ReadAllowed},
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, std::hash::Hash)]
@@ -155,7 +155,11 @@ impl KeyShape {
     }
 }
 
-pub fn active_code<T: ReadAllowed<KeyStateLevel>, P: ProcessAdaptor, L: AtMost<KeyStateLevel>>(
+pub fn active_code<
+    T: ReadAllowed<KeyStateLevel>,
+    P: IndexedAccess<KeyStateLevel, usize, KeyState>,
+    L: AtMost<KeyStateLevel>,
+>(
     mut adaptor: OrderedLocks<T, P, L>,
 ) -> (u128, OrderedLocks<T, P, L>) {
     let mut active_code: u128 = 0;

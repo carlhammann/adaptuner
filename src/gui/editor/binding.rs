@@ -3,9 +3,9 @@ use eframe::egui::{self, Popup};
 use crate::{
     bindable::{BindableEvent, BindableProcessAction, BindableStrategyAction},
     config::StrategyConfig,
-    gui::r#trait::{GuiShow, GuiTag, UiAdaptor},
+    gui::r#trait::{GuiShow, UiAdaptor},
     interval::stacktype::r#trait::StackType,
-    util::ordered_locks::{OrderedLocks, Zero},
+    util::ordered_locks::Zero,
 };
 
 pub struct BindingEditor {
@@ -29,11 +29,11 @@ impl BindingEditor {
 }
 
 impl<T: StackType> GuiShow<T> for BindingEditor {
-    fn show<A: UiAdaptor<StackType = T>>(
+    fn show(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        mut adaptor: UiAdaptor<T, Zero>
+    ) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.active_strategy_mut(|strat, _| {
             ui.collapsing("key bindings", |ui| {
                 ui.vertical(|ui| {

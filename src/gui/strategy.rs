@@ -15,7 +15,7 @@ use crate::{
             chordlist::{ChordListEditor, ChordListEditorResult},
             scale::{ScaleEditor, ScaleEditorResult},
         },
-        r#trait::{GuiShow, GuiTag, ReceiveToUiRef, UiAdaptor},
+        r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     },
     interval::stacktype::r#trait::{OctavePeriodicStackType, StackType},
     msg::{
@@ -28,7 +28,7 @@ use crate::{
         melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
-    util::ordered_locks::{AtMost, OrderedLocks, Zero},
+    util::ordered_locks::{AtMost, Zero},
 };
 
 struct StrategySelectorWidget {
@@ -45,15 +45,14 @@ impl StrategySelectorWidget {
         }
     }
 
-    fn show_windows<T, A, L>(
+    fn show_windows<T, L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
+        mut adaptor: UiAdaptor<T, L>,
         disable: bool,
-    ) -> OrderedLocks<GuiTag, A, L>
+    ) -> UiAdaptor<T, L>
     where
         T: StackType,
-        A: UiAdaptor<StackType = T>,
         L: AtMost<StrategyConfigLevel>,
     {
         (_, adaptor) = adaptor.strategy_config_mut(|strategy_configs, adaptor| {
@@ -137,11 +136,11 @@ impl StrategySelectorWidget {
 }
 
 impl<T: StackType> GuiShow<T> for StrategySelectorWidget {
-    fn show<A: UiAdaptor<StackType = T>>(
+    fn show(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        mut adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.strategy_config(|strategy_configs, adaptor| {
             adaptor.active_strategy_index_mut(|active_strategy_index, adaptor| {
                 egui::ComboBox::from_id_salt("strategy selector widget")
@@ -184,15 +183,14 @@ impl BindingEditorWidget {
         }
     }
 
-    fn react_to_bound_keys<T, A, L>(
+    fn react_to_bound_keys<T, L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
+        mut adaptor: UiAdaptor<T, L>,
         disable: bool,
-    ) -> OrderedLocks<GuiTag, A, L>
+    ) -> UiAdaptor<T, L>
     where
         T: StackType,
-        A: UiAdaptor<StackType = T>,
         L: AtMost<StrategyConfigLevel>,
     {
         if disable {
@@ -237,11 +235,7 @@ impl BindingEditorWidget {
 
 impl<T: StackType> GuiShow<T> for BindingEditorWidget {
     #[inline]
-    fn show<A: UiAdaptor<StackType = T>>(
-        &mut self,
-        ui: &mut egui::Ui,
-        adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+    fn show(&mut self, ui: &mut egui::Ui, adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         self.binding_editor.show(ui, adaptor)
     }
 }
@@ -263,14 +257,13 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
         }
     }
 
-    pub fn show_windows<A, L>(
+    pub fn show_windows<L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
+        mut adaptor: UiAdaptor<T, L>,
         disable: bool,
-    ) -> OrderedLocks<GuiTag, A, L>
+    ) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<StrategyConfigLevel>,
     {
         adaptor = self.selector_widget.show_windows(ui, adaptor, disable);
@@ -279,13 +272,12 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
     }
 
     #[inline]
-    fn show_scale_editor<A, L>(
+    fn show_scale_editor<L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+        mut adaptor: UiAdaptor<T, L>,
+    ) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<StrategyConfigLevel>,
     {
         (_, adaptor) = adaptor.active_strategy_mut(|strat, adaptor| match strat {
@@ -369,13 +361,12 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
     }
 
     #[inline]
-    fn show_chord_list_editor<A, L>(
+    fn show_chord_list_editor< L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+        mut adaptor: UiAdaptor<T, L>
+    ) ->UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<StrategyConfigLevel>,
     {
         let wrap = |msg| {
@@ -432,11 +423,11 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
 }
 
 impl<T: OctavePeriodicStackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T> {
-    fn show<A: UiAdaptor<StackType = T>>(
+    fn show(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        mut adaptor: UiAdaptor<T, Zero>
+    ) -> UiAdaptor<T, Zero> {
         adaptor = self.selector_widget.show(ui, adaptor);
         adaptor = self.binding_editor_widget.show(ui, adaptor);
         adaptor = self.show_scale_editor(ui, adaptor);
@@ -444,12 +435,12 @@ impl<T: OctavePeriodicStackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T
     }
 }
 
-impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for StrategyWidgets<T> {
+impl<T: StackType> ReceiveToUiRef<T> for StrategyWidgets<T> {
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        mut adaptor: UiAdaptor<T, Zero>
+    ) -> UiAdaptor<T, Zero> {
         adaptor = self.scale_editor.receive_to_ui_ref(msg, adaptor);
         self.chord_list_editor.receive_to_ui_ref(msg, adaptor)
     }

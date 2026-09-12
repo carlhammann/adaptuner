@@ -1,5 +1,4 @@
 use std::{
-    cell::RefCell,
     sync::{mpsc, Arc},
     thread,
     time::Instant,
@@ -11,14 +10,15 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    adaptors::ConcreteLocks,
     backend::{
         pitchbend12::{Pitchbend12, Pitchbend12Config},
-        r#trait::ConcretePitchbend12Adaptor,
+        r#trait::BackendAdaptorNew,
     },
     config::{GuiConfig, StrategyConfig},
     gui::{
         alternate::TopLevelGui,
-        r#trait::{ConcreteUiAdaptor, Gui, UiAdaptor},
+        r#trait::{Gui, UiAdaptor},
     },
     interval::{
         base::Semitones,
@@ -34,9 +34,10 @@ use crate::{
     notename::HasNoteNames,
     process::{
         fromstrategy::ProcessFromStrategy,
-        r#trait::{ConcreteProcessAdaptor, StackWithTuning},
+        r#trait::{ProcessAdaptor, StackWithTuning},
     },
     reference::Reference,
+    util::ordered_locks::{OrderedLocks, Zero},
 };
 
 fn start_receiver_thread<I, H, NH>(
@@ -123,11 +124,13 @@ fn setup_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-fn start_gui<T, A, G>(rx: mpsc::Receiver<ToUi<T>>, adaptor: A) -> Result<(), eframe::Error>
+fn start_gui<T, G>(
+    rx: mpsc::Receiver<ToUi<T>>,
+    adaptor: UiAdaptor<T, Zero>,
+) -> Result<(), eframe::Error>
 where
     T: StackType + Send + 'static,
-    A: UiAdaptor<StackType = T>,
-    G: Gui<T, A>,
+    G: Gui<T>,
 {
     // create icon.rgba using something like
     //
@@ -407,41 +410,37 @@ impl<T: StackType> RunState<T> {
 
         let now = Instant::now();
 
-        let process_adaptor = ConcreteProcessAdaptor {
-            forward: from_process_tx,
+        let locks = Arc::new(ConcreteLocks {
+            from_process_tx,
+            from_ui_tx,
+            from_backend_tx,
+
+            pedal_hold: RwLock::new([false; 16]),
+            sostenuto_hold: RwLock::new([false; 16]),
+            soft_hold: RwLock::new([false; 16]),
             tunings: core::array::from_fn(|i| {
-                Arc::new(RwLock::new(StackWithTuning {
+                RwLock::new(StackWithTuning {
                     stack: Stack::new_zero(),
                     semitones: i as Semitones,
-                }))
+                })
             }),
-            key_states: core::array::from_fn(|_| Arc::new(RwLock::new(KeyState::new(now)))),
-            reference: Arc::new(RwLock::new(Stack::new_zero())),
-            tuning_reference: Arc::new(RwLock::new(tuning_reference)),
-            strategies: Arc::new(RwLock::new(strategies)),
-            active_strategy_index: Arc::new(RwLock::new(0)),
-            harmony: Arc::new(RwLock::new(None{})),
-        };
+            key_states: core::array::from_fn(|_| RwLock::new(KeyState::new(now))),
+            reference: RwLock::new(Stack::new_zero()),
+            tuning_reference: RwLock::new(tuning_reference),
+            strategy_config: RwLock::new(strategies),
+            active_strategy_index: RwLock::new(0),
+            harmony: RwLock::new(None {}),
+            backend_config: RwLock::new(backend_config),
+            gui_config: RwLock::new(gui_config),
+        });
 
-        let backend_adaptor = ConcretePitchbend12Adaptor {
-            forward: from_backend_tx,
-            key_states: core::array::from_fn(|i| process_adaptor.key_states[i].clone()),
-            tunings: core::array::from_fn(|i| process_adaptor.tunings[i].clone()),
-            config: Arc::new(RwLock::new(backend_config)),
-        };
+        let process_adaptor: ProcessAdaptor<T, Zero> =
+            unsafe { OrderedLocks::new_zero(locks.clone()) };
 
-        let gui_adaptor = ConcreteUiAdaptor {
-            forward: from_ui_tx,
-            tunings: core::array::from_fn(|i| process_adaptor.tunings[i].clone()),
-            key_states: core::array::from_fn(|i| process_adaptor.key_states[i].clone()),
-            reference: process_adaptor.reference.clone(),
-            tuning_reference: process_adaptor.tuning_reference.clone(),
-            strategy_config: process_adaptor.strategies.clone(),
-            active_strategy_index: process_adaptor.active_strategy_index.clone(),
-            gui_config: RefCell::new(gui_config.clone()),
-            backend_config: backend_adaptor.config.clone(),
-            harmony: process_adaptor.harmony.clone(),
-        };
+        let gui_adaptor: UiAdaptor<T, Zero> = unsafe { OrderedLocks::new_zero(locks.clone()) };
+
+        let backend_adaptor: BackendAdaptorNew<T, Zero> =
+            unsafe { OrderedLocks::new_zero(locks.clone()) };
 
         let res = Self {
             midi_input: start_receiver_thread(|| midi_input, to_midi_input_rx),
@@ -464,7 +463,7 @@ impl<T: StackType> RunState<T> {
         });
         // TODO: send more start messages?
 
-        let _ = start_gui::<T, ConcreteUiAdaptor<_>, TopLevelGui<_, _>>(to_ui_rx, gui_adaptor);
+        let _ = start_gui::<T, TopLevelGui<_>>(to_ui_rx, gui_adaptor);
 
         Ok(res)
     }

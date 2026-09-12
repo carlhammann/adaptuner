@@ -15,7 +15,6 @@ use crate::{
     },
     msg::{FromStrategy, ToStaticNeighbourhoods, ToStrategy},
     neighbourhood::{CompleteNeighbourhood, Neighbourhood, SomeCompleteNeighbourhood},
-    process::r#trait::ProcessAdaptor,
     strategy::r#trait::{Strategy, StrategyAdaptor},
     util::ordered_locks::{AtMost, Succ, Zero},
 };
@@ -39,14 +38,13 @@ pub struct StaticNeighbourhoodsConfig<T: IntervalBasis> {
 impl<T: StackType> StaticNeighbourhoods<T> {
     /// Only does something iff the tuning stack, as accessed through the adaptor, changes. That
     /// is: You can't use this for retunes caused by a changing tuning reference.
-    fn update_tuning_and_send<P, L>(
+    fn update_tuning_and_send<L>(
         &mut self,
         note: u8,
         time: Instant,
-        mut adaptor: StrategyAdaptor<T, Self, P, L>,
-    ) -> StrategyAdaptor<T, Self, P, L>
+        mut adaptor: StrategyAdaptor<T, Self, L>,
+    ) -> StrategyAdaptor<T, Self, L>
     where
-        P: ProcessAdaptor<StackType = T>,
         L: AtMost<TuningStateLevel>,
     {
         (_, adaptor) = adaptor.tuning_mut(note as usize, |the_tuning, mut adaptor| {
@@ -81,13 +79,12 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         adaptor
     }
 
-    fn update_all_tunings_and_send<P, L>(
+    fn update_all_tunings_and_send<L>(
         &mut self,
         time: Instant,
-        mut adaptor: StrategyAdaptor<T, Self, P, L>,
-    ) -> StrategyAdaptor<T, Self, P, L>
+        mut adaptor: StrategyAdaptor<T, Self, L>,
+    ) -> StrategyAdaptor<T, Self, L>
     where
-        P: ProcessAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel>,
     {
         adaptor = adaptor.for_all_sounding_keys(|i, _, adaptor| {
@@ -98,13 +95,12 @@ impl<T: StackType> StaticNeighbourhoods<T> {
 
     /// Returns true iff the reference changed. In that case, a re-tuning using
     /// [Self::update_all_tunings_and_send] will become necessary.
-    fn set_reference_to_extreme<P, L>(
+    fn set_reference_to_extreme<L>(
         &mut self,
         to_highest: bool,
-        mut adaptor: StrategyAdaptor<T, Self, P, L>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, L>)
+        mut adaptor: StrategyAdaptor<T, Self, L>,
+    ) -> (bool, StrategyAdaptor<T, Self, L>)
     where
-        P: ProcessAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
         (_, adaptor) = adaptor.reference(|r, _| self.tmp_stack.clone_from(r));
@@ -151,14 +147,12 @@ impl<T: StackType> StaticNeighbourhoods<T> {
 
 impl<T: StackType> IsStrategyConfig<T> for StaticNeighbourhoodsConfig<T> {}
 
-impl<T: StackType, P: ProcessAdaptor<StackType = T>, L: AtMost<StrategyConfigLevel>>
-    StrategyAdaptor<T, StaticNeighbourhoods<T>, P, L>
-{
+impl<T: StackType, L: AtMost<StrategyConfigLevel>> StrategyAdaptor<T, StaticNeighbourhoods<T>, L> {
     fn config<R>(
         self,
         mut f: impl FnMut(
             &StaticNeighbourhoodsConfig<T>,
-            StrategyAdaptor<T, StaticNeighbourhoods<T>, P, Succ<ActiveStrategyIndexLevel>>,
+            StrategyAdaptor<T, StaticNeighbourhoods<T>, Succ<ActiveStrategyIndexLevel>>,
         ) -> R,
     ) -> (R, Self) {
         self.active_strategy(|conf, adaptor| match conf {
@@ -180,14 +174,11 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
         }
     }
 
-    fn start<P>(
+    fn start(
         &mut self,
         time: Instant,
-        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>)
-    where
-        P: ProcessAdaptor<StackType = T>,
-    {
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         adaptor.send(FromStrategy::UpdateReference {});
 
         adaptor.send(FromStrategy::SelectScale {
@@ -208,38 +199,38 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
         (false, adaptor)
     }
 
-    fn stop<P: ProcessAdaptor<StackType = T>>(
+    fn stop(
         &mut self,
         _time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> StrategyAdaptor<T, Self, P, Zero> {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> StrategyAdaptor<T, Self, Zero> {
         adaptor
     }
 
-    fn note_on<P: ProcessAdaptor<StackType = T>>(
+    fn note_on(
         &mut self,
         note: u8,
         time: Instant,
-        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         adaptor = self.update_tuning_and_send(note, time, adaptor);
         (false, adaptor)
     }
 
-    fn note_off<P: ProcessAdaptor<StackType = T>>(
+    fn note_off(
         &mut self,
         _note: u8,
         _time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         (false, adaptor)
     }
 
-    fn update_tuning_reference<P: ProcessAdaptor<StackType = T>>(
+    fn update_tuning_reference(
         &mut self,
         time: Instant,
-        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         adaptor = adaptor.for_all_sounding_tunings_mut(|i, tuning, mut adaptor| {
             let c4_semitones;
             (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
@@ -253,12 +244,12 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
         (false, adaptor)
     }
 
-    fn consider<P: ProcessAdaptor<StackType = T>>(
+    fn consider(
         &mut self,
         stack: Stack<T>,
         time: Instant,
-        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         let inserted_stack = self.scales[self.curr_scale_index].insert(&stack).clone();
         let _ = adaptor.send(FromStrategy::Consider {
             stack: inserted_stack,
@@ -267,11 +258,11 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
         (false, adaptor)
     }
 
-    fn receive_msg<P: ProcessAdaptor<StackType = T>>(
+    fn receive_msg(
         &mut self,
         msg: Self::Msg,
-        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         match msg {
             ToStaticNeighbourhoods::SelectScale { index, time } => {
                 if index != self.curr_scale_index {
@@ -308,10 +299,10 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
         (false, adaptor)
     }
 
-    fn step<P: ProcessAdaptor<StackType = T>>(
+    fn step(
         &mut self,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         // no steps are needed for anything.
         (false, adaptor)
     }
@@ -325,12 +316,12 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
 
     // Make sure that [StrategyConfig::reacts_to_bound] exposes exactly the actions that this
     // function handles!
-    fn handle_bound_action<P: ProcessAdaptor<StackType = T>>(
+    fn handle_bound_action(
         &mut self,
         action: BindableStrategyAction,
         time: Instant,
-        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         match action {
             BindableStrategyAction::IncrementNeighbourhoodIndex(increment) => {
                 let old_index = self.curr_scale_index;

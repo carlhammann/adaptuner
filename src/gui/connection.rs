@@ -4,10 +4,10 @@ use eframe::egui;
 use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
-    gui::r#trait::{GuiShow, GuiTag, ReceiveToUiRef, UiAdaptor},
+    gui::r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     interval::stacktype::r#trait::StackType,
     msg::{FromUi, ToUi},
-    util::ordered_locks::{OrderedLocks, Zero},
+    util::ordered_locks::Zero,
 };
 
 pub struct Input {}
@@ -129,11 +129,7 @@ where
     X: IO,
     <X as IO>::Port: PartialEq + Clone,
 {
-    fn show<A: UiAdaptor<StackType = T>>(
-        &mut self,
-        ui: &mut egui::Ui,
-        adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+    fn show(&mut self, ui: &mut egui::Ui, adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         match self {
             ConnectionWindow::Connected { portname } => {
                 if disconnector::<X>(&portname, ui) {
@@ -165,12 +161,12 @@ where
         adaptor
     }
 }
-impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ConnectionWindow<Input> {
+impl<T: StackType> ReceiveToUiRef<T> for ConnectionWindow<Input> {
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
         match msg {
             ToUi::InputConnectionError { reason } => match self {
                 ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),
@@ -198,12 +194,12 @@ impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for Connect
     }
 }
 
-impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ConnectionWindow<Output> {
+impl<T: StackType> ReceiveToUiRef<T> for ConnectionWindow<Output> {
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
         match msg {
             ToUi::OutputConnectionError { reason } => match self {
                 ConnectionWindow::Unconnected { error, .. } => *error = Some(reason.clone()),

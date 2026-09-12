@@ -7,13 +7,13 @@ use eframe::egui;
 
 use crate::{
     config::{HarmonyStrategyConfig, StrategyConfig},
-    gui::r#trait::{GuiShow, GuiTag, ReceiveToUiRef, UiAdaptor},
+    gui::r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     msg::ToUi,
     neighbourhood::CompleteNeighbourhood,
     notename::{HasNoteNames, NoteNameStyle},
     strategy::harmony::{chordlist::ChordListConfig, r#trait::Harmony},
-    util::ordered_locks::{OrderedLocks, Zero},
+    util::ordered_locks::Zero,
 };
 
 pub struct Notifications<T: StackType> {
@@ -77,11 +77,11 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
 }
 
 impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
-    fn show<A: UiAdaptor<StackType = T>>(
+    fn show(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        mut adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
         if let (Some(scale_index), true, _) = self.scale_index {
             (_, adaptor) = adaptor.scales(|m_scales, _| match m_scales {
                 Some(scales) => {
@@ -158,12 +158,12 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
     }
 }
 
-impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for Notifications<T> {
+impl<T: StackType> ReceiveToUiRef<T> for Notifications<T> {
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        mut adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
         match msg {
             ToUi::UpdateReference {} => {
                 self.reference = (true, Instant::now());

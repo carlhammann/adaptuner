@@ -4,7 +4,7 @@ use crate::{
     adaptors::lock_levels::{KeyStateLevel, TuningStateLevel},
     gui::{
         common::{show_list_edit, ListEditOpts, ListEditResult},
-        r#trait::{GuiTag, ReceiveToUiRef, UiAdaptor},
+        r#trait::{ReceiveToUiRef, UiAdaptor},
     },
     interval::{
         stack::{ScaledAdd, Stack},
@@ -21,7 +21,7 @@ use crate::{
     },
     util::{
         list_action::ListAction,
-        ordered_locks::{AtMost, OrderedLocks, Zero},
+        ordered_locks::{AtMost, Zero},
     },
 };
 
@@ -156,12 +156,8 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         }
     }
 
-    fn recompute_simple<A, L>(
-        &mut self,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+    fn recompute_simple<L>(&mut self, mut adaptor: UiAdaptor<T, L>) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
     {
         let lowest_sounding;
@@ -280,12 +276,8 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         adaptor
     }
 
-    fn recompute_block<A, L>(
-        &mut self,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+    fn recompute_block<L>(&mut self, mut adaptor: UiAdaptor<T, L>) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
     {
         let lowest_sounding;
@@ -340,12 +332,8 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         adaptor
     }
 
-    fn recompute_new_config<A, L>(
-        &mut self,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+    fn recompute_new_config<L>(&mut self, mut adaptor: UiAdaptor<T, L>) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
     {
         if self.simple {
@@ -553,16 +541,15 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         };
     }
 
-    pub fn show<A, L>(
+    pub fn show<L>(
         &mut self,
         ui: &mut egui::Ui,
         enable: &mut bool,
         patterns: &mut Vec<PatternConfig<T>>,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
+        mut adaptor: UiAdaptor<T, L>,
         use_cent_values: bool,
-    ) -> (ChordListEditorResult, OrderedLocks<GuiTag, A, L>)
+    ) -> (ChordListEditorResult, UiAdaptor<T, L>)
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
     {
         if self.request_recompute {
@@ -653,12 +640,12 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
     }
 }
 
-impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ChordListEditor<T> {
+impl<T: StackType> ReceiveToUiRef<T> for ChordListEditor<T> {
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        mut adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
         match msg {
             ToUi::UpdateHarmony {} => {
                 (_, adaptor) = adaptor.harmony(|m_harmony, _| match m_harmony {

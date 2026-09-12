@@ -4,7 +4,7 @@ use crate::{
     config::{MelodyStrategyConfig, Named, StrategyConfig},
     gui::{
         common::{show_list_edit, ListEditOpts, ListEditResult},
-        r#trait::{GuiTag, ReceiveToUiRef, UiAdaptor},
+        r#trait::{ReceiveToUiRef, UiAdaptor},
     },
     interval::stacktype::r#trait::StackType,
     msg::ToUi,
@@ -13,10 +13,7 @@ use crate::{
         melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
-    util::{
-        list_action::ListAction,
-        ordered_locks::{OrderedLocks, Zero},
-    },
+    util::{list_action::ListAction, ordered_locks::Zero},
 };
 
 pub struct ScaleEditor {
@@ -106,11 +103,7 @@ impl ScaleEditor {
         match list_edit_res {
             ListEditResult::Message(i) => ScaleEditorResult::ChangeScale(i),
             ListEditResult::Action(action) => {
-                action.apply_to(
-                    scales,
-                    &mut self.current_scale_index,
-                    |x| x.clone(),
-                );
+                action.apply_to(scales, &mut self.current_scale_index, |x| x.clone());
                 match action {
                     ListAction::Select(i) => ScaleEditorResult::Select(i),
                     ListAction::Delete(_) | ListAction::Clone(_) | ListAction::SwapWithPrev(_) => {
@@ -124,12 +117,12 @@ impl ScaleEditor {
     }
 }
 
-impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for ScaleEditor {
+impl<T: StackType> ReceiveToUiRef<T> for ScaleEditor {
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
-        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        mut adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
         match msg {
             ToUi::SelectScale { index } => {
                 self.current_scale_index = *index;

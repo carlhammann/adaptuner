@@ -7,12 +7,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     adaptors::lock_levels::{BackendConfigLevel, StrategyConfigLevel, TuningReferenceLevel},
     config::{AdaptunerVersion, BackendConfig, Config},
-    gui::{
-        diffshow::DiffShow,
-        r#trait::{GuiTag, UiAdaptor},
-    },
+    gui::{diffshow::DiffShow, r#trait::UiAdaptor},
     interval::stacktype::r#trait::{IntervalBasis, StackType},
-    util::ordered_locks::{AtMost, OrderedLocks},
+    util::ordered_locks::AtMost,
 };
 
 #[derive(PartialEq, Eq)]
@@ -87,13 +84,12 @@ impl<T: StackType + Serialize> ConfigFileDialog<T> {
 }
 
 impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
-    fn show_config_file_dialog<A, L>(
+    fn show_config_file_dialog< L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> (Option<Config<T>>, OrderedLocks<GuiTag, A, L>)
+        mut adaptor: UiAdaptor<T, L>
+    ) -> (Option<Config<T>>, UiAdaptor<T, L>)
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<TuningReferenceLevel> + AtMost<StrategyConfigLevel> + AtMost<BackendConfigLevel>,
     {
         let mut new_config = None {};
@@ -264,13 +260,12 @@ impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
         }
     }
 
-    pub fn show<A, L>(
+    pub fn show< L>(
         &mut self,
         ui: &mut egui::Ui,
-        adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> (Option<Config<T>>, OrderedLocks<GuiTag, A, L>)
+        adaptor: UiAdaptor<T, L>
+    ) -> (Option<Config<T>>, UiAdaptor<T, L>)
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<TuningReferenceLevel> + AtMost<StrategyConfigLevel> + AtMost<BackendConfigLevel>,
     {
         match &self.phase {

@@ -14,7 +14,6 @@ use crate::{
     },
     msg::{FromStrategy, ToMelody, ToStaticNeighbourhoodsAsMelody},
     neighbourhood::{CompleteNeighbourhood, Neighbourhood, SomeCompleteNeighbourhood},
-    process::r#trait::ProcessAdaptor,
     strategy::{
         harmony::r#trait::Harmony,
         melody::r#trait::{MelodyAdaptor, MelodyStrategy},
@@ -56,13 +55,12 @@ impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyCon
 }
 
 impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
-    fn tune_without_harmony<P, L>(
+    fn tune_without_harmony<L>(
         &mut self,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, L>,
-    ) -> MelodyAdaptor<T, Self, P, L>
+        adaptor: MelodyAdaptor<T, Self, L>,
+    ) -> MelodyAdaptor<T, Self, L>
     where
-        P: ProcessAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel>,
     {
         adaptor.send(FromStrategy::UpdateHarmony {});
@@ -93,14 +91,13 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         })
     }
 
-    fn tune_with_valid_harmony<P, L>(
+    fn tune_with_valid_harmony<L>(
         &mut self,
         time: Instant,
         harmony: &Harmony<T>,
-        mut adaptor: MelodyAdaptor<T, Self, P, L>,
-    ) -> MelodyAdaptor<T, Self, P, L>
+        adaptor: MelodyAdaptor<T, Self, L>,
+    ) -> MelodyAdaptor<T, Self, L>
     where
-        P: ProcessAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
         if self.reanchor {
@@ -154,13 +151,12 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         }
     }
 
-    fn update_all_tunings_and_send<P, L>(
+    fn update_all_tunings_and_send<L>(
         &mut self,
         time: Instant,
-        mut adaptor: MelodyAdaptor<T, Self, P, L>,
-    ) -> MelodyAdaptor<T, Self, P, L>
+        mut adaptor: MelodyAdaptor<T, Self, L>,
+    ) -> MelodyAdaptor<T, Self, L>
     where
-        P: ProcessAdaptor<StackType = T>,
         L: AtMost<HarmonyLevel>, // for the called sub-methods: + AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
         (_, adaptor) = adaptor.harmony(|m_harmony, adaptor| match m_harmony {
@@ -177,11 +173,11 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     }
 
     /// returns true iff the reference changed
-    fn set_reference<P: ProcessAdaptor<StackType = T>, L: AtMost<ReferenceLevel>>(
+    fn set_reference<L: AtMost<ReferenceLevel>>(
         &mut self,
         new_reference: Stack<T>,
-        adaptor: MelodyAdaptor<T, Self, P, L>,
-    ) -> (bool, MelodyAdaptor<T, Self, P, L>) {
+        adaptor: MelodyAdaptor<T, Self, L>,
+    ) -> (bool, MelodyAdaptor<T, Self, L>) {
         adaptor.reference_mut(|reference, adaptor| {
             if new_reference != *reference {
                 reference.clone_from(&new_reference);
@@ -194,12 +190,11 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     }
 
     /// returns true iff the reference changed
-    fn set_reference_to_current<P, L>(
+    fn set_reference_to_current<L>(
         &mut self,
-        adaptor: MelodyAdaptor<T, Self, P, L>,
-    ) -> (bool, MelodyAdaptor<T, Self, P, L>)
+        adaptor: MelodyAdaptor<T, Self, L>,
+    ) -> (bool, MelodyAdaptor<T, Self, L>)
     where
-        P: ProcessAdaptor<StackType = T>,
         L: AtMost<HarmonyLevel>, // + AtMost<ReferenceLevel>
     {
         adaptor.harmony(|m_harmony, adaptor| match m_harmony {
@@ -231,13 +226,12 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     }
 
     /// returns true iff the reference changed
-    fn set_reference_to_extreme<P, L>(
+    fn set_reference_to_extreme<L>(
         &mut self,
         to_highest: bool,
-        mut adaptor: MelodyAdaptor<T, Self, P, L>,
-    ) -> (bool, MelodyAdaptor<T, Self, P, L>)
+        mut adaptor: MelodyAdaptor<T, Self, L>,
+    ) -> (bool, MelodyAdaptor<T, Self, L>)
     where
-        P: ProcessAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
         (_, adaptor) = adaptor.reference(|r, _| self.tmp_stack.clone_from(r));
@@ -287,14 +281,14 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     }
 }
 
-impl<T: StackType, P: ProcessAdaptor<StackType = T>, L: AtMost<StrategyConfigLevel>>
-    MelodyAdaptor<T, StaticNeighbourhoodsAsMelody<T>, P, L>
+impl<T: StackType, L: AtMost<StrategyConfigLevel>>
+    MelodyAdaptor<T, StaticNeighbourhoodsAsMelody<T>, L>
 {
     fn config<R>(
         self,
         mut f: impl FnMut(
             &StaticNeighbourhoodsAsMelodyConfig<T>,
-            MelodyAdaptor<T, StaticNeighbourhoodsAsMelody<T>, P, Succ<ActiveStrategyIndexLevel>>,
+            MelodyAdaptor<T, StaticNeighbourhoodsAsMelody<T>, Succ<ActiveStrategyIndexLevel>>,
         ) -> R,
     ) -> (R, Self) {
         self.active_strategy(|conf, adaptor| match conf {
@@ -326,27 +320,27 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
         }
     }
 
-    fn tune_with_harmony<P: ProcessAdaptor<StackType = T>>(
+    fn tune_with_harmony(
         &mut self,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero> {
         self.update_all_tunings_and_send(time, adaptor)
     }
 
-    fn stop<P: ProcessAdaptor<StackType = T>>(
+    fn stop(
         &mut self,
         _time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero> {
         adaptor
     }
 
-    fn start<P: ProcessAdaptor<StackType = T>>(
+    fn start(
         &mut self,
         time: Instant,
-        mut adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        mut adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero> {
         adaptor.send(FromStrategy::UpdateReference {});
         adaptor.send(FromStrategy::SelectScale {
             index: self.curr_scale_index,
@@ -362,11 +356,11 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
         self.tune_with_harmony(time, adaptor)
     }
 
-    fn update_tuning_reference<P: ProcessAdaptor<StackType = T>>(
+    fn update_tuning_reference(
         &mut self,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero> {
         adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
             let c4_semitones;
             (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
@@ -379,12 +373,12 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
         })
     }
 
-    fn consider<P: ProcessAdaptor<StackType = T>>(
+    fn consider(
         &mut self,
         stack: Stack<T>,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero> {
         let inserted_stack = self.scales[self.curr_scale_index].insert(&stack).clone();
         let _ = adaptor.send(FromStrategy::Consider {
             stack: inserted_stack,
@@ -392,11 +386,11 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
         self.update_all_tunings_and_send(time, adaptor)
     }
 
-    fn receive_msg<P: ProcessAdaptor<StackType = T>>(
+    fn receive_msg(
         &mut self,
         msg: Self::Msg,
-        mut adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        mut adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero> {
         match msg {
             ToStaticNeighbourhoodsAsMelody::SelectScale { index, time } => {
                 if index != self.curr_scale_index {
@@ -457,12 +451,12 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
 
     // Make sure that [StrategyConfig::reacts_to_bound] exposes exactly the actions that this
     // function handles!
-    fn handle_bound_action<P: ProcessAdaptor<StackType = T>>(
+    fn handle_bound_action(
         &mut self,
         action: &BindableStrategyAction,
         time: Instant,
-        mut adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero> {
+        mut adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero> {
         match action {
             BindableStrategyAction::IncrementNeighbourhoodIndex(increment) => {
                 let old_index = self.curr_scale_index;

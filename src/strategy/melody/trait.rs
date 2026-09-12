@@ -1,15 +1,17 @@
 use std::{marker::PhantomData, time::Instant};
 
 use crate::{
-    adaptors::lock_levels::{
-        ActiveStrategyIndexLevel, HarmonyLevel, KeyStateLevel, ReferenceLevel, StrategyConfigLevel,
-        TuningReferenceLevel, TuningStateLevel,
+    adaptors::{
+        lock_levels::{
+            ActiveStrategyIndexLevel, HarmonyLevel, KeyStateLevel, ReferenceLevel,
+            StrategyConfigLevel, TuningReferenceLevel, TuningStateLevel,
+        },
+        ConcreteLocks,
     },
     bindable::BindableStrategyAction,
     config::IsMelodyStrategyConfig,
     interval::{stack::Stack, stacktype::r#trait::StackType},
     msg::{FromProcess, FromStrategy, ToMelody},
-    process::r#trait::ProcessAdaptor,
     util::ordered_locks::{Nat, OrderedLocks, ReadAllowed, WriteAllowed, Zero},
 };
 
@@ -53,13 +55,14 @@ impl<T: StackType, S: MelodyStrategy<T>> WriteAllowed<ReferenceLevel>
 {
 }
 
-pub type MelodyAdaptor<T, S, P, L> = OrderedLocks<(MelodyAdaptorTag, PhantomData<T>, S), P, L>;
+pub type MelodyAdaptor<T, S, L> =
+    OrderedLocks<(MelodyAdaptorTag, PhantomData<T>, S), ConcreteLocks<T>, L>;
 
-impl<T: StackType, S: MelodyStrategy<T>, P: ProcessAdaptor<StackType = T>, L: Nat>
-    MelodyAdaptor<T, S, P, L>
-{
+impl<T: StackType, S: MelodyStrategy<T>, L: Nat> MelodyAdaptor<T, S, L> {
     pub fn send(&self, msg: FromStrategy<T>) {
-        unsafe { self.inner() }.send(FromProcess::FromStrategy(msg));
+        let _ = unsafe { self.inner() }
+            .from_process_tx
+            .send(FromProcess::FromStrategy(msg));
     }
 }
 
@@ -72,55 +75,55 @@ pub trait MelodyStrategy<T: StackType>: Sized {
 
     /// Implementation of [ToMelody::TuneWithHarmony] and of [ToMelody::TuneNoHarmony], depending
     /// on the 'harmony_is_valid' argument.
-    fn tune_with_harmony<P: ProcessAdaptor<StackType = T>>(
+    fn tune_with_harmony(
         &mut self,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero>;
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero>;
 
     /// Implementation of [ToMelody::Stop]
-    fn stop<P: ProcessAdaptor<StackType = T>>(
+    fn stop(
         &mut self,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero>;
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero>;
 
     /// Implementation of [ToMelody::Start].
     ///
     /// The 'with_harmony' argument schould be true iff the 'harmony' is already initialised.
-    fn start<P: ProcessAdaptor<StackType = T>>(
+    fn start(
         &mut self,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero>;
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero>;
 
     /// Implementation of [ToMelody::SetTuningReference]
-    fn update_tuning_reference<P: ProcessAdaptor<StackType = T>>(
+    fn update_tuning_reference(
         &mut self,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero>;
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero>;
 
-    fn consider<P: ProcessAdaptor<StackType = T>>(
+    fn consider(
         &mut self,
         stack: Stack<T>,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero>;
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero>;
 
-    fn receive_msg<P: ProcessAdaptor<StackType = T>>(
+    fn receive_msg(
         &mut self,
         msg: Self::Msg,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero>;
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero>;
 
     fn filter_to_melody(msg: ToMelody<T>) -> Option<Self::Msg>;
 
     /// Should only do something if [StrategyConfig::reacts_to_bound] returns true.
-    fn handle_bound_action<P: ProcessAdaptor<StackType = T>>(
+    fn handle_bound_action(
         &mut self,
         action: &BindableStrategyAction,
         time: Instant,
-        adaptor: MelodyAdaptor<T, Self, P, Zero>,
-    ) -> MelodyAdaptor<T, Self, P, Zero>;
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero>;
 }

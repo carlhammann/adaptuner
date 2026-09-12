@@ -4,13 +4,10 @@ use eframe::egui;
 use midi_msg::Channel;
 
 use crate::{
-    gui::{
-        common::toggle_bit,
-        r#trait::{GuiTag, UiAdaptor},
-    },
+    gui::{common::toggle_bit, r#trait::UiAdaptor},
     interval::stacktype::r#trait::StackType,
     msg::FromUi,
-    util::ordered_locks::{OrderedLocks, Zero},
+    util::ordered_locks::Zero,
 };
 
 use super::r#trait::GuiShow;
@@ -24,11 +21,11 @@ impl BackendWindow {
 }
 
 impl<T: StackType> GuiShow<T> for BackendWindow {
-    fn show<A: UiAdaptor<StackType = T>>(
+    fn show(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        mut adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.backend_config_mut(|backend_config, adaptor| {
             ui.vertical(|ui| {
                 let mut bend_range_changed = false;

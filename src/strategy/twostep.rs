@@ -5,7 +5,6 @@ use crate::{
     config::{IsHarmonyStrategyConfig, IsMelodyStrategyConfig, IsStrategyConfig},
     interval::{stack::Stack, stacktype::r#trait::StackType},
     msg::{ToStrategy, ToTwoStep},
-    process::r#trait::ProcessAdaptor,
     strategy::{
         harmony::r#trait::{HarmonyAdaptor, HarmonyStrategy},
         melody::r#trait::{MelodyAdaptor, MelodyStrategy},
@@ -32,112 +31,68 @@ where
 {
 }
 
-trait AsMelodyAdaptor<T: StackType, M: MelodyStrategy<T>, P: ProcessAdaptor<StackType = T>, L: Nat>
-{
-    fn as_melody_adaptor(self) -> MelodyAdaptor<T, M, P, L>;
+trait AsMelodyAdaptor<T: StackType, M: MelodyStrategy<T>, L: Nat> {
+    fn as_melody_adaptor(self) -> MelodyAdaptor<T, M, L>;
 }
 
-trait AsHarmonyAdaptor<
-    T: StackType,
-    H: HarmonyStrategy<T>,
-    P: ProcessAdaptor<StackType = T>,
-    L: Nat,
->
-{
-    fn as_harmony_adaptor(self) -> HarmonyAdaptor<T, H, P, L>;
+trait AsHarmonyAdaptor<T: StackType, H: HarmonyStrategy<T>, L: Nat> {
+    fn as_harmony_adaptor(self) -> HarmonyAdaptor<T, H, L>;
 }
 
-impl<
-        T: StackType,
-        H: HarmonyStrategy<T>,
-        M: MelodyStrategy<T>,
-        P: ProcessAdaptor<StackType = T>,
-        L: Nat,
-    > AsHarmonyAdaptor<T, H, P, L> for StrategyAdaptor<T, TwoStep<T, H, M>, P, L>
+impl<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>, L: Nat> AsHarmonyAdaptor<T, H, L>
+    for StrategyAdaptor<T, TwoStep<T, H, M>, L>
 {
     #[inline]
-    fn as_harmony_adaptor(self) -> HarmonyAdaptor<T, H, P, L> {
+    fn as_harmony_adaptor(self) -> HarmonyAdaptor<T, H, L> {
         unsafe { OrderedLocks::new(self.inner_arc()) }
     }
 }
 
-impl<
-        T: StackType,
-        H: HarmonyStrategy<T>,
-        M: MelodyStrategy<T>,
-        P: ProcessAdaptor<StackType = T>,
-        L: Nat,
-    > AsHarmonyAdaptor<T, H, P, L> for MelodyAdaptor<T, M, P, L>
+impl<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>, L: Nat> AsHarmonyAdaptor<T, H, L>
+    for MelodyAdaptor<T, M, L>
 {
     #[inline]
-    fn as_harmony_adaptor(self) -> HarmonyAdaptor<T, H, P, L> {
+    fn as_harmony_adaptor(self) -> HarmonyAdaptor<T, H, L> {
         unsafe { OrderedLocks::new(self.inner_arc()) }
     }
 }
 
-impl<
-        T: StackType,
-        H: HarmonyStrategy<T>,
-        M: MelodyStrategy<T>,
-        P: ProcessAdaptor<StackType = T>,
-        L: Nat,
-    > AsMelodyAdaptor<T, M, P, L> for StrategyAdaptor<T, TwoStep<T, H, M>, P, L>
+impl<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>, L: Nat> AsMelodyAdaptor<T, M, L>
+    for StrategyAdaptor<T, TwoStep<T, H, M>, L>
 {
     #[inline]
-    fn as_melody_adaptor(self) -> MelodyAdaptor<T, M, P, L> {
+    fn as_melody_adaptor(self) -> MelodyAdaptor<T, M, L> {
         unsafe { OrderedLocks::new(self.inner_arc()) }
     }
 }
 
-impl<
-        T: StackType,
-        H: HarmonyStrategy<T>,
-        M: MelodyStrategy<T>,
-        P: ProcessAdaptor<StackType = T>,
-        L: Nat,
-    > AsMelodyAdaptor<T, M, P, L> for HarmonyAdaptor<T, H, P, L>
+impl<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>, L: Nat> AsMelodyAdaptor<T, M, L>
+    for HarmonyAdaptor<T, H, L>
 {
     #[inline]
-    fn as_melody_adaptor(self) -> MelodyAdaptor<T, M, P, L> {
+    fn as_melody_adaptor(self) -> MelodyAdaptor<T, M, L> {
         unsafe { OrderedLocks::new(self.inner_arc()) }
     }
 }
 
-trait AsTwoStepAdaptor<
-    T: StackType,
-    H: HarmonyStrategy<T>,
-    M: MelodyStrategy<T>,
-    P: ProcessAdaptor<StackType = T>,
-    L: Nat,
->
-{
-    fn as_two_step_adaptor(self) -> StrategyAdaptor<T, TwoStep<T, H, M>, P, L>;
+trait AsTwoStepAdaptor<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>, L: Nat> {
+    fn as_two_step_adaptor(self) -> StrategyAdaptor<T, TwoStep<T, H, M>, L>;
 }
 
-impl<
-        T: StackType,
-        H: HarmonyStrategy<T>,
-        M: MelodyStrategy<T>,
-        P: ProcessAdaptor<StackType = T>,
-        L: Nat,
-    > AsTwoStepAdaptor<T, H, M, P, L> for MelodyAdaptor<T, M, P, L>
+impl<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>, L: Nat> AsTwoStepAdaptor<T, H, M, L>
+    for MelodyAdaptor<T, M, L>
 {
     #[inline]
-    fn as_two_step_adaptor(self) -> StrategyAdaptor<T, TwoStep<T, H, M>, P, L> {
+    fn as_two_step_adaptor(self) -> StrategyAdaptor<T, TwoStep<T, H, M>, L> {
         unsafe { OrderedLocks::new(self.inner_arc()) }
     }
 }
 
-impl<
-        T: StackType,
-        H: HarmonyStrategy<T>,
-        M: MelodyStrategy<T>,
-        P: ProcessAdaptor<StackType = T>,
-        L: Nat,
-    > AsTwoStepAdaptor<T, H, M, P, L> for HarmonyAdaptor<T, H, P, L>
+impl<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>, L: Nat> AsTwoStepAdaptor<T, H, M, L>
+    for HarmonyAdaptor<T, H, L>
 {
     #[inline]
-    fn as_two_step_adaptor(self) -> StrategyAdaptor<T, TwoStep<T, H, M>, P, L> {
+    fn as_two_step_adaptor(self) -> StrategyAdaptor<T, TwoStep<T, H, M>, L> {
         unsafe { OrderedLocks::new(self.inner_arc()) }
     }
 }
@@ -148,11 +103,11 @@ where
     H: HarmonyStrategy<T>,
     M: MelodyStrategy<T>,
 {
-    fn start_solve<P: ProcessAdaptor<StackType = T>>(
+    fn start_solve(
         &mut self,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         let (res, ha) = self
             .harmony_strategy
             .start_solve(time, adaptor.as_harmony_adaptor());
@@ -190,11 +145,11 @@ where
         }
     }
 
-    fn start<P: ProcessAdaptor<StackType = T>>(
+    fn start(
         &mut self,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         let (res, ha) = self
             .harmony_strategy
             .start(time, adaptor.as_harmony_adaptor());
@@ -203,11 +158,11 @@ where
         (self.solving_harmony, ma.as_two_step_adaptor())
     }
 
-    fn stop<P: ProcessAdaptor<StackType = T>>(
+    fn stop(
         &mut self,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> StrategyAdaptor<T, Self, P, Zero> {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> StrategyAdaptor<T, Self, Zero> {
         let ha = self
             .harmony_strategy
             .stop(time, adaptor.as_harmony_adaptor());
@@ -216,52 +171,52 @@ where
             .as_two_step_adaptor()
     }
 
-    fn note_on<P: ProcessAdaptor<StackType = T>>(
+    fn note_on(
         &mut self,
         note: u8,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         self.start_solve(time, adaptor)
     }
 
-    fn note_off<P: ProcessAdaptor<StackType = T>>(
+    fn note_off(
         &mut self,
         note: u8,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         self.start_solve(time, adaptor)
     }
 
-    fn update_tuning_reference<P: ProcessAdaptor<StackType = T>>(
+    fn update_tuning_reference(
         &mut self,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         let ma = self
             .melody_strategy
             .update_tuning_reference(time, adaptor.as_melody_adaptor());
         (self.solving_harmony, ma.as_two_step_adaptor())
     }
 
-    fn consider<P: ProcessAdaptor<StackType = T>>(
+    fn consider(
         &mut self,
         stack: Stack<T>,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         let ma = self
             .melody_strategy
             .consider(stack, time, adaptor.as_melody_adaptor());
         (false, ma.as_two_step_adaptor())
     }
 
-    fn receive_msg<P: ProcessAdaptor<StackType = T>>(
+    fn receive_msg(
         &mut self,
         msg: Self::Msg,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         match msg {
             ToTwoStep::ToHarmonyStrategy(msg) => {
                 if let Some(x) = H::filter_to_harmony(msg) {
@@ -290,10 +245,10 @@ where
         }
     }
 
-    fn step<P: ProcessAdaptor<StackType = T>>(
+    fn step(
         &mut self,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         if self.solving_harmony {
             let (res, ha) = self.harmony_strategy.step(adaptor.as_harmony_adaptor());
 
@@ -319,12 +274,12 @@ where
         }
     }
 
-    fn handle_bound_action<P: ProcessAdaptor<StackType = T>>(
+    fn handle_bound_action(
         &mut self,
         action: BindableStrategyAction,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>) {
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         let ma =
             self.melody_strategy
                 .handle_bound_action(&action, time, adaptor.as_melody_adaptor());

@@ -1,15 +1,17 @@
 use std::{marker::PhantomData, sync::mpsc, time::Instant};
 
 use crate::{
-    adaptors::lock_levels::{
-        ActiveStrategyIndexLevel, KeyStateLevel, ReferenceLevel, StrategyConfigLevel,
-        TuningReferenceLevel, TuningStateLevel,
+    adaptors::{
+        lock_levels::{
+            ActiveStrategyIndexLevel, KeyStateLevel, ReferenceLevel, StrategyConfigLevel,
+            TuningReferenceLevel, TuningStateLevel,
+        },
+        ConcreteLocks,
     },
     bindable::BindableStrategyAction,
     config::IsStrategyConfig,
     interval::{stack::Stack, stacktype::r#trait::StackType},
     msg::{FromProcess, FromStrategy, ToStrategy},
-    process::r#trait::ProcessAdaptor,
     util::ordered_locks::{Nat, OrderedLocks, ReadAllowed, WriteAllowed, Zero},
 };
 
@@ -23,13 +25,13 @@ impl<T: StackType, S: Strategy<T>> ReadAllowed<ReferenceLevel> for (PhantomData<
 impl<T: StackType, S: Strategy<T>> WriteAllowed<TuningStateLevel> for (PhantomData<T>, S) {}
 impl<T: StackType, S: Strategy<T>> WriteAllowed<ReferenceLevel> for (PhantomData<T>, S) {}
 
-pub type StrategyAdaptor<T, S, P, L> = OrderedLocks<(PhantomData<T>, S), P, L>;
+pub type StrategyAdaptor<T, S, L> = OrderedLocks<(PhantomData<T>, S), ConcreteLocks<T>, L>;
 
-impl<T: StackType, S: Strategy<T>, P: ProcessAdaptor<StackType = T>, L: Nat>
-    StrategyAdaptor<T, S, P, L>
-{
+impl<T: StackType, S: Strategy<T>, L: Nat> StrategyAdaptor<T, S, L> {
     pub fn send(&self, msg: FromStrategy<T>) {
-        unsafe { self.inner() }.send(FromProcess::FromStrategy(msg));
+        let _ = unsafe { self.inner() }
+            .from_process_tx
+            .send(FromProcess::FromStrategy(msg));
     }
 }
 
@@ -41,81 +43,81 @@ pub trait Strategy<T: StackType>: Sized {
     fn new(config: Self::Config) -> Self;
 
     /// returns true iff further [Strategy::step]s are needed.
-    fn start<P: ProcessAdaptor<StackType = T>>(
+    fn start(
         &mut self,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>);
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>);
 
-    fn stop<P: ProcessAdaptor<StackType = T>>(
+    fn stop(
         &mut self,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> StrategyAdaptor<T, Self, P, Zero>;
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> StrategyAdaptor<T, Self, Zero>;
 
     /// returns true iff further [Strategy::step]s are needed.
-    fn note_on<P: ProcessAdaptor<StackType = T>>(
+    fn note_on(
         &mut self,
         note: u8,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>);
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>);
 
     /// returns true iff further [Strategy::step]s are needed.
-    fn note_off<P: ProcessAdaptor<StackType = T>>(
+    fn note_off(
         &mut self,
         note: u8,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>);
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>);
 
     /// returns true iff further [Strategy::step]s are needed.
-    fn update_tuning_reference<P: ProcessAdaptor<StackType = T>>(
+    fn update_tuning_reference(
         &mut self,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>);
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>);
 
     /// returns true iff further [Strategy::step]s are needed.
-    fn consider<P: ProcessAdaptor<StackType = T>>(
+    fn consider(
         &mut self,
         stack: Stack<T>,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>);
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>);
 
     /// returns true iff further [Strategy::step]s are needed.
-    fn receive_msg<P: ProcessAdaptor<StackType = T>>(
+    fn receive_msg(
         &mut self,
         msg: Self::Msg,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>);
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>);
 
     /// returns true iff further [Strategy::step]s are needed.
-    fn step<P: ProcessAdaptor<StackType = T>>(
+    fn step(
         &mut self,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>);
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>);
 
     /// should return only the "custom messages" for this strategy.
     fn filter_to_strategy(msg: ToStrategy<T>) -> Option<Self::Msg>;
 
     /// Should only do something if [StrategyConfig:reacts_to_bound] returns true. Should return true iff
     /// further [Self::step]s are needed.
-    fn handle_bound_action<P: ProcessAdaptor<StackType = T>>(
+    fn handle_bound_action(
         &mut self,
         action: BindableStrategyAction,
         time: Instant,
-        adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> (bool, StrategyAdaptor<T, Self, P, Zero>);
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>);
 
     /// This is intended to run in its own thread.
-    fn receive_solve_loop<P: ProcessAdaptor<StackType = T>>(
+    fn receive_solve_loop(
         &mut self,
         needs_steps_at_first_iteration: bool,
         to_strategy_rx: mpsc::Receiver<ToStrategy<T>>,
-        mut adaptor: StrategyAdaptor<T, Self, P, Zero>,
-    ) -> StrategyAdaptor<T, Self, P, Zero> {
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> StrategyAdaptor<T, Self, Zero> {
         let mut continue_solving = needs_steps_at_first_iteration;
         let mut last_msg = None {};
         loop {

@@ -10,7 +10,7 @@ use crate::{
     custom_serde::common::{deserialize_channel, serialize_channel},
     gui::{
         common::temperament_applier,
-        r#trait::{GuiShow, GuiTag, ReceiveToUiRef, UiAdaptor},
+        r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     },
     interval::{
         base::Semitones,
@@ -21,7 +21,7 @@ use crate::{
     neighbourhood::{Neighbourhood, Partial},
     notename::{correction::Correction, HasNoteNames},
     process::r#trait::StackWithTuning,
-    util::ordered_locks::{AtMost, Nat, OrderedLocks, Zero},
+    util::ordered_locks::{AtMost, Nat, Zero},
 };
 
 // The following measurements are all in units of [LatticeWindow::zoom], which is the width of one
@@ -528,13 +528,12 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         }
     }
 
-    fn draw_white_keys<A, L>(
+    fn draw_white_keys<L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+        mut adaptor: UiAdaptor<T, L>,
+    ) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel>,
     {
         let bottom = self.positions.bottom;
@@ -582,13 +581,12 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         adaptor
     }
 
-    fn draw_black_keys<A, L>(
+    fn draw_black_keys<L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+        mut adaptor: UiAdaptor<T, L>,
+    ) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel>,
     {
         let bottom = self.positions.bottom;
@@ -655,13 +653,12 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         }
     }
 
-    fn draw_keyboard<A, L>(
+    fn draw_keyboard<L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+        mut adaptor: UiAdaptor<T, L>,
+    ) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel>,
     {
         self.draw_ruler(ui, &adaptor.config().lattice);
@@ -669,12 +666,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         self.draw_black_keys(ui, adaptor)
     }
 
-    fn update_positions<A, L>(
-        &mut self,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+    fn update_positions<L>(&mut self, mut adaptor: UiAdaptor<T, L>) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel> + AtMost<TuningReferenceLevel>,
     {
         if adaptor.config().lattice.background_around_reference {
@@ -784,13 +777,12 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         egui::Stroke::new(config.zoom * FAINT_GRID_LINE_THICKNESS, grid_line_color(ui))
     }
 
-    fn draw_grid_lines<A, L>(
+    fn draw_grid_lines<L>(
         &mut self,
         ui: &egui::Ui,
-        adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+        adaptor: UiAdaptor<T, L>,
+    ) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel>,
     {
         let color = grid_line_color(ui);
@@ -849,13 +841,8 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         })
     }
 
-    fn draw_down_lines<A, L>(
-        &self,
-        ui: &egui::Ui,
-        adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+    fn draw_down_lines<L>(&self, ui: &egui::Ui, adaptor: UiAdaptor<T, L>) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel>,
     {
         let bottom = self.keyboard_top(&adaptor.config().lattice);
@@ -885,13 +872,12 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         })
     }
 
-    fn draw_note_names_and_interaction_zones<A, L>(
+    fn draw_note_names_and_interaction_zones<L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+        mut adaptor: UiAdaptor<T, L>,
+    ) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
         let write_considered_stack_to_draw =
@@ -1058,13 +1044,12 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         })
     }
 
-    fn draw_lattice<A, L>(
+    fn draw_lattice<L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, L>,
-    ) -> OrderedLocks<GuiTag, A, L>
+        mut adaptor: UiAdaptor<T, L>,
+    ) -> UiAdaptor<T, L>
     where
-        A: UiAdaptor<StackType = T>,
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel> + AtMost<TuningReferenceLevel>,
     {
         adaptor = self.update_positions(adaptor);
@@ -1083,7 +1068,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     }
 }
 
-impl<A: UiAdaptor, L: Nat> OrderedLocks<GuiTag, A, L> {
+impl<T: StackType, L: Nat> UiAdaptor<T, L> {
     fn c4_offset(self, mut f: impl FnMut(f32)) -> Self
     where
         L: AtMost<TuningReferenceLevel>,
@@ -1097,12 +1082,12 @@ impl<A: UiAdaptor, L: Nat> OrderedLocks<GuiTag, A, L> {
     }
 }
 
-impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for LatticeWindow<T> {
+impl<T: StackType> ReceiveToUiRef<T> for LatticeWindow<T> {
     fn receive_to_ui_ref<'a>(
         &mut self,
         msg: &ToUi<T>,
-        adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
         match msg {
             ToUi::Consider { stack } => {
                 let _ = self.considered_notes.insert(stack);
@@ -1119,11 +1104,11 @@ impl<T: StackType, A: UiAdaptor<StackType = T>> ReceiveToUiRef<T, A> for Lattice
 }
 
 impl<T: StackType + HasNoteNames> GuiShow<T> for LatticeWindow<T> {
-    fn show<A: UiAdaptor<StackType = T>>(
+    fn show(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: OrderedLocks<GuiTag, A, Zero>,
-    ) -> OrderedLocks<GuiTag, A, Zero> {
+        mut adaptor: UiAdaptor<T, Zero>,
+    ) -> UiAdaptor<T, Zero> {
         let r = ui.interact(
             ui.max_rect(),
             egui::Id::new("global_grid_interaction"),

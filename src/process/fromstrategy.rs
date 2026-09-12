@@ -3,19 +3,7 @@ use std::{fmt, sync::mpsc, sync::Arc, thread, time::Instant};
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    bindable::{BindableEvent, BindableProcessAction},
-    config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
-    interval::stacktype::r#trait::StackType,
-    msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy},
-    process::r#trait::{ProcessAdaptor, ProcessTag},
-    strategy::{
-        harmony::chordlist::ChordList,
-        melody::neighbourhoods::StaticNeighbourhoodsAsMelody,
-        r#trait::{Strategy, StrategyAdaptor},
-        staticneighbourhoods::StaticNeighbourhoods,
-        twostep::TwoStep,
-    },
-    util::ordered_locks::OrderedLocks,
+    adaptors::{ConcreteLocks, take_replace}, bindable::{BindableEvent, BindableProcessAction}, config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig}, interval::stacktype::r#trait::StackType, msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy}, process::r#trait::ProcessAdaptor, strategy::{harmony::chordlist::ChordList, melody::neighbourhoods::StaticNeighbourhoodsAsMelody, staticneighbourhoods::StaticNeighbourhoods, r#trait::{Strategy, StrategyAdaptor}, twostep::TwoStep}, util::ordered_locks::Zero
 };
 
 struct RunningStrategy<T: StackType> {
@@ -26,11 +14,15 @@ struct RunningStrategy<T: StackType> {
 }
 
 impl<T: StackType + Send + Sync> RunningStrategy<T> {
-    fn start<S, P>(time: Instant, index: usize, config: S::Config, adaptor_inner: Arc<P>) -> Self
+    fn start<S>(
+        time: Instant,
+        index: usize,
+        config: S::Config,
+        adaptor_inner: Arc<ConcreteLocks<T>>,
+    ) -> Self
     where
         S: Strategy<T>,
         S::Config: Send + 'static,
-        P: ProcessAdaptor<StackType = T> + 'static,
     {
         let (to_strategy_tx, to_strategy_rx) = mpsc::channel();
 
@@ -61,37 +53,38 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
     }
 }
 
-pub struct ProcessFromStrategy<T: StackType, A: ProcessAdaptor<StackType = T>> {
-    pedal_hold: [bool; 16],
-    sostenuto_hold: [bool; 16],
-    soft_hold: [bool; 16],
-
+pub struct ProcessFromStrategy<T: StackType> {
     current_strategy: Option<RunningStrategy<T>>,
 
-    adaptor: Arc<A>,
+    /// The `Option` is only there in order to use Option::take, which allows the "consuming" style
+    /// of the [OrderedLocks] functions. This is facilitated by [ProcessFromStrategy::on_adaptor]
+    adaptor: Option<ProcessAdaptor<T, Zero>>,
 }
 
-impl<T, P> ProcessFromStrategy<T, P>
+impl<T> ProcessFromStrategy<T>
 where
     T: StackType + Send + Sync,
-    P: ProcessAdaptor<StackType = T> + Send + 'static,
 {
-    pub fn new(adaptor: P) -> Self {
+    pub fn new(adaptor: ProcessAdaptor<T, Zero>) -> Self {
         Self {
-            pedal_hold: [false; 16],
-            sostenuto_hold: [false; 16],
-            soft_hold: [false; 16],
             current_strategy: None {},
-            adaptor: Arc::new(adaptor),
+            adaptor: Some(adaptor),
         }
     }
 
+    #[inline]
+    fn send(&self, msg: FromProcess<T>) {
+        self.adaptor.as_ref().unwrap().send(msg);
+    }
+
+    #[inline]
     fn send_to_strategy(&self, msg: ToStrategy<T>) {
         if let Some(RunningStrategy { to_strategy_tx, .. }) = &self.current_strategy {
             let _ = to_strategy_tx.send(msg);
         }
     }
 
+    #[inline]
     fn current_strategy_index(&self) -> Option<usize> {
         if let Some(RunningStrategy { index, .. }) = &self.current_strategy {
             Some(*index)
@@ -136,36 +129,31 @@ where
                         control: ControlChange::Sostenuto(value),
                     },
             } => {
-                let was_down = self.sostenuto_hold.iter().any(|b| *b);
-                self.sostenuto_hold[channel as usize] = value > 0;
-                let is_down = self.sostenuto_hold.iter().any(|b| *b);
+                let (was_down, is_down) = take_replace(&mut self.adaptor, |adaptor| {
+                    adaptor.sostenuto_hold_mut(|bs, _| {
+                        let was = bs.iter().any(|b| *b);
+                        bs[channel as usize] = value > 0;
+                        let is = bs.iter().any(|b| *b);
+                        (was, is)
+                    })
+                });
                 let action = match (was_down, is_down) {
-                    (false, true) => {
-                        let locks = unsafe {
-                            OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone())
-                        };
-                        locks
-                            .active_strategy(|strat, _| {
-                                strat
-                                    .bindings()
-                                    .get(&BindableEvent::SostenutoPedalDown)
-                                    .map(|x| *x)
-                            })
-                            .0
-                    }
-                    (true, false) => {
-                        let locks = unsafe {
-                            OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone())
-                        };
-                        locks
-                            .active_strategy(|strat, _| {
-                                strat
-                                    .bindings()
-                                    .get(&BindableEvent::SostenutoPedalUp)
-                                    .map(|x| *x)
-                            })
-                            .0
-                    }
+                    (false, true) => take_replace(&mut self.adaptor, |adaptor| {
+                        adaptor.active_strategy(|strat, _| {
+                            strat
+                                .bindings()
+                                .get(&BindableEvent::SostenutoPedalDown)
+                                .map(|x| *x)
+                        })
+                    }),
+                    (true, false) => take_replace(&mut self.adaptor, |adaptor| {
+                        adaptor.active_strategy(|strat, _| {
+                            strat
+                                .bindings()
+                                .get(&BindableEvent::SostenutoPedalUp)
+                                .map(|x| *x)
+                        })
+                    }),
                     _ => None {},
                 };
 
@@ -174,7 +162,7 @@ where
                     Some(BindableProcessAction::ToStrategy(action)) => {
                         self.send_to_strategy(ToStrategy::BoundAction { action, time })
                     }
-                    None {} => self.adaptor.send(untouched_midi()),
+                    None {} => self.send(untouched_midi()),
                 }
             }
 
@@ -185,36 +173,31 @@ where
                         control: ControlChange::SoftPedal(value),
                     },
             } => {
-                let was_down = self.soft_hold.iter().any(|b| *b);
-                self.soft_hold[channel as usize] = value > 0;
-                let is_down = self.soft_hold.iter().any(|b| *b);
+                let (was_down, is_down) = take_replace(&mut self.adaptor, |adaptor| {
+                    adaptor.soft_hold_mut(|bs, _| {
+                        let was = bs.iter().any(|b| *b);
+                        bs[channel as usize] = value > 0;
+                        let is = bs.iter().any(|b| *b);
+                        (was, is)
+                    })
+                });
                 let action = match (was_down, is_down) {
-                    (false, true) => {
-                        let locks = unsafe {
-                            OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone())
-                        };
-                        locks
-                            .active_strategy(|strat, _| {
-                                strat
-                                    .bindings()
-                                    .get(&BindableEvent::SoftPedalDown)
-                                    .map(|x| *x)
-                            })
-                            .0
-                    }
-                    (true, false) => {
-                        let locks = unsafe {
-                            OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone())
-                        };
-                        locks
-                            .active_strategy(|strat, _| {
-                                strat
-                                    .bindings()
-                                    .get(&BindableEvent::SoftPedalUp)
-                                    .map(|x| *x)
-                            })
-                            .0
-                    }
+                    (false, true) => take_replace(&mut self.adaptor, |adaptor| {
+                        adaptor.active_strategy(|strat, _| {
+                            strat
+                                .bindings()
+                                .get(&BindableEvent::SoftPedalDown)
+                                .map(|x| *x)
+                        })
+                    }),
+                    (true, false) => take_replace(&mut self.adaptor, |adaptor| {
+                        adaptor.active_strategy(|strat, _| {
+                            strat
+                                .bindings()
+                                .get(&BindableEvent::SoftPedalUp)
+                                .map(|x| *x)
+                        })
+                    }),
                     _ => None {},
                 };
 
@@ -223,7 +206,7 @@ where
                     Some(BindableProcessAction::ToStrategy(action)) => {
                         self.send_to_strategy(ToStrategy::BoundAction { action, time })
                     }
-                    None {} => self.adaptor.send(untouched_midi()),
+                    None {} => self.send(untouched_midi()),
                 }
             }
 
@@ -231,7 +214,7 @@ where
                 channel,
                 msg: ChannelVoiceMsg::ProgramChange { program },
             } => {
-                let _ = self.adaptor.send(FromProcess::ProgramChange {
+                let _ = self.send(FromProcess::ProgramChange {
                     channel,
                     program,
                     time,
@@ -239,21 +222,19 @@ where
             }
 
             _ => {
-                let _ = self.adaptor.send(untouched_midi());
+                let _ = self.send(untouched_midi());
             }
         }
     }
 
     fn handle_note_on(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            let locks = unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
-            if locks
-                .key_state_mut(note as usize, |k, _| k.note_on(channel, time))
-                .0
-            {
+            if take_replace(&mut self.adaptor, |adaptor| {
+                adaptor.key_state_mut(note as usize, |k, _| k.note_on(channel, time))
+            }) {
                 let _ = self.send_to_strategy(ToStrategy::NoteOn { note, time });
             }
-            let _ = self.adaptor.send(FromProcess::NoteOn {
+            let _ = self.send(FromProcess::NoteOn {
                 channel,
                 note,
                 velocity,
@@ -264,16 +245,14 @@ where
 
     fn handle_note_off(&mut self, time: Instant, note: u8, channel: Channel, velocity: u8) {
         if self.current_strategy_index().is_some() {
-            let locks = unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
-            if locks
-                .key_state_mut(note as usize, |k, _| {
-                    k.note_off(channel, self.pedal_hold[channel as usize], time)
-                })
-                .0
-            {
+            if take_replace(&mut self.adaptor, |mut adaptor| {
+                let pedal_hold;
+                (pedal_hold, adaptor) = adaptor.pedal_hold(|bs, _| bs[channel as usize]);
+                adaptor.key_state_mut(note as usize, |k, _| k.note_off(channel, pedal_hold, time))
+            }) {
                 let _ = self.send_to_strategy(ToStrategy::NoteOff { note, time });
             }
-            let _ = self.adaptor.send(FromProcess::NoteOff {
+            let _ = self.send(FromProcess::NoteOff {
                 channel,
                 note,
                 velocity,
@@ -285,15 +264,17 @@ where
     fn handle_pedal_hold(&mut self, time: Instant, channel: Channel, value: u8) {
         if self.current_strategy_index().is_some() {
             if value > 0 {
-                self.pedal_hold[channel as usize] = true;
+                take_replace(&mut self.adaptor, |adaptor| {
+                    adaptor.pedal_hold_mut(|pedal_hold, _| pedal_hold[channel as usize] = true)
+                });
             } else {
-                self.pedal_hold[channel as usize] = false;
-                let mut locks =
-                    unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
+                take_replace(&mut self.adaptor, |adaptor| {
+                    adaptor.pedal_hold_mut(|pedal_hold, _| pedal_hold[channel as usize] = false)
+                });
                 for i in 0..128 {
-                    let changed;
-                    (changed, locks) = locks.key_state_mut(i, |k, _| k.pedal_off(channel, time));
-                    if changed {
+                    if take_replace(&mut self.adaptor, |adaptor| {
+                        adaptor.key_state_mut(i, |k, _| k.pedal_off(channel, time))
+                    }) {
                         let _ = self.send_to_strategy(ToStrategy::NoteOff {
                             note: i as u8,
                             time,
@@ -301,7 +282,7 @@ where
                     }
                 }
             }
-            let _ = self.adaptor.send(FromProcess::PedalHold {
+            let _ = self.send(FromProcess::PedalHold {
                 channel,
                 value,
                 time,
@@ -324,18 +305,15 @@ where
             self.stop(time);
         }
 
-        {
-            let locks = unsafe { OrderedLocks::<ProcessTag, _, _>::new_zero(self.adaptor.clone()) };
-
-            locks.active_strategy(|strat, _| match strat {
+        take_replace(&mut self.adaptor, |adaptor| {
+            adaptor.active_strategy(|strat, adaptor| match strat {
                 StrategyConfig::StaticNeighbourhoods { config, .. } => {
-                    self.current_strategy =
-                        Some(RunningStrategy::start::<StaticNeighbourhoods<T>, _>(
-                            time,
-                            index,
-                            config.clone(),
-                            self.adaptor.clone(),
-                        ))
+                    self.current_strategy = Some(RunningStrategy::start::<StaticNeighbourhoods<T>>(
+                        time,
+                        index,
+                        config.clone(),
+                        unsafe { adaptor.inner_arc() },
+                    ))
                 }
                 StrategyConfig::TwoStep {
                     harmony: HarmonyStrategyConfig::ChordList(harmony_config),
@@ -344,19 +322,17 @@ where
                 } => {
                     self.current_strategy = Some(RunningStrategy::start::<
                         TwoStep<T, ChordList<T>, StaticNeighbourhoodsAsMelody<T>>,
-                        _,
                     >(
                         time,
                         index,
                         (harmony_config.clone(), melody_config.clone()),
-                        self.adaptor.clone(),
+                        unsafe { adaptor.inner_arc() },
                     ))
                 }
-            });
-        }
+            })
+        });
 
-        self.adaptor
-            .send(FromProcess::CurrentStrategyIndex(Some(index)));
+        self.send(FromProcess::CurrentStrategyIndex(Some(index)));
     }
 
     /// Will start strategy 0 if there's no running strategy at the moment.
@@ -366,10 +342,9 @@ where
     }
 }
 
-impl<T, A> ReceiveMsg<ToProcess<T>> for ProcessFromStrategy<T, A>
+impl<T> ReceiveMsg<ToProcess<T>> for ProcessFromStrategy<T>
 where
     T: StackType + fmt::Debug + Send + Sync,
-    A: ProcessAdaptor<StackType = T> + Send + 'static,
 {
     fn receive_msg(&mut self, msg: ToProcess<T>) {
         match msg {
@@ -381,7 +356,7 @@ where
             ToProcess::IncomingMidi { time, bytes } => match MidiMsg::from_midi(&bytes) {
                 Ok((msg, _)) => self.handle_midi(time, msg), // TODO: multi-part messages?
                 Err(e) => {
-                    let _ = self.adaptor.send(FromProcess::MidiParseErr(e.to_string()));
+                    let _ = self.send(FromProcess::MidiParseErr(e.to_string()));
                 }
             },
             ToProcess::NoteOn {
