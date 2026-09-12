@@ -70,7 +70,7 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
     pub fn is_nonempty(&self) -> bool {
         self.harmony.0.is_some()
             || self.reference.0
-            || self.scale_index.0.is_some()
+            || self.scale_index.1
             || self.enable_reanchor.0.is_some()
             || !self.detuned_notes.is_empty()
     }
