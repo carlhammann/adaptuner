@@ -36,7 +36,6 @@ const PIANO_KEY_BORDER_THICKNESS: f32 = 0.1;
 const MARKER_LENGTH: f32 = BLACK_KEY_WIDTH / 2.0;
 const MARKER_THICKNESS: f32 = PIANO_KEY_BORDER_THICKNESS;
 
-const FREE_SPACE_ABOVE_KEYBOARD: f32 = 2.0;
 const FONT_SIZE: f32 = 2.0;
 const FAINT_GRID_LINE_THICKNESS: f32 = MARKER_THICKNESS;
 const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
@@ -63,7 +62,6 @@ pub struct LatticeWindowConfig {
 struct Positions {
     c4_hpos: f32,
     grid_reference_pos: egui::Pos2, // not necessarily the reference of the current scale neighbourhood, may also be middle c
-    bottom: f32,
     left: f32,
 
     background_low: Vec<StackCoeff>,
@@ -365,7 +363,6 @@ impl<T: StackType> LatticeWindow<T> {
             positions: Positions {
                 // dummy initialisations
                 left: 0.0,
-                bottom: 0.0,
                 c4_hpos: 0.0,
                 grid_reference_pos: pos2(0.0, 0.0),
                 background_low: vec![0; T::num_intervals()],
@@ -530,12 +527,12 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     fn draw_white_keys<L>(
         &mut self,
         ui: &mut egui::Ui,
+        bottom: f32,
         mut adaptor: UiAdaptor<T, L>,
     ) -> UiAdaptor<T, L>
     where
         L: AtMost<KeyStateLevel>,
     {
-        let bottom = self.positions.bottom;
         let left = self.positions.left;
         let zoom = adaptor.config().lattice.zoom;
         let white_key_width = zoom * OCTAVE_WIDTH / 7.0;
@@ -583,12 +580,12 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     fn draw_black_keys<L>(
         &mut self,
         ui: &mut egui::Ui,
+        bottom: f32,
         mut adaptor: UiAdaptor<T, L>,
     ) -> UiAdaptor<T, L>
     where
         L: AtMost<KeyStateLevel>,
     {
-        let bottom = self.positions.bottom;
         let left = self.positions.left;
         let zoom = adaptor.config().lattice.zoom;
         let key_number_steps = [2, 3, 2, 2, 3];
@@ -634,8 +631,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         adaptor
     }
 
-    fn draw_ruler(&self, ui: &mut egui::Ui, config: &LatticeWindowConfig) {
-        let bottom = self.positions.bottom;
+    fn draw_ruler(&self, ui: &mut egui::Ui, bottom: f32, config: &LatticeWindowConfig) {
         let zoom = config.zoom;
         let mut x = self.positions.left + zoom / 2.0;
         let y = egui::Rangef {
@@ -655,6 +651,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     fn draw_keyboard<L>(
         &mut self,
         ui: &mut egui::Ui,
+        bottom: f32,
         mut adaptor: UiAdaptor<T, L>,
     ) -> UiAdaptor<T, L>
     where
@@ -665,20 +662,20 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
             egui::Rect {
                 min: pos2(
                     self.positions.left,
-                    self.keyboard_top(&adaptor.config().lattice),
+                    bottom - self.keyboard_height(&adaptor.config().lattice),
                 ),
                 max: pos2(
                     self.positions.left + self.keyboard_width(&adaptor.config().lattice),
-                    self.positions.bottom,
+                    bottom,
                 ),
             },
             egui::CornerRadius::default(),
             ui.style().visuals.window_fill, //.to_opaque(),
         );
 
-        self.draw_ruler(ui, &adaptor.config().lattice);
-        adaptor = self.draw_white_keys(ui, adaptor);
-        self.draw_black_keys(ui, adaptor)
+        self.draw_ruler(ui, bottom, &adaptor.config().lattice);
+        adaptor = self.draw_white_keys(ui, bottom, adaptor);
+        self.draw_black_keys(ui, bottom, adaptor)
     }
 
     fn update_positions<L>(
@@ -700,12 +697,6 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
 
         self.positions.grid_reference_pos.x =
             self.positions.c4_hpos + zoom * self.grid_reference.semitones() as f32;
-
-        self.positions.grid_reference_pos.y = ((self.positions.bottom
-            - self.keyboard_height(&adaptor.config().lattice)
-            - zoom * FREE_SPACE_ABOVE_KEYBOARD)
-            / 2.0)
-            .max(0.0);
 
         // Now comes the calculation of how many and which background nodes to show: There are four
         // corners of the area on whcih we want to paint the background grid. Additionally, there is
@@ -861,7 +852,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     where
         L: AtMost<KeyStateLevel>,
     {
-        let bottom = self.keyboard_top(&adaptor.config().lattice);
+        let bottom = ui.max_rect().bottom() - self.keyboard_height(&adaptor.config().lattice);
 
         adaptor.for_all_sounding_tunings(|_, StackWithTuning { stack, .. }, adaptor| {
             let ppos = self.projected_pos(&stack, &adaptor.config().lattice);
@@ -1068,7 +1059,6 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     where
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel> + AtMost<TuningReferenceLevel>,
     {
-        adaptor = self.update_positions(ui.max_rect(), adaptor);
         adaptor = self.draw_down_lines(ui, adaptor);
         adaptor = self.draw_grid_lines(ui, adaptor);
         adaptor = self.draw_note_names_and_interaction_zones(ui, adaptor);
@@ -1082,10 +1072,6 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     fn keyboard_width(&self, config: &LatticeWindowConfig) -> f32 {
         // 128 keys plus a half on each end.
         config.zoom * 129.0
-    }
-
-    fn keyboard_top(&self, config: &LatticeWindowConfig) -> f32 {
-        self.positions.bottom - self.keyboard_height(config)
     }
 }
 
@@ -1135,7 +1121,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for LatticeWindow<T> {
         if r.dragged() {
             let egui::Vec2 { x, y } = r.drag_delta();
             self.positions.left += x;
-            self.positions.bottom = (self.positions.bottom + y).max(ui.max_rect().bottom());
+            self.positions.grid_reference_pos.y += y;
             self.reset_position = false;
         }
         if r.double_clicked() {
@@ -1144,14 +1130,15 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for LatticeWindow<T> {
 
         if self.reset_position {
             let egui::Pos2 {
-                x: center,
-                y: bottom,
-            } = ui.max_rect().center_bottom();
-            adaptor = adaptor.c4_offset(|offset| self.positions.left = center - offset);
-            self.positions.bottom = bottom;
+                x: center_x,
+                y: center_y,
+            } = ui.max_rect().center();
+            adaptor = adaptor.c4_offset(|offset| self.positions.left = center_x - offset);
+            self.positions.grid_reference_pos.y = center_y;
         }
         self.keyboard_hover_interaction(ui, &adaptor.config().lattice, |m| adaptor.send(m));
+        adaptor = self.update_positions(ui.max_rect(), adaptor);
         adaptor = self.draw_lattice(ui, adaptor);
-        self.draw_keyboard(ui, adaptor)
+        self.draw_keyboard(ui, ui.max_rect().bottom(), adaptor)
     }
 }
