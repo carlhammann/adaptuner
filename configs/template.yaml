@@ -543,7 +543,7 @@ gui:
     - 0.0
     - 3.8631372
     - -7.01955
-    background-around-reference: false
+    scale-reference-centered: true
     background-dimensions: [1, 2]
     project-dimension: 0
     color-period-ct: 21.506289596715078

@@ -20,14 +20,14 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                     ui.radio_value(
                         reanchor,
                         false,
-                        "do not move the reference on chord matches",
+                        "do not move the scale reference on chord matches",
                     );
 
                     ui.radio_value(
                         reanchor,
                         true,
                         "whenever a chord matches, move \
-                         the current reference to that chord's reference",
+                         the scale reference to that chord's reference",
                     );
 
                     if *reanchor {

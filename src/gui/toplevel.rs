@@ -155,10 +155,23 @@ where
 
                 ui.separator();
 
-                ui.checkbox(
-                    &mut self.adaptor.as_ref().unwrap().config_mut().use_cent_values,
-                    "use cent values",
-                );
+                ui.collapsing("display settings", |ui| {
+                    ui.checkbox(
+                        &mut self.adaptor.as_ref().unwrap().config_mut().use_cent_values,
+                        "use cent values",
+                    );
+
+                    ui.checkbox(
+                        &mut self
+                            .adaptor
+                            .as_ref()
+                            .unwrap()
+                            .config_mut()
+                            .lattice
+                            .scale_reference_centered,
+                        "always keep the scale reference centered",
+                    );
+                });
 
                 ui.separator();
 

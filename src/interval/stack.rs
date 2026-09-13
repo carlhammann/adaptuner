@@ -156,7 +156,7 @@ impl<T: IntervalBasis> Stack<T> {
         true
     }
 
-    /// Size of the interval described, in fractional semitones.
+    /// Size of the interval, described in fractional semitones.
     pub fn semitones(&self) -> Semitones {
         semitones_from_actual::<T>(self.actual.view())
     }
