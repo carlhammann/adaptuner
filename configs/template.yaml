@@ -544,14 +544,7 @@ gui:
     - 3.8631372
     - -7.01955
     background-around-reference: false
-    background-low:
-    - 0
-    - -4
-    - -3
-    background-high:
-    - 0
-    - 4
-    - 3
+    background-dimensions: [1, 2]
     project-dimension: 0
     color-period-ct: 21.506289596715078
     screen-keyboard-channel: 1
