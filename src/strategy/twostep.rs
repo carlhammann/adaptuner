@@ -209,12 +209,15 @@ where
     fn new(config: Self::Config) -> Self {
         Self {
             _phantom: PhantomData,
+            group_start_reference: match config.1.initial_scale_reference() {
+                Some(r) => r.clone(),
+                None {} => Stack::new_zero(),
+            },
             harmony_strategy: H::new(config.0),
             melody_strategy: M::new(config.1),
             solve_start: Instant::now(),
             solving_harmony: false,
             group_start: Instant::now(),
-            group_start_reference: Stack::new_zero(),
         }
     }
 

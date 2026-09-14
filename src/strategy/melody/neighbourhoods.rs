@@ -43,6 +43,10 @@ impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyCon
     fn as_melody_strategy_config(self) -> MelodyStrategyConfig<T> {
         MelodyStrategyConfig::StaticNeighbourhoods(self)
     }
+
+    fn initial_scale_reference(&self) -> Option<&Stack<T>> {
+        Some(&self.initial_reference)
+    }
 }
 
 impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {

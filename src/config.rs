@@ -7,6 +7,7 @@ use crate::{
     bindable::{BindableEvent, BindableProcessAction, BindableStrategyAction},
     gui::lattice::LatticeWindowConfig,
     interval::{
+        stack::Stack,
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
     },
@@ -167,6 +168,7 @@ pub trait IsHarmonyStrategyConfig<T: StackType>: Clone {
 
 pub trait IsMelodyStrategyConfig<T: StackType>: Clone {
     fn as_melody_strategy_config(self) -> MelodyStrategyConfig<T>;
+    fn initial_scale_reference(&self) -> Option<&Stack<T>>;
 }
 
 #[derive(Clone, Serialize, Deserialize)]
