@@ -7,7 +7,6 @@ pub mod editor;
 pub mod keyboard_controls;
 pub mod latency;
 pub mod lattice;
-pub mod latticecontrol;
 pub mod notifications;
 pub mod strategy;
 pub mod toplevel;

@@ -28,7 +28,7 @@ use crate::{
 pub struct TopLevelGui<T: StackType> {
     adaptor: Option<UiAdaptor<T, Zero>>,
 
-    // these four use the same SmallFloatingWindow, namely the connection_window
+    // these three use the same SmallFloatingWindow, namely the connection_window
     input_connection: ConnectionWindow<Input>,
     output_connection: ConnectionWindow<Output>,
     backend: BackendWindow,
@@ -190,7 +190,6 @@ where
                                 if *color_period_ct <= 0.0 {
                                     *color_period_ct = 100.0;
                                 }
-                                // controls.tmp_correction.reset_to_zero();
                             }
                             ui.label("ct");
                         });
@@ -198,10 +197,6 @@ where
                 });
 
                 ui.separator();
-
-                // AsBigControls(&mut self.lattice).show(ui);
-                //
-                // ui.separator();
 
                 egui::widgets::global_theme_preference_buttons(ui);
             });
