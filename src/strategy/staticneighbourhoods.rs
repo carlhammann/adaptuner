@@ -143,6 +143,25 @@ impl<T: StackType> StaticNeighbourhoods<T> {
             }
         })
     }
+
+    fn reset_scale_and_tunings(
+        &mut self,
+        time: Instant,
+        mut adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
+        adaptor.send(FromStrategy::SelectScale {
+            index: self.curr_scale_index,
+        });
+        self.scales[self.curr_scale_index].for_each_stack(|_, stack| {
+            let _ = adaptor.send(FromStrategy::Consider {
+                stack: stack.clone(),
+            });
+        });
+
+        adaptor = self.update_all_tunings_and_send(time, adaptor);
+
+        (false, adaptor)
+    }
 }
 
 impl<T: StackType> IsStrategyConfig<T> for StaticNeighbourhoodsConfig<T> {}
@@ -179,24 +198,16 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
         time: Instant,
         mut adaptor: StrategyAdaptor<T, Self, Zero>,
     ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
-        adaptor.send(FromStrategy::UpdateReference {});
-
-        adaptor.send(FromStrategy::SelectScale {
-            index: self.curr_scale_index,
-        });
-        self.scales[self.curr_scale_index].for_each_stack(|_, stack| {
-            let _ = adaptor.send(FromStrategy::Consider {
-                stack: stack.clone(),
-            });
+        (_, adaptor) = adaptor.initial_scale_reference(|m_initial_reference, adaptor| {
+            if let Some(initial_reference) = m_initial_reference {
+                adaptor.send(FromStrategy::UpdateReference {});
+                adaptor.reference_mut(|reference, _| {
+                    reference.clone_from(initial_reference);
+                });
+            }
         });
 
-        (_, adaptor) = adaptor.config(|config, adaptor| {
-            adaptor.reference_mut(|reference, _| reference.clone_from(&config.initial_reference));
-        });
-
-        adaptor = self.update_all_tunings_and_send(time, adaptor);
-
-        (false, adaptor)
+        self.reset_scale_and_tunings(time, adaptor)
     }
 
     fn stop(
@@ -267,7 +278,7 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
             ToStaticNeighbourhoods::SelectScale { index, time } => {
                 if index != self.curr_scale_index {
                     self.curr_scale_index = index;
-                    (_, adaptor) = self.start(time, adaptor);
+                    (_, adaptor) = self.reset_scale_and_tunings(time, adaptor);
                 }
             }
             ToStaticNeighbourhoods::UpdateScales {
@@ -280,13 +291,13 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
                     if self.scales.len() <= self.curr_scale_index {
                         self.curr_scale_index = 0;
                     }
-                    (_, adaptor) = self.start(time, adaptor);
+                    (_, adaptor) = self.reset_scale_and_tunings(time, adaptor);
                 }
                 Some(i) => {
                     (_, adaptor) =
                         adaptor.config(|conf, _| self.scales[i].clone_from(&conf.scales[i].named));
                     if i == self.curr_scale_index {
-                        (_, adaptor) = self.start(time, adaptor);
+                        (_, adaptor) = self.reset_scale_and_tunings(time, adaptor);
                     }
                 }
             },
@@ -324,7 +335,7 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
                     .rem_euclid(self.scales.len() as isize)
                     as usize;
                 if old_index != self.curr_scale_index {
-                    (_, adaptor) = self.start(time, adaptor);
+                    (_, adaptor) = self.reset_scale_and_tunings(time, adaptor);
                 }
             }
             BindableStrategyAction::SetReferenceToLowest => {

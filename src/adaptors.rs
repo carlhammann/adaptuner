@@ -401,6 +401,41 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
         })
     }
 
+
+    #[inline]
+    pub fn initial_scale_reference<R, T>(
+        self,
+        mut f: impl FnMut(
+            Option<&Stack<T>>,
+            OrderedLocks<X, M, Succ<ActiveStrategyIndexLevel>>,
+        ) -> R,
+    ) -> (R, Self)
+    where
+        T: IntervalBasis,
+        M: Access<ActiveStrategyIndexLevel, usize>
+            + Access<StrategyConfigLevel, Vec<StrategyConfig<T>>>,
+        L: AtMost<StrategyConfigLevel>,
+        X: ReadAllowed<StrategyConfigLevel> + ReadAllowed<ActiveStrategyIndexLevel>,
+    {
+        self.active_strategy(|strat, r| match strat {
+            StrategyConfig::StaticNeighbourhoods {
+                config:
+                    StaticNeighbourhoodsConfig {
+                        initial_reference, ..
+                    },
+                ..
+            }
+            | StrategyConfig::TwoStep {
+                melody:
+                    MelodyStrategyConfig::StaticNeighbourhoods(StaticNeighbourhoodsAsMelodyConfig {
+                        initial_reference,
+                        ..
+                    }),
+                ..
+            } => f(Some(initial_reference), r),
+        })
+    }
+
     #[inline]
     pub fn initial_scale_reference_mut<R, T>(
         self,

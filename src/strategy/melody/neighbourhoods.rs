@@ -260,6 +260,22 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
             }
         })
     }
+
+    fn reset_scale_and_tunings(
+        &mut self,
+        time: Instant,
+        adaptor: MelodyAdaptor<T, Self, Zero>,
+    ) -> MelodyAdaptor<T, Self, Zero> {
+        adaptor.send(FromStrategy::SelectScale {
+            index: self.curr_scale_index,
+        });
+        self.scales[self.curr_scale_index].for_each_stack(|_, stack| {
+            let _ = adaptor.send(FromStrategy::Consider {
+                stack: stack.clone(),
+            });
+        });
+        self.tune_with_harmony(time, adaptor)
+    }
 }
 
 impl<T: StackType, L: AtMost<StrategyConfigLevel>>
@@ -318,19 +334,16 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
         time: Instant,
         mut adaptor: MelodyAdaptor<T, Self, Zero>,
     ) -> MelodyAdaptor<T, Self, Zero> {
-        adaptor.send(FromStrategy::UpdateReference {});
-        adaptor.send(FromStrategy::SelectScale {
-            index: self.curr_scale_index,
+        (_, adaptor) = adaptor.initial_scale_reference(|m_initial_reference, adaptor| {
+            if let Some(initial_reference) = m_initial_reference {
+                adaptor.send(FromStrategy::UpdateReference {});
+                adaptor.reference_mut(|reference, _| {
+                    reference.clone_from(initial_reference);
+                });
+            }
         });
-        self.scales[self.curr_scale_index].for_each_stack(|_, stack| {
-            let _ = adaptor.send(FromStrategy::Consider {
-                stack: stack.clone(),
-            });
-        });
-        (_, adaptor) = adaptor.config(|config, adaptor| {
-            adaptor.reference_mut(|reference, _| reference.clone_from(&config.initial_reference));
-        });
-        self.tune_with_harmony(time, adaptor)
+
+        self.reset_scale_and_tunings(time, adaptor)
     }
 
     fn update_tuning_reference(
@@ -372,7 +385,7 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
             ToStaticNeighbourhoodsAsMelody::SelectScale { index, time } => {
                 if index != self.curr_scale_index {
                     self.curr_scale_index = index;
-                    self.start(time, adaptor)
+                    self.reset_scale_and_tunings(time, adaptor)
                 } else {
                     adaptor
                 }
@@ -397,13 +410,13 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
                     if self.scales.len() <= self.curr_scale_index {
                         self.curr_scale_index = 0;
                     }
-                    self.start(time, adaptor)
+                    self.reset_scale_and_tunings(time, adaptor)
                 }
                 Some(i) => {
                     (_, adaptor) = adaptor
                         .config(|config, _| self.scales[i].clone_from(&config.scales[i].named));
                     if i == self.curr_scale_index {
-                        self.start(time, adaptor)
+                        self.reset_scale_and_tunings(time, adaptor)
                     } else {
                         adaptor
                     }
@@ -433,7 +446,7 @@ impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
                     .rem_euclid(self.scales.len() as isize)
                     as usize;
                 if old_index != self.curr_scale_index {
-                    self.start(time, adaptor)
+                    self.reset_scale_and_tunings(time, adaptor)
                 } else {
                     adaptor
                 }
