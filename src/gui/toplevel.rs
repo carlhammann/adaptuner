@@ -171,6 +171,27 @@ where
                             .scale_reference_centered,
                         "always keep the scale reference centered",
                     );
+
+                    {
+                        let color_period_ct = &mut self
+                            .adaptor
+                            .as_ref()
+                            .unwrap()
+                            .config_mut()
+                            .lattice
+                            .color_period_ct;
+                        ui.horizontal(|ui| {
+                            ui.label("repeat note colours after");
+                            if ui.add(egui::DragValue::new(color_period_ct)).changed() {
+                                if *color_period_ct <= 0.0 {
+                                    *color_period_ct = 100.0;
+                                }
+                                // controls.tmp_correction.reset_to_zero();
+                            }
+                            ui.label("ct");
+                        });
+                    }
+
                 });
 
                 ui.separator();
