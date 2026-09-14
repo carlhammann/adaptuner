@@ -660,7 +660,6 @@ impl<T: StackType> ReceiveToUiRef<T> for ChordListEditor<T> {
 
             ToUi::NoteOn { .. }
             | ToUi::NoteOff { .. }
-            | ToUi::PedalHold { .. }
             | ToUi::Retune { .. } => {
                 self.request_recompute = true;
             }

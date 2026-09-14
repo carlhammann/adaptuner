@@ -12,6 +12,7 @@ use crate::{
         config::ConfigFileDialog,
         connection::{ConnectionWindow, Input, Output},
         editor::{commas::CommaEditor, temperament::TemperamentEditor, tuning::TuningEditor},
+        keyboard_controls::KeyboardControls,
         latency::LatencyWindow,
         lattice::LatticeWindow,
         notifications::Notifications,
@@ -32,6 +33,9 @@ pub struct TopLevelGui<T: StackType> {
     output_connection: ConnectionWindow<Output>,
     backend: BackendWindow,
     connection_window: SmallFloatingWindow,
+
+    keyboard_control: KeyboardControls,
+    keyboard_control_window: SmallFloatingWindow,
 
     tuning_editor: TuningEditor<T>,
 
@@ -125,8 +129,8 @@ where
                 self.connection_window
                     .show_hide_button(ui, "MIDI connections");
                 // self.note_window.show_hide_button(ui, "notes");
-                // self.keyboard_control_window
-                //     .show_hide_button(ui, "keyboard controls");
+                self.keyboard_control_window
+                    .show_hide_button(ui, "screen keyboard controls");
 
                 ui.separator();
 
@@ -191,7 +195,6 @@ where
                             ui.label("ct");
                         });
                     }
-
                 });
 
                 ui.separator();
@@ -228,6 +231,13 @@ where
                         }
                     });
             }
+
+            self.keyboard_control_window
+                .show("screen keyboard controls", ctx, |ui| {
+                    take_replace(&mut self.adaptor, |adaptor| {
+                        ((), self.keyboard_control.show(ui, adaptor))
+                    })
+                });
 
             self.connection_window.show("midi connections", ctx, |ui| {
                 ui.vertical(|ui| {
@@ -366,6 +376,11 @@ where
             output_connection: ConnectionWindow::new(),
             backend: BackendWindow::new(),
             connection_window: SmallFloatingWindow::new(egui::Id::new("connection_window"), true),
+            keyboard_control: KeyboardControls::new(),
+            keyboard_control_window: SmallFloatingWindow::new(
+                egui::Id::new("keyboard_control_window"),
+                false,
+            ),
             notifications: Notifications::new(),
             tuning_editor: TuningEditor::new(),
             strategy_widgets: StrategyWidgets::new(),

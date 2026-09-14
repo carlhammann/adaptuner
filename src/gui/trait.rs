@@ -12,6 +12,7 @@ use crate::{
 
 pub struct GuiTag {}
 
+impl ReadAllowed<PedalHoldLevel> for GuiTag {}
 impl ReadAllowed<KeyStateLevel> for GuiTag {}
 impl ReadAllowed<TuningStateLevel> for GuiTag {}
 impl ReadAllowed<StrategyConfigLevel> for GuiTag {}

@@ -274,11 +274,6 @@ pub enum ToUi<T: StackType> {
         note: u8,
         time: Instant,
     },
-    PedalHold {
-        channel: Channel,
-        value: u8,
-        time: Instant,
-    },
     EventLatency {
         since_input: Duration,
     },
@@ -495,11 +490,7 @@ impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProc
                     time,
                 }),
                 None {},
-                Some(ToUi::PedalHold {
-                    channel,
-                    value,
-                    time,
-                }),
+                None {},
             ),
             FromProcess::ProgramChange {
                 channel,
