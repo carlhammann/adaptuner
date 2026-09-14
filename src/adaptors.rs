@@ -400,6 +400,40 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
             } => f(Some(scales), r),
         })
     }
+
+    #[inline]
+    pub fn initial_scale_reference_mut<R, T>(
+        self,
+        mut f: impl FnMut(
+            Option<&mut Stack<T>>,
+            OrderedLocks<X, M, Succ<ActiveStrategyIndexLevel>>,
+        ) -> R,
+    ) -> (R, Self)
+    where
+        T: IntervalBasis,
+        M: Access<ActiveStrategyIndexLevel, usize>
+            + AccessMut<StrategyConfigLevel, Vec<StrategyConfig<T>>>,
+        L: AtMost<StrategyConfigLevel>,
+        X: WriteAllowed<StrategyConfigLevel> + ReadAllowed<ActiveStrategyIndexLevel>,
+    {
+        self.active_strategy_mut(|strat, r| match strat {
+            StrategyConfig::StaticNeighbourhoods {
+                config:
+                    StaticNeighbourhoodsConfig {
+                        initial_reference, ..
+                    },
+                ..
+            }
+            | StrategyConfig::TwoStep {
+                melody:
+                    MelodyStrategyConfig::StaticNeighbourhoods(StaticNeighbourhoodsAsMelodyConfig {
+                        initial_reference,
+                        ..
+                    }),
+                ..
+            } => f(Some(initial_reference), r),
+        })
+    }
 }
 
 /// Helper function to apply the accessors in this module to the `Option<...>`. This makes it possible

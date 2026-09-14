@@ -163,7 +163,7 @@ impl<T: StackType, L: AtMost<StrategyConfigLevel>> StrategyAdaptor<T, StaticNeig
 }
 
 impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
-    type Msg = ToStaticNeighbourhoods<T>;
+    type Msg = ToStaticNeighbourhoods;
     type Config = StaticNeighbourhoodsConfig<T>;
 
     fn new(mut config: StaticNeighbourhoodsConfig<T>) -> Self {
@@ -290,11 +290,6 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
                     }
                 }
             },
-            ToStaticNeighbourhoods::SetReference { reference, time } => {
-                (_, adaptor) = adaptor.reference_mut(|r, _| r.clone_from(&reference));
-                let _ = adaptor.send(FromStrategy::UpdateReference {});
-                adaptor = self.update_all_tunings_and_send(time, adaptor);
-            }
         }
         (false, adaptor)
     }

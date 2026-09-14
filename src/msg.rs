@@ -119,18 +119,13 @@ pub enum ToChordList {
     },
 }
 
-pub enum ToStaticNeighbourhoods<T: StackType> {
+pub enum ToStaticNeighbourhoods {
     SelectScale {
         index: usize,
         time: Instant,
     },
     UpdateScales {
         only_this_scale: Option<usize>,
-        time: Instant,
-    },
-
-    SetReference {
-        reference: Stack<T>,
         time: Instant,
     },
 }
@@ -188,7 +183,7 @@ pub enum ToStrategy<T: StackType> {
     },
 
     TwoStep(ToTwoStep<T>),
-    StaticNeighbourhoods(ToStaticNeighbourhoods<T>),
+    StaticNeighbourhoods(ToStaticNeighbourhoods),
 
     BoundAction {
         action: BindableStrategyAction,
@@ -339,10 +334,6 @@ pub enum FromUi<T: StackType> {
         time: Instant,
     },
     UpdateTuningReference {
-        time: Instant,
-    },
-    SetReference {
-        reference: Stack<T>,
         time: Instant,
     },
     NoteOn {
@@ -632,14 +623,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                     value,
                     time,
                 }),
-                None {},
-                None {},
-                None {},
-            ),
-            FromUi::SetReference { reference, time } => (
-                Some(ToProcess::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                    ToStaticNeighbourhoods::SetReference { reference, time },
-                ))),
                 None {},
                 None {},
                 None {},

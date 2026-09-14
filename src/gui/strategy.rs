@@ -13,6 +13,7 @@ use crate::{
         editor::{
             binding::BindingEditor,
             chordlist::{ChordListEditor, ChordListEditorResult},
+            reference::ReferenceEditor,
             scale::{ScaleEditor, ScaleEditorResult},
             twostep::TwoStepEditor,
         },
@@ -240,6 +241,7 @@ impl<T: StackType> GuiShow<T> for BindingEditorWidget {
 pub struct StrategyWidgets<T: StackType> {
     selector_widget: StrategySelectorWidget,
     binding_editor_widget: BindingEditorWidget,
+    initial_reference_editor: ReferenceEditor<T>,
     scale_editor: ScaleEditor,
     chord_list_editor: ChordListEditor<T>,
     twostep_editor: TwoStepEditor,
@@ -249,6 +251,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
     pub fn new() -> Self {
         Self {
             selector_widget: StrategySelectorWidget::new(),
+            initial_reference_editor: ReferenceEditor::new(),
             binding_editor_widget: BindingEditorWidget::new(),
             scale_editor: ScaleEditor::new(),
             chord_list_editor: ChordListEditor::new(),
@@ -419,24 +422,16 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
 
         adaptor
     }
-
-    #[inline]
-    fn show_twostep_editor(
-        &mut self,
-        ui: &mut egui::Ui,
-        adaptor: UiAdaptor<T, Zero>,
-    ) -> UiAdaptor<T, Zero> {
-        self.twostep_editor.show(ui, adaptor)
-    }
 }
 
 impl<T: OctavePeriodicStackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T> {
     fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         adaptor = self.selector_widget.show(ui, adaptor);
+        adaptor = self.initial_reference_editor.show(ui, adaptor);
         adaptor = self.binding_editor_widget.show(ui, adaptor);
         adaptor = self.show_scale_editor(ui, adaptor);
         adaptor = self.show_chord_list_editor(ui, adaptor);
-        self.show_twostep_editor(ui, adaptor)
+        self.twostep_editor.show(ui, adaptor)
     }
 }
 
@@ -447,6 +442,7 @@ impl<T: StackType> ReceiveToUiRef<T> for StrategyWidgets<T> {
         mut adaptor: UiAdaptor<T, Zero>,
     ) -> UiAdaptor<T, Zero> {
         adaptor = self.scale_editor.receive_to_ui_ref(msg, adaptor);
+        adaptor = self.initial_reference_editor.receive_to_ui_ref(msg, adaptor);
         self.chord_list_editor.receive_to_ui_ref(msg, adaptor)
     }
 }
