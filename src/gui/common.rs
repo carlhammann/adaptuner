@@ -134,14 +134,14 @@ pub fn show_list_edit<X, M, H>(
     res
 }
 
-pub struct ListEditOpts<X, M> {
+pub struct ListEditOpts<X, M, H> {
     pub empty_allowed: bool,
     pub select_allowed: bool,
     pub no_selection_allowed: bool,
     pub delete_allowed: bool,
     pub reorder_allowed: bool,
-    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X) -> Option<M>>,
-    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>) -> Option<usize>>>,
+    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X, &mut H) -> Option<M>>,
+    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>, &mut H) -> Option<usize>>>,
 }
 
 #[derive(PartialEq)]

@@ -67,7 +67,7 @@ pub enum ToProcess<T: StackType> {
     },
 }
 
-pub enum FromProcess {
+pub enum FromProcess<T: StackType> {
     MidiParseErr(String),
     OutgoingMidi {
         bytes: Vec<u8>,
@@ -204,7 +204,7 @@ pub enum ToBackend {
     Start {
         time: Instant,
     },
-    ConfigUpdate {
+    Reset {
         time: Instant,
     },
     Stop {
@@ -395,8 +395,8 @@ pub enum FromMidiIn {
 
 pub enum ToMidiOut {
     OutgoingMidi {
-        bytes: Vec<u8>,
         time: Instant,
+        bytes: Vec<u8>,
     },
     Connect {
         port: MidiOutputPort,
@@ -422,7 +422,7 @@ pub enum FromMidiOut {
     },
 }
 
-impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProcess {
+impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProcess<T> {
     fn translate3(self) -> (Option<ToBackend>, Option<ToMidiOut>, Option<ToUi<T>>) {
         match self {
             FromProcess::MidiParseErr(err) => (
@@ -549,7 +549,7 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 time,
             } => (
                 Some(ToProcess::Reset { time }),
-                Some(ToBackend::ConfigUpdate { time }),
+                Some(ToBackend::Reset { time }),
                 Some(ToMidiIn::Connect { port, portname }),
                 None {},
             ),
@@ -560,7 +560,7 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
                 time,
             } => (
                 Some(ToProcess::Reset { time }),
-                Some(ToBackend::ConfigUpdate { time }),
+                Some(ToBackend::Reset { time }),
                 None {},
                 Some(ToMidiOut::Connect { port, portname }),
             ),
@@ -651,12 +651,6 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
             FromUi::RestartFromConfig { time } => (
                 Some(ToProcess::Reset { time }),
                 Some(ToBackend::Reset { time }),
-                None {},
-                None {},
-            ),
-            FromUi::BackendConfigUpdate { time } => (
-                None {},
-                Some(ToBackend::ConfigUpdate { time }),
                 None {},
                 None {},
             ),

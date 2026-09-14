@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use eframe::egui;
+use midi_msg::Channel;
 
 use crate::{
     gui::{common::toggle_bit, r#trait::UiAdaptor},

@@ -19,12 +19,8 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     keystate::KeyState,
-    msg::{FromStrategy, ToHarmonyStrategy},
+    msg::{FromStrategy,},
     neighbourhood::{Neighbourhood, Partial, SomeNeighbourhood},
-    strategy::{
-        r#trait::StrategyAction,
-        twostep::{Harmony, HarmonyStrategy},
-    },
     util::springs::Solver,
 };
 
