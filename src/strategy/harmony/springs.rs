@@ -158,8 +158,6 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
 
                 normalize_rods(n, rods);
 
-                // wrapped in an Option because it may very well overflow...
-                let mut n_options: Option<usize> = Some(1);
                 tmp.clear();
 
                 springs.clear();
@@ -185,29 +183,20 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
                                 },
                             );
                             tmp.push(((i, j), options.len()));
-                            n_options = n_options.and_then(|o| o.checked_mul(options.len()));
                         }
                     }
                 }
 
-                if let Some(n_options) = n_options {
-                    if lower_notes_are_more_stable {
-                        tmp.sort_by(|a, b| b.0.cmp(&a.0));
-                    } else {
-                        tmp.sort_by(|a, b| a.0.cmp(&b.0));
-                    }
-
-                    let mut i = 0;
-                    for (_, info) in springs.iter_mut() {
-                        info.solver_length_index = i;
-                        i += 1;
-                    }
-
-                    println!("trying {n_options} options");
+                if lower_notes_are_more_stable {
+                    tmp.sort_by(|a, b| b.0.cmp(&a.0));
                 } else {
-                    springs.clear();
-                    rods.clear();
-                    println!("encountered overflow when counting options. clearing...");
+                    tmp.sort_by(|a, b| a.0.cmp(&b.0));
+                }
+
+                let mut i = 0;
+                for (_, info) in springs.iter_mut() {
+                    info.solver_length_index = i;
+                    i += 1;
                 }
             }
         }
@@ -457,8 +446,6 @@ impl<T: StackType> HarmonySprings<T> {
 
     /// returns true iff a solution was successfully computed
     fn compute_solution_actuals(&mut self) -> bool {
-        let tick = Instant::now();
-
         let n_nodes = self.keys.len();
         let n_springs = self.spring_setup.n_springs();
         let n_rods = self.spring_setup.n_rods();
@@ -514,10 +501,8 @@ impl<T: StackType> HarmonySprings<T> {
                     .slice_mut(s![0..n, ..])
                     .assign(&solution);
             }
-            println!("{:?}", Instant::now().duration_since(tick));
             true
         } else {
-            println!("{:?}", Instant::now().duration_since(tick));
             false
         }
     }
