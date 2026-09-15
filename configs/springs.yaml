@@ -124,14 +124,13 @@ strategies:
     enable: true
     memo-springs: true
     min-keys: 2
-    max-tries: 32
+    max-tries: 512
     lower-notes-are-more-stable: true
     provider: !mod12
       octave:
         octave: 1
       by-class:
-      - trim-order: 0
-        options:
+      - options:
         - length:
             octave: 1
             fifth: -1
@@ -141,8 +140,7 @@ strategies:
             fifth: -1
             third: 2
           stiffness: '1/5'
-      - trim-order: 0
-        options:
+      - options:
         - length:
             octave: -1
             fifth: 2
@@ -152,8 +150,7 @@ strategies:
             fifth: -2
             third: 1
           stiffness: '1/5'
-      - trim-order: 0 
-        options:
+      - options:
         - length:
             fifth: 1
             third: -1
@@ -167,19 +164,16 @@ strategies:
             fifth: 1
             third: 2
           stiffness: '1/5'
-      - trim-order: 2 
-        options:
+      - options:
         - length:
             third: 1
           stiffness: '1/5'
-      - trim-order: 3 
-        options:
+      - options:
         - length:
             octave: 1
             fifth: -1
           stiffness: '1/3'
-      - trim-order: 0 
-        options:
+      - options:
         - length:
             octave: -1
             fifth: 2
@@ -194,21 +188,18 @@ strategies:
             fifth: 2
             third: -2
           stiffness: '1/5'
-      - trim-order: 3 
-        options:
+      - options:
         - length:
             fifth: 1
           stiffness: '1/3'
       # - !rod
       #       fifth: 1
-      - trim-order: 0 
-        options:
+      - options:
         - length:
             octave: 1
             third: -1
           stiffness: '1/5'
-      - trim-order: 0 
-        options:
+      - options:
         - length:
             octave: 1
             fifth: -1
@@ -218,8 +209,7 @@ strategies:
             octave: -1
             fifth: 3
           stiffness: '1/3'
-      - trim-order: 0 
-        options:
+      - options:
         - length:
             octave: 2
             fifth: -2
@@ -228,8 +218,7 @@ strategies:
             fifth: 2
             third: -1
           stiffness: '1/5'
-      - trim-order: 0 
-        options:
+      - options:
         - length:
             fifth: 1
             third: 1

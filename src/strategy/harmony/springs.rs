@@ -44,7 +44,6 @@ pub struct Spring<T: IntervalBasis> {
 #[serde(rename_all = "kebab-case")]
 #[derive(Clone)]
 pub struct Springs<T: IntervalBasis> {
-    trim_order: u8,
     // #[serde(deserialize_with = "deserialize_nonempty_springs")]
     /// todo: ensure that this list is non-empty at deserialisation time. The approach commented out
     /// doesn't work because the type checker is too dumb.
@@ -132,8 +131,7 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
         &self,
         keys: &[u8],
         lower_notes_are_more_stable: bool,
-        max_tries: usize,
-        tmp: &mut Vec<(u8, (usize, usize), usize)>,
+        tmp: &mut Vec<((usize, usize), usize)>,
         rods: &mut BTreeMap<(usize, usize), Stack<T>>,
         springs: &mut BTreeMap<(usize, usize), SpringInfo>,
     ) {
@@ -174,11 +172,7 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
                             continue;
                         }
 
-                        let Springs {
-                            options,
-                            trim_order,
-                            ..
-                        } = &by_class[rem - 1];
+                        let Springs { options, .. } = &by_class[rem - 1];
                         // octaves are the only rods. Hence, we'll only need to add springs if
                         // *both* nodes are not the end of a rod.
                         if !is_rod_end[i] && !is_rod_end[j] {
@@ -190,28 +184,17 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
                                     solver_length_index: 0, // dummy initialisation; will be overwritten!
                                 },
                             );
-                            tmp.push((*trim_order, (i, j), options.len()));
+                            tmp.push(((i, j), options.len()));
                             n_options = n_options.and_then(|o| o.checked_mul(options.len()));
                         }
                     }
                 }
 
-                if let Some(mut n_options) = n_options {
-                    if n_options > max_tries {
-                        if lower_notes_are_more_stable {
-                            tmp.sort_by(|a, b| b.1.cmp(&a.1));
-                        } else {
-                            tmp.sort_by(|a, b| a.1.cmp(&b.1));
-                        }
+                if let Some(n_options) = n_options {
+                    if lower_notes_are_more_stable {
+                        tmp.sort_by(|a, b| b.0.cmp(&a.0));
+                    } else {
                         tmp.sort_by(|a, b| a.0.cmp(&b.0));
-
-                        let mut i = 0;
-                        while n_options > max_tries && i < tmp.len() {
-                            println!("{} {} {:?}", springs.len(), n_options, tmp[i].1);
-                            springs.remove(&tmp[i].1);
-                            n_options /= tmp[i].2;
-                            i += 1;
-                        }
                     }
 
                     let mut i = 0;
@@ -280,12 +263,11 @@ pub struct HarmonySprings<T: IntervalBasis> {
     keys: Vec<u8>,
     memo_springs: bool,
 
-    tmp: Vec<(u8, (usize, usize), usize)>,
+    tmp: Vec<((usize, usize), usize)>,
     spring_setup: SpringSetup<T>,
     solver: Solver,
 
     min_keys: usize,
-    max_tries: usize,
     lower_notes_are_more_stable: bool,
     provider: HarmonySpringsProvider<T>,
 
@@ -309,7 +291,6 @@ pub struct HarmonySpringsConfig<T: IntervalBasis> {
     /// to [HarmonyStrategy::solve]?
     pub memo_springs: bool,
     pub min_keys: usize,
-    pub max_tries: usize,
     pub lower_notes_are_more_stable: bool,
     pub provider: HarmonySpringsProvider<T>,
 }
@@ -459,7 +440,6 @@ impl<T: StackType> HarmonySprings<T> {
         self.provider.collect_connectors(
             &self.keys,
             self.lower_notes_are_more_stable,
-            self.max_tries,
             &mut self.tmp,
             &mut self.spring_setup.current_rods,
             &mut self.spring_setup.current_springs,
@@ -739,7 +719,6 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
             spring_setup: SpringSetup::new(),
             solver: Solver::new(n, big_n, T::num_intervals()),
             min_keys: config.min_keys,
-            max_tries: config.max_tries,
             lower_notes_are_more_stable: config.lower_notes_are_more_stable,
             provider: config.provider,
             relaxed: false,
