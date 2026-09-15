@@ -730,6 +730,15 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
         _time: Instant,
         mut adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
+        if !self.enable {
+            return (
+                HarmonyResult {
+                    finished: false,
+                    progress: false,
+                },
+                adaptor,
+            );
+        }
         adaptor = self.initialise(adaptor);
         if self.keys.len() < self.min_keys {
             self.computed_at_least_one_solution = false;
@@ -859,19 +868,68 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
 
 #[cfg(test)]
 mod test {
+    use std::sync::{mpsc, Arc};
+
     use midi_msg::Channel;
     use ndarray::{arr1, arr2};
+    use parking_lot::RwLock;
     use pretty_assertions::assert_eq;
 
-    use crate::interval::stacktype::fivelimit::mock::MockFiveLimitStackType;
+    use crate::{
+        adaptors::ConcreteLocks,
+        config::{BackendConfig, Config},
+        interval::stacktype::fivelimit::mock::MockFiveLimitStackType,
+        keystate::KeyState,
+        process::r#trait::{ProcessTag, StackWithTuning},
+        util::ordered_locks::{OrderedLocks, Zero},
+    };
 
     use super::*;
+
+    fn mock_harmony_adaptor(
+    ) -> HarmonyAdaptor<MockFiveLimitStackType, HarmonySprings<MockFiveLimitStackType>, Zero> {
+        unsafe {
+            let (from_process_tx, _) = mpsc::channel();
+            let (from_ui_tx, _) = mpsc::channel();
+            let (from_backend_tx, _) = mpsc::channel();
+
+            const TEMPLATE_CONFIG: &'static str = include_str!("../../../configs/template.yaml");
+            let config: Config<MockFiveLimitStackType> =
+                serde_yml::from_str(TEMPLATE_CONFIG).unwrap();
+            // MockFiveLimitStackType::initialise(config.temperaments, config.named_intervals)?;
+
+            OrderedLocks::new(Arc::new(ConcreteLocks {
+                from_process_tx,
+                from_ui_tx,
+                from_backend_tx,
+
+                pedal_hold: RwLock::new([false; 16]),
+                sostenuto_hold: RwLock::new([false; 16]),
+                soft_hold: RwLock::new([false; 16]),
+                tunings: core::array::from_fn(|i| {
+                    RwLock::new(StackWithTuning {
+                        stack: Stack::new_zero(),
+                        semitones: i as Semitones,
+                    })
+                }),
+                key_states: core::array::from_fn(|_| RwLock::new(KeyState::new(Instant::now()))),
+                reference: RwLock::new(Stack::new_zero()),
+                tuning_reference: RwLock::new(config.tuning_reference),
+                strategy_config: RwLock::new(config.strategies),
+                active_strategy_index: RwLock::new(0),
+                harmony: RwLock::new(None {}),
+                backend_config: RwLock::new(match config.backend {
+                    BackendConfig::Pitchbend12(c) => c,
+                }),
+                gui_config: RwLock::new(config.gui),
+            }))
+        }
+    }
 
     fn mock_provider() -> HarmonySpringsProvider<MockFiveLimitStackType> {
         HarmonySpringsProvider::Mod12 {
             by_class: [
                 Springs {
-                    trim_order: 0,
                     options: vec![
                         Spring {
                             length: Stack::from_target(vec![1, (-1), (-1)]), // diatonic semitone
@@ -884,7 +942,6 @@ mod test {
                     ],
                 },
                 Springs {
-                    trim_order: 0,
                     options: vec![
                         Spring {
                             length: Stack::from_target(vec![-1, 2, 0]), // major tone 9/8
@@ -897,28 +954,24 @@ mod test {
                     ],
                 },
                 Springs {
-                    trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![0, 1, (-1)]), // minor third
                         stiffness: Ratio::new(1, 5),
                     }],
                 },
                 Springs {
-                    trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![0, 0, 1]), // major third
                         stiffness: Ratio::new(1, 5),
                     }],
                 },
                 Springs {
-                    trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![1, (-1), 0]), // fourth
                         stiffness: Ratio::new(1, 3),
                     }],
                 },
                 Springs {
-                    trim_order: 0,
                     options: vec![
                         Spring {
                             length: Stack::from_target(vec![-1, 2, 1]), // tritone as major tone plus major third
@@ -931,21 +984,18 @@ mod test {
                     ],
                 },
                 Springs {
-                    trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![0, 1, 0]), // fifth
                         stiffness: Ratio::new(1, 3),
                     }],
                 },
                 Springs {
-                    trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![1, 0, (-1)]), // minor sixth
                         stiffness: Ratio::new(1, 5),
                     }],
                 },
                 Springs {
-                    trim_order: 0,
                     options: vec![
                         Spring {
                             length: Stack::from_target(vec![1, (-1), 1]), // major sixth
@@ -958,7 +1008,6 @@ mod test {
                     ],
                 },
                 Springs {
-                    trim_order: 0,
                     options: vec![
                         Spring {
                             length: Stack::from_target(vec![2, (-2), 0]), // minor seventh as stack of two fourths
@@ -971,7 +1020,6 @@ mod test {
                     ],
                 },
                 Springs {
-                    trim_order: 0,
                     options: vec![Spring {
                         length: Stack::from_target(vec![0, 1, 1]), // major seventh as fifth plus major third
                         stiffness: Ratio::new(1, 5),
@@ -984,8 +1032,8 @@ mod test {
 
     fn mock_harmony_springs() -> HarmonySprings<MockFiveLimitStackType> {
         HarmonySprings::new(HarmonySpringsConfig {
+            enable: true,
             min_keys: 1,
-            max_tries: usize::MAX,
             memo_springs: true,
             lower_notes_are_more_stable: true,
             provider: mock_provider(),
@@ -995,169 +1043,179 @@ mod test {
     #[test]
     fn test_harmony_springs_solve() {
         let mut ws = mock_harmony_springs();
+        let mut adaptor = mock_harmony_adaptor();
 
         let epsilon = 0.00000000000000001; // just a very small number. I don't care precisely.
 
         let now = Instant::now();
-        let mut keys: [KeyState; 128] = core::array::from_fn(|_| KeyState::new(now));
-        let clear = |keys: &mut [KeyState]| keys.iter_mut().for_each(|k| *k = KeyState::new(now));
+        // let clear = |keys: &mut [KeyState]| keys.iter_mut().for_each(|k| *k = KeyState::new(now));
+        macro_rules! clear_keys {
+            () => {{
+                let mut a: OrderedLocks<ProcessTag, _, Zero> =
+                    unsafe { OrderedLocks::new(adaptor.inner_arc()) };
+                for i in 0..128 {
+                    (_, a) = a.key_state_mut(i, |k, _| k.note_off(Channel::Ch1, false, now));
+                }
+            }};
+        }
+
+        macro_rules! set_note_on {
+            ($i:expr) => {{
+                let a: OrderedLocks<ProcessTag, _, Zero> =
+                    unsafe { OrderedLocks::new(adaptor.inner_arc()) };
+                a.key_state_mut($i as usize, |k, _| k.note_on(Channel::Ch1, now));
+            }};
+        }
+
+        macro_rules! solve {
+            () => {{
+                let mut res;
+                (res, adaptor) = ws.start_solve(now, adaptor);
+                while !res.finished {
+                    (res, adaptor) = ws.step(adaptor);
+                }
+            }};
+        }
 
         // if nothing else is given, the first option is picked
-        clear(&mut keys);
-        keys[60].note_on(Channel::Ch1, now);
-        keys[66].note_on(Channel::Ch1, now);
-        ws.solve(&keys);
+        clear_keys!();
+        set_note_on!(60);
+        set_note_on!(66);
+        solve!();
         assert!(ws.energy < epsilon);
         assert!(ws.relaxed);
-        assert_eq!(
-            *ws.solution_neighbourhood.borrow(),
-            SomeNeighbourhood::Partial({
-                let mut n = Partial::new();
-                n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
-                n.insert(&Stack::from_target(arr1(&[-1, 2, 1])));
-                n
-            }),
-        );
+        assert_eq!(ws.solution_neighbourhood, {
+            let mut n = neighbourhood::Partial::new();
+            n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
+            n.insert(&Stack::from_target(arr1(&[-1, 2, 1])));
+            n
+        },);
 
         // C major triad
-        clear(&mut keys);
-        keys[60].note_on(Channel::Ch1, now);
-        keys[64].note_on(Channel::Ch1, now);
-        keys[67].note_on(Channel::Ch1, now);
-        ws.solve(&keys);
+        clear_keys!();
+        set_note_on!(60);
+        set_note_on!(64);
+        set_note_on!(67);
+        solve!();
         assert!(ws.energy < epsilon);
         assert!(ws.relaxed);
-        assert_eq!(
-            *ws.solution_neighbourhood.borrow(),
-            SomeNeighbourhood::Partial({
-                let mut n = Partial::new();
-                n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
-                n.insert(&Stack::from_target(arr1(&[0, 1, 0])));
-                n.insert(&Stack::from_target(arr1(&[0, 0, 1])));
-                n
-            }),
-        );
+        assert_eq!(ws.solution_neighbourhood, {
+            let mut n = neighbourhood::Partial::new();
+            n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
+            n.insert(&Stack::from_target(arr1(&[0, 1, 0])));
+            n.insert(&Stack::from_target(arr1(&[0, 0, 1])));
+            n
+        });
 
         // E major triad -- translation invariance test
-        clear(&mut keys);
-        keys[64].note_on(Channel::Ch1, now);
-        keys[68].note_on(Channel::Ch1, now);
-        keys[71].note_on(Channel::Ch1, now);
-        ws.solve(&keys);
+        clear_keys!();
+        set_note_on!(64);
+        set_note_on!(68);
+        set_note_on!(71);
+        solve!();
         assert!(ws.energy < epsilon);
         assert!(ws.relaxed);
-        assert_eq!(
-            *ws.solution_neighbourhood.borrow(),
-            SomeNeighbourhood::Partial({
-                let mut n = Partial::new();
-                n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
-                n.insert(&Stack::from_target(arr1(&[0, 1, 0])));
-                n.insert(&Stack::from_target(arr1(&[0, 0, 1])));
-                n
-            }),
-        );
+        assert_eq!(ws.solution_neighbourhood, {
+            let mut n = neighbourhood::Partial::new();
+            n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
+            n.insert(&Stack::from_target(arr1(&[0, 1, 0])));
+            n.insert(&Stack::from_target(arr1(&[0, 0, 1])));
+            n
+        });
 
         // The three notes C,D,E: Because the lower notes are more stable, the interval C-D will
         // be the major tone. See the next example as well.
-        clear(&mut keys);
-        keys[60].note_on(Channel::Ch1, now);
-        keys[62].note_on(Channel::Ch1, now);
-        keys[64].note_on(Channel::Ch1, now);
-        ws.solve(&keys);
+        clear_keys!();
+        set_note_on!(60);
+        set_note_on!(62);
+        set_note_on!(64);
+        solve!();
         assert!(ws.energy < epsilon);
         assert!(ws.relaxed);
-        assert_eq!(
-            *ws.solution_neighbourhood.borrow(),
-            SomeNeighbourhood::Partial({
-                let mut n = Partial::new();
-                n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
-                n.insert(&Stack::from_target(arr1(&[-1, 2, 0])));
-                n.insert(&Stack::from_target(arr1(&[0, 0, 1])));
-                n
-            }),
-        );
+        assert_eq!(ws.solution_neighbourhood, {
+            let mut n = neighbourhood::Partial::new();
+            n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
+            n.insert(&Stack::from_target(arr1(&[-1, 2, 0])));
+            n.insert(&Stack::from_target(arr1(&[0, 0, 1])));
+            n
+        });
 
         // now, D-E will be the major tone.
         ws.lower_notes_are_more_stable = false;
-        ws.solve(&keys);
+        clear_keys!();
+        set_note_on!(60);
+        set_note_on!(62);
+        set_note_on!(64);
+        solve!();
         assert!(ws.energy < epsilon);
         assert!(ws.relaxed);
-        assert_eq!(
-            *ws.solution_neighbourhood.borrow(),
-            SomeNeighbourhood::Partial({
-                let mut n = Partial::new();
-                n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
-                n.insert(&Stack::from_target(arr1(&[1, -2, 1])));
-                n.insert(&Stack::from_target(arr1(&[0, 0, 1])));
-                n
-            }),
-        );
+        assert_eq!(ws.solution_neighbourhood, {
+            let mut n = neighbourhood::Partial::new();
+            n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
+            n.insert(&Stack::from_target(arr1(&[1, -2, 1])));
+            n.insert(&Stack::from_target(arr1(&[0, 0, 1])));
+            n
+        },);
 
         ws.lower_notes_are_more_stable = true;
 
         // D-flat major seventh on C
-        clear(&mut keys);
-        keys[60].note_on(Channel::Ch1, now);
-        keys[61].note_on(Channel::Ch1, now);
-        keys[65].note_on(Channel::Ch1, now);
-        keys[68].note_on(Channel::Ch1, now);
-        ws.solve(&keys);
+        clear_keys!();
+        set_note_on!(60);
+        set_note_on!(61);
+        set_note_on!(65);
+        set_note_on!(68);
+        solve!();
         assert!(ws.energy < epsilon);
         assert!(ws.relaxed);
-        assert_eq!(
-            *ws.solution_neighbourhood.borrow(),
-            SomeNeighbourhood::Partial({
-                let mut n = Partial::new();
-                n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
-                n.insert(&Stack::from_target(arr1(&[1, -1, -1])));
-                n.insert(&Stack::from_target(arr1(&[1, -1, 0])));
-                n.insert(&Stack::from_target(arr1(&[1, 0, -1])));
-                n
-            }),
-        );
+        assert_eq!(ws.solution_neighbourhood, {
+            let mut n = neighbourhood::Partial::new();
+            n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
+            n.insert(&Stack::from_target(arr1(&[1, -1, -1])));
+            n.insert(&Stack::from_target(arr1(&[1, -1, 0])));
+            n.insert(&Stack::from_target(arr1(&[1, 0, -1])));
+            n
+        });
 
         // D dominant seventh on C
-        clear(&mut keys);
-        keys[60].note_on(Channel::Ch1, now);
-        keys[62].note_on(Channel::Ch1, now);
-        keys[66].note_on(Channel::Ch1, now);
-        keys[69].note_on(Channel::Ch1, now);
-        ws.solve(&keys);
+        clear_keys!();
+        set_note_on!(60);
+        set_note_on!(62);
+        set_note_on!(66);
+        set_note_on!(69);
+        solve!();
         assert!(ws.energy < epsilon);
         assert!(ws.relaxed);
-        assert_eq!(
-            *ws.solution_neighbourhood.borrow(),
-            SomeNeighbourhood::Partial({
-                let mut n = Partial::new();
-                n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
-                n.insert(&Stack::from_target(arr1(&[-1, 2, 0])));
-                n.insert(&Stack::from_target(arr1(&[-1, 2, 1])));
-                n.insert(&Stack::from_target(arr1(&[-1, 3, 0])));
-                n
-            }),
-        );
+        assert_eq!(ws.solution_neighbourhood, {
+            let mut n = neighbourhood::Partial::new();
+            n.insert(&Stack::from_target(arr1(&[0, 0, 0])));
+            n.insert(&Stack::from_target(arr1(&[-1, 2, 0])));
+            n.insert(&Stack::from_target(arr1(&[-1, 2, 1])));
+            n.insert(&Stack::from_target(arr1(&[-1, 3, 0])));
+            n
+        });
 
         // a slightly bigger example
-        clear(&mut keys);
-        keys[60].note_on(Channel::Ch1, now);
-        keys[62].note_on(Channel::Ch1, now);
-        keys[64].note_on(Channel::Ch1, now);
-        keys[67].note_on(Channel::Ch1, now);
-        keys[70].note_on(Channel::Ch1, now);
-        keys[73].note_on(Channel::Ch1, now);
-        keys[75].note_on(Channel::Ch1, now);
-        ws.solve(&keys);
+        clear_keys!();
+        set_note_on!(60);
+        set_note_on!(62);
+        set_note_on!(64);
+        set_note_on!(67);
+        set_note_on!(70);
+        set_note_on!(73);
+        set_note_on!(75);
+        solve!();
         assert!(ws.energy > epsilon);
         assert!(!ws.relaxed);
 
         // 69 chord cannot be in tune
-        clear(&mut keys);
-        keys[60].note_on(Channel::Ch1, now);
-        keys[62].note_on(Channel::Ch1, now);
-        keys[64].note_on(Channel::Ch1, now);
-        keys[67].note_on(Channel::Ch1, now);
-        keys[69].note_on(Channel::Ch1, now);
-        ws.solve(&keys);
+        clear_keys!();
+        set_note_on!(60);
+        set_note_on!(62);
+        set_note_on!(64);
+        set_note_on!(67);
+        set_note_on!(69);
+        solve!();
         assert!(ws.energy > epsilon);
         assert!(!ws.relaxed);
 
