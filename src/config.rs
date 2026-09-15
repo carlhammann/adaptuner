@@ -14,7 +14,7 @@ use crate::{
     notename::NoteNameStyle,
     reference::Reference,
     strategy::{
-        harmony::chordlist::ChordListConfig,
+        harmony::{chordlist::ChordListConfig, springs::HarmonySpringsConfig},
         melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
@@ -114,6 +114,9 @@ impl<T: IntervalBasis> StrategyConfig<T> {
                     HarmonyStrategyConfig::ChordList(_) => match action {
                         _ => false,
                     },
+                    HarmonyStrategyConfig::Springs(_) => match action {
+                        _ => false,
+                    },
                 }) || (match melody {
                     MelodyStrategyConfig::StaticNeighbourhoods(_) => match action {
                         BindableStrategyAction::IncrementNeighbourhoodIndex(_)
@@ -149,6 +152,7 @@ impl<T: IntervalBasis> StrategyConfig<T> {
 #[serde(rename_all = "kebab-case")]
 pub enum HarmonyStrategyConfig<T: IntervalBasis> {
     ChordList(ChordListConfig<T>),
+    Springs(HarmonySpringsConfig<T>),
 }
 
 #[derive(Clone, Serialize, Deserialize)]

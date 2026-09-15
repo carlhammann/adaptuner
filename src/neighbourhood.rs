@@ -3,12 +3,14 @@
 
 use std::collections::BTreeMap;
 
+use ndarray::ArrayView1;
+use num_rational::Ratio;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     adaptors::lock_levels::{KeyStateLevel, TuningStateLevel},
     interval::{
-        stack::{ScaledAdd, Stack},
+        stack::{key_distance_from_coefficients, ScaledAdd, Stack},
         stacktype::r#trait::{
             IntervalBasis, OctavePeriodicIntervalBasis, PeriodicIntervalBasis, StackCoeff,
         },
@@ -88,14 +90,25 @@ impl<T: IntervalBasis> PeriodicPartial<T> {
 impl<T: IntervalBasis> PeriodicNeighbourhood<T> for PeriodicPartial<T> {}
 
 impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T> {
         let n = self.period_keys();
-        let quot = stack.key_distance().div_euclid(n);
-        let rem = stack.key_distance().rem_euclid(n) as usize;
-        self.stacks[rem].0.clone_from(stack);
+        let d = key_distance_from_coefficients::<T>(target);
+        let quot = d.div_euclid(n);
+        let rem = d.rem_euclid(n) as usize;
+        self.stacks[rem].0.target.assign(&target);
+        self.stacks[rem].0.actual.assign(&actual);
         self.stacks[rem].0.scaled_add(-quot, &self.period);
         self.stacks[rem].1 = true;
         &self.stacks[rem].0
+    }
+
+    fn insert_zero(&mut self) {
+        self.stacks[0].0.reset_to_zero();
+        self.stacks[0].1 = true;
     }
 
     fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, mut f: F) {
@@ -179,8 +192,14 @@ impl<T: IntervalBasis> Partial<T> {
         }
     }
 
+    #[inline]
     pub fn iter(&self) -> std::collections::btree_map::Iter<'_, StackCoeff, Stack<T>> {
         self.stacks.iter()
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.stacks.clear();
     }
 }
 
@@ -189,7 +208,20 @@ pub trait Neighbourhood<T: IntervalBasis> {
     /// update. Returns a reference to the actually inserted Stack (which may be different in the
     /// case of [PeriodicNeighbourhood]s, where we store the representative in the "octave" above
     /// the reference)
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T>;
+    #[inline]
+    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+        self.insert_target_actual(stack.target.view(), stack.actual.view())
+    }
+
+    /// Like [Self::insert], but with separate arguments for [Stack::target] and [Stack::actual]
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T>;
+
+    /// Like [Self::insert] called with the zero [Stack].
+    fn insert_zero(&mut self);
 
     /// Go through all stacks _that are actually stored_ (for example, in a
     /// [PeriodicNeighbourhood], only at most the entries for one period are stored) in the
@@ -219,6 +251,7 @@ pub trait Neighbourhood<T: IntervalBasis> {
 
     /// Return the Stack describing the interval with the given offset. Must return `Some` iff
     /// [Neighbourhood::has_tuning_for] returns true for the same offset.
+    #[inline]
     fn try_get_relative_stack(&self, offset: StackCoeff) -> Option<Stack<T>> {
         if self.has_tuning_for(offset) {
             let mut res = Stack::new_zero();
@@ -230,6 +263,7 @@ pub trait Neighbourhood<T: IntervalBasis> {
     }
 
     /// Like [Neighbourhood::try_write_absolute_stack], but adding to the output argument.
+    #[inline]
     fn try_increment_by_absolute_stack(
         &self,
         target: &mut Stack<T>,
@@ -247,6 +281,7 @@ pub trait Neighbourhood<T: IntervalBasis> {
     }
 
     /// Like [Neighbourhood::try_get_absolute_stack], only with an output argument.
+    #[inline]
     fn try_write_absolute_stack(
         &self,
         target: &mut Stack<T>,
@@ -266,6 +301,7 @@ pub trait Neighbourhood<T: IntervalBasis> {
     /// If we have the 'reference' Stack, return the [Stack] descibing the absolute note at the
     /// 'key_number'. Must return `Some` iff [Neighbourhood::has_tuning_for] returns true for the same
     /// offset.
+    #[inline]
     fn try_get_absolute_stack(
         &self,
         key_number: StackCoeff,
@@ -290,6 +326,7 @@ pub trait Neighbourhood<T: IntervalBasis> {
 
     /// Returns the lowest and highest entry in the given dimension. The `axis` must be in the
     /// range `0..N`, where `N` is the [IntervalBasis::num_intervals].
+    #[inline]
     fn bounds(&self, axis: usize) -> (StackCoeff, StackCoeff) {
         let (mut min, mut max) = (0, 0);
         self.for_each_stack(|_, stack| {
@@ -306,14 +343,29 @@ pub trait Neighbourhood<T: IntervalBasis> {
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+    #[inline]
+    fn insert_zero(&mut self) {
         match self {
-            SomeNeighbourhood::PeriodicComplete(x) => x.insert(stack),
-            SomeNeighbourhood::PeriodicPartial(x) => x.insert(stack),
-            SomeNeighbourhood::Partial(x) => x.insert(stack),
+            SomeNeighbourhood::PeriodicComplete(x) => x.insert_zero(),
+            SomeNeighbourhood::PeriodicPartial(x) => x.insert_zero(),
+            SomeNeighbourhood::Partial(x) => x.insert_zero(),
         }
     }
 
+    #[inline]
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T> {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.insert_target_actual(target, actual),
+            SomeNeighbourhood::PeriodicPartial(x) => x.insert_target_actual(target, actual),
+            SomeNeighbourhood::Partial(x) => x.insert_target_actual(target, actual),
+        }
+    }
+
+    #[inline]
     fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, f: F) {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.for_each_stack(f),
@@ -322,6 +374,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
+    #[inline]
     fn for_each_stack_failing<E, F: FnMut(StackCoeff, &Stack<T>) -> Result<(), E>>(
         &self,
         f: F,
@@ -333,6 +386,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
+    #[inline]
     fn for_each_stack_mut<F: FnMut(StackCoeff, &mut Stack<T>) -> ()>(&mut self, f: F) {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.for_each_stack_mut(f),
@@ -341,6 +395,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
+    #[inline]
     fn has_tuning_for(&self, offset: StackCoeff) -> bool {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.has_tuning_for(offset),
@@ -349,6 +404,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
+    #[inline]
     fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => {
@@ -361,6 +417,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
+    #[inline]
     fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.try_write_relative_stack(target, offset),
@@ -369,6 +426,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
+    #[inline]
     fn try_period(&self) -> Option<&Stack<T>> {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.try_period(),
@@ -377,6 +435,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
         }
     }
 
+    #[inline]
     fn try_period_index(&self) -> Option<usize> {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => x.try_period_index(),
@@ -387,18 +446,34 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+    #[inline]
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T> {
         match self {
-            SomeCompleteNeighbourhood::PeriodicComplete(n) => n.insert(stack),
+            SomeCompleteNeighbourhood::PeriodicComplete(n) => {
+                n.insert_target_actual(target, actual)
+            }
         }
     }
 
+    #[inline]
+    fn insert_zero(&mut self) {
+        match self {
+            SomeCompleteNeighbourhood::PeriodicComplete(n) => n.insert_zero(),
+        }
+    }
+
+    #[inline]
     fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, f: F) {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.for_each_stack(f),
         }
     }
 
+    #[inline]
     fn for_each_stack_failing<E, F: FnMut(StackCoeff, &Stack<T>) -> Result<(), E>>(
         &self,
         f: F,
@@ -408,18 +483,21 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
         }
     }
 
+    #[inline]
     fn for_each_stack_mut<F: FnMut(StackCoeff, &mut Stack<T>) -> ()>(&mut self, f: F) {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.for_each_stack_mut(f),
         }
     }
 
+    #[inline]
     fn has_tuning_for(&self, offset: StackCoeff) -> bool {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.has_tuning_for(offset),
         }
     }
 
+    #[inline]
     fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => {
@@ -428,6 +506,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
         }
     }
 
+    #[inline]
     fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => {
@@ -436,12 +515,14 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
         }
     }
 
+    #[inline]
     fn try_period(&self) -> Option<&Stack<T>> {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.try_period(),
         }
     }
 
+    #[inline]
     fn try_period_index(&self) -> Option<usize> {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.try_period_index(),
@@ -452,22 +533,42 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
 impl<T: IntervalBasis> CompleteNeighbourhood<T> for SomeCompleteNeighbourhood<T> {}
 
 impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
-        let offset = stack.key_distance();
+    #[inline]
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T> {
+        let offset = key_distance_from_coefficients::<T>(target);
         if let Some(old_entry) = self.stacks.get_mut(&offset) {
-            old_entry.clone_from(stack);
+            old_entry.target.assign(&target);
+            old_entry.actual.assign(&actual);
         } else {
-            self.stacks.insert(offset, stack.clone());
+            self.stacks.insert(
+                offset,
+                Stack::from_target_and_actual(target.to_owned(), actual.to_owned()),
+            );
         }
         self.stacks.get(&offset).unwrap()
     }
 
+    #[inline]
+    fn insert_zero(&mut self) {
+        if let Some(old_entry) = self.stacks.get_mut(&0) {
+            old_entry.reset_to_zero();
+        } else {
+            self.stacks.insert(0, Stack::new_zero());
+        }
+    }
+
+    #[inline]
     fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, mut f: F) {
         for (i, stack) in self.stacks.iter() {
             f(*i, stack);
         }
     }
 
+    #[inline]
     fn for_each_stack_failing<E, F: FnMut(StackCoeff, &Stack<T>) -> Result<(), E>>(
         &self,
         mut f: F,
@@ -478,16 +579,19 @@ impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
         Ok(())
     }
 
+    #[inline]
     fn for_each_stack_mut<F: FnMut(StackCoeff, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
         for (i, stack) in self.stacks.iter_mut() {
             f(*i, stack);
         }
     }
 
+    #[inline]
     fn has_tuning_for(&self, offset: StackCoeff) -> bool {
         self.stacks.contains_key(&offset)
     }
 
+    #[inline]
     fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         if let Some(stack) = self.stacks.get(&offset) {
             target.scaled_add(1, stack);
@@ -497,6 +601,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
         }
     }
 
+    #[inline]
     fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         if let Some(stack) = self.stacks.get(&offset) {
             target.clone_from(stack);
@@ -506,31 +611,47 @@ impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
         }
     }
 
+    #[inline]
     fn try_period(&self) -> Option<&Stack<T>> {
         None {}
     }
 
+    #[inline]
     fn try_period_index(&self) -> Option<usize> {
         None {}
     }
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
-    fn insert(&mut self, stack: &Stack<T>) -> &Stack<T> {
+    #[inline]
+    fn insert_target_actual(
+        &mut self,
+        target: ArrayView1<StackCoeff>,
+        actual: ArrayView1<Ratio<StackCoeff>>,
+    ) -> &Stack<T> {
         let n = self.period_keys();
-        let quot = stack.key_distance().div_euclid(n);
-        let rem = stack.key_distance().rem_euclid(n) as usize;
-        self.stacks[rem].clone_from(stack);
+        let d = key_distance_from_coefficients::<T>(target);
+        let quot = d.div_euclid(n);
+        let rem = d.rem_euclid(n) as usize;
+        self.stacks[rem].target.assign(&target);
+        self.stacks[rem].actual.assign(&actual);
         self.stacks[rem].scaled_add(-quot, &self.period);
         &self.stacks[rem]
     }
 
+    #[inline]
+    fn insert_zero(&mut self) {
+        self.stacks[0].reset_to_zero();
+    }
+
+    #[inline]
     fn for_each_stack<F: FnMut(StackCoeff, &Stack<T>) -> ()>(&self, mut f: F) {
         for (i, stack) in self.stacks.iter().enumerate() {
             f(i as StackCoeff, stack)
         }
     }
 
+    #[inline]
     fn for_each_stack_failing<E, F: FnMut(StackCoeff, &Stack<T>) -> Result<(), E>>(
         &self,
         mut f: F,
@@ -541,16 +662,19 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
         Ok(())
     }
 
+    #[inline]
     fn for_each_stack_mut<F: FnMut(StackCoeff, &mut Stack<T>) -> ()>(&mut self, mut f: F) {
         for (i, stack) in self.stacks.iter_mut().enumerate() {
             f(i as StackCoeff, stack)
         }
     }
 
+    #[inline]
     fn has_tuning_for(&self, _: StackCoeff) -> bool {
         true
     }
 
+    #[inline]
     fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         let n = self.period_keys();
         let quot = offset.div_euclid(n);
@@ -560,6 +684,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
         true
     }
 
+    #[inline]
     fn try_write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         let n = self.period_keys();
         let quot = offset.div_euclid(n);
@@ -569,10 +694,12 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
         true
     }
 
+    #[inline]
     fn try_period(&self) -> Option<&Stack<T>> {
         Some(&self.period)
     }
 
+    #[inline]
     fn try_period_index(&self) -> Option<usize> {
         self.period_index
     }
@@ -580,6 +707,7 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
 
 /// Marker trait of neighbourhoods that can return a note for every offset.
 pub trait CompleteNeighbourhood<T: IntervalBasis>: Neighbourhood<T> {
+    #[inline]
     fn write_absolute_stack(
         &self,
         target: &mut Stack<T>,
@@ -589,6 +717,7 @@ pub trait CompleteNeighbourhood<T: IntervalBasis>: Neighbourhood<T> {
         self.try_write_absolute_stack(target, key_number, reference);
     }
 
+    #[inline]
     fn increment_by_absolute_stack(
         &self,
         target: &mut Stack<T>,
@@ -598,18 +727,22 @@ pub trait CompleteNeighbourhood<T: IntervalBasis>: Neighbourhood<T> {
         self.try_increment_by_absolute_stack(target, key_number, reference);
     }
 
+    #[inline]
     fn get_absolute_stack(&self, key_number: StackCoeff, reference: &Stack<T>) -> Stack<T> {
         self.try_get_absolute_stack(key_number, reference).expect("This should neve happen: CompleteNeigbourhood doesn't have tuning for an abolute stack")
     }
 
+    #[inline]
     fn write_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) {
         self.try_write_relative_stack(target, offset);
     }
 
+    #[inline]
     fn increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) {
         self.try_increment_by_relative_stack(target, offset);
     }
 
+    #[inline]
     fn get_relative_stack(&self, offset: StackCoeff) -> Stack<T> {
         self.try_get_relative_stack(offset).expect(
             "This should never happen: CompleteNeigbourhood doesn't have a tuning for a relative stack",
@@ -622,12 +755,14 @@ impl<T: IntervalBasis> CompleteNeighbourhood<T> for PeriodicComplete<T> {}
 pub trait PeriodicNeighbourhood<T: IntervalBasis>: Neighbourhood<T> {
     /// The "octave": keys will be tuned relative to the highest note that can be obtained by
     /// shifting the reference a number (negative, zero, or positive) of these periods.
+    #[inline]
     fn period(&self) -> &Stack<T> {
         self.try_period()
             .expect("This should never happen: PeriodicNeighbourhood doesn't have a period")
     }
 
     /// Convenience: the [key_distance][Stack::key_distance] of the period.
+    #[inline]
     fn period_keys(&self) -> StackCoeff {
         self.period().key_distance()
     }
@@ -648,7 +783,7 @@ where
     A: IndexedAccess<KeyStateLevel, usize, KeyState>
         + IndexedAccess<TuningStateLevel, usize, StackWithTuning<T>>,
     L: AtMost<KeyStateLevel>,
-    X: ReadAllowed<KeyStateLevel> + ReadAllowed<TuningStateLevel>
+    X: ReadAllowed<KeyStateLevel> + ReadAllowed<TuningStateLevel>,
 {
     let mut neigh = PeriodicPartial::new_from_period_index(T::period_index());
     let mut tmp = Stack::new_zero();
@@ -684,7 +819,7 @@ where
     A: IndexedAccess<KeyStateLevel, usize, KeyState>
         + IndexedAccess<TuningStateLevel, usize, StackWithTuning<T>>,
     L: AtMost<KeyStateLevel>,
-    X: ReadAllowed<KeyStateLevel> + ReadAllowed<TuningStateLevel>
+    X: ReadAllowed<KeyStateLevel> + ReadAllowed<TuningStateLevel>,
 {
     let mut neigh = Partial::new();
     let mut tmp = Stack::new_zero();

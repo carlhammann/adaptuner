@@ -1,9 +1,5 @@
 use std::{
-    cell::RefCell,
-    collections::{BTreeMap, HashMap, VecDeque},
-    fmt,
-    marker::PhantomData,
-    rc::Rc,
+    collections::{BTreeMap, HashMap},
     time::Instant,
 };
 
@@ -12,109 +8,35 @@ use num_rational::Ratio;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    custom_serde::common::{deserialize_nonempty, deserialize_ratio, serialize_ratio},
+    adaptors::lock_levels::KeyStateLevel,
+    bindable::BindableStrategyAction,
+    config::{HarmonyStrategyConfig, IsHarmonyStrategyConfig},
+    custom_serde::common::{deserialize_ratio, serialize_ratio},
     interval::{
         base::Semitones,
         stack::{semitones_from_actual, ScaledAdd, Stack},
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
-    keystate::KeyState,
-    msg::{FromStrategy,},
-    neighbourhood::{Neighbourhood, Partial, SomeNeighbourhood},
-    util::springs::Solver,
+    msg::{ToHarmony, ToHarmonySprings},
+    neighbourhood::{self, Neighbourhood, SomeNeighbourhood},
+    strategy::harmony::r#trait::{Harmony, HarmonyAdaptor, HarmonyResult, HarmonyStrategy},
+    util::{
+        ordered_locks::{AtMost, Zero},
+        springs::Solver,
+    },
 };
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 #[derive(Clone)]
 pub struct Spring<T: IntervalBasis> {
     length: Stack<T>,
-    #[serde(serialize_with = "serialize_ratio")]
+    #[serde(
+        serialize_with = "serialize_ratio",
+        deserialize_with = "deserialize_ratio"
+    )]
     stiffness: Ratio<StackCoeff>,
-}
-
-// somehow, serde needs this manual implementaion to be able to understand that no `Deserialize`
-// constaint on `T: IntervalBasis` is needed...
-impl<'de, T: IntervalBasis> serde::Deserialize<'de> for Spring<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct SpringVisitor<T: IntervalBasis> {
-            _phantom: PhantomData<T>,
-        }
-
-        impl<T: IntervalBasis> SpringVisitor<T> {
-            fn new() -> Self {
-                Self {
-                    _phantom: PhantomData,
-                }
-            }
-        }
-
-        #[derive(Deserialize)]
-        #[serde(field_identifier, rename_all = "lowercase")]
-        enum SpringField {
-            Length,
-            Stiffness,
-        }
-
-        // TODO: This type should disappear.
-        #[derive(Deserialize)]
-        struct WrappedRatio(#[serde(deserialize_with = "deserialize_ratio")] Ratio<StackCoeff>);
-
-        impl<'de, T> serde::de::Visitor<'de> for SpringVisitor<T>
-        where
-            T: IntervalBasis,
-        {
-            type Value = Spring<T>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                write!(formatter, "spring")
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::MapAccess<'de>,
-            {
-                let mut length = None {};
-                let mut stiffness = None {};
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        SpringField::Length => {
-                            if length.is_some() {
-                                return Err(serde::de::Error::duplicate_field("length"));
-                            }
-                            let stack = map.next_value::<Stack<T>>()?;
-                            length = Some(stack);
-                        }
-                        SpringField::Stiffness => {
-                            if stiffness.is_some() {
-                                return Err(serde::de::Error::duplicate_field("stiffness"));
-                            }
-
-                            let WrappedRatio(val) = map.next_value::<WrappedRatio>()?;
-                            stiffness = Some(val);
-                        }
-                    }
-                }
-
-                if length.is_none() {
-                    return Err(serde::de::Error::missing_field("length"));
-                }
-                if stiffness.is_none() {
-                    return Err(serde::de::Error::missing_field("stiffness"));
-                }
-                Ok(Self::Value {
-                    length: length.unwrap(),
-                    stiffness: stiffness.unwrap(),
-                })
-            }
-        }
-
-        deserializer.deserialize_struct("spring", &["length", "stiffness"], SpringVisitor::new())
-    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -123,15 +45,17 @@ impl<'de, T: IntervalBasis> serde::Deserialize<'de> for Spring<T> {
 #[derive(Clone)]
 pub struct Springs<T: IntervalBasis> {
     trim_order: u8,
-    #[serde(deserialize_with = "deserialize_nonempty_springs")]
+    // #[serde(deserialize_with = "deserialize_nonempty_springs")]
+    /// todo: ensure that this list is non-empty at deserialisation time. The approach commented out
+    /// doesn't work because the type checker is too dumb.
     options: Vec<Spring<T>>,
 }
 
-fn deserialize_nonempty_springs<'de, D: serde::Deserializer<'de>, T: IntervalBasis>(
-    deserializer: D,
-) -> Result<Vec<Spring<T>>, D::Error> {
-    deserialize_nonempty("expected a non-empty list of springs", deserializer)
-}
+// fn deserialize_nonempty_springs<'de, D: serde::Deserializer<'de>, T: IntervalBasis>(
+//     deserializer: D,
+// ) -> Result<Vec<Spring<T>>, D::Error> {
+//     deserialize_nonempty("expected a non-empty list of springs", deserializer)
+// }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -351,6 +275,8 @@ struct SpringSetup<T: IntervalBasis> {
 }
 
 pub struct HarmonySprings<T: IntervalBasis> {
+    enable: bool,
+
     keys: Vec<u8>,
     memo_springs: bool,
 
@@ -365,18 +291,21 @@ pub struct HarmonySprings<T: IntervalBasis> {
 
     relaxed: bool,
     energy: Energy,
+    computed_at_least_one_solution: bool,
+
     solution_actuals: Array2<Ratio<StackCoeff>>,
 
     solution_interval_targets: Array2<StackCoeff>,
     solution_target_is_set: Vec<bool>,
 
-    /// will always be a [SomeNeighbourhood::Partial]
-    solution_neighbourhood: Rc<RefCell<SomeNeighbourhood<T>>>,
+    solution_neighbourhood: neighbourhood::Partial<T>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct HarmonySpringsConfig<T: IntervalBasis> {
-    /// should the [HarmonySpringsProvider::candidate_springs] be memoised between different calls
+    pub enable: bool,
+    /// Should the [HarmonySpringsProvider::candidate_springs] be memoised between different calls
     /// to [HarmonyStrategy::solve]?
     pub memo_springs: bool,
     pub min_keys: usize,
@@ -439,23 +368,30 @@ impl<T: IntervalBasis> SpringSetup<T> {
 
     /// returns true iff the next candidate was prepared, false iff there are no more candidates.
     fn prepare_next_candidate(&mut self, change_from_the_back: bool) -> bool {
-        let springs_iter: Box<dyn Iterator<Item = _>> = if change_from_the_back {
-            Box::new(self.current_springs.iter_mut().rev())
+        macro_rules! __prepare_nex_candidate_step {
+            ($v:ident) => {
+                let max_ix = self
+                    .memoed_springs
+                    .get(&$v.memo_key)
+                    .expect("prepare_next_spring_candidate: found no candidates for spring")
+                    .len()
+                    - 1;
+                if $v.current_candidate_index < max_ix {
+                    $v.current_candidate_index += 1;
+                    return true;
+                } else {
+                    $v.current_candidate_index = 0;
+                }
+            };
+        }
+
+        if change_from_the_back {
+            for (_, v) in self.current_springs.iter_mut().rev() {
+                __prepare_nex_candidate_step!(v);
+            }
         } else {
-            Box::new(self.current_springs.iter_mut())
-        };
-        for (_, v) in springs_iter {
-            let max_ix = self
-                .memoed_springs
-                .get(&v.memo_key)
-                .expect("prepeare_next_spring_candidate: found no candidates for spring")
-                .len()
-                - 1;
-            if v.current_candidate_index < max_ix {
-                v.current_candidate_index += 1;
-                return true;
-            } else {
-                v.current_candidate_index = 0;
+            for (_, v) in self.current_springs.iter_mut() {
+                __prepare_nex_candidate_step!(v);
             }
         }
 
@@ -512,38 +448,13 @@ fn relative_semitones_in_solution_rows<T: IntervalBasis>(
     semitones_from_actual::<T>(solution.row(j)) - semitones_from_actual::<T>(solution.row(i))
 }
 
-impl<T: IntervalBasis> HarmonySprings<T> {
-    pub fn new(config: HarmonySpringsConfig<T>) -> Self {
-        let n = 10; // initial guess at how many keys we're playing simulatneously: both hands full.
-        let big_n = n * (n - 1) / 2;
-        Self {
-            keys: Vec::with_capacity(n),
-            memo_springs: config.memo_springs,
-            spring_setup: SpringSetup::new(),
-            solver: Solver::new(n, big_n, T::num_intervals()),
-            min_keys: config.min_keys,
-            max_tries: config.max_tries,
-            lower_notes_are_more_stable: config.lower_notes_are_more_stable,
-            provider: config.provider,
-            relaxed: false,
-            energy: Energy::MAX,
-            solution_actuals: Array2::zeros((n, T::num_intervals())),
-            solution_interval_targets: Array2::zeros((big_n, T::num_intervals())),
-            solution_target_is_set: vec![false; big_n],
-            solution_neighbourhood: Rc::new(RefCell::new(SomeNeighbourhood::Partial(
-                Partial::new(),
-            ))),
-            tmp: Vec::with_capacity(big_n),
-        }
-    }
-
-    fn initialise(&mut self, keys: &[KeyState; 128]) {
+impl<T: StackType> HarmonySprings<T> {
+    fn initialise<L: AtMost<KeyStateLevel>>(
+        &mut self,
+        mut adaptor: HarmonyAdaptor<T, Self, L>,
+    ) -> HarmonyAdaptor<T, Self, L> {
         self.keys.clear();
-        keys.iter().enumerate().for_each(|(i, k)| {
-            if k.is_sounding() {
-                self.keys.push(i as u8)
-            }
-        });
+        adaptor = adaptor.for_all_sounding_keys(|i, _, _| self.keys.push(i as u8));
 
         self.provider.collect_connectors(
             &self.keys,
@@ -560,6 +471,8 @@ impl<T: IntervalBasis> HarmonySprings<T> {
         self.relaxed = false;
         self.energy = Semitones::MAX;
         // no need to initialise `self.solution_actuals`, it will be overwritten anyway
+
+        adaptor
     }
 
     /// returns true iff a solution was successfully computed
@@ -746,74 +659,239 @@ impl<T: IntervalBasis> HarmonySprings<T> {
     }
 }
 
-impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
-    fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>) {
-        self.initialise(keys);
+impl<T: StackType> IsHarmonyStrategyConfig<T> for HarmonySpringsConfig<T> {
+    fn as_harmony_strategy_config(self) -> HarmonyStrategyConfig<T> {
+        HarmonyStrategyConfig::Springs(self)
+    }
+}
 
-        if self.keys.len() < self.min_keys {
-            return (None {}, None {});
-        }
+impl<T: StackType> HarmonySprings<T> {
+    fn send_current_solution(
+        &mut self,
+        mut adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> HarmonyAdaptor<T, Self, Zero> {
+        if self.computed_at_least_one_solution {
+            self.compute_solution_interval_targets();
 
-        let mut computed_at_least_one_solution = self.compute_solution_actuals();
-        while !self.relaxed {
-            if !self
-                .spring_setup
-                .prepare_next_candidate(self.lower_notes_are_more_stable)
-            {
-                break;
-            }
-            computed_at_least_one_solution |= self.compute_solution_actuals();
-        }
-
-        if !computed_at_least_one_solution {
-            return (None {}, None {});
-        }
-
-        self.compute_solution_interval_targets();
-
-        // this will always work, since self.solution_neighbourhood is a [SomeNeighbourhood::Partial]
-        self.solution_neighbourhood.borrow_mut().clear();
-        self.solution_neighbourhood.borrow_mut().insert_zero();
-        for i in 1..self.keys.len() {
-            self.solution_neighbourhood
-                .borrow_mut()
-                .insert_target_actual(
+            self.solution_neighbourhood.clear();
+            self.solution_neighbourhood.insert_zero();
+            for i in 1..self.keys.len() {
+                self.solution_neighbourhood.insert_target_actual(
                     self.solution_interval_targets.row(i - 1),
                     self.solution_actuals.row(i),
                 );
-        }
+            }
 
+            // put the harmony in the adaptor
+            (_, adaptor) = adaptor.harmony_mut(|harmony, _| {
+                *harmony = Some(Harmony {
+                    neighbourhood: SomeNeighbourhood::Partial(self.solution_neighbourhood.clone()),
+                    reference_key: self.keys[0] as StackCoeff,
+                    pattern_index: None {},
+                    valid: true,
+                });
+            });
+        }
+        adaptor
+    }
+
+    fn preliminiary_result(
+        &mut self,
+        mut adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
+        adaptor = self.send_current_solution(adaptor);
         (
-            None {},
-            Some(Harmony {
-                neighbourhood: self.solution_neighbourhood.clone(),
-                reference: self.keys[0] as StackCoeff,
-            }),
+            HarmonyResult {
+                finished: false,
+                progress: self.computed_at_least_one_solution,
+            },
+            adaptor,
         )
     }
 
-    fn handle_msg(&mut self, msg: ToHarmonyStrategy<T>) -> bool {
-        match msg {
-            ToHarmonyStrategy::ChordListAction { .. } => {}
-            ToHarmonyStrategy::PushNewChord { .. } => {}
-            ToHarmonyStrategy::AllowExtraHighNotes { .. } => {}
-            ToHarmonyStrategy::EnableChordList { .. } => {}
+    fn finish_solve(
+        &mut self,
+        mut adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
+        adaptor = self.send_current_solution(adaptor);
+        (
+            HarmonyResult {
+                finished: true,
+                progress: self.computed_at_least_one_solution,
+            },
+            adaptor,
+        )
+    }
+}
+
+impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
+    type Config = HarmonySpringsConfig<T>;
+
+    type Msg = ToHarmonySprings;
+
+    fn new(config: HarmonySpringsConfig<T>) -> Self {
+        let n = 10; // initial guess at how many keys we're playing simulatneously: both hands full.
+        let big_n = n * (n - 1) / 2;
+        Self {
+            enable: config.enable,
+            keys: Vec::with_capacity(n),
+            memo_springs: config.memo_springs,
+            spring_setup: SpringSetup::new(),
+            solver: Solver::new(n, big_n, T::num_intervals()),
+            min_keys: config.min_keys,
+            max_tries: config.max_tries,
+            lower_notes_are_more_stable: config.lower_notes_are_more_stable,
+            provider: config.provider,
+            relaxed: false,
+            energy: Energy::MAX,
+            computed_at_least_one_solution: false,
+            solution_actuals: Array2::zeros((n, T::num_intervals())),
+            solution_interval_targets: Array2::zeros((big_n, T::num_intervals())),
+            solution_target_is_set: vec![false; big_n],
+            solution_neighbourhood: neighbourhood::Partial::new(),
+            tmp: Vec::with_capacity(big_n),
         }
-        true
     }
 
-    fn handle_action(&mut self, action: StrategyAction, _forward: &mut VecDeque<FromStrategy<T>>) {
+    fn start(
+        &mut self,
+        time: Instant,
+        adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
+        self.start_solve(time, adaptor)
+    }
+
+    fn start_solve(
+        &mut self,
+        _time: Instant,
+        mut adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
+        adaptor = self.initialise(adaptor);
+        if self.keys.len() < self.min_keys {
+            self.computed_at_least_one_solution = false;
+            return self.finish_solve(adaptor);
+        }
+
+        self.computed_at_least_one_solution = self.compute_solution_actuals();
+        if self.relaxed {
+            return self.finish_solve(adaptor);
+        }
+
+        (
+            HarmonyResult {
+                finished: false,
+                progress: self.computed_at_least_one_solution,
+            },
+            adaptor,
+        )
+    }
+
+    fn step(
+        &mut self,
+        adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
+        if !self
+            .spring_setup
+            .prepare_next_candidate(self.lower_notes_are_more_stable)
+        {
+            return self.finish_solve(adaptor);
+        }
+
+        self.computed_at_least_one_solution |= self.compute_solution_actuals();
+        if self.relaxed {
+            self.finish_solve(adaptor)
+        } else {
+            self.preliminiary_result(adaptor)
+        }
+    }
+
+    fn stop(
+        &mut self,
+        _time: Instant,
+        adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> HarmonyAdaptor<T, Self, Zero> {
+        adaptor
+    }
+
+    fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg> {
+        match msg {
+            ToHarmony::Springs(msg) => Some(msg),
+            _ => None {},
+        }
+    }
+
+    fn receive_msg(
+        &mut self,
+        msg: Self::Msg,
+        adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (Option<Instant>, HarmonyAdaptor<T, Self, Zero>) {
+        match msg {
+            ToHarmonySprings::ToggleEnable { time } => {
+                self.enable = !self.enable;
+                (Some(time), adaptor)
+            }
+        }
+    }
+
+    fn handle_bound_action(
+        &mut self,
+        action: BindableStrategyAction,
+        _time: Instant,
+        adaptor: HarmonyAdaptor<T, Self, Zero>,
+    ) -> (Option<Instant>, HarmonyAdaptor<T, Self, Zero>) {
         match action {
-            StrategyAction::IncrementNeighbourhoodIndex(_) => {}
-            StrategyAction::SetReferenceToLowest => {}
-            StrategyAction::SetReferenceToHighest => {}
-            StrategyAction::SetReferenceToCurrent => {}
-            StrategyAction::ToggleChordMatching => {}
-            StrategyAction::ToggleReanchor => {}
-            StrategyAction::Reset => todo!(),
+            _ => (None {}, adaptor),
         }
     }
 }
+
+// impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
+//     fn solve(&mut self, keys: &[KeyState; 128]) -> (Option<usize>, Option<Harmony<T>>) {
+//         self.initialise(keys);
+//
+//         if self.keys.len() < self.min_keys {
+//             return (None {}, None {});
+//         }
+//
+//         let mut computed_at_least_one_solution = self.compute_solution_actuals();
+//         while !self.relaxed {
+//             if !self
+//                 .spring_setup
+//                 .prepare_next_candidate(self.lower_notes_are_more_stable)
+//             {
+//                 break;
+//             }
+//             computed_at_least_one_solution |= self.compute_solution_actuals();
+//         }
+//
+//         if !computed_at_least_one_solution {
+//             return (None {}, None {});
+//         }
+//
+//         self.compute_solution_interval_targets();
+//
+//         // this will always work, since self.solution_neighbourhood is a [SomeNeighbourhood::Partial]
+//         self.solution_neighbourhood.borrow_mut().clear();
+//         self.solution_neighbourhood.borrow_mut().insert_zero();
+//         for i in 1..self.keys.len() {
+//             self.solution_neighbourhood
+//                 .borrow_mut()
+//                 .insert_target_actual(
+//                     self.solution_interval_targets.row(i - 1),
+//                     self.solution_actuals.row(i),
+//                 );
+//         }
+//
+//         (
+//             None {},
+//             Some(Harmony {
+//                 neighbourhood: self.solution_neighbourhood.clone(),
+//                 reference: self.keys[0] as StackCoeff,
+//             }),
+//         )
+//     }
+//
+// }
 
 #[cfg(test)]
 mod test {

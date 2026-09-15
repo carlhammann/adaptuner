@@ -304,6 +304,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
     fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg> {
         match msg {
             ToHarmony::ChordList(msg) => Some(msg),
+            _ => None {},
         }
     }
 

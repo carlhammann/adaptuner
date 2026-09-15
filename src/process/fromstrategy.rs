@@ -3,18 +3,14 @@ use std::{fmt, sync::mpsc, sync::Arc, thread, time::Instant};
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    adaptors::{take_replace, ConcreteLocks},
+    adaptors::{ConcreteLocks, take_replace},
     bindable::{BindableEvent, BindableProcessAction},
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
     interval::stacktype::r#trait::StackType,
     msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy},
     process::r#trait::ProcessAdaptor,
     strategy::{
-        harmony::chordlist::ChordList,
-        melody::neighbourhoods::StaticNeighbourhoodsAsMelody,
-        r#trait::{Strategy, StrategyAdaptor},
-        staticneighbourhoods::StaticNeighbourhoods,
-        twostep::TwoStep,
+        harmony::{chordlist::ChordList, springs::HarmonySprings}, melody::neighbourhoods::StaticNeighbourhoodsAsMelody, staticneighbourhoods::StaticNeighbourhoods, r#trait::{Strategy, StrategyAdaptor}, twostep::TwoStep
     },
     util::ordered_locks::Zero,
 };
@@ -335,6 +331,20 @@ where
                 } => {
                     self.current_strategy = Some(RunningStrategy::start::<
                         TwoStep<T, ChordList<T>, StaticNeighbourhoodsAsMelody<T>>,
+                    >(
+                        time,
+                        index,
+                        (harmony_config.clone(), melody_config.clone()),
+                        unsafe { adaptor.inner_arc() },
+                    ))
+                }
+                StrategyConfig::TwoStep {
+                    harmony: HarmonyStrategyConfig::Springs(harmony_config),
+                    melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
+                    ..
+                } => {
+                    self.current_strategy = Some(RunningStrategy::start::<
+                        TwoStep<T, HarmonySprings<T>, StaticNeighbourhoodsAsMelody<T>>,
                     >(
                         time,
                         index,

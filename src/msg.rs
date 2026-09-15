@@ -119,6 +119,10 @@ pub enum ToChordList {
     },
 }
 
+pub enum ToHarmonySprings {
+    ToggleEnable { time: Instant },
+}
+
 pub enum ToStaticNeighbourhoods {
     SelectScale {
         index: usize,
@@ -157,6 +161,7 @@ pub enum ToMelody<T: StackType> {
 
 pub enum ToHarmony {
     ChordList(ToChordList),
+    Springs(ToHarmonySprings),
 }
 
 pub enum ToStrategy<T: StackType> {

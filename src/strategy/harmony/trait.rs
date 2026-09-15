@@ -118,7 +118,7 @@ pub trait HarmonyStrategy<T: StackType>: Sized {
 
     /// Should return the time of a [HarmonyStrategy::start_solve] that should be triggered by the
     /// message, if necessary.
-    /// Should only do something if [StrategyConfig::reacts_to_bound] returns true.
+    /// Should only do something if [crate::config::StrategyConfig::reacts_to_bound] returns true.
     fn handle_bound_action(
         &mut self,
         action: BindableStrategyAction,
