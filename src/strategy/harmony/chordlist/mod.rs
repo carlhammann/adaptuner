@@ -203,11 +203,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
             self.solve_start = time;
             (self.active_code, adaptor) = active_code(adaptor);
         }
-        (_, adaptor) = adaptor.harmony_mut(|h, _| {
-            if let Some(h) = h {
-                h.valid = false
-            }
-        });
+        (_, adaptor) = adaptor.harmony_mut(|h, _| *h = Harmony::None);
         (
             HarmonyResult {
                 finished: !self.enable,
@@ -224,11 +220,9 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         if self.next_pattern_to_try >= self.patterns.len() {
             let progress = self.best_fit.1.matches_something();
 
-            (_, adaptor) = adaptor.harmony_mut(|h, _| {
-                if let Some(h) = h {
-                    h.valid = progress
-                }
-            });
+            if !progress {
+                (_, adaptor) = adaptor.harmony_mut(|h, _| *h = Harmony::None);
+            }
             return (
                 HarmonyResult {
                     finished: true,
@@ -243,20 +237,24 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         let fit = the_pattern.key_shape.fit_code(self.active_code);
 
         let update_harmony = |mut adaptor: HarmonyAdaptor<T, Self, Zero>| {
-            (_, adaptor) = adaptor.harmony_mut(|h, _| {
-                if let Some(h) = h {
-                    h.neighbourhood.clone_from(&the_pattern.neighbourhood);
-                    h.reference_key = fit.reference() as StackCoeff;
-                    h.pattern_index = Some(self.next_pattern_to_try);
-                    h.valid = true;
-                } else {
-                    *h = Some(Harmony {
+            (_, adaptor) = adaptor.harmony_mut(|h, _| match h {
+                Harmony::MatchedChord {
+                    neighbourhood,
+                    reference_key,
+                    pattern_index,
+                } => {
+                    neighbourhood.clone_from(&the_pattern.neighbourhood);
+                    *reference_key = fit.reference() as StackCoeff;
+                    *pattern_index = self.next_pattern_to_try;
+                }
+                Harmony::None => {
+                    *h = Harmony::MatchedChord {
                         neighbourhood: the_pattern.neighbourhood.clone(),
                         reference_key: fit.reference() as StackCoeff,
-                        pattern_index: Some(self.next_pattern_to_try),
-                        valid: true,
-                    });
+                        pattern_index: self.next_pattern_to_try,
+                    };
                 }
+                Harmony::SpringSolution { .. } => unreachable!(),
             });
             adaptor
         };

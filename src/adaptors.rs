@@ -43,7 +43,7 @@ pub struct ConcreteLocks<T: StackType> {
     /// machinery in this module, but through [UiAdaptor::config]
     pub gui_config: RwLock<GuiConfig>,
     pub backend_config: RwLock<Pitchbend12Config>,
-    pub harmony: RwLock<Option<Harmony<T>>>,
+    pub harmony: RwLock<Harmony<T>>,
 }
 
 /// The following type definitions define an ordering of locks:
@@ -85,7 +85,7 @@ impl_access! {<T:StackType>, ConcreteLocks<T>, StrategyConfigLevel, Vec<Strategy
 impl_access! {<T:StackType>, ConcreteLocks<T>, ActiveStrategyIndexLevel, usize, |self| &self.active_strategy_index.read()}
 impl_access! {<T:StackType>, ConcreteLocks<T>, BackendConfigLevel, Pitchbend12Config, |self| &self.backend_config.read()}
 // impl_access! {<T:StackType>, ConcreteLocks<T>, GuiConfigLevel, GuiConfig, |self| &self.gui_config.read()}
-impl_access! {<T:StackType>, ConcreteLocks<T>, HarmonyLevel, Option<Harmony<T>>, |self| &self.harmony.read()}
+impl_access! {<T:StackType>, ConcreteLocks<T>, HarmonyLevel, Harmony<T>, |self| &self.harmony.read()}
 
 impl_access_mut! {<T:StackType>, ConcreteLocks<T>, PedalHoldLevel, [bool;16], |self| &mut self.pedal_hold.write()}
 impl_access_mut! {<T:StackType>, ConcreteLocks<T>, SostenutoHoldLevel, [bool;16], |self| &mut self.sostenuto_hold.write()}
@@ -98,7 +98,7 @@ impl_access_mut! {<T:StackType>, ConcreteLocks<T>, StrategyConfigLevel, Vec<Stra
 impl_access_mut! {<T:StackType>, ConcreteLocks<T>, ActiveStrategyIndexLevel, usize, |self| &mut self.active_strategy_index.write()}
 impl_access_mut! {<T:StackType>, ConcreteLocks<T>, BackendConfigLevel, Pitchbend12Config, |self| &mut self.backend_config.write()}
 // impl_access_mut! {<T:StackType>, ConcreteLocks<T>, GuiConfigLevel, GuiConfig, |self| &mut self.gui_config.write()}
-impl_access_mut! {<T:StackType>, ConcreteLocks<T>, HarmonyLevel, Option<Harmony<T>>, |self| &mut self.harmony.write()}
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, HarmonyLevel, Harmony<T>, |self| &mut self.harmony.write()}
 
 // helper macro for the next impl. Only to save some writing and reading effort
 macro_rules! accessor {
@@ -182,8 +182,8 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
     accessor! {backend_config <> ,  X, M, L, BackendConfigLevel,Pitchbend12Config}
     accessor! {@mut backend_config_mut <>  , X,  M, L, BackendConfigLevel, Pitchbend12Config}
 
-    accessor! {harmony <T:IntervalBasis> ,  X, M, L, HarmonyLevel, Option<Harmony<T>>}
-    accessor! {@mut harmony_mut <T:IntervalBasis>  , X,  M, L, HarmonyLevel, Option<Harmony<T>>}
+    accessor! {harmony <T:IntervalBasis> ,  X, M, L, HarmonyLevel, Harmony<T>}
+    accessor! {@mut harmony_mut <T:IntervalBasis>  , X,  M, L, HarmonyLevel, Harmony<T>}
 
     #[inline]
     pub fn active_strategy<R, T>(

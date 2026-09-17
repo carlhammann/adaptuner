@@ -84,6 +84,12 @@ temperaments:
       fifth: 4
       third: 4
 named-intervals:
+- name: syntonic comma
+  short-name: s
+  coeffs:
+    octave: '-2'
+    fifth: '4'
+    third: '-1'
 - name: diesis
   short-name: d
   coeffs:
@@ -94,12 +100,6 @@ named-intervals:
   coeffs:
     octave: '-7'
     fifth: '12'
-- name: syntonic comma
-  short-name: s
-  coeffs:
-    octave: '-2'
-    fifth: '4'
-    third: '-1'
 - name: kleisma
   short-name: k
   coeffs:
@@ -111,7 +111,7 @@ tuning-reference:
     octave: 1
     fifth: -1
     third: 1
-  semitones: 69.0
+  semitones: 69.95672630964881
 strategies:
 - !two-step
   name: static + springs
@@ -124,110 +124,107 @@ strategies:
     enable: true
     memo-springs: true
     min-keys: 2
-    max-tries: 512
     lower-notes-are-more-stable: true
     provider: !mod12
-      octave:
-        octave: 1
       by-class:
       - options:
         - length:
             octave: 1
             fifth: -1
             third: -1
-          stiffness: '1/5'
+          stiffness: '1'
         - length:
             fifth: -1
             third: 2
-          stiffness: '1/5'
+          stiffness: '1'
       - options:
         - length:
             octave: -1
             fifth: 2
-          stiffness: '1/3'
+          stiffness: '1'
         - length:
             octave: 1
             fifth: -2
             third: 1
-          stiffness: '1/5'
+          stiffness: '1'
       - options:
         - length:
             fifth: 1
             third: -1
-          stiffness: '1/5'
+          stiffness: '1'
         - length:
             octave: 2
             fifth: -3
-          stiffness: '1/3'
+          stiffness: '1'
         - length:
             octave: -1
             fifth: 1
             third: 2
-          stiffness: '1/5'
+          stiffness: '1'
       - options:
         - length:
             third: 1
-          stiffness: '1/5'
+          stiffness: '1'
       - options:
         - length:
             octave: 1
             fifth: -1
-          stiffness: '1/3'
+          stiffness: '1'
       - options:
         - length:
             octave: -1
             fifth: 2
             third: 1
-          stiffness: '1/5'
+          stiffness: '1'
         - length:
             octave: 2
             fifth: -2
             third: -1
-          stiffness: '1/5'
+          stiffness: '1'
         - length:
             fifth: 2
             third: -2
-          stiffness: '1/5'
+          stiffness: '1'
       - options:
         - length:
             fifth: 1
-          stiffness: '1/3'
-      # - !rod
-      #       fifth: 1
+          stiffness: '1'
       - options:
         - length:
             octave: 1
             third: -1
-          stiffness: '1/5'
+          stiffness: '1'
       - options:
         - length:
             octave: 1
             fifth: -1
             third: 1
-          stiffness: '1/5'
+          stiffness: '1'
         - length:
             octave: -1
             fifth: 3
-          stiffness: '1/3'
+          stiffness: '1'
       - options:
         - length:
             octave: 2
             fifth: -2
-          stiffness: '1/3'
+          stiffness: '1'
         - length:
             fifth: 2
             third: -1
-          stiffness: '1/5'
+          stiffness: '1'
       - options:
         - length:
             fifth: 1
             third: 1
-          stiffness: '1/5'
+          stiffness: '1'
         - length:
             octave: 1
             fifth: 2
             third: -2
-          stiffness: 1/5
+          stiffness: '1'
+      octave:
+        octave: 1
   melody: !static-neighbourhoods
     scales:
     - name: pure
@@ -338,16 +335,12 @@ strategies:
           actual:
             octave: '11/12'
     initial-reference: {}
+  bindings:
+    soft-pedal-down: !to-strategy set-reference-to-lowest
+    !key-press Escape: reset
   melody-harmony-coordination:
     reanchor: false
     group-ms: 100
-  bindings: {}
-    # sostenuto-pedal-down: !to-strategy
-    #   increment-neighbourhood-index: 1
-    # soft-pedal-down: !to-strategy set-reference-to-current
-    # !key-press Escape: reset
-    # !key-press Space: !to-strategy
-    #   increment-neighbourhood-index: 1
 backend: !pitchbend12
   bend-range: 2.0
   channels:
@@ -372,7 +365,9 @@ gui:
     - 3.8631372
     - -7.01955
     scale-reference-centered: true
-    background-dimensions: [1, 2]
+    background-dimensions:
+    - 1
+    - 2
     project-dimension: 0
     color-period-ct: 21.506289596715078
     screen-keyboard-channel: 1

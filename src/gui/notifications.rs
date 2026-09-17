@@ -8,7 +8,11 @@ use eframe::egui;
 use crate::{
     config::{HarmonyStrategyConfig, StrategyConfig},
     gui::r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
-    interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
+    interval::{
+        base::Semitones,
+        stack::Stack,
+        stacktype::r#trait::{StackCoeff, StackType},
+    },
     msg::ToUi,
     neighbourhood::CompleteNeighbourhood,
     notename::{HasNoteNames, NoteNameStyle},
@@ -17,7 +21,7 @@ use crate::{
 };
 
 pub struct Notifications<T: StackType> {
-    harmony: (Option<usize>, Option<Stack<T>>, Instant),
+    harmony: (HarmonyNotification<T>, Instant),
     reference: (bool, Instant),
     scale_index: (Option<usize>, bool, Instant),
     enable_reanchor: (Option<bool>, Instant),
@@ -25,10 +29,33 @@ pub struct Notifications<T: StackType> {
     cleanup_time: Duration,
 }
 
+enum HarmonyNotification<T: StackType> {
+    None,
+    MatchedChord {
+        // The reference might be unknown, if no currently active scale can be determined.
+        m_reference: Option<Stack<T>>,
+        pattern_index: usize,
+    },
+    SpringSolution {
+        // The reference might be unknown, if no currently active scale can be determined.
+        m_reference: Option<Stack<T>>,
+        number_of_tries: u64,
+    },
+}
+
+impl<T: StackType> HarmonyNotification<T> {
+    fn is_some(&self) -> bool {
+        match self {
+            HarmonyNotification::None => false,
+            _ => true,
+        }
+    }
+}
+
 impl<T: StackType + HasNoteNames> Notifications<T> {
     pub fn new() -> Self {
         Self {
-            harmony: (None {}, None {}, Instant::now()),
+            harmony: (HarmonyNotification::None, Instant::now()),
             reference: (false, Instant::now()),
             scale_index: (None {}, false, Instant::now()),
             enable_reanchor: (None {}, Instant::now()),
@@ -77,11 +104,7 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
 }
 
 impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
-    fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, Zero>,
-    ) -> UiAdaptor<T, Zero> {
+    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         if let (Some(scale_index), true, _) = self.scale_index {
             (_, adaptor) = adaptor.scales(|m_scales, _| match m_scales {
                 Some(scales) => {
@@ -105,29 +128,54 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
             }
         }
 
-        if let (Some(pattern_index), m_reference, _) = &self.harmony {
-            (_, adaptor) = adaptor.active_strategy(|strat, adaptor| {
+        match &self.harmony.0 {
+            HarmonyNotification::None => {}
+            HarmonyNotification::MatchedChord {
+                m_reference,
+                pattern_index,
+            } => {
+                (_, adaptor) = adaptor.active_strategy(|strat, adaptor| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        match strat {
+                            StrategyConfig::TwoStep {
+                                harmony:
+                                    HarmonyStrategyConfig::ChordList(ChordListConfig {
+                                        patterns, ..
+                                    }),
+                                ..
+                            } => {
+                                ui.strong(&patterns[*pattern_index % patterns.len()].name);
+                                if let Some(reference) = m_reference {
+                                    ui.label(" on ");
+                                    ui.strong(reference.corrected_notename(
+                                        &NoteNameStyle::Full,
+                                        adaptor.config().use_cent_values,
+                                    ));
+                                }
+                            }
+                            _ => {}
+                        }
+                    });
+                });
+            }
+            HarmonyNotification::SpringSolution {
+                m_reference,
+                number_of_tries,
+            } => {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    match strat {
-                        StrategyConfig::TwoStep {
-                            harmony:
-                                HarmonyStrategyConfig::ChordList(ChordListConfig { patterns, .. }),
-                            ..
-                        } => {
-                            ui.strong(&patterns[*pattern_index % patterns.len()].name);
-                            if let Some(reference) = m_reference {
-                                ui.label(" on ");
-                                ui.strong(reference.corrected_notename(
-                                    &NoteNameStyle::Full,
-                                    adaptor.config().use_cent_values,
-                                ));
-                            }
-                        }
-                        _ => {}
+                    ui.label("spring tuning");
+                    if let Some(reference) = m_reference {
+                        ui.label(" on ");
+                        ui.strong(reference.corrected_notename(
+                            &NoteNameStyle::Full,
+                            adaptor.config().use_cent_values,
+                        ));
                     }
+                    ui.label(format!(" (try {number_of_tries})"));
                 });
-            });
+            }
         }
 
         if let (true, _) = &self.reference {
@@ -186,36 +234,92 @@ impl<T: StackType> ReceiveToUiRef<T> for Notifications<T> {
                 ));
             }
             ToUi::UpdateHarmony {} => {
-                (_, adaptor) = adaptor.harmony(|m_harmony, adaptor| match m_harmony {
-                    Some(Harmony {
-                        pattern_index: Some(pattern_index),
-                        reference_key: reference,
-                        valid: true,
+                (_, adaptor) = adaptor.harmony(|harmony, adaptor| match harmony {
+                    Harmony::None => self.harmony = (HarmonyNotification::None, Instant::now()),
+                    Harmony::SpringSolution {
+                        lowest_key,
+                        number_of_tries,
                         ..
-                    }) => {
+                    } => {
+                        if let Some(scale_index) = self.scale_index.0 {
+                            adaptor.scales(|m_scales, adaptor| match m_scales {
+                                Some(scales) => {
+                                    adaptor.reference(|adaptor_reference, _| {
+                                        let reference_stack =
+                                            scales[scale_index].named.get_absolute_stack(
+                                                *lowest_key as StackCoeff,
+                                                adaptor_reference,
+                                            );
+                                        self.harmony = (
+                                            HarmonyNotification::SpringSolution {
+                                                m_reference: Some(reference_stack),
+                                                number_of_tries: *number_of_tries,
+                                            },
+                                            Instant::now(),
+                                        )
+                                    });
+                                }
+                                None {} => {
+                                    self.harmony = (
+                                        HarmonyNotification::SpringSolution {
+                                            m_reference: None {},
+                                            number_of_tries: *number_of_tries,
+                                        },
+                                        Instant::now(),
+                                    );
+                                }
+                            });
+                        } else {
+                            self.harmony = (
+                                HarmonyNotification::SpringSolution {
+                                    m_reference: None {},
+                                    number_of_tries: *number_of_tries,
+                                },
+                                Instant::now(),
+                            );
+                        }
+                    }
+                    Harmony::MatchedChord {
+                        pattern_index,
+                        reference_key,
+                        ..
+                    } => {
                         if let Some(scale_index) = self.scale_index.0 {
                             adaptor.scales(|m_scales, adaptor| match m_scales {
                                 Some(scales) => {
                                     adaptor.reference(|adaptor_reference, _| {
                                         let reference_stack = scales[scale_index]
                                             .named
-                                            .get_absolute_stack(*reference, adaptor_reference);
+                                            .get_absolute_stack(*reference_key, adaptor_reference);
                                         self.harmony = (
-                                            Some(*pattern_index),
-                                            Some(reference_stack),
+                                            HarmonyNotification::MatchedChord {
+                                                m_reference: Some(reference_stack),
+                                                pattern_index: *pattern_index,
+                                            },
                                             Instant::now(),
                                         )
                                     });
                                 }
                                 None {} => {
-                                    self.harmony = (Some(*pattern_index), None {}, Instant::now());
+                                    self.harmony = (
+                                        HarmonyNotification::MatchedChord {
+                                            m_reference: None {},
+                                            pattern_index: *pattern_index,
+                                        },
+                                        Instant::now(),
+                                    );
                                 }
                             });
                         } else {
-                            self.harmony = (Some(*pattern_index), None {}, Instant::now())
+                            self.harmony = (
+                                HarmonyNotification::MatchedChord {
+                                    m_reference: None {},
+                                    pattern_index: *pattern_index,
+                                },
+                                Instant::now(),
+                            );
                         }
                     }
-                    _ => self.harmony = (None, None, Instant::now()),
                 });
             }
             ToUi::ReanchorOnMatch { reanchor } => {

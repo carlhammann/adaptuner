@@ -86,6 +86,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         })
     }
 
+    /// The harmony argument must never be [Harmony::None]
     fn tune_with_valid_harmony<L>(
         &mut self,
         time: Instant,
@@ -95,22 +96,39 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     where
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
-        let Harmony {
-            neighbourhood: harmony_neighbourhood,
-            reference_key: harmony_reference_key,
-            ..
-        } = harmony;
         adaptor.send(FromStrategy::UpdateHarmony {});
         adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
             self.tmp_stack.clone_from(&the_tuning.stack);
-            if harmony_neighbourhood.try_write_relative_stack(
-                &mut the_tuning.stack,
-                i as StackCoeff - *harmony_reference_key,
-            ) {
+            let (relative_tuning_from_harmony, harmony_reference_key) = match harmony {
+                Harmony::MatchedChord {
+                    neighbourhood,
+                    reference_key,
+                    ..
+                } => (
+                    neighbourhood.try_write_relative_stack(
+                        &mut the_tuning.stack,
+                        i as StackCoeff - reference_key,
+                    ),
+                    *reference_key,
+                ),
+                Harmony::SpringSolution {
+                    neighbourhood,
+                    lowest_key,
+                    ..
+                } => (
+                    neighbourhood.try_write_relative_stack(
+                        &mut the_tuning.stack,
+                        i as StackCoeff - *lowest_key as StackCoeff,
+                    ),
+                    *lowest_key as StackCoeff,
+                ),
+                Harmony::None => panic!(),
+            };
+            if relative_tuning_from_harmony {
                 (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
                     self.scales[self.curr_scale_index].increment_by_absolute_stack(
                         &mut the_tuning.stack,
-                        *harmony_reference_key,
+                        harmony_reference_key,
                         adaptor_reference,
                     )
                 });
@@ -149,15 +167,11 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     where
         L: AtMost<HarmonyLevel>, // for the called sub-methods: + AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
-        (_, adaptor) = adaptor.harmony(|m_harmony, adaptor| match m_harmony {
-            Some(harmony) => {
-                if harmony.valid {
-                    self.tune_with_valid_harmony(time, harmony, adaptor)
-                } else {
-                    self.tune_without_harmony(time, adaptor)
-                }
+        (_, adaptor) = adaptor.harmony(|harmony, adaptor| match harmony {
+            Harmony::SpringSolution { .. } | Harmony::MatchedChord { .. } => {
+                self.tune_with_valid_harmony(time, &harmony, adaptor)
             }
-            None {} => self.tune_without_harmony(time, adaptor),
+            Harmony::None => self.tune_without_harmony(time, adaptor),
         });
         adaptor
     }
@@ -187,31 +201,34 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     where
         L: AtMost<HarmonyLevel>, // + AtMost<ReferenceLevel>
     {
-        adaptor.harmony(|m_harmony, adaptor| match m_harmony {
-            Some(harmony) => {
-                if harmony.valid {
-                    adaptor
-                        .reference_mut(|adaptor_reference, adaptor| {
-                            self.scales[self.curr_scale_index].write_absolute_stack(
-                                &mut self.tmp_stack,
-                                harmony.reference_key,
-                                adaptor_reference,
-                            );
+        adaptor.harmony(|harmony, adaptor| {
+            let harmony_reference_key = match harmony {
+                Harmony::MatchedChord { reference_key, .. } => Some(*reference_key),
+                Harmony::SpringSolution { lowest_key, .. } => Some(*lowest_key as StackCoeff),
+                Harmony::None => None {},
+            };
 
-                            if *adaptor_reference != self.tmp_stack {
-                                adaptor_reference.clone_from(&self.tmp_stack);
-                                adaptor.send(FromStrategy::UpdateReference {});
-                                true
-                            } else {
-                                false
-                            }
-                        })
-                        .0
-                } else {
-                    false
-                }
+            if let Some(reference_key) = harmony_reference_key {
+                adaptor
+                    .reference_mut(|adaptor_reference, adaptor| {
+                        self.scales[self.curr_scale_index].write_absolute_stack(
+                            &mut self.tmp_stack,
+                            reference_key,
+                            adaptor_reference,
+                        );
+
+                        if *adaptor_reference != self.tmp_stack {
+                            adaptor_reference.clone_from(&self.tmp_stack);
+                            adaptor.send(FromStrategy::UpdateReference {});
+                            true
+                        } else {
+                            false
+                        }
+                    })
+                    .0
+            } else {
+                false
             }
-            None {} => false,
         })
     }
 

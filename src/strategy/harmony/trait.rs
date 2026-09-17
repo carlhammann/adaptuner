@@ -2,11 +2,10 @@ use std::{marker::PhantomData, time::Instant};
 
 use crate::{
     adaptors::{
-        lock_levels::{
+        ConcreteLocks, lock_levels::{
             ActiveStrategyIndexLevel, HarmonyLevel, KeyStateLevel, StrategyConfigLevel,
             TuningStateLevel,
-        },
-        ConcreteLocks,
+        }
     },
     bindable::BindableStrategyAction,
     config::IsHarmonyStrategyConfig,
@@ -16,26 +15,19 @@ use crate::{
     util::ordered_locks::{OrderedLocks, ReadAllowed, WriteAllowed, Zero},
 };
 
-#[derive(Clone)]
-pub struct Harmony<T: IntervalBasis> {
-    pub neighbourhood: SomeNeighbourhood<T>,
-    /// MIDI key number of the reference note, but may be outside the MIDI range
-    pub reference_key: StackCoeff,
-    pub pattern_index: Option<usize>,
-
-    /// does this harmony describe a valid tuning nof the current keys?
-    pub valid: bool,
-}
-
-impl<T: IntervalBasis> Harmony<T> {
-    pub fn new_dummy() -> Self {
-        Self {
-            neighbourhood: SomeNeighbourhood::Partial(Partial::new()),
-            reference_key: 0,
-            pattern_index: None {},
-            valid: false,
-        }
-    }
+pub enum Harmony<T: IntervalBasis> {
+    None,
+    MatchedChord {
+        neighbourhood: SomeNeighbourhood<T>,
+        /// MIDI key number of the reference note, but may be outside the MIDI range
+        reference_key: StackCoeff,
+        pattern_index: usize,
+    },
+    SpringSolution {
+        neighbourhood: Partial<T>,
+        lowest_key: u8,
+        number_of_tries: u64,
+    },
 }
 
 pub struct HarmonyResult {

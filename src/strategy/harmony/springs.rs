@@ -18,7 +18,7 @@ use crate::{
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     msg::{ToHarmony, ToHarmonySprings},
-    neighbourhood::{self, Neighbourhood, SomeNeighbourhood},
+    neighbourhood::{self, Neighbourhood},
     strategy::harmony::r#trait::{Harmony, HarmonyAdaptor, HarmonyResult, HarmonyStrategy},
     util::{
         ordered_locks::{AtMost, Zero},
@@ -262,6 +262,7 @@ pub struct HarmonySprings<T: IntervalBasis> {
 
     relaxed: bool,
     energy: Energy,
+    number_of_tries: u64,
     computed_at_least_one_solution: bool,
 
     solution_actuals: Array2<Ratio<StackCoeff>>,
@@ -647,14 +648,12 @@ impl<T: StackType> HarmonySprings<T> {
                 );
             }
 
-            // put the harmony in the adaptor
             (_, adaptor) = adaptor.harmony_mut(|harmony, _| {
-                *harmony = Some(Harmony {
-                    neighbourhood: SomeNeighbourhood::Partial(self.solution_neighbourhood.clone()),
-                    reference_key: self.keys[0] as StackCoeff,
-                    pattern_index: None {},
-                    valid: true,
-                });
+                *harmony = Harmony::SpringSolution {
+                    neighbourhood: self.solution_neighbourhood.clone(),
+                    lowest_key: self.keys[0],
+                    number_of_tries: self.number_of_tries,
+                };
             });
         }
         adaptor
@@ -708,6 +707,7 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
             provider: config.provider,
             relaxed: false,
             energy: Energy::MAX,
+            number_of_tries: 0,
             computed_at_least_one_solution: false,
             solution_actuals: Array2::zeros((n, T::num_intervals())),
             solution_interval_targets: Array2::zeros((big_n, T::num_intervals())),
@@ -730,6 +730,8 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
         _time: Instant,
         mut adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
+        self.number_of_tries = 0;
+        (_, adaptor) = adaptor.harmony_mut(|h, _| *h = Harmony::None);
         if !self.enable {
             return (
                 HarmonyResult {
@@ -746,6 +748,7 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
         }
 
         self.computed_at_least_one_solution = self.compute_solution_actuals();
+        self.number_of_tries = 1;
         if self.relaxed {
             return self.finish_solve(adaptor);
         }
@@ -771,6 +774,7 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
         }
 
         self.computed_at_least_one_solution |= self.compute_solution_actuals();
+        self.number_of_tries += 1;
         if self.relaxed {
             self.finish_solve(adaptor)
         } else {

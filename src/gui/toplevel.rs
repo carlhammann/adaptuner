@@ -85,6 +85,9 @@ where
 
         let restart = |tlg: &mut TopLevelGui<T>| {
             tlg.renew();
+            take_replace(&mut tlg.adaptor, |adaptor| {
+                adaptor.active_strategy_index_mut(|i, _| *i = 0)
+            });
             let _ = tlg.send(FromUi::RestartFromConfig {
                 time: Instant::now(),
             });

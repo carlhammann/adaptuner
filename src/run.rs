@@ -17,8 +17,8 @@ use crate::{
     },
     config::{GuiConfig, StrategyConfig},
     gui::{
-        toplevel::TopLevelGui,
         r#trait::{Gui, UiAdaptor},
+        toplevel::TopLevelGui,
     },
     interval::{
         base::Semitones,
@@ -37,6 +37,7 @@ use crate::{
         r#trait::{ProcessAdaptor, StackWithTuning},
     },
     reference::Reference,
+    strategy::harmony::r#trait::Harmony,
     util::ordered_locks::{OrderedLocks, Zero},
 };
 
@@ -429,7 +430,7 @@ impl<T: StackType> RunState<T> {
             tuning_reference: RwLock::new(tuning_reference),
             strategy_config: RwLock::new(strategies),
             active_strategy_index: RwLock::new(0),
-            harmony: RwLock::new(None {}),
+            harmony: RwLock::new(Harmony::None),
             backend_config: RwLock::new(backend_config),
             gui_config: RwLock::new(gui_config),
         });
@@ -439,8 +440,7 @@ impl<T: StackType> RunState<T> {
 
         let gui_adaptor: UiAdaptor<T, Zero> = unsafe { OrderedLocks::new_zero(locks.clone()) };
 
-        let backend_adaptor: BackendAdaptorNew<T, Zero> =
-            unsafe { OrderedLocks::new_zero(locks) };
+        let backend_adaptor: BackendAdaptorNew<T, Zero> = unsafe { OrderedLocks::new_zero(locks) };
 
         let res = Self {
             _midi_input: start_receiver_thread(|| midi_input, to_midi_input_rx),
