@@ -8,9 +8,9 @@ use num_rational::Ratio;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    adaptors::lock_levels::KeyStateLevel,
+    adaptors::lock_levels::{ActiveStrategyIndexLevel, KeyStateLevel, StrategyConfigLevel},
     bindable::BindableStrategyAction,
-    config::{HarmonyStrategyConfig, IsHarmonyStrategyConfig},
+    config::{HarmonyStrategyConfig, IsHarmonyStrategyConfig, StrategyConfig},
     custom_serde::common::{deserialize_ratio, serialize_ratio},
     interval::{
         base::Semitones,
@@ -21,7 +21,7 @@ use crate::{
     neighbourhood::{self, Neighbourhood},
     strategy::harmony::r#trait::{Harmony, HarmonyAdaptor, HarmonyResult, HarmonyStrategy},
     util::{
-        ordered_locks::{AtMost, Zero},
+        ordered_locks::{AtMost, Succ, Zero},
         springs::Solver,
     },
 };
@@ -31,12 +31,12 @@ use crate::{
 #[serde(rename_all = "kebab-case")]
 #[derive(Clone)]
 pub struct Spring<T: IntervalBasis> {
-    length: Stack<T>,
+    pub length: Stack<T>,
     #[serde(
         serialize_with = "serialize_ratio",
         deserialize_with = "deserialize_ratio"
     )]
-    stiffness: Ratio<StackCoeff>,
+    pub stiffness: Ratio<StackCoeff>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -127,7 +127,7 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
     fn collect_connectors(
         &self,
         keys: &[u8],
-        lower_notes_are_more_stable: bool,
+        lower_intervals_are_more_stable: bool,
         tmp: &mut Vec<((usize, usize), usize)>,
         rods: &mut BTreeMap<(usize, usize), Stack<T>>,
         springs: &mut BTreeMap<(usize, usize), SpringInfo>,
@@ -195,7 +195,7 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
                     }
                 }
 
-                if lower_notes_are_more_stable {
+                if lower_intervals_are_more_stable {
                     tmp.sort_by(|a, b| b.0.cmp(&a.0));
                 } else {
                     tmp.sort_by(|a, b| a.0.cmp(&b.0));
@@ -258,18 +258,10 @@ struct SpringSetup<T: IntervalBasis> {
 }
 
 pub struct HarmonySprings<T: IntervalBasis> {
-    enable: bool,
-
     keys: Vec<u8>,
-    memo_springs: bool,
-
     tmp: Vec<((usize, usize), usize)>,
     spring_setup: SpringSetup<T>,
     solver: Solver,
-
-    min_keys: usize,
-    lower_notes_are_more_stable: bool,
-    provider: HarmonySpringsProvider<T>,
 
     relaxed: bool,
     energy: Energy,
@@ -292,7 +284,7 @@ pub struct HarmonySpringsConfig<T: IntervalBasis> {
     /// to [HarmonyStrategy::solve]?
     pub memo_springs: bool,
     pub min_keys: usize,
-    pub lower_notes_are_more_stable: bool,
+    pub lower_intervals_are_more_stable: bool,
     pub provider: HarmonySpringsProvider<T>,
 }
 
@@ -431,23 +423,25 @@ fn relative_semitones_in_solution_rows<T: IntervalBasis>(
 }
 
 impl<T: StackType> HarmonySprings<T> {
-    fn initialise<L: AtMost<KeyStateLevel>>(
+    fn initialise<L: AtMost<KeyStateLevel> + AtMost<StrategyConfigLevel>>(
         &mut self,
         mut adaptor: HarmonyAdaptor<T, Self, L>,
     ) -> HarmonyAdaptor<T, Self, L> {
         self.keys.clear();
         adaptor = adaptor.for_all_sounding_keys(|i, _, _| self.keys.push(i as u8));
 
-        self.provider.collect_connectors(
-            &self.keys,
-            self.lower_notes_are_more_stable,
-            &mut self.tmp,
-            &mut self.spring_setup.current_rods,
-            &mut self.spring_setup.current_springs,
-        );
+        (_, adaptor) = adaptor.config(|conf, _| {
+            conf.provider.collect_connectors(
+                &self.keys,
+                conf.lower_intervals_are_more_stable,
+                &mut self.tmp,
+                &mut self.spring_setup.current_rods,
+                &mut self.spring_setup.current_springs,
+            );
 
-        self.spring_setup
-            .update_memoed_springs(|d| self.provider.candidate_springs(d), self.memo_springs);
+            self.spring_setup
+                .update_memoed_springs(|d| conf.provider.candidate_springs(d), conf.memo_springs);
+        });
 
         self.relaxed = false;
         self.energy = Semitones::MAX;
@@ -699,23 +693,36 @@ impl<T: StackType> HarmonySprings<T> {
     }
 }
 
+impl<T: StackType, L: AtMost<StrategyConfigLevel>> HarmonyAdaptor<T, HarmonySprings<T>, L> {
+    fn config<R>(
+        self,
+        mut f: impl FnMut(
+            &HarmonySpringsConfig<T>,
+            HarmonyAdaptor<T, HarmonySprings<T>, Succ<ActiveStrategyIndexLevel>>,
+        ) -> R,
+    ) -> (R, Self) {
+        self.active_strategy(|conf, adaptor| match conf {
+            StrategyConfig::TwoStep {
+                harmony: HarmonyStrategyConfig::Springs(conf),
+                ..
+            } => f(conf, adaptor),
+            _ => panic!("Wrong type of strategy config: expected TwoStep with HarmonySprings"),
+        })
+    }
+}
+
 impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
     type Config = HarmonySpringsConfig<T>;
 
     type Msg = ToHarmonySprings;
 
-    fn new(config: HarmonySpringsConfig<T>) -> Self {
+    fn new(_config: HarmonySpringsConfig<T>) -> Self {
         let n = 10; // initial guess at how many keys we're playing simulatneously: both hands full.
         let big_n = n * (n - 1) / 2;
         Self {
-            enable: config.enable,
             keys: Vec::with_capacity(n),
-            memo_springs: config.memo_springs,
             spring_setup: SpringSetup::new(),
             solver: Solver::new(n, big_n, T::num_intervals()),
-            min_keys: config.min_keys,
-            lower_notes_are_more_stable: config.lower_notes_are_more_stable,
-            provider: config.provider,
             relaxed: false,
             energy: Energy::MAX,
             number_of_tries: 0,
@@ -743,17 +750,20 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
     ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
         self.number_of_tries = 0;
         (_, adaptor) = adaptor.harmony_mut(|h, _| *h = Harmony::None);
-        if !self.enable {
+        let enable;
+        let min_keys;
+        ((enable, min_keys), adaptor) = adaptor.config(|conf, _| (conf.enable, conf.min_keys));
+        if !enable {
             return (
                 HarmonyResult {
-                    finished: false,
+                    finished: true,
                     progress: false,
                 },
                 adaptor,
             );
         }
         adaptor = self.initialise(adaptor);
-        if self.keys.len() < self.min_keys {
+        if self.keys.len() < min_keys {
             self.computed_at_least_one_solution = false;
             return self.finish_solve(adaptor);
         }
@@ -775,11 +785,14 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
 
     fn step(
         &mut self,
-        adaptor: HarmonyAdaptor<T, Self, Zero>,
+        mut adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
+        let lower_intervals_are_more_stable;
+        (lower_intervals_are_more_stable, adaptor) =
+            adaptor.config(|conf, _| conf.lower_intervals_are_more_stable);
         if !self
             .spring_setup
-            .prepare_next_candidate(self.lower_notes_are_more_stable)
+            .prepare_next_candidate(lower_intervals_are_more_stable)
         {
             return self.finish_solve(adaptor);
         }
@@ -814,10 +827,11 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
         adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (Option<Instant>, HarmonyAdaptor<T, Self, Zero>) {
         match msg {
-            ToHarmonySprings::ToggleEnable { time } => {
-                self.enable = !self.enable;
+            ToHarmonySprings::ReloadSprings { time } => {
+                self.spring_setup.memoed_springs.clear();
                 (Some(time), adaptor)
             }
+            ToHarmonySprings::Recalculate { time } => (Some(time), adaptor),
         }
     }
 
@@ -845,10 +859,16 @@ mod test {
 
     use crate::{
         adaptors::ConcreteLocks,
-        config::{BackendConfig, Config},
+        config::{
+            BackendConfig, HarmonyStrategyConfig, MelodyHarmonyCoordinationConfig,
+            MelodyStrategyConfig, Config,
+        },
+        gui::r#trait::GuiTag,
         interval::stacktype::fivelimit::mock::MockFiveLimitStackType,
         keystate::KeyState,
         process::r#trait::{ProcessTag, StackWithTuning},
+        reference::Reference,
+        strategy::melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
         util::ordered_locks::{OrderedLocks, Zero},
     };
 
@@ -862,9 +882,7 @@ mod test {
             let (from_backend_tx, _) = mpsc::channel();
 
             const TEMPLATE_CONFIG: &'static str = include_str!("../../../configs/template.yaml");
-            let config: Config<MockFiveLimitStackType> =
-                serde_yml::from_str(TEMPLATE_CONFIG).unwrap();
-            // MockFiveLimitStackType::initialise(config.temperaments, config.named_intervals)?;
+            let template_config: Config<MockFiveLimitStackType> = serde_yml::from_str(TEMPLATE_CONFIG).unwrap();
 
             OrderedLocks::new(Arc::new(ConcreteLocks {
                 from_process_tx,
@@ -882,14 +900,35 @@ mod test {
                 }),
                 key_states: core::array::from_fn(|_| RwLock::new(KeyState::new(Instant::now()))),
                 reference: RwLock::new(Stack::new_zero()),
-                tuning_reference: RwLock::new(config.tuning_reference),
-                strategy_config: RwLock::new(config.strategies),
+                tuning_reference: RwLock::new(Reference::from_semitones(Stack::new_zero(), 60.0)),
+                strategy_config: RwLock::new(vec![StrategyConfig::TwoStep {
+                    bindings: BTreeMap::new(),
+                    name: "mock twostep".into(),
+                    description: "".into(),
+                    harmony: HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
+                        enable: true,
+                        min_keys: 1,
+                        memo_springs: true,
+                        lower_intervals_are_more_stable: true,
+                        provider: mock_provider(),
+                    }),
+                    melody: MelodyStrategyConfig::StaticNeighbourhoods(
+                        StaticNeighbourhoodsAsMelodyConfig {
+                            initial_reference: Stack::new_zero(),
+                            scales: vec![], // dummy initialisation: In the real world, this is never empty
+                        },
+                    ),
+                    melody_harmony_coordination: MelodyHarmonyCoordinationConfig {
+                        reanchor: true,
+                        group_ms: 100,
+                    },
+                }]),
                 active_strategy_index: RwLock::new(0),
                 harmony: RwLock::new(Harmony::None),
-                backend_config: RwLock::new(match config.backend {
+                backend_config: RwLock::new(match template_config.backend {
                     BackendConfig::Pitchbend12(c) => c,
                 }),
-                gui_config: RwLock::new(config.gui),
+                gui_config: RwLock::new(template_config.gui),
             }))
         }
     }
@@ -1004,7 +1043,7 @@ mod test {
             enable: true,
             min_keys: 1,
             memo_springs: true,
-            lower_notes_are_more_stable: true,
+            lower_intervals_are_more_stable: true,
             provider: mock_provider(),
         })
     }
@@ -1110,7 +1149,21 @@ mod test {
         });
 
         // now, D-E will be the major tone.
-        ws.lower_notes_are_more_stable = false;
+        {
+            let a: OrderedLocks<GuiTag, _, Zero> =
+                unsafe { OrderedLocks::new(adaptor.inner_arc()) };
+            a.active_strategy_mut(|conf, _| match conf {
+                StrategyConfig::TwoStep {
+                    harmony:
+                        HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
+                            lower_intervals_are_more_stable,
+                            ..
+                        }),
+                    ..
+                } => *lower_intervals_are_more_stable = false,
+                _ => panic!(),
+            });
+        }
         clear_keys!();
         set_note_on!(60);
         set_note_on!(62);
@@ -1126,7 +1179,22 @@ mod test {
             n
         },);
 
-        ws.lower_notes_are_more_stable = true;
+        // reset to lower intervals preferred again:
+        {
+            let a: OrderedLocks<GuiTag, _, Zero> =
+                unsafe { OrderedLocks::new(adaptor.inner_arc()) };
+            a.active_strategy_mut(|conf, _| match conf {
+                StrategyConfig::TwoStep {
+                    harmony:
+                        HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
+                            lower_intervals_are_more_stable,
+                            ..
+                        }),
+                    ..
+                } => *lower_intervals_are_more_stable = true,
+                _ => panic!(),
+            });
+        }
 
         // D-flat major seventh on C
         clear_keys!();
@@ -1209,10 +1277,20 @@ mod test {
         );
 
         // 69 chord with rods for fifhts
-        match &mut ws.provider {
-            HarmonySpringsProvider::Mod12 { by_class, .. } => {
-                by_class[7] = RodOrSprings::Rod(Stack::from_pure_interval(1, 1));
-            }
+        {
+            let a: OrderedLocks<GuiTag, _, Zero> =
+                unsafe { OrderedLocks::new(adaptor.inner_arc()) };
+            a.active_strategy_mut(|conf, _| match conf {
+                StrategyConfig::TwoStep {
+                    harmony:
+                        HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
+                            provider: HarmonySpringsProvider::Mod12 { by_class, .. },
+                            ..
+                        }),
+                    ..
+                } => by_class[7] = RodOrSprings::Rod(Stack::from_pure_interval(1, 1)),
+                _ => panic!(),
+            });
         }
         solve!();
         assert!(ws.energy > epsilon);
@@ -1251,10 +1329,20 @@ mod test {
         );
 
         // 69 chord with rods for fifhts (set above) and fourths. This forces a pythagorean third.
-        match &mut ws.provider {
-            HarmonySpringsProvider::Mod12 { by_class, .. } => {
-                by_class[5] = RodOrSprings::Rod(Stack::from_target(arr1(&[1, -1, 0])))
-            }
+        {
+            let a: OrderedLocks<GuiTag, _, Zero> =
+                unsafe { OrderedLocks::new(adaptor.inner_arc()) };
+            a.active_strategy_mut(|conf, _| match conf {
+                StrategyConfig::TwoStep {
+                    harmony:
+                        HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
+                            provider: HarmonySpringsProvider::Mod12 { by_class, .. },
+                            ..
+                        }),
+                    ..
+                } => by_class[5] = RodOrSprings::Rod(Stack::from_target(arr1(&[1, -1, 0]))),
+                _ => panic!(),
+            });
         }
         solve!();
         assert!(ws.energy > epsilon);

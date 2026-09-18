@@ -8,14 +8,10 @@ use crate::{
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
     gui::{
         common::{
-            show_list_edit, show_list_picker, ListEditOpts, ListEditResult, SmallFloatingWindow,
+            ListEditOpts, ListEditResult, SmallFloatingWindow, show_list_edit, show_list_picker
         },
         editor::{
-            binding::BindingEditor,
-            chordlist::{ChordListEditor, ChordListEditorResult},
-            reference::ReferenceEditor,
-            scale::{ScaleEditor, ScaleEditorResult},
-            twostep::TwoStepEditor,
+            binding::BindingEditor, chordlist::{ChordListEditor, ChordListEditorResult}, harmony_springs::HarmonySpringsEditor, reference::ReferenceEditor, scale::{ScaleEditor, ScaleEditorResult}, twostep::TwoStepEditor
         },
         r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     },
@@ -244,6 +240,7 @@ pub struct StrategyWidgets<T: StackType> {
     initial_reference_editor: ReferenceEditor<T>,
     scale_editor: ScaleEditor,
     chord_list_editor: ChordListEditor<T>,
+    harmony_springs_editor: HarmonySpringsEditor<T>,
     twostep_editor: TwoStepEditor,
 }
 
@@ -255,6 +252,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
             binding_editor_widget: BindingEditorWidget::new(),
             scale_editor: ScaleEditor::new(),
             chord_list_editor: ChordListEditor::new(),
+            harmony_springs_editor: HarmonySpringsEditor::new(),
             twostep_editor: TwoStepEditor::new(),
         }
     }
@@ -431,6 +429,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T
         adaptor = self.binding_editor_widget.show(ui, adaptor);
         adaptor = self.show_scale_editor(ui, adaptor);
         adaptor = self.show_chord_list_editor(ui, adaptor);
+        adaptor = self.harmony_springs_editor.show(ui, adaptor);
         self.twostep_editor.show(ui, adaptor)
     }
 }

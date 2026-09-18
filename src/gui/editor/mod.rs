@@ -1,6 +1,7 @@
 pub mod binding;
 pub mod chordlist;
 pub mod commas;
+pub mod harmony_springs;
 pub mod reference;
 pub mod scale;
 pub mod temperament;

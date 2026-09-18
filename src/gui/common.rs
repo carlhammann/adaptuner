@@ -287,12 +287,13 @@ pub fn rational_drag_value(ui: &mut egui::Ui, id: egui::Id, value: &mut Ratio<St
     false
 }
 
+/// returns true on change
 pub fn note_picker<T: StackType>(
     ui: &mut egui::Ui,
     tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
     stack: &mut Stack<T>,
-) {
+) -> bool {
     ui.vertical(|ui| {
         let mut target_changed = false;
         ui.horizontal(|ui| {
@@ -312,8 +313,11 @@ pub fn note_picker<T: StackType>(
 
         ui.label("tempered with:");
 
-        temperament_applier(None {}, ui, tmp_correction, stack);
-    });
+        let temperament_changed = temperament_applier(None {}, ui, tmp_correction, stack);
+
+        target_changed || temperament_changed
+    })
+    .inner
 }
 
 /// returns true on change

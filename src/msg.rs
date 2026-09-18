@@ -120,7 +120,8 @@ pub enum ToChordList {
 }
 
 pub enum ToHarmonySprings {
-    ToggleEnable { time: Instant },
+    ReloadSprings { time: Instant },
+    Recalculate { time: Instant },
 }
 
 pub enum ToStaticNeighbourhoods {

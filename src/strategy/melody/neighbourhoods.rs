@@ -25,6 +25,7 @@ use crate::{
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct StaticNeighbourhoodsAsMelodyConfig<T: IntervalBasis> {
+    /// This Vec must never be empty
     pub scales: Vec<Named<SomeCompleteNeighbourhood<T>>>,
     pub initial_reference: Stack<T>,
 }
