@@ -19,7 +19,10 @@ use crate::{
         r#trait::{Gui, GuiShow, ReceiveToUiRef, UiAdaptor},
         strategy::StrategyWidgets,
     },
-    interval::stacktype::r#trait::{OctavePeriodicStackType, Reloadable, StackType},
+    interval::{
+        fundamental::{HasFundamental, HasOvertone},
+        stacktype::r#trait::{OctavePeriodicStackType, Reloadable, StackType},
+    },
     msg::{FromUi, ReceiveMsg, ToUi},
     notename::HasNoteNames,
     util::ordered_locks::Zero,
@@ -349,7 +352,7 @@ where
     }
 }
 
-impl<T: StackType> ReceiveMsg<ToUi<T>> for TopLevelGui<T> {
+impl<T: StackType + HasFundamental + HasOvertone> ReceiveMsg<ToUi<T>> for TopLevelGui<T> {
     fn receive_msg(&mut self, msg: ToUi<T>) {
         take_replace(&mut self.adaptor, |mut adaptor| {
             adaptor = self.lattice.receive_to_ui_ref(&msg, adaptor);
@@ -365,7 +368,13 @@ impl<T: StackType> ReceiveMsg<ToUi<T>> for TopLevelGui<T> {
 
 impl<T> Gui<T> for TopLevelGui<T>
 where
-    T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
+    T: OctavePeriodicStackType
+        + HasNoteNames
+        + HasOvertone
+        + HasFundamental
+        + Serialize
+        + for<'a> Deserialize<'a>
+        + Reloadable,
 {
     fn new(adaptor: UiAdaptor<T, Zero>) -> Self {
         let latency_mean_over = adaptor.config().latency_mean_over;

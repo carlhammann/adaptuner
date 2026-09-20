@@ -10,6 +10,7 @@ use crate::{
     gui::r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     interval::{
         base::Semitones,
+        fundamental::{fundamental_or_overtone, HasFundamental, HasOvertone},
         stack::Stack,
         stacktype::r#trait::{StackCoeff, StackType},
     },
@@ -40,6 +41,7 @@ enum HarmonyNotification<T: StackType> {
         // The reference might be unknown, if no currently active scale can be determined.
         m_reference: Option<Stack<T>>,
         number_of_tries: u64,
+        is_utonal: bool,
     },
 }
 
@@ -162,18 +164,27 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
             HarmonyNotification::SpringSolution {
                 m_reference,
                 number_of_tries,
+                is_utonal,
             } => {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label("spring tuning");
                     if let Some(reference) = m_reference {
-                        ui.label(" on ");
+                        if *is_utonal {
+                            ui.label(" on ");
+                        } else {
+                            ui.label(" below ");
+                        }
                         ui.strong(reference.corrected_notename(
                             &NoteNameStyle::Full,
                             adaptor.config().use_cent_values,
                         ));
                     }
-                    ui.label(format!(" (try {number_of_tries})"));
+                    if *number_of_tries > 1 {
+                        ui.label(format!(" ({number_of_tries} tries)"));
+                    } else {
+                        ui.label(" (1 try)");
+                    }
                 });
             }
         }
@@ -206,7 +217,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
     }
 }
 
-impl<T: StackType> ReceiveToUiRef<T> for Notifications<T> {
+impl<T: StackType + HasFundamental + HasOvertone> ReceiveToUiRef<T> for Notifications<T> {
     fn receive_to_ui_ref(
         &mut self,
         msg: &ToUi<T>,
@@ -233,27 +244,32 @@ impl<T: StackType> ReceiveToUiRef<T> for Notifications<T> {
                     Instant::now(),
                 ));
             }
-            ToUi::UpdateHarmony {} => {
+            ToUi::UpdateHarmony => {
                 (_, adaptor) = adaptor.harmony(|harmony, adaptor| match harmony {
                     Harmony::None => self.harmony = (HarmonyNotification::None, Instant::now()),
                     Harmony::SpringSolution {
                         lowest_key,
                         number_of_tries,
-                        ..
+                        neighbourhood,
                     } => {
+                        let (is_utonal, reference_offset_stack) =
+                            fundamental_or_overtone(&neighbourhood);
+                        let reference_key =
+                            *lowest_key as StackCoeff + reference_offset_stack.key_distance();
                         if let Some(scale_index) = self.scale_index.0 {
                             adaptor.scales(|m_scales, adaptor| match m_scales {
                                 Some(scales) => {
                                     adaptor.reference(|adaptor_reference, _| {
-                                        let reference_stack =
-                                            scales[scale_index].named.get_absolute_stack(
-                                                *lowest_key as StackCoeff,
-                                                adaptor_reference,
-                                            );
                                         self.harmony = (
                                             HarmonyNotification::SpringSolution {
-                                                m_reference: Some(reference_stack),
+                                                m_reference: Some(
+                                                    scales[scale_index].named.get_absolute_stack(
+                                                        reference_key as StackCoeff,
+                                                        adaptor_reference,
+                                                    ),
+                                                ),
                                                 number_of_tries: *number_of_tries,
+                                                is_utonal,
                                             },
                                             Instant::now(),
                                         )
@@ -264,6 +280,7 @@ impl<T: StackType> ReceiveToUiRef<T> for Notifications<T> {
                                         HarmonyNotification::SpringSolution {
                                             m_reference: None {},
                                             number_of_tries: *number_of_tries,
+                                            is_utonal,
                                         },
                                         Instant::now(),
                                     );
@@ -274,6 +291,7 @@ impl<T: StackType> ReceiveToUiRef<T> for Notifications<T> {
                                 HarmonyNotification::SpringSolution {
                                     m_reference: None {},
                                     number_of_tries: *number_of_tries,
+                                    is_utonal,
                                 },
                                 Instant::now(),
                             );

@@ -1,7 +1,13 @@
-use crate::interval::{stack::Stack, stacktype::r#trait::StackType};
+use crate::{
+    interval::{
+        stack::Stack,
+        stacktype::r#trait::{IntervalBasis, StackCoeff},
+    },
+    neighbourhood::{self, Neighbourhood},
+};
 
-pub trait HasFundamental: StackType {
-    /// Like [HasFundamental::fundamental], but mutating the second argument to become the
+pub trait HasFundamental: IntervalBasis {
+    /// Like [Self::fundamental], but mutating the second argument to become the
     /// fundamental.
     fn fundamental_inplace(a: &Stack<Self>, b: &mut Stack<Self>);
 
@@ -24,7 +30,7 @@ pub trait HasFundamental: StackType {
         res
     }
 
-    /// Like [HasFundamental::fundamental_many], but with an output argument that is mutated. The
+    /// Like [Self::fundamental_many], but with an output argument that is mutated. The
     /// `res` argument will also be one of the overtones.
     fn fundamental_many_inplace<'a, I>(notes: I, res: &mut Stack<Self>)
     where
@@ -36,7 +42,7 @@ pub trait HasFundamental: StackType {
         }
     }
 
-    /// Compute the fundamental of many notes. 
+    /// Compute the fundamental of many notes.
     ///
     /// Will panic if `notes` doesn't contain at least one element.
     fn fundamental_many<'a, I>(mut notes: I) -> Stack<Self>
@@ -47,5 +53,57 @@ pub trait HasFundamental: StackType {
         let mut res = notes.next().expect("fundamental_many: no notes").clone();
         Self::fundamental_many_inplace(notes, &mut res);
         res
+    }
+}
+
+/// Like [HasFundamental], only for the lowest common overtone.
+pub trait HasOvertone: IntervalBasis {
+    fn overtone_inplace(a: &Stack<Self>, b: &mut Stack<Self>);
+    fn overtone(a: &Stack<Self>, b: &Stack<Self>) -> Stack<Self> {
+        let mut res = b.clone();
+        Self::overtone_inplace(a, &mut res);
+        res
+    }
+    fn overtone_many_inplace<'a, I>(notes: I, res: &mut Stack<Self>)
+    where
+        I: Iterator<Item = &'a Stack<Self>>,
+        Self: 'a,
+    {
+        for note in notes {
+            Self::overtone_inplace(note, res);
+        }
+    }
+    fn overtone_many<'a, I>(mut notes: I) -> Stack<Self>
+    where
+        I: Iterator<Item = &'a Stack<Self>>,
+        Self: 'a,
+    {
+        let mut res = notes.next().expect("overtone_many: no notes").clone();
+        Self::overtone_many_inplace(notes, &mut res);
+        res
+    }
+}
+
+/// Returns an overtone or fundamental of all notes in the given neighbourhood, whichever is closest
+/// (on the keyboard)
+/// to the topmost or bottommost note. If both distances are the same, a fundamental is returned.
+///
+/// `true` means fundamental, `false` means overtone.
+pub fn fundamental_or_overtone<T: HasFundamental + HasOvertone>(
+    neigh: &neighbourhood::Partial<T>,
+) -> (bool, Stack<T>) {
+    let fundamental = T::fundamental_many(neigh.iter().map(|x| x.1));
+    let overtone = T::overtone_many(neigh.iter().map(|x| x.1));
+    let mut lowest_key = StackCoeff::MAX;
+    let mut highest_key = StackCoeff::MIN;
+    neigh.for_each_stack(|_, stack| {
+        let x = stack.key_number();
+        lowest_key = lowest_key.min(x);
+        highest_key = highest_key.max(x);
+    });
+    if (overtone.key_number() - highest_key) < (lowest_key - fundamental.key_number()) {
+        (false, overtone)
+    } else {
+        (true, fundamental)
     }
 }

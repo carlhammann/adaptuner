@@ -6,7 +6,7 @@ use crate::{
     adaptors::{ConcreteLocks, take_replace},
     bindable::{BindableEvent, BindableProcessAction},
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
-    interval::stacktype::r#trait::StackType,
+    interval::{fundamental::{HasFundamental, HasOvertone}, stacktype::r#trait::StackType},
     msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy},
     process::r#trait::ProcessAdaptor,
     strategy::{
@@ -72,7 +72,7 @@ pub struct ProcessFromStrategy<T: StackType> {
 
 impl<T> ProcessFromStrategy<T>
 where
-    T: StackType + Send + Sync,
+    T: StackType + Send + Sync + HasFundamental + HasOvertone,
 {
     pub fn new(adaptor: ProcessAdaptor<T, Zero>) -> Self {
         Self {
@@ -370,7 +370,7 @@ where
 
 impl<T> ReceiveMsg<ToProcess<T>> for ProcessFromStrategy<T>
 where
-    T: StackType + fmt::Debug + Send + Sync,
+    T: StackType + fmt::Debug + Send + Sync + HasOvertone + HasFundamental,
 {
     fn receive_msg(&mut self, msg: ToProcess<T>) {
         match msg {

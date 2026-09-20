@@ -647,14 +647,12 @@ impl<T: StackType> ReceiveToUiRef<T> for ChordListEditor<T> {
         mut adaptor: UiAdaptor<T, Zero>,
     ) -> UiAdaptor<T, Zero> {
         match msg {
-            ToUi::UpdateHarmony {} => {
+            ToUi::UpdateHarmony { .. } => {
                 (_, adaptor) = adaptor.harmony(|harmony, _| match harmony {
                     Harmony::MatchedChord { pattern_index, .. } => {
                         self.active_pattern = Some(*pattern_index)
                     }
-                    Harmony::None | Harmony::SpringSolution { .. } => {
-                        self.active_pattern = None {}
-                    }
+                    Harmony::None | Harmony::SpringSolution { .. } => self.active_pattern = None {},
                 });
             }
 

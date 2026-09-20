@@ -24,6 +24,8 @@ pub enum Harmony<T: IntervalBasis> {
         pattern_index: usize,
     },
     SpringSolution {
+        /// The intervals to the note played by the `lowest_key`. Will always contain a zero
+        /// [Stack] for the zeroth entry, corresponding the the note of the `lowest_key`.
         neighbourhood: Partial<T>,
         lowest_key: u8,
         number_of_tries: u64,

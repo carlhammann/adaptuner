@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     ops::Deref,
-    sync::{LazyLock},
+    sync::LazyLock,
 };
 
 use parking_lot::RwLock;
@@ -11,6 +11,8 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::interval::{
     base::{Interval, Semitones},
+    fundamental::{HasFundamental, HasOvertone},
+    stack::Stack,
     stacktype::r#trait::{
         FiveLimitIntervalBasis, IntervalBasis, OctavePeriodicIntervalBasis, PeriodicIntervalBasis,
         StackCoeff, StackType,
@@ -180,6 +182,50 @@ impl OctavePeriodicIntervalBasis for TheFiveLimitStackType {}
 
 impl OctavePeriodicStackType for TheFiveLimitStackType {}
 
+impl<T: FiveLimitIntervalBasis> HasFundamental for T {
+    fn fundamental_inplace(a: &Stack<Self>, b: &mut Stack<Self>) {
+        let twos = (b.target[Self::octave_index()]
+            - b.target[Self::fifth_index()]
+            - 2 * b.target[Self::third_index()])
+        .min(
+            a.target[Self::octave_index()]
+                - a.target[Self::fifth_index()]
+                - 2 * a.target[Self::third_index()],
+        );
+        let threes = (b.target[Self::fifth_index()]).min(a.target[Self::fifth_index()]);
+        let fives = (b.target[Self::third_index()]).min(a.target[Self::third_index()]);
+
+        b.increment_at_index_pure(
+            Self::octave_index(),
+            (twos + threes + 2 * fives) - b.target[Self::octave_index()],
+        );
+        b.increment_at_index_pure(Self::fifth_index(), threes - b.target[Self::fifth_index()]);
+        b.increment_at_index_pure(Self::third_index(), fives - b.target[Self::third_index()]);
+    }
+}
+
+impl<T: FiveLimitIntervalBasis> HasOvertone for T {
+    fn overtone_inplace(a: &Stack<Self>, b: &mut Stack<Self>) {
+        let twos = (b.target[Self::octave_index()]
+            - b.target[Self::fifth_index()]
+            - 2 * b.target[Self::third_index()])
+        .max(
+            a.target[Self::octave_index()]
+                - a.target[Self::fifth_index()]
+                - 2 * a.target[Self::third_index()],
+        );
+        let threes = (b.target[Self::fifth_index()]).max(a.target[Self::fifth_index()]);
+        let fives = (b.target[Self::third_index()]).max(a.target[Self::third_index()]);
+
+        b.increment_at_index_pure(
+            Self::octave_index(),
+            (twos + threes + 2 * fives) - b.target[Self::octave_index()],
+        );
+        b.increment_at_index_pure(Self::fifth_index(), threes - b.target[Self::fifth_index()]);
+        b.increment_at_index_pure(Self::third_index(), fives - b.target[Self::third_index()]);
+    }
+}
+
 #[cfg(test)]
 pub mod mock {
     use std::sync::LazyLock;
@@ -188,8 +234,6 @@ pub mod mock {
 
     use crate::interval::{
         base::Interval,
-        fundamental::HasFundamental,
-        stack::Stack,
         stacktype::r#trait::{
             FiveLimitIntervalBasis, OctavePeriodicIntervalBasis, PeriodicIntervalBasis, StackCoeff,
             StackType,
@@ -241,7 +285,11 @@ pub mod mock {
                     "syntonic comma".into(),
                     "s".into(),
                 ),
-                NamedInterval::new(arr1(&[1.into(), 0.into(), 0.into()]), "octave".into(), "o".into()),
+                NamedInterval::new(
+                    arr1(&[1.into(), 0.into(), 0.into()]),
+                    "octave".into(),
+                    "o".into(),
+                ),
             ]
         });
 
@@ -331,49 +379,24 @@ pub mod mock {
     }
 
     impl OctavePeriodicIntervalBasis for MockFiveLimitStackType {}
-
-    impl HasFundamental for MockFiveLimitStackType {
-        fn fundamental_inplace(a: &Stack<Self>, b: &mut Stack<Self>) {
-            let mut exponents = [0, 0, 0];
-
-            exponents[0] += a.target[Self::octave_index()];
-            exponents[1] += a.target[Self::fifth_index()];
-            exponents[0] -= a.target[Self::fifth_index()];
-            exponents[2] += a.target[Self::third_index()];
-            exponents[0] -= a.target[Self::third_index()] * 2;
-
-            exponents[0] -= b.target[Self::octave_index()];
-            exponents[1] -= b.target[Self::fifth_index()];
-            exponents[0] += b.target[Self::fifth_index()];
-            exponents[2] -= b.target[Self::third_index()];
-            exponents[0] += b.target[Self::third_index()] * 2;
-
-            for n in exponents.iter_mut() {
-                if *n > 0 {
-                    *n = 0;
-                }
-            }
-
-            exponents[0] += exponents[1];
-            exponents[0] += exponents[2] * 2;
-
-            b.increment_at_index_pure(Self::octave_index(), exponents[0]);
-            b.increment_at_index_pure(Self::fifth_index(), exponents[1]);
-            b.increment_at_index_pure(Self::third_index(), exponents[2]);
-        }
-    }
 }
 
 #[cfg(test)]
 mod test {
     use super::mock::*;
-    use crate::interval::{fundamental::HasFundamental, stack::Stack};
+    use crate::{
+        interval::{
+            fundamental::{fundamental_or_overtone, HasFundamental, HasOvertone},
+            stack::Stack,
+        },
+        neighbourhood::{self, Neighbourhood},
+    };
     use pretty_assertions::assert_eq;
 
     #[test]
     fn test_target_fundamental() {
         assert_eq!(
-            <MockFiveLimitStackType as HasFundamental>::fundamental(
+            <MockFiveLimitStackType>::fundamental(
                 &Stack::from_target(vec![0, 0, 0]),
                 &Stack::from_target(vec![0, 0, 0])
             ),
@@ -381,7 +404,7 @@ mod test {
         );
 
         assert_eq!(
-            <MockFiveLimitStackType as HasFundamental>::fundamental(
+            <MockFiveLimitStackType>::fundamental(
                 &Stack::from_target(vec![0, 0, 0]),
                 &Stack::from_target(vec![1, 0, 0])
             ),
@@ -389,7 +412,7 @@ mod test {
         );
 
         assert_eq!(
-            <MockFiveLimitStackType as HasFundamental>::fundamental(
+            <MockFiveLimitStackType>::fundamental(
                 &Stack::from_target(vec![1, 0, 0]),
                 &Stack::from_target(vec![0, 0, 0])
             ),
@@ -397,7 +420,7 @@ mod test {
         );
 
         assert_eq!(
-            <MockFiveLimitStackType as HasFundamental>::fundamental(
+            <MockFiveLimitStackType>::fundamental(
                 &Stack::from_target(vec![0, 0, 0]),
                 &Stack::from_target(vec![1, 1, 0])
             ),
@@ -405,7 +428,7 @@ mod test {
         );
 
         assert_eq!(
-            <MockFiveLimitStackType as HasFundamental>::fundamental(
+            <MockFiveLimitStackType>::fundamental(
                 &Stack::from_target(vec![0, 0, 0]),
                 &Stack::from_target(vec![2, 0, 1])
             ),
@@ -413,7 +436,7 @@ mod test {
         );
 
         assert_eq!(
-            <MockFiveLimitStackType as HasFundamental>::fundamental(
+            <MockFiveLimitStackType>::fundamental(
                 &Stack::from_target(vec![0, 0, 0]),
                 &Stack::from_target(vec![0, 0, 1])
             ),
@@ -421,7 +444,7 @@ mod test {
         );
 
         assert_eq!(
-            <MockFiveLimitStackType as HasFundamental>::fundamental(
+            <MockFiveLimitStackType>::fundamental(
                 &Stack::from_target(vec![0, 1, 0]),
                 &Stack::from_target(vec![0, 0, 1])
             ),
@@ -429,7 +452,7 @@ mod test {
         );
 
         assert_eq!(
-            <MockFiveLimitStackType as HasFundamental>::fundamental(
+            <MockFiveLimitStackType>::fundamental(
                 &Stack::from_target(vec![0, 0, 0]),
                 &Stack::from_target(vec![-1, 2, 0])
             ),
@@ -437,7 +460,7 @@ mod test {
         );
 
         assert_eq!(
-            <MockFiveLimitStackType as HasFundamental>::fundamental(
+            <MockFiveLimitStackType>::fundamental(
                 &Stack::from_target(vec![0, -1, 0]),
                 &Stack::from_target(vec![0, 0, 1])
             ),
@@ -445,11 +468,122 @@ mod test {
         );
 
         assert_eq!(
-            <MockFiveLimitStackType as HasFundamental>::fundamental(
+            <MockFiveLimitStackType>::fundamental(
                 &Stack::from_target(vec![0, -1, 0]),
                 &Stack::from_target(vec![1, -1, 0])
             ),
             Stack::from_target(vec![0, -1, 0])
+        );
+    }
+
+    #[test]
+    fn test_target_overtone() {
+        assert_eq!(
+            <MockFiveLimitStackType>::overtone(
+                &Stack::from_target(vec![0, 0, 0]),
+                &Stack::from_target(vec![0, 0, 0])
+            ),
+            Stack::from_target(vec![0, 0, 0])
+        );
+
+        assert_eq!(
+            <MockFiveLimitStackType>::overtone(
+                &Stack::from_target(vec![0, 0, 0]),
+                &Stack::from_target(vec![1, 0, 0])
+            ),
+            Stack::from_target(vec![1, 0, 0])
+        );
+
+        assert_eq!(
+            <MockFiveLimitStackType>::overtone(
+                &Stack::from_target(vec![1, 0, 0]),
+                &Stack::from_target(vec![0, 0, 0])
+            ),
+            Stack::from_target(vec![1, 0, 0])
+        );
+
+        assert_eq!(
+            <MockFiveLimitStackType>::overtone(
+                &Stack::from_target(vec![0, 0, 0]),
+                &Stack::from_target(vec![1, 1, 0])
+            ),
+            Stack::from_target(vec![1, 1, 0])
+        );
+
+        assert_eq!(
+            <MockFiveLimitStackType>::overtone(
+                &Stack::from_target(vec![0, 0, 0]),
+                &Stack::from_target(vec![2, 0, 1])
+            ),
+            Stack::from_target(vec![2, 0, 1])
+        );
+
+        assert_eq!(
+            <MockFiveLimitStackType>::overtone(
+                &Stack::from_target(vec![0, 0, 0]),
+                &Stack::from_target(vec![0, 0, 1])
+            ),
+            Stack::from_target(vec![2, 0, 1])
+        );
+
+        assert_eq!(
+            <MockFiveLimitStackType>::overtone(
+                &Stack::from_target(vec![0, 1, 0]),
+                &Stack::from_target(vec![0, 0, 1])
+            ),
+            Stack::from_target(vec![2, 1, 1])
+        );
+
+        assert_eq!(
+            <MockFiveLimitStackType>::overtone(
+                &Stack::from_target(vec![0, 1, 0]),
+                &Stack::from_target(vec![0, 1, -1])
+            ),
+            Stack::from_target(vec![2, 1, 0])
+        );
+
+        assert_eq!(
+            <MockFiveLimitStackType>::overtone(
+                &Stack::from_target(vec![0, 0, 0]),
+                &Stack::from_target(vec![-1, 2, 0])
+            ),
+            Stack::from_target(vec![2, 2, 0])
+        );
+    }
+
+    #[test]
+    fn test_fundamental_or_overtone() {
+        let mut n = neighbourhood::Partial::<MockFiveLimitStackType>::new();
+
+        // major third
+        n.insert(&Stack::from_target(vec![0, 0, 0]));
+        n.insert(&Stack::from_target(vec![0, 0, 1]));
+        assert_eq!(
+            fundamental_or_overtone(&n),
+            (true, Stack::from_target(vec![-2, 0, 0]))
+        );
+       
+        // major chord
+        n.insert(&Stack::from_target(vec![0, 1, 0]));
+        assert_eq!(
+            fundamental_or_overtone(&n),
+            (true, Stack::from_target(vec![-2, 0, 0]))
+        );
+
+        // minor third
+        n.clear();
+        n.insert(&Stack::from_target(vec![0, 0, 0]));
+        n.insert(&Stack::from_target(vec![0, 1, -1]));
+        assert_eq!(
+            fundamental_or_overtone(&n),
+            (true, Stack::from_target(vec![-2, 0, -1]))
+        );
+
+        // minor chord
+        n.insert(&Stack::from_target(vec![0, 1, 0]));
+        assert_eq!(
+            fundamental_or_overtone(&n),
+            (false, Stack::from_target(vec![2, 1, 0]))
         );
     }
 }

@@ -9,11 +9,14 @@ use crate::{
     bindable::BindableStrategyAction,
     config::{IsMelodyStrategyConfig, MelodyStrategyConfig, Named, StrategyConfig},
     interval::{
-        stack::Stack,
+        fundamental::{fundamental_or_overtone, HasFundamental, HasOvertone},
+        stack::{ScaledAdd, Stack},
         stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
     },
     msg::{FromStrategy, ToMelody, ToStaticNeighbourhoodsAsMelody},
-    neighbourhood::{CompleteNeighbourhood, Neighbourhood, SomeCompleteNeighbourhood},
+    neighbourhood::{
+        CompleteNeighbourhood, Neighbourhood, Partial, SomeCompleteNeighbourhood, SomeNeighbourhood,
+    },
     strategy::{
         harmony::r#trait::Harmony,
         melody::r#trait::{MelodyAdaptor, MelodyStrategy},
@@ -50,7 +53,7 @@ impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyCon
     }
 }
 
-impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
+impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T> {
     fn tune_without_harmony<L>(
         &mut self,
         time: Instant,
@@ -59,7 +62,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     where
         L: AtMost<KeyStateLevel>,
     {
-        adaptor.send(FromStrategy::UpdateHarmony {});
+        adaptor.send(FromStrategy::UpdateHarmony);
         adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
             self.tmp_stack.clone_from(&the_tuning.stack);
             (_, adaptor) = adaptor.reference(|reference, _| {
@@ -87,49 +90,77 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         })
     }
 
-    /// The harmony argument must never be [Harmony::None]
-    fn tune_with_valid_harmony<L>(
+    fn tune_with_spring_harmony<L>(
         &mut self,
         time: Instant,
-        harmony: &Harmony<T>,
+        neighbourhood: &Partial<T>,
+        lowest_key: u8,
         adaptor: MelodyAdaptor<T, Self, L>,
     ) -> MelodyAdaptor<T, Self, L>
     where
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
-        adaptor.send(FromStrategy::UpdateHarmony {});
+        let (_, reference_offset_stack) = fundamental_or_overtone(neighbourhood);
+        let reference_key = lowest_key as StackCoeff + reference_offset_stack.key_distance();
+        adaptor.send(FromStrategy::UpdateHarmony);
         adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
             self.tmp_stack.clone_from(&the_tuning.stack);
-            let (relative_tuning_from_harmony, harmony_reference_key) = match harmony {
-                Harmony::MatchedChord {
-                    neighbourhood,
-                    reference_key,
-                    ..
-                } => (
-                    neighbourhood.try_write_relative_stack(
-                        &mut the_tuning.stack,
-                        i as StackCoeff - reference_key,
-                    ),
-                    *reference_key,
-                ),
-                Harmony::SpringSolution {
-                    neighbourhood,
-                    lowest_key,
-                    ..
-                } => (
-                    neighbourhood.try_write_relative_stack(
-                        &mut the_tuning.stack,
-                        i as StackCoeff - *lowest_key as StackCoeff,
-                    ),
-                    *lowest_key as StackCoeff,
-                ),
-                Harmony::None => panic!(),
-            };
-            if relative_tuning_from_harmony {
+            if neighbourhood.try_write_relative_stack(
+                &mut the_tuning.stack,
+                i as StackCoeff - lowest_key as StackCoeff,
+            ) {
                 (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
                     self.scales[self.curr_scale_index].increment_by_absolute_stack(
                         &mut the_tuning.stack,
-                        harmony_reference_key,
+                        reference_key,
+                        adaptor_reference,
+                    )
+                });
+                the_tuning.stack.scaled_add(-1, &reference_offset_stack)
+            } else {
+                (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
+                    self.scales[self.curr_scale_index].write_absolute_stack(
+                        &mut the_tuning.stack,
+                        i as StackCoeff,
+                        adaptor_reference,
+                    )
+                });
+            }
+
+            let mut retune = self.tmp_stack != the_tuning.stack;
+            let c4_semitones;
+            (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
+            let new_semitones = the_tuning.stack.absolute_semitones(c4_semitones);
+            if new_semitones != the_tuning.semitones {
+                the_tuning.semitones = new_semitones;
+                retune = true;
+            }
+            if retune {
+                adaptor.send(FromStrategy::Retune {
+                    note: i as u8,
+                    time,
+                });
+            }
+        })
+    }
+
+    fn tune_with_matched_chord<L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>>(
+        &mut self,
+        time: Instant,
+        neighbourhood: &SomeNeighbourhood<T>,
+        reference_key: StackCoeff,
+        adaptor: MelodyAdaptor<T, Self, L>,
+    ) -> MelodyAdaptor<T, Self, L> {
+        adaptor.send(FromStrategy::UpdateHarmony);
+        adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
+            self.tmp_stack.clone_from(&the_tuning.stack);
+            if neighbourhood
+                .try_write_relative_stack(&mut the_tuning.stack, i as StackCoeff - reference_key)
+            {
+                (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
+                    self.scales[self.curr_scale_index].increment_by_absolute_stack(
+                        &mut the_tuning.stack,
+                        reference_key,
                         adaptor_reference,
                     )
                 });
@@ -169,9 +200,16 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         L: AtMost<HarmonyLevel>, // for the called sub-methods: + AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
         (_, adaptor) = adaptor.harmony(|harmony, adaptor| match harmony {
-            Harmony::SpringSolution { .. } | Harmony::MatchedChord { .. } => {
-                self.tune_with_valid_harmony(time, &harmony, adaptor)
-            }
+            Harmony::SpringSolution {
+                neighbourhood,
+                lowest_key,
+                ..
+            } => self.tune_with_spring_harmony(time, &neighbourhood, *lowest_key, adaptor),
+            Harmony::MatchedChord {
+                neighbourhood,
+                reference_key,
+                ..
+            } => self.tune_with_matched_chord(time, &neighbourhood, *reference_key, adaptor),
             Harmony::None => self.tune_without_harmony(time, adaptor),
         });
         adaptor
@@ -205,7 +243,16 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
         adaptor.harmony(|harmony, adaptor| {
             let harmony_reference_key = match harmony {
                 Harmony::MatchedChord { reference_key, .. } => Some(*reference_key),
-                Harmony::SpringSolution { lowest_key, .. } => Some(*lowest_key as StackCoeff),
+                Harmony::SpringSolution {
+                    lowest_key,
+                    neighbourhood,
+                    ..
+                } => {
+                    let (_, reference_offset_stack) = fundamental_or_overtone(&neighbourhood);
+                    let reference_key =
+                        *lowest_key as StackCoeff + reference_offset_stack.key_distance();
+                    Some(reference_key)
+                }
                 Harmony::None => None {},
             };
 
@@ -300,7 +347,7 @@ impl<T: StackType> StaticNeighbourhoodsAsMelody<T> {
     }
 }
 
-impl<T: StackType, L: AtMost<StrategyConfigLevel>>
+impl<T: StackType + HasFundamental + HasOvertone, L: AtMost<StrategyConfigLevel>>
     MelodyAdaptor<T, StaticNeighbourhoodsAsMelody<T>, L>
 {
     fn config<R>(
@@ -322,7 +369,9 @@ impl<T: StackType, L: AtMost<StrategyConfigLevel>>
     }
 }
 
-impl<T: StackType> MelodyStrategy<T> for StaticNeighbourhoodsAsMelody<T> {
+impl<T: StackType + HasOvertone + HasFundamental> MelodyStrategy<T>
+    for StaticNeighbourhoodsAsMelody<T>
+{
     type Config = StaticNeighbourhoodsAsMelodyConfig<T>;
 
     type Msg = ToStaticNeighbourhoodsAsMelody<T>;

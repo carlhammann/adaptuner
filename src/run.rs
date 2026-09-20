@@ -22,6 +22,7 @@ use crate::{
     },
     interval::{
         base::Semitones,
+        fundamental::{HasFundamental, HasOvertone},
         stack::Stack,
         stacktype::r#trait::{OctavePeriodicStackType, Reloadable, StackType},
     },
@@ -367,6 +368,8 @@ impl<T: StackType> RunState<T> {
         T: 'static
             + Reloadable
             + OctavePeriodicStackType
+            + HasFundamental
+            + HasOvertone
             + HasNoteNames
             + Send
             + Sync
