@@ -202,8 +202,6 @@ pub enum FromStrategy<T: StackType> {
     UpdateReference {},
     SelectScale { index: usize },
     UpdateHarmony,
-    #[deprecated]
-    ReanchorOnMatch { reanchor: bool },
     Consider { stack: Stack<T> },
 }
 
@@ -314,10 +312,6 @@ pub enum ToUi<T: StackType> {
     },
     StartedStrategy(Option<usize>),
     UpdateHarmony,
-    #[deprecated]
-    ReanchorOnMatch {
-        reanchor: bool,
-    },
     Consider {
         stack: Stack<T>,
     },
@@ -532,9 +526,6 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
             FromStrategy::UpdateReference {} => (None {}, Some(ToUi::UpdateReference {})),
             FromStrategy::SelectScale { index } => (None {}, Some(ToUi::SelectScale { index })),
             FromStrategy::UpdateHarmony => (None {}, Some(ToUi::UpdateHarmony)),
-            FromStrategy::ReanchorOnMatch { reanchor } => {
-                (None {}, Some(ToUi::ReanchorOnMatch { reanchor }))
-            }
             FromStrategy::Consider { stack } => (None {}, Some(ToUi::Consider { stack })),
         }
     }

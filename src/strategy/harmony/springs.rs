@@ -658,6 +658,7 @@ impl<T: StackType> HarmonySprings<T> {
                     neighbourhood: self.solution_neighbourhood.clone(),
                     lowest_key: self.keys[0],
                     number_of_tries: self.number_of_tries,
+                    relaxed: self.relaxed,
                 };
             });
         }

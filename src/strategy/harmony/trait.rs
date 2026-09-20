@@ -29,6 +29,7 @@ pub enum Harmony<T: IntervalBasis> {
         neighbourhood: Partial<T>,
         lowest_key: u8,
         number_of_tries: u64,
+        relaxed: bool,
     },
 }
 

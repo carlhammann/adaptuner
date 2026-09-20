@@ -25,7 +25,6 @@ pub struct Notifications<T: StackType> {
     harmony: (HarmonyNotification<T>, Instant),
     reference: (bool, Instant),
     scale_index: (Option<usize>, bool, Instant),
-    enable_reanchor: (Option<bool>, Instant),
     detuned_notes: VecDeque<(u8, Semitones, Semitones, &'static str, Instant)>,
     cleanup_time: Duration,
 }
@@ -42,6 +41,7 @@ enum HarmonyNotification<T: StackType> {
         m_reference: Option<Stack<T>>,
         number_of_tries: u64,
         is_utonal: bool,
+        relaxed: bool,
     },
 }
 
@@ -60,7 +60,6 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
             harmony: (HarmonyNotification::None, Instant::now()),
             reference: (false, Instant::now()),
             scale_index: (None {}, false, Instant::now()),
-            enable_reanchor: (None {}, Instant::now()),
             detuned_notes: VecDeque::new(),
             cleanup_time: Duration::from_secs(2),
         }
@@ -74,12 +73,6 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
         if let (x, true, old) = self.scale_index {
             if time.duration_since(old) > self.cleanup_time {
                 self.scale_index = (x, false, time);
-            }
-        }
-
-        if let (Some(_), old) = self.enable_reanchor {
-            if time.duration_since(old) > self.cleanup_time {
-                self.enable_reanchor = (None {}, time);
             }
         }
 
@@ -100,7 +93,6 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
         self.harmony.0.is_some()
             || self.reference.0
             || self.scale_index.1
-            || self.enable_reanchor.0.is_some()
             || !self.detuned_notes.is_empty()
     }
 }
@@ -120,14 +112,6 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                     ui.label("no scales for this strategy");
                 }
             });
-        }
-
-        if let (Some(enabled), _) = self.enable_reanchor {
-            if enabled {
-                ui.label("re-setting of the reference on chord match enabled");
-            } else {
-                ui.label("re-setting of the reference on chord match disabled");
-            }
         }
 
         match &self.harmony.0 {
@@ -165,9 +149,13 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                 m_reference,
                 number_of_tries,
                 is_utonal,
+                relaxed,
             } => {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
+                    if *relaxed {
+                        ui.label("relaxed ");
+                    }
                     ui.label("spring tuning");
                     if let Some(reference) = m_reference {
                         if *is_utonal {
@@ -251,6 +239,7 @@ impl<T: StackType + HasFundamental + HasOvertone> ReceiveToUiRef<T> for Notifica
                         lowest_key,
                         number_of_tries,
                         neighbourhood,
+                        relaxed,
                     } => {
                         let (is_utonal, reference_offset_stack) =
                             fundamental_or_overtone(&neighbourhood);
@@ -270,6 +259,7 @@ impl<T: StackType + HasFundamental + HasOvertone> ReceiveToUiRef<T> for Notifica
                                                 ),
                                                 number_of_tries: *number_of_tries,
                                                 is_utonal,
+                                                relaxed: *relaxed,
                                             },
                                             Instant::now(),
                                         )
@@ -281,6 +271,7 @@ impl<T: StackType + HasFundamental + HasOvertone> ReceiveToUiRef<T> for Notifica
                                             m_reference: None {},
                                             number_of_tries: *number_of_tries,
                                             is_utonal,
+                                            relaxed: *relaxed,
                                         },
                                         Instant::now(),
                                     );
@@ -292,6 +283,7 @@ impl<T: StackType + HasFundamental + HasOvertone> ReceiveToUiRef<T> for Notifica
                                     m_reference: None {},
                                     number_of_tries: *number_of_tries,
                                     is_utonal,
+                                    relaxed: *relaxed,
                                 },
                                 Instant::now(),
                             );
@@ -339,9 +331,6 @@ impl<T: StackType + HasFundamental + HasOvertone> ReceiveToUiRef<T> for Notifica
                         }
                     }
                 });
-            }
-            ToUi::ReanchorOnMatch { reanchor } => {
-                self.enable_reanchor = (Some(*reanchor), Instant::now());
             }
 
             ToUi::StartedStrategy(_) => {}
