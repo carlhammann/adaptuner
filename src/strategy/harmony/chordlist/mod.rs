@@ -123,7 +123,6 @@ pub struct ChordListConfig<T: IntervalBasis> {
 }
 
 pub struct ChordList<T: StackType> {
-    enable: bool,
     patterns: Vec<Pattern<T>>,
     next_pattern_to_try: usize,
     best_fit: (usize, Fit),
@@ -150,9 +149,18 @@ impl<T: StackType, L: AtMost<StrategyConfigLevel>> HarmonyAdaptor<T, ChordList<T
                 harmony: HarmonyStrategyConfig::ChordList(conf),
                 ..
             } => f(conf, adaptor),
-            _ => panic!(
-                "config() method on HarmonyAdaptor: expected ChordListConfig, got something else"
-            ),
+            StrategyConfig::TwoStep {
+                harmony: HarmonyStrategyConfig::List(confs),
+                ..
+            } => {
+                for conf in confs {
+                    if let HarmonyStrategyConfig::ChordList(conf) = conf {
+                        return f(conf, adaptor);
+                    }
+                }
+                panic!("Wrong type of harmony strategy config: expected ChordList somewhere in the list of configs")
+            }
+            _ => panic!("Wrong type of harmony strategy config: expected ChordList"),
         })
     }
 }
@@ -163,7 +171,6 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
 
     fn new(mut config: ChordListConfig<T>) -> Self {
         Self {
-            enable: config.enable,
             patterns: config
                 .patterns
                 .drain(..)
@@ -176,38 +183,33 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         }
     }
 
-    fn start(
-        &mut self,
-        time: Instant,
-        adaptor: HarmonyAdaptor<T, Self, Zero>,
-    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
-        self.start_solve(time, adaptor)
-    }
-
-    fn stop(
-        &mut self,
-        _time: Instant,
-        adaptor: HarmonyAdaptor<T, Self, Zero>,
-    ) -> HarmonyAdaptor<T, Self, Zero> {
-        adaptor
-    }
-
     fn start_solve(
         &mut self,
         time: Instant,
         mut adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
-        if self.enable {
-            self.next_pattern_to_try = 0;
-            self.best_fit = (0, Fit::Failed);
-            self.solve_start = time;
-            (self.active_code, adaptor) = active_code(adaptor);
+        let enable;
+        (enable, adaptor) = adaptor.config(|conf, _| conf.enable);
+        if !enable {
+            return (
+                HarmonyResult {
+                    finished: true,
+                    progress: false,
+                    perfect: false,
+                },
+                adaptor,
+            );
         }
+        self.next_pattern_to_try = 0;
+        self.best_fit = (0, Fit::Failed);
+        self.solve_start = time;
+        (self.active_code, adaptor) = active_code(adaptor);
         (_, adaptor) = adaptor.harmony_mut(|h, _| *h = Harmony::None);
         (
             HarmonyResult {
-                finished: !self.enable,
+                finished: false,
                 progress: false,
+                perfect: false,
             },
             adaptor,
         )
@@ -227,6 +229,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
                 HarmonyResult {
                     finished: true,
                     progress,
+                    perfect: self.best_fit.1.is_complete(),
                 },
                 adaptor,
             );
@@ -269,6 +272,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
                 HarmonyResult {
                     finished: true,
                     progress: true,
+                    perfect: true,
                 },
                 adaptor,
             );
@@ -284,6 +288,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
                 HarmonyResult {
                     finished: false,
                     progress: true,
+                    perfect: false,
                 },
                 adaptor,
             );
@@ -294,6 +299,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
             HarmonyResult {
                 finished: false,
                 progress: false,
+                perfect: false,
             },
             adaptor,
         )
@@ -312,10 +318,6 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         mut adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (Option<Instant>, HarmonyAdaptor<T, Self, Zero>) {
         match msg {
-            ToChordList::ToggleEnable { time } => {
-                self.enable = !self.enable;
-                (Some(time), adaptor)
-            }
             ToChordList::ChordListAction { list_action, time } => {
                 list_action.apply_to_no_select(&mut self.patterns, |x| x.clone());
                 (Some(time), adaptor)

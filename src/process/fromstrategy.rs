@@ -10,7 +10,7 @@ use crate::{
     msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy},
     process::r#trait::ProcessAdaptor,
     strategy::{
-        harmony::{chordlist::ChordList, springs::HarmonySprings}, melody::neighbourhoods::StaticNeighbourhoodsAsMelody, staticneighbourhoods::StaticNeighbourhoods, r#trait::{Strategy, StrategyAdaptor}, twostep::TwoStep
+        harmony::{chordlist::ChordList, list::ListOfHarmonyStrategies, springs::HarmonySprings}, melody::neighbourhoods::StaticNeighbourhoodsAsMelody, staticneighbourhoods::StaticNeighbourhoods, r#trait::{Strategy, StrategyAdaptor}, twostep::TwoStep
     },
     util::ordered_locks::Zero,
 };
@@ -349,6 +349,21 @@ where
                         time,
                         index,
                         (harmony_config.clone(), melody_config.clone()),
+                        unsafe { adaptor.inner_arc() },
+                    ))
+                }
+
+                StrategyConfig::TwoStep {
+                    harmony: HarmonyStrategyConfig::List(harmony_configs),
+                    melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
+                    ..
+                } => {
+                    self.current_strategy = Some(RunningStrategy::start::<
+                        TwoStep<T, ListOfHarmonyStrategies<T>, StaticNeighbourhoodsAsMelody<T>>,
+                    >(
+                        time,
+                        index,
+                        (harmony_configs.clone(), melody_config.clone()),
                         unsafe { adaptor.inner_arc() },
                     ))
                 }

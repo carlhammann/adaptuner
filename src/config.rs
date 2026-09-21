@@ -117,6 +117,9 @@ impl<T: IntervalBasis> StrategyConfig<T> {
                     HarmonyStrategyConfig::Springs(_) => match action {
                         _ => false,
                     },
+                    HarmonyStrategyConfig::List(_) => match action {
+                        _ => false,
+                    },
                 }) || (match melody {
                     MelodyStrategyConfig::StaticNeighbourhoods(_) => match action {
                         BindableStrategyAction::IncrementNeighbourhoodIndex(_)
@@ -153,6 +156,8 @@ impl<T: IntervalBasis> StrategyConfig<T> {
 pub enum HarmonyStrategyConfig<T: IntervalBasis> {
     ChordList(ChordListConfig<T>),
     Springs(HarmonySpringsConfig<T>),
+    /// Must never be nested, and must contain each type of [HarmonyStrategyConfig] at most once.
+    List(Vec<HarmonyStrategyConfig<T>>),
 }
 
 #[derive(Clone, Serialize, Deserialize)]

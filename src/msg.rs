@@ -102,6 +102,7 @@ pub enum FromProcess<T: StackType> {
     },
 }
 
+#[derive(Clone)]
 pub enum ToChordList {
     ChordListAction {
         list_action: ListAction,
@@ -114,11 +115,9 @@ pub enum ToChordList {
     PushNewChord {
         time: Instant,
     },
-    ToggleEnable {
-        time: Instant,
-    },
 }
 
+#[derive(Clone)]
 pub enum ToHarmonySprings {
     ReloadSprings { time: Instant },
     Recalculate { time: Instant },
@@ -160,6 +159,7 @@ pub enum ToMelody<T: StackType> {
     StaticNeighbourhoods(ToStaticNeighbourhoodsAsMelody<T>),
 }
 
+#[derive(Clone)]
 pub enum ToHarmony {
     ChordList(ToChordList),
     Springs(ToHarmonySprings),

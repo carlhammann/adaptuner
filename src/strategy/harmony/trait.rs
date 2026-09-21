@@ -2,10 +2,11 @@ use std::{marker::PhantomData, time::Instant};
 
 use crate::{
     adaptors::{
-        ConcreteLocks, lock_levels::{
+        lock_levels::{
             ActiveStrategyIndexLevel, HarmonyLevel, KeyStateLevel, StrategyConfigLevel,
             TuningStateLevel,
-        }
+        },
+        ConcreteLocks,
     },
     bindable::BindableStrategyAction,
     config::IsHarmonyStrategyConfig,
@@ -33,9 +34,17 @@ pub enum Harmony<T: IntervalBasis> {
     },
 }
 
+/// A description of the progress made determining a fit to the current harmony.
+///
+/// - finished means that no further attempts will be made by the harmony strategy.
+/// - progress meand that the harmony strategy tried at least one attempt.
+/// - perfect means that the solution is a perfect match: For chords, this means that all currently
+///   sounding keys are matched, for springs this means that a just tuning was fond. perfect implies
+///   finished, but not every finished result is perfect.
 pub struct HarmonyResult {
     pub finished: bool,
     pub progress: bool,
+    pub perfect: bool,
 }
 
 pub struct HarmonyAdaptorTag {}
@@ -76,13 +85,6 @@ pub trait HarmonyStrategy<T: StackType>: Sized {
     fn new(config: Self::Config) -> Self;
 
     /// returns true iff further [HarmonyStrategy::step]s are needed.
-    fn start(
-        &mut self,
-        time: Instant,
-        adaptor: HarmonyAdaptor<T, Self, Zero>,
-    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>);
-
-    /// returns true iff further [HarmonyStrategy::step]s are needed.
     fn start_solve(
         &mut self,
         time: Instant,
@@ -94,12 +96,6 @@ pub trait HarmonyStrategy<T: StackType>: Sized {
         &mut self,
         adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>);
-
-    fn stop(
-        &mut self,
-        time: Instant,
-        adaptor: HarmonyAdaptor<T, Self, Zero>,
-    ) -> HarmonyAdaptor<T, Self, Zero>;
 
     fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg>;
 

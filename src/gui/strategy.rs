@@ -8,10 +8,15 @@ use crate::{
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
     gui::{
         common::{
-            ListEditOpts, ListEditResult, SmallFloatingWindow, show_list_edit, show_list_picker
+            show_list_edit, show_list_picker, ListEditOpts, ListEditResult, SmallFloatingWindow,
         },
         editor::{
-            binding::BindingEditor, chordlist::{ChordListEditor, ChordListEditorResult}, harmony_springs::HarmonySpringsEditor, reference::ReferenceEditor, scale::{ScaleEditor, ScaleEditorResult}, twostep::TwoStepEditor
+            binding::BindingEditor,
+            chordlist::{ChordListEditor, ChordListEditorResult},
+            harmony_springs::HarmonySpringsEditor,
+            reference::ReferenceEditor,
+            scale::{ScaleEditor, ScaleEditorResult},
+            twostep::TwoStepEditor,
         },
         r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     },
@@ -374,48 +379,65 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
                 ToHarmony::ChordList(msg),
             )))
         };
-        (_, adaptor) = adaptor.active_strategy_mut(|strat, mut adaptor| match strat {
-            StrategyConfig::TwoStep {
-                harmony:
-                    HarmonyStrategyConfig::ChordList(ChordListConfig {
-                        ref mut enable,
-                        patterns,
-                    }),
-                ..
-            } => {
-                let use_cent_values = adaptor.config().use_cent_values;
-                let res;
-                (res, adaptor) =
-                    self.chord_list_editor
-                        .show(ui, enable, patterns, adaptor, use_cent_values);
-                match res {
-                    ChordListEditorResult::None => {}
-                    ChordListEditorResult::ToggleEnable => {
-                        let _ = adaptor.send(wrap(ToChordList::ToggleEnable {
-                            time: Instant::now(),
-                        }));
-                    }
-                    ChordListEditorResult::UpdateChord(i) => {
-                        let _ = adaptor.send(wrap(ToChordList::UpdateChord {
-                            index: i,
-                            time: Instant::now(),
-                        }));
-                    }
-                    ChordListEditorResult::ListAction(list_action) => {
-                        let _ = adaptor.send(wrap(ToChordList::ChordListAction {
-                            list_action,
-                            time: Instant::now(),
-                        }));
-                    }
-                    ChordListEditorResult::PushNewChord => {
-                        let _ = adaptor.send(wrap(ToChordList::PushNewChord {
-                            time: Instant::now(),
-                        }));
+        (_, adaptor) = adaptor.active_strategy_mut(|strat, mut adaptor| {
+            let use_cent_values = adaptor.config().use_cent_values;
+            let mut res = ChordListEditorResult::None;
+            match strat {
+                StrategyConfig::TwoStep {
+                    harmony:
+                        HarmonyStrategyConfig::ChordList(ChordListConfig {
+                            ref mut enable,
+                            patterns,
+                        }),
+                    ..
+                } => {
+                    (res, adaptor) =
+                        self.chord_list_editor
+                            .show(ui, enable, patterns, adaptor, use_cent_values);
+                }
+                StrategyConfig::TwoStep {
+                    harmony: HarmonyStrategyConfig::List(confs),
+                    ..
+                } => {
+                    for conf in confs {
+                        if let HarmonyStrategyConfig::ChordList(ChordListConfig {
+                            ref mut enable,
+                            patterns,
+                        }) = conf
+                        {
+                            (res, adaptor) = self.chord_list_editor.show(
+                                ui,
+                                enable,
+                                patterns,
+                                adaptor,
+                                use_cent_values,
+                            );
+                            break;
+                        }
                     }
                 }
+                _ => {}
             }
-
-            _ => {}
+            match res {
+                ChordListEditorResult::None => {}
+                ChordListEditorResult::UpdateChord(i) => {
+                    let _ = adaptor.send(wrap(ToChordList::UpdateChord {
+                        index: i,
+                        time: Instant::now(),
+                    }));
+                }
+                ChordListEditorResult::ListAction(list_action) => {
+                    let _ = adaptor.send(wrap(ToChordList::ChordListAction {
+                        list_action,
+                        time: Instant::now(),
+                    }));
+                }
+                ChordListEditorResult::PushNewChord => {
+                    let _ = adaptor.send(wrap(ToChordList::PushNewChord {
+                        time: Instant::now(),
+                    }));
+                }
+            }
         });
 
         adaptor
@@ -441,7 +463,9 @@ impl<T: StackType> ReceiveToUiRef<T> for StrategyWidgets<T> {
         mut adaptor: UiAdaptor<T, Zero>,
     ) -> UiAdaptor<T, Zero> {
         adaptor = self.scale_editor.receive_to_ui_ref(msg, adaptor);
-        adaptor = self.initial_reference_editor.receive_to_ui_ref(msg, adaptor);
+        adaptor = self
+            .initial_reference_editor
+            .receive_to_ui_ref(msg, adaptor);
         self.chord_list_editor.receive_to_ui_ref(msg, adaptor)
     }
 }

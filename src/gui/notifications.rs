@@ -17,7 +17,10 @@ use crate::{
     msg::ToUi,
     neighbourhood::CompleteNeighbourhood,
     notename::{HasNoteNames, NoteNameStyle},
-    strategy::harmony::{chordlist::ChordListConfig, r#trait::Harmony},
+    strategy::harmony::{
+        chordlist::{ChordListConfig, PatternConfig},
+        r#trait::Harmony,
+    },
     util::ordered_locks::Zero,
 };
 
@@ -123,6 +126,17 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                 (_, adaptor) = adaptor.active_strategy(|strat, adaptor| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
+                        let mut with_the_patterns = |patterns: &Vec<PatternConfig<T>>| {
+                            ui.strong(&patterns[*pattern_index % patterns.len()].name);
+                            if let Some(reference) = m_reference {
+                                ui.label(" on ");
+                                ui.strong(reference.corrected_notename(
+                                    &NoteNameStyle::Full,
+                                    adaptor.config().use_cent_values,
+                                ));
+                            }
+                        };
+
                         match strat {
                             StrategyConfig::TwoStep {
                                 harmony:
@@ -131,15 +145,26 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                     }),
                                 ..
                             } => {
-                                ui.strong(&patterns[*pattern_index % patterns.len()].name);
-                                if let Some(reference) = m_reference {
-                                    ui.label(" on ");
-                                    ui.strong(reference.corrected_notename(
-                                        &NoteNameStyle::Full,
-                                        adaptor.config().use_cent_values,
-                                    ));
+                                with_the_patterns(patterns);
+                            }
+                            StrategyConfig::TwoStep {
+                                harmony: HarmonyStrategyConfig::List(confs),
+                                ..
+                            } => {
+                                for conf in confs {
+                                    match conf {
+                                        HarmonyStrategyConfig::ChordList(ChordListConfig {
+                                            patterns,
+                                            ..
+                                        }) => {
+                                            with_the_patterns(patterns);
+                                            break;
+                                        }
+                                        _ => {}
+                                    }
                                 }
                             }
+
                             _ => {}
                         }
                     });

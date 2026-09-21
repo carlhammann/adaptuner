@@ -228,7 +228,7 @@ where
     ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
         let (res, ha) = self
             .harmony_strategy
-            .start(time, adaptor.as_harmony_adaptor());
+            .start_solve(time, adaptor.as_harmony_adaptor());
         self.solving_harmony = !res.finished;
         let ma = self.melody_strategy.start(time, ha.as_melody_adaptor());
         (self.solving_harmony, ma.as_two_step_adaptor())
@@ -239,11 +239,8 @@ where
         time: Instant,
         adaptor: StrategyAdaptor<T, Self, Zero>,
     ) -> StrategyAdaptor<T, Self, Zero> {
-        let ha = self
-            .harmony_strategy
-            .stop(time, adaptor.as_harmony_adaptor());
         self.melody_strategy
-            .stop(time, ha.as_melody_adaptor())
+            .stop(time, adaptor.as_melody_adaptor())
             .as_two_step_adaptor()
     }
 

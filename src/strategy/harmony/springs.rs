@@ -674,6 +674,7 @@ impl<T: StackType> HarmonySprings<T> {
             HarmonyResult {
                 finished: false,
                 progress: self.computed_at_least_one_solution,
+                perfect: self.relaxed,
             },
             adaptor,
         )
@@ -688,6 +689,7 @@ impl<T: StackType> HarmonySprings<T> {
             HarmonyResult {
                 finished: true,
                 progress: self.computed_at_least_one_solution,
+                perfect: self.relaxed,
             },
             adaptor,
         )
@@ -707,7 +709,18 @@ impl<T: StackType, L: AtMost<StrategyConfigLevel>> HarmonyAdaptor<T, HarmonySpri
                 harmony: HarmonyStrategyConfig::Springs(conf),
                 ..
             } => f(conf, adaptor),
-            _ => panic!("Wrong type of strategy config: expected TwoStep with HarmonySprings"),
+            StrategyConfig::TwoStep {
+                harmony: HarmonyStrategyConfig::List(confs),
+                ..
+            } => {
+                for conf in confs {
+                    if let HarmonyStrategyConfig::Springs(conf) = conf {
+                        return f(conf, adaptor);
+                    }
+                }
+                panic!("Wrong type of harmony strategy config: expected HarmonySprings somewhere in the list of configs")
+            }
+            _ => panic!("Wrong type of harmony strategy config: expected HarmonySprings"),
         })
     }
 }
@@ -736,14 +749,6 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
         }
     }
 
-    fn start(
-        &mut self,
-        time: Instant,
-        adaptor: HarmonyAdaptor<T, Self, Zero>,
-    ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
-        self.start_solve(time, adaptor)
-    }
-
     fn start_solve(
         &mut self,
         _time: Instant,
@@ -759,6 +764,7 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
                 HarmonyResult {
                     finished: true,
                     progress: false,
+                    perfect: false,
                 },
                 adaptor,
             );
@@ -779,6 +785,7 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
             HarmonyResult {
                 finished: false,
                 progress: self.computed_at_least_one_solution,
+                perfect: true,
             },
             adaptor,
         )
@@ -805,14 +812,6 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
         } else {
             self.preliminiary_result(adaptor)
         }
-    }
-
-    fn stop(
-        &mut self,
-        _time: Instant,
-        adaptor: HarmonyAdaptor<T, Self, Zero>,
-    ) -> HarmonyAdaptor<T, Self, Zero> {
-        adaptor
     }
 
     fn filter_to_harmony(msg: ToHarmony) -> Option<Self::Msg> {
@@ -861,8 +860,8 @@ mod test {
     use crate::{
         adaptors::ConcreteLocks,
         config::{
-            BackendConfig, HarmonyStrategyConfig, MelodyHarmonyCoordinationConfig,
-            MelodyStrategyConfig, Config,
+            BackendConfig, Config, HarmonyStrategyConfig, MelodyHarmonyCoordinationConfig,
+            MelodyStrategyConfig,
         },
         gui::r#trait::GuiTag,
         interval::stacktype::fivelimit::mock::MockFiveLimitStackType,
@@ -883,7 +882,8 @@ mod test {
             let (from_backend_tx, _) = mpsc::channel();
 
             const TEMPLATE_CONFIG: &'static str = include_str!("../../../configs/template.yaml");
-            let template_config: Config<MockFiveLimitStackType> = serde_yml::from_str(TEMPLATE_CONFIG).unwrap();
+            let template_config: Config<MockFiveLimitStackType> =
+                serde_yml::from_str(TEMPLATE_CONFIG).unwrap();
 
             OrderedLocks::new(Arc::new(ConcreteLocks {
                 from_process_tx,

@@ -17,7 +17,7 @@ use crate::{
     strategy::harmony::springs::{
         HarmonySpringsConfig, HarmonySpringsProvider, RodOrSprings, Spring,
     },
-    util::ordered_locks::Zero,
+    util::ordered_locks::{Nat, Zero},
 };
 
 pub struct HarmonySpringsEditor<T: StackType> {
@@ -38,111 +38,125 @@ impl<T: StackType> HarmonySpringsEditor<T> {
     }
 }
 
+impl<T: StackType + HasNoteNames> HarmonySpringsEditor<T> {
+    fn show_harmony_springs_config<L: Nat>(
+        &mut self,
+        conf: &mut HarmonySpringsConfig<T>,
+        ui: &mut egui::Ui,
+        adaptor: &UiAdaptor<T, L>,
+    ) {
+        let HarmonySpringsConfig {
+            enable,
+            memo_springs,
+            min_keys,
+            lower_intervals_are_more_stable,
+            provider,
+        } = conf;
+
+        let send = |msg: ToHarmonySprings| {
+            adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
+                ToTwoStep::ToHarmonyStrategy(ToHarmony::Springs(msg)),
+            )));
+        };
+        ui.collapsing("harmony springs", |ui| {
+            ui.vertical_centered(|ui| {
+                if ui
+                    .button(if *enable { "disable" } else { "enable" })
+                    .clicked()
+                {
+                    *enable = !*enable;
+                    send(ToHarmonySprings::Recalculate {
+                        time: Instant::now(),
+                    });
+                }
+            });
+
+            ui.vertical(|ui| {
+                if !*enable {
+                    ui.disable();
+                }
+
+                ui.horizontal(|ui| {
+                    ui.label("Only tune if there are at least");
+                    if ui
+                        .add(egui::DragValue::new(min_keys).range(2..=128))
+                        .changed()
+                    {
+                        send(ToHarmonySprings::Recalculate {
+                            time: Instant::now(),
+                        });
+                    }
+                    ui.label("sounding notes.");
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Try alternative spring lengths between");
+                    let r = ui.button(if *lower_intervals_are_more_stable {
+                        "low"
+                    } else {
+                        "high"
+                    });
+                    if r.clicked() {
+                        *lower_intervals_are_more_stable = !*lower_intervals_are_more_stable;
+                        send(ToHarmonySprings::Recalculate {
+                            time: Instant::now(),
+                        });
+                    }
+                    ui.label("notes later.");
+                    r.on_hover_text_at_pointer(
+                        "This is about the order in which options for \
+                      springs are tried: If you preserve springs between low notes, \
+                      then intervals between higher notes will receive the second, third,... \
+                      options for springs before lower intervals do. So, if earlier options \
+                      for each spring are \"better in tune\", preserving springs bewteen low \
+                      intervals means that lower intervals will be tuned \
+                      better that high intervals.",
+                    );
+                });
+
+                ui.separator();
+
+                show_spring_provider(
+                    &mut self.provider_base_note,
+                    &mut self.tmp_temperaments,
+                    &mut self.tmp_correction,
+                    &mut self.tmp_stack,
+                    provider,
+                    ui,
+                    |msg| send(msg),
+                );
+
+                ui.separator();
+
+                let r = ui.checkbox(memo_springs, "memoize candidate spring lengths");
+                r.on_hover_text_at_pointer(
+                    "If checked, adaptuner will use more memory, \
+                            but potentially be faster.",
+                );
+            });
+        });
+    }
+}
+
 impl<T: StackType + HasNoteNames> GuiShow<T> for HarmonySpringsEditor<T> {
     fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.active_strategy_mut(|mut strat, adaptor| match &mut strat {
             StrategyConfig::TwoStep {
-                harmony:
-                    HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
-                        enable,
-                        memo_springs,
-                        min_keys,
-                        lower_intervals_are_more_stable: lower_notes_are_more_stable,
-                        provider,
-                    }),
+                harmony: HarmonyStrategyConfig::Springs(conf),
                 ..
             } => {
-                let send = |adaptor: &UiAdaptor<T, _>, msg: ToHarmonySprings| {
-                    adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
-                        ToTwoStep::ToHarmonyStrategy(ToHarmony::Springs(msg)),
-                    )));
-                };
-                ui.collapsing("harmony springs", |ui| {
-                    ui.vertical_centered(|ui| {
-                        if ui
-                            .button(if *enable { "disable" } else { "enable" })
-                            .clicked()
-                        {
-                            *enable = !*enable;
-                            send(
-                                &adaptor,
-                                ToHarmonySprings::Recalculate {
-                                    time: Instant::now(),
-                                },
-                            );
-                        }
-                    });
-
-                    ui.vertical(|ui| {
-                        if !*enable {
-                            ui.disable();
-                        }
-
-                        ui.horizontal(|ui| {
-                            ui.label("Only tune if there are at least");
-                            if ui
-                                .add(egui::DragValue::new(min_keys).range(2..=128))
-                                .changed()
-                            {
-                                send(
-                                    &adaptor,
-                                    ToHarmonySprings::Recalculate {
-                                        time: Instant::now(),
-                                    },
-                                );
-                            }
-                            ui.label("sounding notes.");
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("Try alternative spring lengths between");
-                            let r = ui.button(if *lower_notes_are_more_stable {
-                                "low"
-                            } else {
-                                "high"
-                            });
-                            if r.clicked() {
-                                *lower_notes_are_more_stable = !*lower_notes_are_more_stable;
-                                send(
-                                    &adaptor,
-                                    ToHarmonySprings::Recalculate {
-                                        time: Instant::now(),
-                                    },
-                                );
-                            }
-                            ui.label("notes later.");
-                            r.on_hover_text_at_pointer(
-                              "This is about the order in which options for \
-                              springs are tried: If you preserve springs between low notes, \
-                              then intervals between higher notes will receive the second, third,... \
-                              options for springs before lower intervals do. So, if earlier options \
-                              for each spring are \"better in tune\", preserving springs bewteen low \
-                              intervals means that lower intervals will be tuned \
-                              better that high intervals."
-                            );
-                        });
-
-                        ui.separator();
-
-                        show_spring_provider(
-                            &mut self.provider_base_note,
-                            &mut self.tmp_temperaments,
-                            &mut self.tmp_correction,
-                            &mut self.tmp_stack,
-                            provider,
-                            ui,
-                            |msg| send(&adaptor, msg),
-                        );
-
-                        ui.separator();
-
-                        let r = ui.checkbox(memo_springs, "memoize candidate spring lengths");
-                        r.on_hover_text_at_pointer(
-                            "If checked, adaptuner will use more memory, \
-                            but potentially be faster.",
-                        );
-                    });
-                });
+                self.show_harmony_springs_config(conf, ui, &adaptor);
+            }
+            StrategyConfig::TwoStep {
+                harmony: HarmonyStrategyConfig::List(confs),
+                ..
+            } => {
+                for conf in confs {
+                    if let HarmonyStrategyConfig::Springs(conf) = conf {
+                        self.show_harmony_springs_config(conf, ui, &adaptor);
+                        break;
+                    }
+                }
             }
             _ => {}
         });
@@ -150,6 +164,9 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for HarmonySpringsEditor<T> {
     }
 }
 
+/// Todo if you want to use this function for more than one HarmonySpringsProvider, in more than one
+/// place in the UI: Make the ids depend on something (also in the functions called by this
+/// function)
 fn show_spring_provider<T: StackType + HasNoteNames>(
     base_note: &mut Stack<T>,
     tmp_temperaments: &mut [bool],
