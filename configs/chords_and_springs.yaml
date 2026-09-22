@@ -350,6 +350,11 @@ strategies:
             octave: 2
             fifth: -3
           stiffness: '1'
+        - length:
+            octave: -1
+            fifth: 1
+            third: 2
+          stiffness: '1'
       - !springs
         options:
         - length:

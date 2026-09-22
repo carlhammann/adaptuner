@@ -57,7 +57,7 @@ impl<T: IntervalBasis> NamedInterval<T> {
         ui.vertical(|ui| {
             for (i, c) in self.coeffs.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    changed |= rational_drag_value(ui, id.with(i), c);
+                    changed |= rational_drag_value(ui, id.with(i), c, false);
                     ui.label(&T::intervals()[i].name);
                 });
             }

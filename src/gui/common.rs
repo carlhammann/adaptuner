@@ -34,7 +34,7 @@ pub fn show_list_picker<X>(
 /// applied right away, but [ListAction]s are not applied.
 pub fn show_list_edit<X, M, H>(
     ui: &mut egui::Ui,
-    id_salt: &'static str,
+    id_salt: impl std::hash::Hash,
     elems: &mut [X],
     current_selection: Option<usize>,
     opts: ListEditOpts<X, M, H>,
@@ -243,7 +243,12 @@ pub fn show_hide_button(
 }
 
 /// returns true iff the number changed
-pub fn rational_drag_value(ui: &mut egui::Ui, id: egui::Id, value: &mut Ratio<StackCoeff>) -> bool {
+pub fn rational_drag_value(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    value: &mut Ratio<StackCoeff>,
+    must_be_nonnegative: bool,
+) -> bool {
     let numer_id = id.with("numer");
     let denom_id = id.with("denom");
 
@@ -277,7 +282,14 @@ pub fn rational_drag_value(ui: &mut egui::Ui, id: egui::Id, value: &mut Ratio<St
             .data_mut(|map| map.remove_temp(denom_id))
             .unwrap_or(*value.denom());
 
-        let new_value = Ratio::new(new_numer, new_denom.max(1));
+        let new_value = Ratio::new(
+            if must_be_nonnegative {
+                new_numer.abs()
+            } else {
+                new_numer
+            },
+            new_denom.max(1),
+        );
         if new_value != *value {
             value.clone_from(&new_value);
             return true;
@@ -367,7 +379,7 @@ pub fn temperament_applier<T: StackType>(
             for (i, x) in tmp_correction.coeffs.indexed_iter_mut() {
                 ui.horizontal(|ui| {
                     let name = &T::named_intervals()[i].name;
-                    if rational_drag_value(ui, ui.id().with(name), x) {
+                    if rational_drag_value(ui, ui.id().with(name), x, false) { 
                         correction_changed = true;
                     }
                     ui.label(name);

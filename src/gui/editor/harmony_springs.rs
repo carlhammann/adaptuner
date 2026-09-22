@@ -5,7 +5,7 @@ use eframe::egui;
 use crate::{
     config::{HarmonyStrategyConfig, StrategyConfig},
     gui::{
-        common::{note_picker, rational_drag_value},
+        common::{note_picker, rational_drag_value, show_list_edit, ListEditOpts, ListEditResult},
         r#trait::{GuiShow, UiAdaptor},
     },
     interval::{
@@ -117,6 +117,7 @@ impl<T: StackType + HasNoteNames> HarmonySpringsEditor<T> {
                 ui.separator();
 
                 show_spring_provider(
+                    egui::Id::new("harmony_spring_provider"),
                     &mut self.provider_base_note,
                     &mut self.tmp_temperaments,
                     &mut self.tmp_correction,
@@ -168,6 +169,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for HarmonySpringsEditor<T> {
 /// place in the UI: Make the ids depend on something (also in the functions called by this
 /// function)
 fn show_spring_provider<T: StackType + HasNoteNames>(
+    id: egui::Id,
     base_note: &mut Stack<T>,
     tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
@@ -178,7 +180,7 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
 ) {
     match provider {
         HarmonySpringsProvider::Mod12 { by_class, octave } => {
-            egui::Grid::new("spring_provider_grid")
+            egui::Grid::new(id.with("spring_provider_grid"))
                 .with_row_color(|i, style| {
                     if i % 2 == 0 {
                         Some(style.visuals.faint_bg_color)
@@ -189,6 +191,7 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
                 .show(ui, |ui| {
                     for (i, x) in by_class.iter_mut().enumerate() {
                         if show_rod_or_springs(
+                            id.with("rod_or_spring").with(i),
                             base_note,
                             tmp_temperaments,
                             tmp_correction,
@@ -209,7 +212,7 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
                 tmp_stack.scaled_add(1, &*base_note);
                 tmp_stack.corrected_notename(&NoteNameStyle::Full, false)
             }))
-            .id_salt("spring_provider_octave")
+            .id_salt(id.with("octave"))
             .show(ui, |ui| {
                 if note_picker(ui, tmp_temperaments, tmp_correction, octave) {
                     send(ToHarmonySprings::ReloadSprings {
@@ -221,7 +224,7 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
                 "base note used for interval names: {}",
                 base_note.corrected_notename(&NoteNameStyle::Full, false)
             ))
-            .id_salt("spring_provider_base_note")
+            .id_salt(id.with("base_note"))
             .show(ui, |ui| {
                 note_picker(ui, tmp_temperaments, tmp_correction, base_note)
             });
@@ -231,6 +234,7 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
 
 /// returns true iff something changed
 fn show_rod_or_springs<T: StackType + HasNoteNames>(
+    id: egui::Id,
     base_note: &Stack<T>,
     tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
@@ -248,7 +252,7 @@ fn show_rod_or_springs<T: StackType + HasNoteNames>(
             ui.vertical_centered(|ui| {
                 ui.label(format!("offset {i}: rod"));
                 changed = show_length(
-                    format!("spring_provider_rod_length{i}"),
+                    id.with("rod_length").with(i),
                     base_note,
                     tmp_temperaments,
                     tmp_correction,
@@ -275,43 +279,94 @@ fn show_rod_or_springs<T: StackType + HasNoteNames>(
         RodOrSprings::Springs { options } => {
             ui.vertical_centered(|ui| {
                 ui.label(format!("offset {i}: springs"));
-                let mut delete = None {};
-                for (j, spring) in options.iter_mut().enumerate() {
-                    ui.horizontal(|ui| {
-                        ui.vertical(|ui| {
-                            changed |= show_length(
-                                format!("spring_provider_spring_length{i}{j}"),
-                                base_note,
-                                tmp_temperaments,
-                                tmp_correction,
-                                tmp_stack,
-                                &mut spring.length,
-                                ui,
-                            );
-                            if spring.length.key_distance() != i as StackCoeff {
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "This is an interval spanning {} piano keys",
-                                        spring.length.key_distance(),
-                                    ))
-                                    .color(ui.style().visuals.warn_fg_color),
-                                );
-                            }
-                        });
-                        ui.label("stiffness:");
-                        changed |= rational_drag_value(
-                            ui,
-                            egui::Id::new(format!("spring_provider_spring_stiffness_{i}{j}")),
-                            &mut spring.stiffness,
-                        );
-                        if ui.button("delete").clicked() {
-                            delete = Some(j);
-                        }
-                    });
-                }
-                if let Some(j) = delete {
-                    options.remove(j);
-                    changed = true;
+                let list_edit_res = show_list_edit(
+                    ui,
+                    id.with("spring_options").with(i),
+                    options,
+                    None {},
+                    ListEditOpts {
+                        empty_allowed: false,
+                        select_allowed: false,
+                        no_selection_allowed: true,
+                        delete_allowed: true,
+                        reorder_allowed: true,
+                        show_one:
+                            Box::new(
+                                |ui,
+                                 j,
+                                 spring,
+                                 (
+                                    i,
+                                    id,
+                                    base_note,
+                                    tmp_temperaments,
+                                    tmp_correction,
+                                    tmp_stack,
+                                ): &mut (
+                                    usize,
+                                    egui::Id,
+                                    &Stack<T>,
+                                    &mut [bool],
+                                    &mut Correction<T>,
+                                    &mut Stack<T>,
+                                )| {
+                                    let mut changed = false;
+                                    ui.horizontal(|ui| {
+                                        ui.vertical(|ui| {
+                                            changed |= show_length(
+                                                id.with("spring_length").with((*i, j)),
+                                                base_note,
+                                                tmp_temperaments,
+                                                tmp_correction,
+                                                tmp_stack,
+                                                &mut spring.length,
+                                                ui,
+                                            );
+                                            if spring.length.key_distance() != *i as StackCoeff {
+                                                ui.label(
+                                                    egui::RichText::new(format!(
+                                                    "This is an interval spanning {} piano keys",
+                                                    spring.length.key_distance(),
+                                                ))
+                                                    .color(ui.style().visuals.warn_fg_color),
+                                                );
+                                            }
+                                        });
+                                        ui.label("stiffness:");
+                                        changed |= rational_drag_value(
+                                            ui,
+                                            id.with("spring_stiffness").with((*i, j)),
+                                            &mut spring.stiffness,
+                                            true,
+                                        );
+                                    });
+
+                                    if changed {
+                                        Some(())
+                                    } else {
+                                        None {}
+                                    }
+                                },
+                            ),
+                        clone: None {},
+                    },
+                    &mut (
+                        i,
+                        id,
+                        base_note,
+                        tmp_temperaments,
+                        tmp_correction,
+                        tmp_stack,
+                    ),
+                );
+
+                match list_edit_res {
+                    ListEditResult::Action(list_action) => {
+                        list_action.apply_to_no_select(options, |x| x.clone());
+                        changed = true;
+                    }
+                    ListEditResult::Message(_) => changed = true,
+                    ListEditResult::None => {}
                 }
 
                 if ui.button("add option").clicked() {
@@ -348,7 +403,7 @@ fn show_rod_or_springs<T: StackType + HasNoteNames>(
 
 /// returns true iff `length` was changed.
 fn show_length<T: StackType + HasNoteNames>(
-    id_salt: impl std::hash::Hash,
+    id: egui::Id,
     base_note: &Stack<T>,
     tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
@@ -356,7 +411,7 @@ fn show_length<T: StackType + HasNoteNames>(
     length: &mut Stack<T>,
     ui: &mut egui::Ui,
 ) -> bool {
-    egui::ComboBox::from_id_salt(id_salt)
+    egui::ComboBox::from_id_salt(id)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .selected_text(format!("{}", {
             tmp_stack.clone_from(length);
@@ -366,6 +421,6 @@ fn show_length<T: StackType + HasNoteNames>(
         .show_ui(ui, |ui| {
             note_picker(ui, tmp_temperaments, tmp_correction, length)
         })
-        .inner;
-    false
+        .inner
+        .unwrap_or(false)
 }
