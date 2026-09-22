@@ -104,6 +104,9 @@ pub enum FromProcess<T: StackType> {
 
 #[derive(Clone)]
 pub enum ToChordList {
+    ToggleEnable {
+        time: Instant,
+    },
     ChordListAction {
         list_action: ListAction,
         time: Instant,

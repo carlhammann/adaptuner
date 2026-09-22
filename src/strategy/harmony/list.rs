@@ -7,7 +7,7 @@ use crate::{
     msg::ToHarmony,
     strategy::harmony::{
         chordlist::ChordList,
-        r#trait::{HarmonyAdaptor, HarmonyResult, HarmonyStrategy},
+        r#trait::{Harmony, HarmonyAdaptor, HarmonyResult, HarmonyStrategy},
         springs::HarmonySprings,
     },
     util::ordered_locks::{Nat, OrderedLocks, Zero},
@@ -100,24 +100,41 @@ impl<T: StackType> HarmonyStrategy<T> for ListOfHarmonyStrategies<T> {
     ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
         self.solve_start = time;
         self.currently_running = 0;
-        let strat = &mut self.strategies[self.currently_running];
-        (_, adaptor) = match strat {
-            SomeHarmonyStrategy::Springs(strat) => {
-                on_snd(strat.start_solve(time, adaptor.specialize()), |a| {
-                    a.as_list_adaptor()
-                })
-            }
-            SomeHarmonyStrategy::ChordList(strat) => {
-                on_snd(strat.start_solve(time, adaptor.specialize()), |a| {
-                    a.as_list_adaptor()
-                })
-            }
-        };
+        (_, adaptor) = adaptor.harmony_mut(|harmony, _| *harmony = Harmony::None);
 
-        // the reason for this line: If the zeroth strategy finishes immediately because it is
-        // disabled, we want to progress with the next strategy. [Self::step] implements this logic,
-        // and I don't want to duplicate it here. One step is cheap.
-        self.step(adaptor)
+        while self.currently_running < self.strategies.len() {
+            let strat = &mut self.strategies[self.currently_running];
+            match strat {
+                SomeHarmonyStrategy::Springs(strat) => {
+                    let mut sa = SpecializeAdaptor::<_, _, HarmonySprings<_>>::specialize(adaptor);
+                    let enabled;
+                    (enabled, sa) = sa.config(|conf, _| conf.enable);
+                    if enabled {
+                        return on_snd(strat.start_solve(time, sa), |a| a.as_list_adaptor());
+                    }
+                    adaptor = sa.as_list_adaptor();
+                }
+                SomeHarmonyStrategy::ChordList(strat) => {
+                    let mut sa = SpecializeAdaptor::<_, _, ChordList<_>>::specialize(adaptor);
+                    let enabled;
+                    (enabled, sa) = sa.config(|conf, _| conf.enable);
+                    if enabled {
+                        return on_snd(strat.start_solve(time, sa), |a| a.as_list_adaptor());
+                    }
+                    adaptor = sa.as_list_adaptor();
+                }
+            };
+            self.currently_running += 1;
+        }
+
+        (
+            HarmonyResult {
+                finished: true,
+                progress: false,
+                perfect: false,
+            },
+            adaptor,
+        )
     }
 
     fn step(

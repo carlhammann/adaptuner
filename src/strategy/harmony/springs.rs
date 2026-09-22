@@ -697,7 +697,7 @@ impl<T: StackType> HarmonySprings<T> {
 }
 
 impl<T: StackType, L: AtMost<StrategyConfigLevel>> HarmonyAdaptor<T, HarmonySprings<T>, L> {
-    fn config<R>(
+    pub fn config<R>(
         self,
         mut f: impl FnMut(
             &HarmonySpringsConfig<T>,

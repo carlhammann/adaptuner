@@ -420,6 +420,11 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
             }
             match res {
                 ChordListEditorResult::None => {}
+                ChordListEditorResult::ToggleEnable => {
+                    let _ = adaptor.send(wrap(ToChordList::ToggleEnable {
+                        time: Instant::now(),
+                    }));
+                }
                 ChordListEditorResult::UpdateChord(i) => {
                     let _ = adaptor.send(wrap(ToChordList::UpdateChord {
                         index: i,

@@ -318,6 +318,9 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         mut adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (Option<Instant>, HarmonyAdaptor<T, Self, Zero>) {
         match msg {
+            ToChordList::ToggleEnable { time } => {
+                (Some(time), adaptor)
+            }
             ToChordList::ChordListAction { list_action, time } => {
                 list_action.apply_to_no_select(&mut self.patterns, |x| x.clone());
                 (Some(time), adaptor)

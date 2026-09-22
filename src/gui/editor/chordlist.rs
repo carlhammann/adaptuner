@@ -422,6 +422,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
 #[derive(Clone, Copy)]
 pub enum ChordListEditorResult {
     None,
+    ToggleEnable,
     UpdateChord(usize),
     ListAction(ListAction),
     PushNewChord,
@@ -570,6 +571,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
                     .clicked()
                 {
                     *enable = !*enable;
+                    update_res(ChordListEditorResult::ToggleEnable);
                 }
             });
 
