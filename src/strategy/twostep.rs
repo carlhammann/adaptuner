@@ -1,4 +1,7 @@
-use std::{marker::PhantomData, time::Instant};
+use std::{
+    marker::PhantomData,
+    time::{Duration, Instant},
+};
 
 use crate::{
     adaptors::lock_levels::{ActiveStrategyIndexLevel, StrategyConfigLevel},
@@ -28,6 +31,7 @@ pub struct TwoStep<T: StackType, H: HarmonyStrategy<T>, M: MelodyStrategy<T>> {
 
     group_start: Instant,
     group_start_reference: Stack<T>,
+    last_tune: Instant,
 }
 
 impl<T, HC, MC> IsStrategyConfig<T> for (HC, MC)
@@ -133,36 +137,53 @@ where
     #[inline]
     fn finish_solve(
         &mut self,
+        finished: bool,
         mut adaptor: StrategyAdaptor<T, Self, Zero>,
     ) -> StrategyAdaptor<T, Self, Zero> {
-        let reanchor;
-        let group_ms;
-        ((reanchor, group_ms), adaptor) = adaptor.melody_harmony_coordination(
-            |MelodyHarmonyCoordinationConfig { reanchor, group_ms }, _| (*reanchor, *group_ms),
+        let now = Instant::now();
+        let tune_wait_duration;
+        (tune_wait_duration, adaptor) = adaptor.melody_harmony_coordination(
+            |MelodyHarmonyCoordinationConfig { tune_wait_us, .. }, _| {
+                Duration::from_micros(*tune_wait_us)
+            },
         );
-        if reanchor
-            && (self
-                .solve_start
-                .duration_since(self.group_start)
-                .as_millis()
-                <= group_ms as u128)
-        {
-            (_, adaptor) = adaptor
-                .reference_mut(|reference, _| reference.clone_from(&self.group_start_reference));
-        }
-
-        let mut ma = self
-            .melody_strategy
-            .tune_with_harmony(self.solve_start, adaptor.as_melody_adaptor());
-
-        if reanchor {
-            ma = self.melody_strategy.handle_bound_action(
-                &BindableStrategyAction::SetReferenceToCurrent,
-                self.solve_start,
-                ma,
+        if finished || (now.duration_since(self.last_tune) > tune_wait_duration) {
+            let reanchor;
+            let group_ms;
+            ((reanchor, group_ms), adaptor) = adaptor.melody_harmony_coordination(
+                |MelodyHarmonyCoordinationConfig {
+                     reanchor, group_ms, ..
+                 },
+                 _| (*reanchor, *group_ms),
             );
+            if reanchor
+                && (self
+                    .solve_start
+                    .duration_since(self.group_start)
+                    .as_millis()
+                    <= group_ms as u128)
+            {
+                (_, adaptor) = adaptor.reference_mut(|reference, _| {
+                    reference.clone_from(&self.group_start_reference)
+                });
+            }
+
+            let mut ma = self
+                .melody_strategy
+                .tune_with_harmony(self.solve_start, adaptor.as_melody_adaptor());
+            self.last_tune = Instant::now();
+
+            if reanchor {
+                ma = self.melody_strategy.handle_bound_action(
+                    &BindableStrategyAction::SetReferenceToCurrent,
+                    self.solve_start,
+                    ma,
+                );
+            }
+            ma.as_two_step_adaptor()
+        } else {
+            adaptor
         }
-        ma.as_two_step_adaptor()
     }
 
     #[inline]
@@ -187,8 +208,8 @@ where
         self.solve_start = time;
         self.solving_harmony = !res.finished;
 
-        if res.progress | res.finished {
-            adaptor = self.finish_solve(ha.as_two_step_adaptor());
+        if res.progress || res.finished {
+            adaptor = self.finish_solve(res.finished, ha.as_two_step_adaptor());
             (self.solving_harmony, adaptor)
         } else {
             (self.solving_harmony, ha.as_two_step_adaptor())
@@ -218,6 +239,7 @@ where
             solve_start: Instant::now(),
             solving_harmony: false,
             group_start: Instant::now(),
+            last_tune: Instant::now(),
         }
     }
 
@@ -327,8 +349,8 @@ where
 
             self.solving_harmony = !res.finished;
 
-            if res.progress | res.finished {
-                adaptor = self.finish_solve(ha.as_two_step_adaptor());
+            if res.progress || res.finished {
+                adaptor = self.finish_solve(res.finished, ha.as_two_step_adaptor());
                 (self.solving_harmony, adaptor)
             } else {
                 (self.solving_harmony, ha.as_two_step_adaptor())

@@ -13,10 +13,26 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
     fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.active_strategy_mut(|mut config, _| match &mut config {
             StrategyConfig::TwoStep {
-                melody_harmony_coordination: MelodyHarmonyCoordinationConfig { group_ms, reanchor },
+                melody_harmony_coordination:
+                    MelodyHarmonyCoordinationConfig {
+                        group_ms,
+                        reanchor,
+                        tune_wait_us,
+                    },
                 ..
             } => {
                 ui.collapsing("melody/harmony coordination", |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Wait for");
+                        ui.add(egui::DragValue::new(tune_wait_us).range(0..=1000000))
+                            .on_hover_text_at_pointer(
+                                "Some hardware and software instruments are \
+                             overwhelmed by the flood of tuning information \
+                             adaptuner can send. This setting gives them a bit of breathing \
+                             room, at the cost of some added latency.",
+                            );
+                        ui.label("μs before using imperfect harmony solutions.");
+                    });
                     ui.radio_value(
                         reanchor,
                         false,

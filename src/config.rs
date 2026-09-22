@@ -64,6 +64,7 @@ pub enum StrategyConfig<T: IntervalBasis> {
 pub struct MelodyHarmonyCoordinationConfig {
     pub reanchor: bool,
     pub group_ms: u64,
+    pub tune_wait_us: u64,
 }
 
 impl<T: IntervalBasis> StrategyConfig<T> {

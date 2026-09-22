@@ -922,6 +922,7 @@ mod test {
                     melody_harmony_coordination: MelodyHarmonyCoordinationConfig {
                         reanchor: true,
                         group_ms: 100,
+                        tune_wait_us: 1000,
                     },
                 }]),
                 active_strategy_index: RwLock::new(0),

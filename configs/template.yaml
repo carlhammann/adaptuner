@@ -513,6 +513,7 @@ strategies:
   melody-harmony-coordination:
     reanchor: false
     group-ms: 100
+    tune-wait-us: 1000
   bindings:
     sostenuto-pedal-down: !to-strategy
       increment-neighbourhood-index: 1

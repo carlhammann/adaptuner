@@ -540,6 +540,7 @@ strategies:
   melody-harmony-coordination:
     reanchor: false
     group-ms: 200
+    tune-wait-us: 10000
 backend: !pitchbend12
   bend-range: 2.0
   channels:
