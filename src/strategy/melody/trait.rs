@@ -1,19 +1,63 @@
 use std::{marker::PhantomData, time::Instant};
 
+use serde_derive::{Deserialize, Serialize};
+
 use crate::{
     adaptors::{
         lock_levels::{
-            ActiveStrategyIndexLevel, HarmonyLevel, KeyStateLevel, ReferenceLevel,
+            ActiveStrategyIndexLevel, AnchoringLevel, HarmonyLevel, KeyStateLevel, ReferenceLevel,
             StrategyConfigLevel, TuningReferenceLevel, TuningStateLevel,
         },
         ConcreteLocks,
     },
     bindable::BindableStrategyAction,
     config::IsMelodyStrategyConfig,
-    interval::{stack::Stack, stacktype::r#trait::StackType},
+    interval::{
+        stack::Stack,
+        stacktype::r#trait::{IntervalBasis, StackCoeff, StackType},
+    },
     msg::{FromProcess, FromStrategy, ToMelody},
     util::ordered_locks::{Nat, OrderedLocks, ReadAllowed, WriteAllowed, Zero},
 };
+
+#[derive(PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub enum UndeterminedSpringAnchoringKind {
+    LowestKey,
+    HighestKey,
+    Fundamental,
+    Overtone,
+    FundamentalOrOvertone,
+}
+
+pub enum SpringAnchoringKind {
+    LowestKey,
+    HighestKey,
+    Fundamental,
+    Overtone,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChordAnchoringKind {
+    LowestKey,
+    HighestKey,
+    ChordReference,
+}
+
+pub enum AnchoringKind {
+    Spring(SpringAnchoringKind),
+    Chord(ChordAnchoringKind),
+    None,
+}
+
+pub struct Anchoring<T: IntervalBasis> {
+    pub kind: AnchoringKind,
+    pub key: StackCoeff,
+    pub stack: Stack<T>,
+}
 
 pub struct MelodyAdaptorTag {}
 
@@ -45,12 +89,20 @@ impl<T: StackType, S: MelodyStrategy<T>> ReadAllowed<HarmonyLevel>
     for (MelodyAdaptorTag, PhantomData<T>, S)
 {
 }
+impl<T: StackType, S: MelodyStrategy<T>> ReadAllowed<AnchoringLevel>
+    for (MelodyAdaptorTag, PhantomData<T>, S)
+{
+}
 
 impl<T: StackType, S: MelodyStrategy<T>> WriteAllowed<TuningStateLevel>
     for (MelodyAdaptorTag, PhantomData<T>, S)
 {
 }
 impl<T: StackType, S: MelodyStrategy<T>> WriteAllowed<ReferenceLevel>
+    for (MelodyAdaptorTag, PhantomData<T>, S)
+{
+}
+impl<T: StackType, S: MelodyStrategy<T>> WriteAllowed<AnchoringLevel>
     for (MelodyAdaptorTag, PhantomData<T>, S)
 {
 }

@@ -128,6 +128,8 @@ pub struct ChordList<T: StackType> {
     best_fit: (usize, Fit),
     solve_start: Instant,
     active_code: u128,
+    lowest_key: u8,
+    highest_key: u8,
 }
 
 impl<T: StackType> IsHarmonyStrategyConfig<T> for ChordListConfig<T> {
@@ -180,6 +182,8 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
             best_fit: (0, Fit::Failed),
             solve_start: Instant::now(),
             active_code: 0,
+            lowest_key: 0,
+            highest_key: 0,
         }
     }
 
@@ -188,8 +192,24 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         time: Instant,
         mut adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (HarmonyResult, HarmonyAdaptor<T, Self, Zero>) {
-        let enable;
+        let mut enable;
         (enable, adaptor) = adaptor.config(|conf, _| conf.enable);
+
+        let mut k;
+        (k, adaptor) = adaptor.highest_sounding_key();
+        if let Some(k) = k {
+            self.highest_key = k as u8;
+        } else {
+            enable = false;
+        }
+
+        (k, adaptor) = adaptor.lowest_sounding_key();
+        if let Some(k) = k {
+            self.lowest_key = k as u8;
+        } else {
+            enable = false;
+        }
+
         if !enable {
             return (
                 HarmonyResult {
@@ -245,6 +265,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
                     neighbourhood,
                     reference_key,
                     pattern_index,
+                    ..
                 } => {
                     neighbourhood.clone_from(&the_pattern.neighbourhood);
                     *reference_key = fit.reference() as StackCoeff;
@@ -255,6 +276,8 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
                         neighbourhood: the_pattern.neighbourhood.clone(),
                         reference_key: fit.reference() as StackCoeff,
                         pattern_index: self.next_pattern_to_try,
+                        lowest_key: self.lowest_key,
+                        highest_key: self.highest_key,
                     };
                 }
                 Harmony::SpringSolution { .. } => unreachable!(),
@@ -318,9 +341,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
         mut adaptor: HarmonyAdaptor<T, Self, Zero>,
     ) -> (Option<Instant>, HarmonyAdaptor<T, Self, Zero>) {
         match msg {
-            ToChordList::ToggleEnable { time } => {
-                (Some(time), adaptor)
-            }
+            ToChordList::ToggleEnable { time } => (Some(time), adaptor),
             ToChordList::ChordListAction { list_action, time } => {
                 list_action.apply_to_no_select(&mut self.patterns, |x| x.clone());
                 (Some(time), adaptor)

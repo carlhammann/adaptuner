@@ -151,6 +151,9 @@ pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
         reference: Stack<T>,
         time: Instant,
     },
+    Reanchor {
+        time: Instant,
+    }
 }
 
 pub enum ToTwoStep<T: StackType> {

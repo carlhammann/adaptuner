@@ -127,7 +127,7 @@ impl<T, M, L: Nat> OrderedLocks<T, M, L> {
     #[inline]
     pub fn ith_mut<I, R, X>(
         self,
-        mut f: impl FnMut(&mut X, OrderedLocks<T, M, Succ<I>>) -> R,
+        f: impl FnOnce(&mut X, OrderedLocks<T, M, Succ<I>>) -> R,
     ) -> (R, Self)
     where
         I: Nat,
@@ -148,7 +148,7 @@ impl<T, M, L: Nat> OrderedLocks<T, M, L> {
     pub fn ith_indexed_mut<I, R, Ix, X>(
         self,
         ix: Ix,
-        mut f: impl FnMut(&mut X, OrderedLocks<T, M, Succ<I>>) -> R,
+        f: impl FnOnce(&mut X, OrderedLocks<T, M, Succ<I>>) -> R,
     ) -> (R, Self)
     where
         I: Nat,
@@ -175,11 +175,11 @@ pub trait IndexedAccess<L: Nat, Ix, X> {
 }
 
 pub trait AccessMut<L: Nat, X> {
-    unsafe fn with_mut<R>(&self, f: impl FnMut(&mut X) -> R) -> R;
+    unsafe fn with_mut<R>(&self, f: impl FnOnce(&mut X) -> R) -> R;
 }
 
 pub trait IndexedAccessMut<L: Nat, Ix, X> {
-    unsafe fn with_index_mut<R>(&self, i: Ix, f: impl FnMut(&mut X) -> R) -> R;
+    unsafe fn with_index_mut<R>(&self, i: Ix, f: impl FnOnce(&mut X) -> R) -> R;
 }
 
 macro_rules! impl_access {
@@ -210,7 +210,7 @@ macro_rules! impl_access_mut {
     (< $(  $t:ident : $tr:path  ),* >, $domain:ty, $level:ty, $result:ty, |$self:ident| $x:expr) => {
         impl<$($t:$tr),*> $crate::util::ordered_locks::AccessMut<$level, $result> for $domain {
             #[inline]
-            unsafe fn with_mut<R>(&$self, mut f: impl FnMut(&mut $result) -> R) -> R {
+            unsafe fn with_mut<R>(&$self, f: impl FnOnce(&mut $result) -> R) -> R {
                 f($x)
             }
         }
@@ -258,7 +258,7 @@ macro_rules! impl_indexed_access_mut {
     (< $(  $t:ident : $tr:path  ),* >, $domain:ty, $level:ty, $index:ty, $result:ty, |$self:ident, $i:ident| $x:expr) => {
         impl<$($t:$tr),*> $crate::util::ordered_locks::IndexedAccessMut<$level, $index, $result> for $domain {
             #[inline]
-            unsafe fn with_index_mut<R>(&$self, $i: $index, mut f: impl FnMut(&mut $result) -> R) -> R {
+            unsafe fn with_index_mut<R>(&$self, $i: $index, f: impl FnOnce(&mut $result) -> R) -> R {
                 f($x)
             }
         }

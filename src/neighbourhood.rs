@@ -201,6 +201,12 @@ impl<T: IntervalBasis> Partial<T> {
     pub fn clear(&mut self) {
         self.stacks.clear();
     }
+
+    /// The maximal key offset and its tuning. (None if the neighbourhood is empty)
+    #[inline]
+    pub fn highest(&self) -> Option<(&StackCoeff, &Stack<T>)> {
+        self.stacks.last_key_value()
+    }
 }
 
 pub trait Neighbourhood<T: IntervalBasis> {

@@ -510,6 +510,8 @@ strategies:
           actual:
             octave: '11/12'
     initial-reference: {}
+    spring-anchoring-kind: fundamental-or-overtone
+    chord-anchoring-kind: chord-reference
   melody-harmony-coordination:
     reanchor: false
     group-ms: 100

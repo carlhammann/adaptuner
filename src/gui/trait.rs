@@ -21,6 +21,7 @@ impl ReadAllowed<TuningReferenceLevel> for GuiTag {}
 impl ReadAllowed<ReferenceLevel> for GuiTag {}
 impl ReadAllowed<BackendConfigLevel> for GuiTag {}
 impl ReadAllowed<HarmonyLevel> for GuiTag {}
+impl ReadAllowed<AnchoringLevel> for GuiTag {}
 
 impl WriteAllowed<StrategyConfigLevel> for GuiTag {}
 impl WriteAllowed<ActiveStrategyIndexLevel> for GuiTag {}

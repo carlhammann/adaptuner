@@ -868,7 +868,10 @@ mod test {
         keystate::KeyState,
         process::r#trait::{ProcessTag, StackWithTuning},
         reference::Reference,
-        strategy::melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
+        strategy::melody::{
+            neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
+            r#trait::{Anchoring, AnchoringKind, ChordAnchoringKind, UndeterminedSpringAnchoringKind},
+        },
         util::ordered_locks::{OrderedLocks, Zero},
     };
 
@@ -917,6 +920,8 @@ mod test {
                         StaticNeighbourhoodsAsMelodyConfig {
                             initial_reference: Stack::new_zero(),
                             scales: vec![], // dummy initialisation: In the real world, this is never empty
+                            chord_anchoring_kind: ChordAnchoringKind::ChordReference,
+                            spring_anchoring_kind: UndeterminedSpringAnchoringKind::FundamentalOrOvertone,
                         },
                     ),
                     melody_harmony_coordination: MelodyHarmonyCoordinationConfig {
@@ -927,6 +932,11 @@ mod test {
                 }]),
                 active_strategy_index: RwLock::new(0),
                 harmony: RwLock::new(Harmony::None),
+                anchoring: RwLock::new(Anchoring {
+                    kind: AnchoringKind::None,
+                    key: 60,
+                    stack: Stack::new_zero(),
+                }),
                 backend_config: RwLock::new(match template_config.backend {
                     BackendConfig::Pitchbend12(c) => c,
                 }),

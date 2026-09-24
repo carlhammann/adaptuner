@@ -22,6 +22,10 @@ pub enum Harmony<T: IntervalBasis> {
         neighbourhood: SomeNeighbourhood<T>,
         /// MIDI key number of the reference note, but may be outside the MIDI range
         reference_key: StackCoeff,
+        /// MIDI key number of the lowest sounding key
+        lowest_key: u8,
+        /// MIDI key number of the highest sounding key
+        highest_key: u8,
         pattern_index: usize,
     },
     SpringSolution {

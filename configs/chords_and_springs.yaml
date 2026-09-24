@@ -533,6 +533,8 @@ strategies:
           actual:
             octave: '11/12'
     initial-reference: {}
+    spring-anchoring-kind: fundamental-or-overtone
+    chord-anchoring-kind: highest-key
   bindings:
     soft-pedal-down: !to-strategy set-reference-to-current
     !key-press Escape: reset

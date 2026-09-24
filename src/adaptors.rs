@@ -15,7 +15,8 @@ use crate::{
     process::r#trait::StackWithTuning,
     reference::Reference,
     strategy::{
-        harmony::r#trait::Harmony, melody::neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
+        harmony::r#trait::Harmony,
+        melody::{neighbourhoods::StaticNeighbourhoodsAsMelodyConfig, r#trait::Anchoring},
         staticneighbourhoods::StaticNeighbourhoodsConfig,
     },
     util::ordered_locks::{
@@ -44,6 +45,7 @@ pub struct ConcreteLocks<T: StackType> {
     pub gui_config: RwLock<GuiConfig>,
     pub backend_config: RwLock<Pitchbend12Config>,
     pub harmony: RwLock<Harmony<T>>,
+    pub anchoring: RwLock<Anchoring<T>>,
 }
 
 /// The following type definitions define an ordering of locks:
@@ -60,17 +62,17 @@ pub struct ConcreteLocks<T: StackType> {
 pub mod lock_levels {
     use crate::util::ordered_locks::{Zero, Succ};
     pub type HarmonyLevel             = Zero;
-    pub type StrategyConfigLevel      = Succ<Zero>;
-    pub type ActiveStrategyIndexLevel = Succ<Succ<Zero>>;
-    pub type PedalHoldLevel           = Succ<Succ<Succ<Zero>>>;
-    pub type SostenutoHoldLevel       = Succ<Succ<Succ<Succ<Zero>>>>;
-    pub type SoftHoldLevel            = Succ<Succ<Succ<Succ<Succ<Zero>>>>>;
-    pub type KeyStateLevel            = Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>;
-    pub type TuningStateLevel         = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>;
-    pub type TuningReferenceLevel     = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>; 
-    pub type ReferenceLevel           = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>>;
-    pub type BackendConfigLevel       = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>>>;
-    // pub type GuiConfigLevel           = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>>>>;
+    pub type AnchoringLevel           = Succ<Zero>;
+    pub type StrategyConfigLevel      = Succ<Succ<Zero>>;
+    pub type ActiveStrategyIndexLevel = Succ<Succ<Succ<Zero>>>;
+    pub type PedalHoldLevel           = Succ<Succ<Succ<Succ<Zero>>>>;
+    pub type SostenutoHoldLevel       = Succ<Succ<Succ<Succ<Succ<Zero>>>>>;
+    pub type SoftHoldLevel            = Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>;
+    pub type KeyStateLevel            = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>;
+    pub type TuningStateLevel         = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>; 
+    pub type TuningReferenceLevel     = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>>;
+    pub type ReferenceLevel           = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>>>;
+    pub type BackendConfigLevel       = Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Succ<Zero>>>>>>>>>>>;
 }
 use lock_levels::*;
 
@@ -86,6 +88,7 @@ impl_access! {<T:StackType>, ConcreteLocks<T>, ActiveStrategyIndexLevel, usize, 
 impl_access! {<T:StackType>, ConcreteLocks<T>, BackendConfigLevel, Pitchbend12Config, |self| &self.backend_config.read()}
 // impl_access! {<T:StackType>, ConcreteLocks<T>, GuiConfigLevel, GuiConfig, |self| &self.gui_config.read()}
 impl_access! {<T:StackType>, ConcreteLocks<T>, HarmonyLevel, Harmony<T>, |self| &self.harmony.read()}
+impl_access! {<T:StackType>, ConcreteLocks<T>, AnchoringLevel, Anchoring<T>, |self| &self.anchoring.read()}
 
 impl_access_mut! {<T:StackType>, ConcreteLocks<T>, PedalHoldLevel, [bool;16], |self| &mut self.pedal_hold.write()}
 impl_access_mut! {<T:StackType>, ConcreteLocks<T>, SostenutoHoldLevel, [bool;16], |self| &mut self.sostenuto_hold.write()}
@@ -99,6 +102,7 @@ impl_access_mut! {<T:StackType>, ConcreteLocks<T>, ActiveStrategyIndexLevel, usi
 impl_access_mut! {<T:StackType>, ConcreteLocks<T>, BackendConfigLevel, Pitchbend12Config, |self| &mut self.backend_config.write()}
 // impl_access_mut! {<T:StackType>, ConcreteLocks<T>, GuiConfigLevel, GuiConfig, |self| &mut self.gui_config.write()}
 impl_access_mut! {<T:StackType>, ConcreteLocks<T>, HarmonyLevel, Harmony<T>, |self| &mut self.harmony.write()}
+impl_access_mut! {<T:StackType>, ConcreteLocks<T>, AnchoringLevel, Anchoring<T>, |self| &mut self.anchoring.write()}
 
 // helper macro for the next impl. Only to save some writing and reading effort
 macro_rules! accessor {
@@ -116,7 +120,7 @@ macro_rules! accessor {
 
     (@mut $name:ident < $(  $t:ident : $tr:path  ),* >, $tag:ty, $domain:ty, $lowest:ty, $level:ty, $result:ty ) => {
         #[inline]
-        pub fn $name<R,$($t : $tr),*>(self, f: impl FnMut(&mut $result, OrderedLocks<$tag, $domain, Succ<$level>>) -> R) -> (R, Self)
+        pub fn $name<R,$($t : $tr),*>(self, f: impl FnOnce(&mut $result, OrderedLocks<$tag, $domain, Succ<$level>>) -> R) -> (R, Self)
         where
             $domain: AccessMut<$level, $result>,
             $lowest: AtMost<$level>,
@@ -140,7 +144,7 @@ macro_rules! accessor {
 
     (@indexed @mut $name:ident < $(  $t:ident : $tr:path  ),* >, $tag:ty, $domain:ty, $lowest:ty, $level:ty, $index:ty, $result:ty ) => {
         #[inline]
-        pub fn $name<R,$($t : $tr),*>(self, i: $index, f: impl FnMut(&mut $result, OrderedLocks<$tag, $domain, Succ<$level>>) -> R) -> (R, Self)
+        pub fn $name<R,$($t : $tr),*>(self, i: $index, f: impl FnOnce(&mut $result, OrderedLocks<$tag, $domain, Succ<$level>>) -> R) -> (R, Self)
         where
             $domain: IndexedAccessMut<$level, $index, $result>,
             $lowest: AtMost<$level>,
@@ -184,6 +188,9 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
 
     accessor! {harmony <T:IntervalBasis> ,  X, M, L, HarmonyLevel, Harmony<T>}
     accessor! {@mut harmony_mut <T:IntervalBasis>  , X,  M, L, HarmonyLevel, Harmony<T>}
+    
+    accessor! {anchoring <T:IntervalBasis> ,  X, M, L, AnchoringLevel, Anchoring<T>}
+    accessor! {@mut anchoring_mut <T:IntervalBasis>  , X,  M, L, AnchoringLevel, Anchoring<T>}
 
     #[inline]
     pub fn active_strategy<R, T>(
@@ -227,6 +234,27 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
     {
         let mut res = None {};
         for i in 0..128 {
+            (_, self) = self.key_state(i, |k, _| {
+                if k.is_sounding() {
+                    res = Some(i);
+                }
+            });
+            if res.is_some() {
+                break;
+            }
+        }
+        (res, self)
+    }
+    
+    #[inline]
+    pub fn highest_sounding_key(mut self) -> (Option<usize>, Self)
+    where
+        M: IndexedAccess<KeyStateLevel, usize, KeyState>,
+        L: AtMost<KeyStateLevel>,
+        X: ReadAllowed<KeyStateLevel>,
+    {
+        let mut res = None {};
+        for i in (0..128).rev() {
             (_, self) = self.key_state(i, |k, _| {
                 if k.is_sounding() {
                     res = Some(i);
@@ -401,14 +429,10 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
         })
     }
 
-
     #[inline]
     pub fn initial_scale_reference<R, T>(
         self,
-        mut f: impl FnMut(
-            Option<&Stack<T>>,
-            OrderedLocks<X, M, Succ<ActiveStrategyIndexLevel>>,
-        ) -> R,
+        mut f: impl FnMut(Option<&Stack<T>>, OrderedLocks<X, M, Succ<ActiveStrategyIndexLevel>>) -> R,
     ) -> (R, Self)
     where
         T: IntervalBasis,

@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    marker::PhantomData,
     time::{Duration, Instant},
 };
 
@@ -10,57 +11,35 @@ use crate::{
     gui::r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     interval::{
         base::Semitones,
-        fundamental::{fundamental_or_overtone, HasFundamental, HasOvertone},
-        stack::Stack,
-        stacktype::r#trait::{StackCoeff, StackType},
+        fundamental::{HasFundamental, HasOvertone},
+        stacktype::r#trait::StackType,
     },
     msg::ToUi,
-    neighbourhood::CompleteNeighbourhood,
     notename::{HasNoteNames, NoteNameStyle},
-    strategy::harmony::{
-        chordlist::{ChordListConfig, PatternConfig},
-        r#trait::Harmony,
+    strategy::{
+        harmony::{
+            chordlist::{ChordListConfig, PatternConfig},
+            r#trait::Harmony,
+        },
+        melody::r#trait::{AnchoringKind, ChordAnchoringKind, SpringAnchoringKind},
     },
     util::ordered_locks::Zero,
 };
 
 pub struct Notifications<T: StackType> {
-    harmony: (HarmonyNotification<T>, Instant),
+    _phantom: PhantomData<T>,
+    harmony: bool,
     reference: (bool, Instant),
     scale_index: (Option<usize>, bool, Instant),
     detuned_notes: VecDeque<(u8, Semitones, Semitones, &'static str, Instant)>,
     cleanup_time: Duration,
 }
 
-enum HarmonyNotification<T: StackType> {
-    None,
-    MatchedChord {
-        // The reference might be unknown, if no currently active scale can be determined.
-        m_reference: Option<Stack<T>>,
-        pattern_index: usize,
-    },
-    SpringSolution {
-        // The reference might be unknown, if no currently active scale can be determined.
-        m_reference: Option<Stack<T>>,
-        number_of_tries: u64,
-        is_utonal: bool,
-        relaxed: bool,
-    },
-}
-
-impl<T: StackType> HarmonyNotification<T> {
-    fn is_some(&self) -> bool {
-        match self {
-            HarmonyNotification::None => false,
-            _ => true,
-        }
-    }
-}
-
 impl<T: StackType + HasNoteNames> Notifications<T> {
     pub fn new() -> Self {
         Self {
-            harmony: (HarmonyNotification::None, Instant::now()),
+            _phantom: PhantomData,
+            harmony: false,
             reference: (false, Instant::now()),
             scale_index: (None {}, false, Instant::now()),
             detuned_notes: VecDeque::new(),
@@ -93,10 +72,7 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
     }
 
     pub fn is_nonempty(&self) -> bool {
-        self.harmony.0.is_some()
-            || self.reference.0
-            || self.scale_index.1
-            || !self.detuned_notes.is_empty()
+        self.harmony || self.reference.0 || self.scale_index.1 || !self.detuned_notes.is_empty()
     }
 }
 
@@ -117,89 +93,126 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
             });
         }
 
-        match &self.harmony.0 {
-            HarmonyNotification::None => {}
-            HarmonyNotification::MatchedChord {
-                m_reference,
-                pattern_index,
-            } => {
-                (_, adaptor) = adaptor.active_strategy(|strat, adaptor| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 0.0;
-                        let mut with_the_patterns = |patterns: &Vec<PatternConfig<T>>| {
-                            ui.strong(&patterns[*pattern_index % patterns.len()].name);
-                            if let Some(reference) = m_reference {
-                                ui.label(" on ");
-                                ui.strong(reference.corrected_notename(
-                                    &NoteNameStyle::Full,
-                                    adaptor.config().use_cent_values,
-                                ));
-                            }
-                        };
-
-                        match strat {
-                            StrategyConfig::TwoStep {
-                                harmony:
-                                    HarmonyStrategyConfig::ChordList(ChordListConfig {
-                                        patterns, ..
-                                    }),
-                                ..
-                            } => {
-                                with_the_patterns(patterns);
-                            }
-                            StrategyConfig::TwoStep {
-                                harmony: HarmonyStrategyConfig::List(confs),
-                                ..
-                            } => {
-                                for conf in confs {
-                                    match conf {
-                                        HarmonyStrategyConfig::ChordList(ChordListConfig {
-                                            patterns,
-                                            ..
-                                        }) => {
-                                            with_the_patterns(patterns);
-                                            break;
+        if self.harmony {
+            (_, adaptor) = adaptor.harmony(|harmony, adaptor| {
+                adaptor.anchoring(|anchoring, adaptor| match (harmony, &anchoring.kind) {
+                    (Harmony::MatchedChord { pattern_index, .. }, AnchoringKind::Chord(kind)) => {
+                        adaptor.active_strategy(|strat, adaptor| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 0.0;
+                                let mut with_the_patterns = |patterns: &Vec<PatternConfig<T>>| {
+                                    ui.strong(&patterns[*pattern_index % patterns.len()].name);
+                                    match kind {
+                                        ChordAnchoringKind::LowestKey => {
+                                            ui.label(" with lowest key ");
+                                            ui.strong(anchoring.stack.corrected_notename(
+                                                &NoteNameStyle::Full,
+                                                adaptor.config().use_cent_values,
+                                            ));
                                         }
-                                        _ => {}
+                                        ChordAnchoringKind::HighestKey => {
+                                            ui.label(" with highest key ");
+                                            ui.strong(anchoring.stack.corrected_notename(
+                                                &NoteNameStyle::Full,
+                                                adaptor.config().use_cent_values,
+                                            ));
+                                        }
+                                        ChordAnchoringKind::ChordReference => {
+                                            ui.label(" on ");
+                                            ui.strong(anchoring.stack.corrected_notename(
+                                                &NoteNameStyle::Full,
+                                                adaptor.config().use_cent_values,
+                                            ));
+                                        }
                                     }
-                                }
-                            }
+                                };
 
-                            _ => {}
-                        }
-                    });
-                });
-            }
-            HarmonyNotification::SpringSolution {
-                m_reference,
-                number_of_tries,
-                is_utonal,
-                relaxed,
-            } => {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    if *relaxed {
-                        ui.label("relaxed ");
+                                match strat {
+                                    StrategyConfig::TwoStep {
+                                        harmony:
+                                            HarmonyStrategyConfig::ChordList(ChordListConfig {
+                                                patterns,
+                                                ..
+                                            }),
+                                        ..
+                                    } => {
+                                        with_the_patterns(patterns);
+                                    }
+                                    StrategyConfig::TwoStep {
+                                        harmony: HarmonyStrategyConfig::List(confs),
+                                        ..
+                                    } => {
+                                        for conf in confs {
+                                            match conf {
+                                                HarmonyStrategyConfig::ChordList(
+                                                    ChordListConfig { patterns, .. },
+                                                ) => {
+                                                    with_the_patterns(patterns);
+                                                    break;
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            });
+                        });
                     }
-                    ui.label("spring tuning");
-                    if let Some(reference) = m_reference {
-                        if *is_utonal {
-                            ui.label(" on ");
-                        } else {
-                            ui.label(" below ");
-                        }
-                        ui.strong(reference.corrected_notename(
-                            &NoteNameStyle::Full,
-                            adaptor.config().use_cent_values,
-                        ));
+                    (
+                        Harmony::SpringSolution {
+                            number_of_tries,
+                            relaxed,
+                            ..
+                        },
+                        AnchoringKind::Spring(kind),
+                    ) => {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            if *relaxed {
+                                ui.label("relaxed ");
+                            }
+                            ui.label("spring tuning");
+                            match kind {
+                                SpringAnchoringKind::LowestKey => {
+                                    ui.label(" with lowest key ");
+                                    ui.strong(anchoring.stack.corrected_notename(
+                                        &NoteNameStyle::Full,
+                                        adaptor.config().use_cent_values,
+                                    ));
+                                }
+                                SpringAnchoringKind::HighestKey => {
+                                    ui.label(" with highest key ");
+                                    ui.strong(anchoring.stack.corrected_notename(
+                                        &NoteNameStyle::Full,
+                                        adaptor.config().use_cent_values,
+                                    ));
+                                }
+                                SpringAnchoringKind::Fundamental => {
+                                    ui.label(" with fundamental ");
+                                    ui.strong(anchoring.stack.corrected_notename(
+                                        &NoteNameStyle::Full,
+                                        adaptor.config().use_cent_values,
+                                    ));
+                                }
+                                SpringAnchoringKind::Overtone => {
+                                    ui.label(" with overtone ");
+                                    ui.strong(anchoring.stack.corrected_notename(
+                                        &NoteNameStyle::Full,
+                                        adaptor.config().use_cent_values,
+                                    ));
+                                }
+                            };
+                            if *number_of_tries > 1 {
+                                ui.label(format!(" ({number_of_tries} tries)"));
+                            } else {
+                                ui.label(" (1 try)");
+                            }
+                        });
                     }
-                    if *number_of_tries > 1 {
-                        ui.label(format!(" ({number_of_tries} tries)"));
-                    } else {
-                        ui.label(" (1 try)");
-                    }
-                });
-            }
+                    _ => {}
+                })
+            });
         }
 
         if let (true, _) = &self.reference {
@@ -258,104 +271,108 @@ impl<T: StackType + HasFundamental + HasOvertone> ReceiveToUiRef<T> for Notifica
                 ));
             }
             ToUi::UpdateHarmony => {
-                (_, adaptor) = adaptor.harmony(|harmony, adaptor| match harmony {
-                    Harmony::None => self.harmony = (HarmonyNotification::None, Instant::now()),
-                    Harmony::SpringSolution {
-                        lowest_key,
-                        number_of_tries,
-                        neighbourhood,
-                        relaxed,
-                    } => {
-                        let (is_utonal, reference_offset_stack) =
-                            fundamental_or_overtone(&neighbourhood);
-                        let reference_key =
-                            *lowest_key as StackCoeff + reference_offset_stack.key_distance();
-                        if let Some(scale_index) = self.scale_index.0 {
-                            adaptor.scales(|m_scales, adaptor| match m_scales {
-                                Some(scales) => {
-                                    adaptor.reference(|adaptor_reference, _| {
-                                        self.harmony = (
-                                            HarmonyNotification::SpringSolution {
-                                                m_reference: Some(
-                                                    scales[scale_index].named.get_absolute_stack(
-                                                        reference_key as StackCoeff,
-                                                        adaptor_reference,
-                                                    ),
-                                                ),
-                                                number_of_tries: *number_of_tries,
-                                                is_utonal,
-                                                relaxed: *relaxed,
-                                            },
-                                            Instant::now(),
-                                        )
-                                    });
-                                }
-                                None {} => {
-                                    self.harmony = (
-                                        HarmonyNotification::SpringSolution {
-                                            m_reference: None {},
-                                            number_of_tries: *number_of_tries,
-                                            is_utonal,
-                                            relaxed: *relaxed,
-                                        },
-                                        Instant::now(),
-                                    );
-                                }
-                            });
-                        } else {
-                            self.harmony = (
-                                HarmonyNotification::SpringSolution {
-                                    m_reference: None {},
-                                    number_of_tries: *number_of_tries,
-                                    is_utonal,
-                                    relaxed: *relaxed,
-                                },
-                                Instant::now(),
-                            );
-                        }
-                    }
-                    Harmony::MatchedChord {
-                        pattern_index,
-                        reference_key,
-                        ..
-                    } => {
-                        if let Some(scale_index) = self.scale_index.0 {
-                            adaptor.scales(|m_scales, adaptor| match m_scales {
-                                Some(scales) => {
-                                    adaptor.reference(|adaptor_reference, _| {
-                                        let reference_stack = scales[scale_index]
-                                            .named
-                                            .get_absolute_stack(*reference_key, adaptor_reference);
-                                        self.harmony = (
-                                            HarmonyNotification::MatchedChord {
-                                                m_reference: Some(reference_stack),
-                                                pattern_index: *pattern_index,
-                                            },
-                                            Instant::now(),
-                                        )
-                                    });
-                                }
-                                None {} => {
-                                    self.harmony = (
-                                        HarmonyNotification::MatchedChord {
-                                            m_reference: None {},
-                                            pattern_index: *pattern_index,
-                                        },
-                                        Instant::now(),
-                                    );
-                                }
-                            });
-                        } else {
-                            self.harmony = (
-                                HarmonyNotification::MatchedChord {
-                                    m_reference: None {},
-                                    pattern_index: *pattern_index,
-                                },
-                                Instant::now(),
-                            );
-                        }
-                    }
+                (_, adaptor) = adaptor.harmony(|harmony, _| match harmony {
+                    Harmony::None => self.harmony = false,
+                    _ => self.harmony = true,
                 });
+                // (_, adaptor) = adaptor.harmony(|harmony, adaptor| match harmony {
+                //     Harmony::None => self.harmony = (HarmonyNotification::None, Instant::now()),
+                //     Harmony::SpringSolution {
+                //         lowest_key,
+                //         number_of_tries,
+                //         neighbourhood,
+                //         relaxed,
+                //     } => {
+                //         let (is_utonal, reference_offset_stack) =
+                //             fundamental_or_overtone(&neighbourhood);
+                //         let reference_key =
+                //             *lowest_key as StackCoeff + reference_offset_stack.key_distance();
+                //         if let Some(scale_index) = self.scale_index.0 {
+                //             adaptor.scales(|m_scales, adaptor| match m_scales {
+                //                 Some(scales) => {
+                //                     adaptor.reference(|adaptor_reference, _| {
+                //                         self.harmony = (
+                //                             HarmonyNotification::SpringSolution {
+                //                                 m_reference: Some(
+                //                                     scales[scale_index].named.get_absolute_stack(
+                //                                         reference_key as StackCoeff,
+                //                                         adaptor_reference,
+                //                                     ),
+                //                                 ),
+                //                                 number_of_tries: *number_of_tries,
+                //                                 is_utonal,
+                //                                 relaxed: *relaxed,
+                //                             },
+                //                             Instant::now(),
+                //                         )
+                //                     });
+                //                 }
+                //                 None {} => {
+                //                     self.harmony = (
+                //                         HarmonyNotification::SpringSolution {
+                //                             m_reference: None {},
+                //                             number_of_tries: *number_of_tries,
+                //                             is_utonal,
+                //                             relaxed: *relaxed,
+                //                         },
+                //                         Instant::now(),
+                //                     );
+                //                 }
+                //             });
+                //         } else {
+                //             self.harmony = (
+                //                 HarmonyNotification::SpringSolution {
+                //                     m_reference: None {},
+                //                     number_of_tries: *number_of_tries,
+                //                     is_utonal,
+                //                     relaxed: *relaxed,
+                //                 },
+                //                 Instant::now(),
+                //             );
+                //         }
+                //     }
+                //     Harmony::MatchedChord {
+                //         pattern_index,
+                //         reference_key,
+                //         ..
+                //     } => {
+                //         if let Some(scale_index) = self.scale_index.0 {
+                //             adaptor.scales(|m_scales, adaptor| match m_scales {
+                //                 Some(scales) => {
+                //                     adaptor.reference(|adaptor_reference, _| {
+                //                         let reference_stack = scales[scale_index]
+                //                             .named
+                //                             .get_absolute_stack(*reference_key, adaptor_reference);
+                //                         self.harmony = (
+                //                             HarmonyNotification::MatchedChord {
+                //                                 m_reference: Some(reference_stack),
+                //                                 pattern_index: *pattern_index,
+                //                             },
+                //                             Instant::now(),
+                //                         )
+                //                     });
+                //                 }
+                //                 None {} => {
+                //                     self.harmony = (
+                //                         HarmonyNotification::MatchedChord {
+                //                             m_reference: None {},
+                //                             pattern_index: *pattern_index,
+                //                         },
+                //                         Instant::now(),
+                //                     );
+                //                 }
+                //             });
+                //         } else {
+                //             self.harmony = (
+                //                 HarmonyNotification::MatchedChord {
+                //                     m_reference: None {},
+                //                     pattern_index: *pattern_index,
+                //                 },
+                //                 Instant::now(),
+                //             );
+                //         }
+                //     }
+                // });
             }
 
             ToUi::StartedStrategy(_) => {}

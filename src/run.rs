@@ -38,7 +38,10 @@ use crate::{
         r#trait::{ProcessAdaptor, StackWithTuning},
     },
     reference::Reference,
-    strategy::harmony::r#trait::Harmony,
+    strategy::{
+        harmony::r#trait::Harmony,
+        melody::r#trait::{Anchoring, AnchoringKind},
+    },
     util::ordered_locks::{OrderedLocks, Zero},
 };
 
@@ -434,6 +437,11 @@ impl<T: StackType> RunState<T> {
             strategy_config: RwLock::new(strategies),
             active_strategy_index: RwLock::new(0),
             harmony: RwLock::new(Harmony::None),
+            anchoring: RwLock::new(Anchoring {
+                kind: AnchoringKind::None,
+                key: 60,
+                stack: Stack::new_zero(),
+            }),
             backend_config: RwLock::new(backend_config),
             gui_config: RwLock::new(gui_config),
         });

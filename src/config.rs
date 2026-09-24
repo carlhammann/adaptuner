@@ -177,7 +177,6 @@ pub trait IsHarmonyStrategyConfig<T: StackType>: Clone {
 }
 
 pub trait IsMelodyStrategyConfig<T: StackType>: Clone {
-    fn as_melody_strategy_config(self) -> MelodyStrategyConfig<T>;
     fn initial_scale_reference(&self) -> Option<&Stack<T>>;
 }
 
