@@ -29,6 +29,7 @@ pub enum UndeterminedSpringAnchoringKind {
     Fundamental,
     Overtone,
     FundamentalOrOvertone,
+    MostCommonNotes,
 }
 
 pub enum SpringAnchoringKind {
@@ -36,6 +37,7 @@ pub enum SpringAnchoringKind {
     HighestKey,
     Fundamental,
     Overtone,
+    MostCommonNotes(usize),
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]

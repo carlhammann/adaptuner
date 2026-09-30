@@ -145,13 +145,18 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
         self.stacks[rem].1
     }
 
-    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+    fn try_add_scaled_relative_stack(
+        &self,
+        target: &mut Stack<T>,
+        scale: StackCoeff,
+        offset: StackCoeff,
+    ) -> bool {
         let n = self.period_keys();
         let quot = offset.div_euclid(n);
         let rem = offset.rem_euclid(n) as usize;
         if self.stacks[rem].1 {
-            target.scaled_add(1, &self.stacks[rem].0);
-            target.scaled_add(quot, &self.period);
+            target.scaled_add(scale, &self.stacks[rem].0);
+            target.scaled_add(scale * quot, &self.period);
             true
         } else {
             false
@@ -248,8 +253,26 @@ pub trait Neighbourhood<T: IntervalBasis> {
     /// Must return `true` for every `offset` in the case of [CompleteNeigbourhood]s.
     fn has_tuning_for(&self, offset: StackCoeff) -> bool;
 
+    /// Like [Neighbourhood::try_increment_by_relative_stack], but with the option to scale the
+    /// added [Stack] by some factor.
+    fn try_add_scaled_relative_stack(
+        &self,
+        target: &mut Stack<T>,
+        scale: StackCoeff,
+        offset: StackCoeff,
+    ) -> bool;
+
     /// Like [Neighbourhood::try_write_relative_stack], but adding to the output argument.
-    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool;
+    #[inline]
+    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+        self.try_add_scaled_relative_stack(target, 1, offset)
+    }
+    
+    /// Like [Neighbourhood::try_write_relative_stack], but subtracting from the output argument.
+    #[inline]
+    fn try_decrement_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+        self.try_add_scaled_relative_stack(target, -1, offset)
+    }
 
     /// Like [Neighbourhood::try_get_relative_stack], but with an output argument `target`, which
     /// must remain unchanged if it returns `false`.
@@ -411,15 +434,20 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
     }
 
     #[inline]
-    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+    fn try_add_scaled_relative_stack(
+        &self,
+        target: &mut Stack<T>,
+        scale: StackCoeff,
+        offset: StackCoeff,
+    ) -> bool {
         match self {
             SomeNeighbourhood::PeriodicComplete(x) => {
-                x.try_increment_by_relative_stack(target, offset)
+                x.try_add_scaled_relative_stack(target, scale, offset)
             }
             SomeNeighbourhood::PeriodicPartial(x) => {
-                x.try_increment_by_relative_stack(target, offset)
+                x.try_add_scaled_relative_stack(target, scale, offset)
             }
-            SomeNeighbourhood::Partial(x) => x.try_increment_by_relative_stack(target, offset),
+            SomeNeighbourhood::Partial(x) => x.try_add_scaled_relative_stack(target, scale, offset),
         }
     }
 
@@ -504,10 +532,15 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
     }
 
     #[inline]
-    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+    fn try_add_scaled_relative_stack(
+        &self,
+        target: &mut Stack<T>,
+        scale: StackCoeff,
+        offset: StackCoeff,
+    ) -> bool {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => {
-                n.try_increment_by_relative_stack(target, offset)
+                n.try_add_scaled_relative_stack(target, scale, offset)
             }
         }
     }
@@ -598,9 +631,14 @@ impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
     }
 
     #[inline]
-    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+    fn try_add_scaled_relative_stack(
+        &self,
+        target: &mut Stack<T>,
+        scale: StackCoeff,
+        offset: StackCoeff,
+    ) -> bool {
         if let Some(stack) = self.stacks.get(&offset) {
-            target.scaled_add(1, stack);
+            target.scaled_add(scale, stack);
             true
         } else {
             false
@@ -681,12 +719,17 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
     }
 
     #[inline]
-    fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
+    fn try_add_scaled_relative_stack(
+        &self,
+        target: &mut Stack<T>,
+        scale: StackCoeff,
+        offset: StackCoeff,
+    ) -> bool {
         let n = self.period_keys();
         let quot = offset.div_euclid(n);
         let rem = offset.rem_euclid(n) as usize;
-        target.scaled_add(1, &self.stacks[rem]);
-        target.scaled_add(quot, &self.period);
+        target.scaled_add(scale, &self.stacks[rem]);
+        target.scaled_add(scale * quot, &self.period);
         true
     }
 

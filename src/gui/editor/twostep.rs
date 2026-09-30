@@ -48,7 +48,7 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                     });
 
                     let mut change_anchoring = false;
-                    ui.collapsing("reference for defined chords", |ui| {
+                    ui.collapsing("anchoring for defined chords", |ui| {
                         change_anchoring |= ui
                             .radio_value(
                                 chord_anchoring_kind,
@@ -72,7 +72,7 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                             .changed();
                     });
 
-                    ui.collapsing("reference for spring chords", |ui| {
+                    ui.collapsing("anchoring for spring chords", |ui| {
                         change_anchoring |= ui
                             .radio_value(
                                 spring_anchoring_kind,
@@ -106,6 +106,13 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                                 spring_anchoring_kind,
                                 UndeterminedSpringAnchoringKind::HighestKey,
                                 "highest key",
+                            )
+                            .changed();
+                        change_anchoring |= ui
+                            .radio_value(
+                                spring_anchoring_kind,
+                                UndeterminedSpringAnchoringKind::MostCommonNotes,
+                                "most notes from current scale",
                             )
                             .changed();
                     });

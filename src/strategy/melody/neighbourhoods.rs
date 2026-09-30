@@ -45,6 +45,7 @@ pub struct StaticNeighbourhoodsAsMelody<T: StackType> {
     curr_scale_index: usize,
 
     tmp_stack: Stack<T>,
+    tmp_partial: Partial<T>,
 }
 
 impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyConfig<T> {
@@ -149,6 +150,50 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                 } else {
                     panic!("tune_with_spring_harmony got an empty neighbourhood from a spring solution")
                 }
+            }
+            UndeterminedSpringAnchoringKind::MostCommonNotes => {
+                self.tmp_partial.clear();
+                adaptor = adaptor.for_all_sounding_keys(|i, _, adaptor| {
+                    adaptor.reference(|reference, _| {
+                        self.tmp_partial.insert(
+                            &self.scales[self.curr_scale_index]
+                                .get_absolute_stack(i as StackCoeff, reference),
+                        );
+                    });
+                });
+
+                let mut best_i = 0;
+                let mut best_n = 0;
+                self.tmp_partial.for_each_stack(|i, si| {
+                    let mut n = 0;
+                    self.tmp_stack.clone_from(si);
+                    neighbourhood.try_decrement_by_relative_stack(
+                        &mut self.tmp_stack,
+                        60 + i - lowest_key as StackCoeff,
+                    );
+                    self.tmp_partial.for_each_stack(|j, sj| {
+                        neighbourhood.try_increment_by_relative_stack(
+                            &mut self.tmp_stack,
+                            60 + j - lowest_key as StackCoeff,
+                        );
+                        if *sj == self.tmp_stack {
+                            n += 1;
+                        }
+                        neighbourhood.try_decrement_by_relative_stack(
+                            &mut self.tmp_stack,
+                            60 + j - lowest_key as StackCoeff,
+                        );
+                    });
+                    if n > best_n {
+                        best_n = n;
+                        best_i = i;
+                    }
+                });
+                harmony_reference_key = 60 + best_i;
+                harmony_reference_offset = neighbourhood
+                    .try_get_relative_stack(60 + best_i - lowest_key as StackCoeff)
+                    .unwrap();
+                anchoring_kind = SpringAnchoringKind::MostCommonNotes(best_n);
             }
         }
         // let (_, reference_offset_stack) = fundamental_or_overtone(neighbourhood);
@@ -403,6 +448,7 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                                 *lowest_key as StackCoeff + reference_offset_stack.key_distance();
                             Some(reference_key)
                         }
+                        UndeterminedSpringAnchoringKind::MostCommonNotes => None {}, // there's no determined reference
                     });
                     k
                 }
@@ -534,6 +580,7 @@ impl<T: StackType + HasOvertone + HasFundamental> MelodyStrategy<T>
             scales: config.scales.drain(..).map(|n| n.named).collect(),
             curr_scale_index: 0,
             tmp_stack: Stack::new_zero(),
+            tmp_partial: Partial::new(),
         }
     }
 

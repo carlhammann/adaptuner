@@ -202,6 +202,9 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                         adaptor.config().use_cent_values,
                                     ));
                                 }
+                                SpringAnchoringKind::MostCommonNotes(best_n) => {
+                                    ui.label(format!(" with {best_n} scale notes"));
+                                }
                             };
                             if *number_of_tries > 1 {
                                 ui.label(format!(" ({number_of_tries} tries)"));
