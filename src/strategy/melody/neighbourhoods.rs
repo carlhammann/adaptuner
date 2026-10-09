@@ -21,8 +21,8 @@ use crate::{
     strategy::{
         harmony::r#trait::Harmony,
         melody::r#trait::{
-            Anchoring, AnchoringKind, ChordAnchoringKind, MelodyAdaptor, MelodyStrategy,
-            SpringAnchoringKind, UndeterminedSpringAnchoringKind,
+            AnchoringKind, ChordAnchoringKind, MelodyAdaptor, MelodyStrategy, SpringAnchoringKind,
+            UndeterminedSpringAnchoringKind,
         },
     },
     util::ordered_locks::{AtMost, Succ, Zero},
@@ -44,7 +44,11 @@ pub struct StaticNeighbourhoodsAsMelody<T: StackType> {
     scales: Vec<SomeCompleteNeighbourhood<T>>,
     curr_scale_index: usize,
 
-    tmp_stack: Stack<T>,
+    anchored_reference_stack: Stack<T>,
+    /// If the "zero stack" of the current harmony neighbourhood is not the
+    /// anchored_reference_stack, this is the distance from the anchored_reference_stack.
+    anchored_reference_offset: Stack<T>,
+    anchored_reference_key: StackCoeff,
     tmp_partial: Partial<T>,
 }
 
@@ -55,17 +59,18 @@ impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyCon
 }
 
 impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T> {
-    fn tune_without_harmony<L>(
-        &mut self,
+    fn update_without_harmony<L>(
+        &self,
         time: Instant,
         adaptor: MelodyAdaptor<T, Self, L>,
     ) -> MelodyAdaptor<T, Self, L>
     where
         L: AtMost<KeyStateLevel>,
     {
+        let mut tmp_stack = Stack::new_zero();
         adaptor.send(FromStrategy::UpdateHarmony);
         adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
-            self.tmp_stack.clone_from(&the_tuning.stack);
+            tmp_stack.clone_from(&the_tuning.stack);
             (_, adaptor) = adaptor.reference(|reference, _| {
                 self.scales[self.curr_scale_index].write_absolute_stack(
                     &mut the_tuning.stack,
@@ -74,7 +79,7 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                 )
             });
 
-            let mut retune = self.tmp_stack != the_tuning.stack;
+            let mut retune = tmp_stack != the_tuning.stack;
             let c4_semitones;
             (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
             let new_semitones = the_tuning.stack.absolute_semitones(c4_semitones);
@@ -91,7 +96,60 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
         })
     }
 
-    fn tune_with_spring_harmony<L>(
+    /// expects self.anchored_reference_stack, self.anchored_reference_offset, and
+    /// self.anchored_reference_key to be set correctly
+    fn update_tunings_with_known_anchoring<L>(
+        &self,
+        time: Instant,
+        relative_tunings: &impl Neighbourhood<T>,
+        adaptor: MelodyAdaptor<T, Self, L>,
+    ) -> MelodyAdaptor<T, Self, L>
+    where
+        L: AtMost<KeyStateLevel>,
+    {
+        let mut tmp_stack = Stack::new_zero();
+        adaptor.send(FromStrategy::UpdateHarmony);
+        adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
+            tmp_stack.clone_from(&the_tuning.stack);
+            if relative_tunings.try_write_relative_stack(
+                &mut the_tuning.stack,
+                i as StackCoeff - self.anchored_reference_key
+                    + self.anchored_reference_offset.key_distance(),
+            ) {
+                the_tuning
+                    .stack
+                    .scaled_add(1, &self.anchored_reference_stack);
+                the_tuning
+                    .stack
+                    .scaled_add(-1, &self.anchored_reference_offset);
+            } else {
+                (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
+                    self.scales[self.curr_scale_index].write_absolute_stack(
+                        &mut the_tuning.stack,
+                        i as StackCoeff,
+                        adaptor_reference,
+                    )
+                });
+            }
+
+            let mut retune = tmp_stack != the_tuning.stack;
+            let c4_semitones;
+            (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
+            let new_semitones = the_tuning.stack.absolute_semitones(c4_semitones);
+            if new_semitones != the_tuning.semitones {
+                the_tuning.semitones = new_semitones;
+                retune = true;
+            }
+            if retune {
+                adaptor.send(FromStrategy::Retune {
+                    note: i as u8,
+                    time,
+                });
+            }
+        })
+    }
+
+    fn udpate_with_spring_harmony<L>(
         &mut self,
         time: Instant,
         neighbourhood: &Partial<T>,
@@ -107,27 +165,28 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
         let undetermined_anchoring_kind;
         (undetermined_anchoring_kind, adaptor) =
             adaptor.config(|conf, _| conf.spring_anchoring_kind);
-        let harmony_reference_offset;
-        let harmony_reference_key;
         let anchoring_kind;
         match undetermined_anchoring_kind {
             UndeterminedSpringAnchoringKind::Overtone => {
-                harmony_reference_offset = T::overtone_many(neighbourhood.iter().map(|x| x.1));
-                harmony_reference_key =
-                    lowest_key as StackCoeff + harmony_reference_offset.key_distance();
+                self.anchored_reference_offset =
+                    T::overtone_many(neighbourhood.iter().map(|x| x.1));
+                self.anchored_reference_key =
+                    lowest_key as StackCoeff + self.anchored_reference_offset.key_distance();
                 anchoring_kind = SpringAnchoringKind::Overtone;
             }
             UndeterminedSpringAnchoringKind::Fundamental => {
-                harmony_reference_offset = T::fundamental_many(neighbourhood.iter().map(|x| x.1));
-                harmony_reference_key =
-                    lowest_key as StackCoeff + harmony_reference_offset.key_distance();
+                self.anchored_reference_offset =
+                    T::fundamental_many(neighbourhood.iter().map(|x| x.1));
+                self.anchored_reference_key =
+                    lowest_key as StackCoeff + self.anchored_reference_offset.key_distance();
                 anchoring_kind = SpringAnchoringKind::Fundamental;
             }
             UndeterminedSpringAnchoringKind::FundamentalOrOvertone => {
                 let is_utonal;
-                (is_utonal, harmony_reference_offset) = fundamental_or_overtone(neighbourhood);
-                harmony_reference_key =
-                    lowest_key as StackCoeff + harmony_reference_offset.key_distance();
+                (is_utonal, self.anchored_reference_offset) =
+                    fundamental_or_overtone(neighbourhood);
+                self.anchored_reference_key =
+                    lowest_key as StackCoeff + self.anchored_reference_offset.key_distance();
                 if is_utonal {
                     anchoring_kind = SpringAnchoringKind::Fundamental;
                 } else {
@@ -138,14 +197,14 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                 // This uses the fact that the 'neighbourhood' argument comes from a
                 // [Harmony::SprigSolution], and therefore contains the zero stack as the lowest
                 // entry.
-                harmony_reference_offset = Stack::new_zero();
-                harmony_reference_key = lowest_key as StackCoeff;
+                self.anchored_reference_offset = Stack::new_zero();
+                self.anchored_reference_key = lowest_key as StackCoeff;
                 anchoring_kind = SpringAnchoringKind::LowestKey;
             }
             UndeterminedSpringAnchoringKind::HighestKey => {
                 if let Some((k, s)) = neighbourhood.highest() {
-                    harmony_reference_key = *k + lowest_key as StackCoeff;
-                    harmony_reference_offset = s.clone();
+                    self.anchored_reference_key = *k + lowest_key as StackCoeff;
+                    self.anchored_reference_offset = s.clone();
                     anchoring_kind = SpringAnchoringKind::HighestKey;
                 } else {
                     panic!("tune_with_spring_harmony got an empty neighbourhood from a spring solution")
@@ -164,23 +223,24 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
 
                 let mut best_i = 0;
                 let mut best_n = 0;
+                let mut tmp_stack = Stack::new_zero();
                 self.tmp_partial.for_each_stack(|i, si| {
                     let mut n = 0;
-                    self.tmp_stack.clone_from(si);
+                    tmp_stack.clone_from(si);
                     neighbourhood.try_decrement_by_relative_stack(
-                        &mut self.tmp_stack,
+                        &mut tmp_stack,
                         60 + i - lowest_key as StackCoeff,
                     );
                     self.tmp_partial.for_each_stack(|j, sj| {
                         neighbourhood.try_increment_by_relative_stack(
-                            &mut self.tmp_stack,
+                            &mut tmp_stack,
                             60 + j - lowest_key as StackCoeff,
                         );
-                        if *sj == self.tmp_stack {
+                        if *sj == tmp_stack {
                             n += 1;
                         }
                         neighbourhood.try_decrement_by_relative_stack(
-                            &mut self.tmp_stack,
+                            &mut tmp_stack,
                             60 + j - lowest_key as StackCoeff,
                         );
                     });
@@ -189,65 +249,35 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                         best_i = i;
                     }
                 });
-                harmony_reference_key = 60 + best_i;
-                harmony_reference_offset = neighbourhood
+                self.anchored_reference_key = 60 + best_i;
+                self.anchored_reference_offset = neighbourhood
                     .try_get_relative_stack(60 + best_i - lowest_key as StackCoeff)
                     .unwrap();
+                // thread '<unnamed>' (19187) panicked at src/strategy/melody/neighbourhoods.rs:200:22:
+                // called `Option::unwrap()` on a `None` value
+                // note: run with `RUST_BACKTRACE=1` environment var
                 anchoring_kind = SpringAnchoringKind::MostCommonNotes(best_n);
             }
         }
-        // let (_, reference_offset_stack) = fundamental_or_overtone(neighbourhood);
-        let harmony_reference_stack;
-        (harmony_reference_stack, adaptor) = adaptor.reference(|adaptor_reference, _| {
-            self.scales[self.curr_scale_index]
-                .get_absolute_stack(harmony_reference_key, adaptor_reference)
+
+        (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
+            self.scales[self.curr_scale_index].write_absolute_stack(
+                &mut self.anchored_reference_stack,
+                self.anchored_reference_key,
+                adaptor_reference,
+            )
         });
 
-        adaptor = adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
-            self.tmp_stack.clone_from(&the_tuning.stack);
-            if neighbourhood.try_write_relative_stack(
-                &mut the_tuning.stack,
-                i as StackCoeff - lowest_key as StackCoeff,
-            ) {
-                the_tuning.stack.scaled_add(1, &harmony_reference_stack);
-                the_tuning.stack.scaled_add(-1, &harmony_reference_offset)
-            } else {
-                (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
-                    self.scales[self.curr_scale_index].write_absolute_stack(
-                        &mut the_tuning.stack,
-                        i as StackCoeff,
-                        adaptor_reference,
-                    )
-                });
-            }
-
-            let mut retune = self.tmp_stack != the_tuning.stack;
-            let c4_semitones;
-            (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
-            let new_semitones = the_tuning.stack.absolute_semitones(c4_semitones);
-            if new_semitones != the_tuning.semitones {
-                the_tuning.semitones = new_semitones;
-                retune = true;
-            }
-            if retune {
-                adaptor.send(FromStrategy::Retune {
-                    note: i as u8,
-                    time,
-                });
-            }
-        });
         (_, adaptor) = adaptor.anchoring_mut(|a, _| {
-            *a = Anchoring {
-                kind: AnchoringKind::Spring(anchoring_kind),
-                key: harmony_reference_key,
-                stack: harmony_reference_stack,
-            }
+            a.kind = AnchoringKind::Spring(anchoring_kind);
+            a.key = self.anchored_reference_key;
+            a.stack.clone_from(&self.anchored_reference_stack);
         });
-        adaptor.send(FromStrategy::UpdateHarmony);
-        adaptor
+
+        self.update_tunings_with_known_anchoring(time, neighbourhood, adaptor)
     }
 
-    fn tune_with_matched_chord<L>(
+    fn update_with_matched_chord<L>(
         &mut self,
         time: Instant,
         neighbourhood: &SomeNeighbourhood<T>,
@@ -264,73 +294,42 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
     {
         let anchoring_kind;
         (anchoring_kind, adaptor) = adaptor.config(|conf, _| conf.chord_anchoring_kind);
-        let harmony_reference_key;
-        let mut harmony_reference_offset = Stack::new_zero();
         match anchoring_kind {
             ChordAnchoringKind::ChordReference => {
-                harmony_reference_key = reference_key;
+                self.anchored_reference_key = reference_key;
+                self.anchored_reference_offset.reset_to_zero();
             }
             ChordAnchoringKind::LowestKey => {
-                harmony_reference_key = lowest_key as StackCoeff;
+                self.anchored_reference_key = lowest_key as StackCoeff;
                 neighbourhood.try_write_relative_stack(
-                    &mut harmony_reference_offset,
-                    harmony_reference_key - reference_key,
+                    &mut self.anchored_reference_offset,
+                    self.anchored_reference_key - reference_key,
                 );
             }
             ChordAnchoringKind::HighestKey => {
-                harmony_reference_key = highest_key as StackCoeff;
+                self.anchored_reference_key = highest_key as StackCoeff;
                 neighbourhood.try_write_relative_stack(
-                    &mut harmony_reference_offset,
-                    harmony_reference_key - reference_key,
+                    &mut self.anchored_reference_offset,
+                    self.anchored_reference_key - reference_key,
                 );
             }
         }
-        let harmony_reference_stack;
-        (harmony_reference_stack, adaptor) = adaptor.reference(|adaptor_reference, _| {
-            self.scales[self.curr_scale_index]
-                .get_absolute_stack(harmony_reference_key, adaptor_reference)
-        });
-        adaptor = adaptor.for_all_sounding_tunings_mut(|i, the_tuning, mut adaptor| {
-            self.tmp_stack.clone_from(&the_tuning.stack);
-            if neighbourhood
-                .try_write_relative_stack(&mut the_tuning.stack, i as StackCoeff - reference_key)
-            {
-                the_tuning.stack.scaled_add(1, &harmony_reference_stack);
-                the_tuning.stack.scaled_add(-1, &harmony_reference_offset)
-            } else {
-                (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
-                    self.scales[self.curr_scale_index].write_absolute_stack(
-                        &mut the_tuning.stack,
-                        i as StackCoeff,
-                        adaptor_reference,
-                    )
-                });
-            }
 
-            let mut retune = self.tmp_stack != the_tuning.stack;
-            let c4_semitones;
-            (c4_semitones, adaptor) = adaptor.tuning_reference(|r, _| r.c4_semitones());
-            let new_semitones = the_tuning.stack.absolute_semitones(c4_semitones);
-            if new_semitones != the_tuning.semitones {
-                the_tuning.semitones = new_semitones;
-                retune = true;
-            }
-            if retune {
-                adaptor.send(FromStrategy::Retune {
-                    note: i as u8,
-                    time,
-                });
-            }
+        (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
+            self.scales[self.curr_scale_index].write_absolute_stack(
+                &mut self.anchored_reference_stack,
+                self.anchored_reference_key,
+                adaptor_reference,
+            )
         });
+
         (_, adaptor) = adaptor.anchoring_mut(|a, _| {
-            *a = Anchoring {
-                kind: AnchoringKind::Chord(anchoring_kind),
-                key: harmony_reference_key,
-                stack: harmony_reference_stack,
-            }
+            a.kind = AnchoringKind::Chord(anchoring_kind);
+            a.key = self.anchored_reference_key;
+            a.stack.clone_from(&self.anchored_reference_stack);
         });
-        adaptor.send(FromStrategy::UpdateHarmony);
-        adaptor
+
+        self.update_tunings_with_known_anchoring(time, neighbourhood, adaptor)
     }
 
     fn update_all_tunings_and_send<L>(
@@ -346,14 +345,14 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                 neighbourhood,
                 lowest_key,
                 ..
-            } => self.tune_with_spring_harmony(time, &neighbourhood, *lowest_key, adaptor),
+            } => self.udpate_with_spring_harmony(time, &neighbourhood, *lowest_key, adaptor),
             Harmony::MatchedChord {
                 neighbourhood,
                 reference_key,
                 lowest_key,
                 highest_key,
                 ..
-            } => self.tune_with_matched_chord(
+            } => self.update_with_matched_chord(
                 time,
                 &neighbourhood,
                 *reference_key,
@@ -361,7 +360,7 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                 *highest_key,
                 adaptor,
             ),
-            Harmony::None => self.tune_without_harmony(time, adaptor),
+            Harmony::None => self.update_without_harmony(time, adaptor),
         });
         adaptor
     }
@@ -455,17 +454,18 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                 Harmony::None => None {},
             };
 
+            let mut tmp_stack = Stack::new_zero();
             if let Some(reference_key) = harmony_reference_key {
                 adaptor
                     .reference_mut(|adaptor_reference, adaptor| {
                         self.scales[self.curr_scale_index].write_absolute_stack(
-                            &mut self.tmp_stack,
+                            &mut tmp_stack,
                             reference_key,
                             adaptor_reference,
                         );
 
-                        if *adaptor_reference != self.tmp_stack {
-                            adaptor_reference.clone_from(&self.tmp_stack);
+                        if *adaptor_reference != tmp_stack {
+                            adaptor_reference.clone_from(&tmp_stack);
                             adaptor.send(FromStrategy::UpdateReference {});
                             true
                         } else {
@@ -488,14 +488,15 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
     where
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
     {
-        (_, adaptor) = adaptor.reference(|r, _| self.tmp_stack.clone_from(r));
+        let mut tmp_stack = Stack::new_zero();
+        (_, adaptor) = adaptor.reference(|r, _| tmp_stack.clone_from(r));
 
         if to_highest {
             for i in (0..128).rev() {
                 let mut found = false;
                 (_, adaptor) = adaptor.key_state(i, |k, adaptor| {
                     if k.is_sounding() {
-                        adaptor.tuning(i, |t, _| self.tmp_stack.clone_from(&t.stack));
+                        adaptor.tuning(i, |t, _| tmp_stack.clone_from(&t.stack));
                         found = true;
                     }
                 });
@@ -508,7 +509,7 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                 let mut found = false;
                 (_, adaptor) = adaptor.key_state(i, |k, adaptor| {
                     if k.is_sounding() {
-                        adaptor.tuning(i, |t, _| self.tmp_stack.clone_from(&t.stack));
+                        adaptor.tuning(i, |t, _| tmp_stack.clone_from(&t.stack));
                         found = true;
                     }
                 });
@@ -519,8 +520,8 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
         }
 
         adaptor.reference_mut(|old_reference, adaptor| {
-            if *old_reference != self.tmp_stack {
-                old_reference.clone_from(&self.tmp_stack);
+            if *old_reference != tmp_stack {
+                old_reference.clone_from(&tmp_stack);
                 adaptor.send(FromStrategy::UpdateReference {});
                 true
             } else {
@@ -579,8 +580,10 @@ impl<T: StackType + HasOvertone + HasFundamental> MelodyStrategy<T>
         Self {
             scales: config.scales.drain(..).map(|n| n.named).collect(),
             curr_scale_index: 0,
-            tmp_stack: Stack::new_zero(),
             tmp_partial: Partial::new(),
+            anchored_reference_stack: Stack::new_zero(),
+            anchored_reference_offset: Stack::new_zero(),
+            anchored_reference_key: 60,
         }
     }
 
