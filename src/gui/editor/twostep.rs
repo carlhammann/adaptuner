@@ -111,8 +111,19 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                         change_anchoring |= ui
                             .radio_value(
                                 spring_anchoring_kind,
-                                UndeterminedSpringAnchoringKind::MostCommonNotes,
+                                UndeterminedSpringAnchoringKind::MostCommonNotes {
+                                    count_pitch_classes: false,
+                                },
                                 "most notes from current scale",
+                            )
+                            .changed();
+                        change_anchoring |= ui
+                            .radio_value(
+                                spring_anchoring_kind,
+                                UndeterminedSpringAnchoringKind::MostCommonNotes {
+                                    count_pitch_classes: true,
+                                },
+                                "most pitch classes from current scale",
                             )
                             .changed();
                     });

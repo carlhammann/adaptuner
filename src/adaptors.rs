@@ -188,7 +188,7 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
 
     accessor! {harmony <T:IntervalBasis> ,  X, M, L, HarmonyLevel, Harmony<T>}
     accessor! {@mut harmony_mut <T:IntervalBasis>  , X,  M, L, HarmonyLevel, Harmony<T>}
-    
+
     accessor! {anchoring <T:IntervalBasis> ,  X, M, L, AnchoringLevel, Anchoring<T>}
     accessor! {@mut anchoring_mut <T:IntervalBasis>  , X,  M, L, AnchoringLevel, Anchoring<T>}
 
@@ -245,7 +245,7 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
         }
         (res, self)
     }
-    
+
     #[inline]
     pub fn highest_sounding_key(mut self) -> (Option<usize>, Self)
     where

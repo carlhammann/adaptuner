@@ -202,8 +202,17 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                         adaptor.config().use_cent_values,
                                     ));
                                 }
-                                SpringAnchoringKind::MostCommonNotes(best_n) => {
-                                    ui.label(format!(" with {best_n} scale notes"));
+                                SpringAnchoringKind::MostCommonNotes {
+                                    count_pitch_classes,
+                                    number_of_hits,
+                                } => {
+                                    if *count_pitch_classes {
+                                        ui.label(format!(
+                                            " with {number_of_hits} scale pitch classes"
+                                        ));
+                                    } else {
+                                        ui.label(format!(" with {number_of_hits} scale notes"));
+                                    }
                                 }
                             };
                             if *number_of_tries > 1 {

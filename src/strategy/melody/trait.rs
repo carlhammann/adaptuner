@@ -29,7 +29,10 @@ pub enum UndeterminedSpringAnchoringKind {
     Fundamental,
     Overtone,
     FundamentalOrOvertone,
-    MostCommonNotes,
+    #[serde(rename_all = "kebab-case")]
+    MostCommonNotes {
+        count_pitch_classes: bool,
+    },
 }
 
 pub enum SpringAnchoringKind {
@@ -37,7 +40,10 @@ pub enum SpringAnchoringKind {
     HighestKey,
     Fundamental,
     Overtone,
-    MostCommonNotes(usize),
+    MostCommonNotes {
+        count_pitch_classes: bool,
+        number_of_hits: usize,
+    },
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]

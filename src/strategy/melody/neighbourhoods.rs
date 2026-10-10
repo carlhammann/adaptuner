@@ -49,7 +49,8 @@ pub struct StaticNeighbourhoodsAsMelody<T: StackType> {
     /// anchored_reference_stack, this is the distance from the anchored_reference_stack.
     anchored_reference_offset: Stack<T>,
     anchored_reference_key: StackCoeff,
-    tmp_partial: Partial<T>,
+
+    tmp_sounding_notes: Vec<usize>,
 }
 
 impl<T: StackType> IsMelodyStrategyConfig<T> for StaticNeighbourhoodsAsMelodyConfig<T> {
@@ -210,53 +211,79 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                     panic!("tune_with_spring_harmony got an empty neighbourhood from a spring solution")
                 }
             }
-            UndeterminedSpringAnchoringKind::MostCommonNotes => {
-                self.tmp_partial.clear();
-                adaptor = adaptor.for_all_sounding_keys(|i, _, adaptor| {
-                    adaptor.reference(|reference, _| {
-                        self.tmp_partial.insert(
-                            &self.scales[self.curr_scale_index]
-                                .get_absolute_stack(i as StackCoeff, reference),
-                        );
-                    });
-                });
+            UndeterminedSpringAnchoringKind::MostCommonNotes {
+                count_pitch_classes,
+            } => {
+                self.tmp_sounding_notes.clear();
+                adaptor = adaptor.for_all_sounding_keys(|i, _, _| self.tmp_sounding_notes.push(i));
 
-                let mut best_i = 0;
+                let mut best_i: StackCoeff = 0;
                 let mut best_n = 0;
-                let mut tmp_stack = Stack::new_zero();
-                self.tmp_partial.for_each_stack(|i, si| {
+                let mut anchor_note = Stack::new_zero();
+                let mut scale_note = Stack::new_zero();
+                let mut chord_note = Stack::new_zero();
+                for i in self.tmp_sounding_notes.iter() {
                     let mut n = 0;
-                    tmp_stack.clone_from(si);
-                    neighbourhood.try_decrement_by_relative_stack(
-                        &mut tmp_stack,
-                        60 + i - lowest_key as StackCoeff,
-                    );
-                    self.tmp_partial.for_each_stack(|j, sj| {
-                        neighbourhood.try_increment_by_relative_stack(
-                            &mut tmp_stack,
-                            60 + j - lowest_key as StackCoeff,
-                        );
-                        if *sj == tmp_stack {
-                            n += 1;
-                        }
-                        neighbourhood.try_decrement_by_relative_stack(
-                            &mut tmp_stack,
-                            60 + j - lowest_key as StackCoeff,
-                        );
+                    let mut encountered_pitch_classes = [false; 12];
+                    (_, adaptor) = adaptor.reference(|reference, _| {
+                        self.scales[self.curr_scale_index].write_absolute_stack(
+                            &mut anchor_note,
+                            *i as StackCoeff,
+                            reference,
+                        )
                     });
+                    neighbourhood.try_decrement_by_relative_stack(
+                        &mut anchor_note,
+                        *i as StackCoeff - lowest_key as StackCoeff,
+                    );
+                    for j in self.tmp_sounding_notes.iter() {
+                        if !count_pitch_classes || !encountered_pitch_classes[j % 12] {
+                            let has_chord_note;
+                            (has_chord_note, adaptor) = adaptor.reference(|reference, _| {
+                                self.scales[self.curr_scale_index].write_absolute_stack(
+                                    &mut scale_note,
+                                    *j as StackCoeff,
+                                    reference,
+                                );
+                                neighbourhood.try_write_relative_stack(
+                                    &mut chord_note,
+                                    *j as StackCoeff - lowest_key as StackCoeff,
+                                )
+                            });
+                            if !has_chord_note {
+                                continue;
+                            }
+                            chord_note.scaled_add(1, &anchor_note);
+
+                            if chord_note == scale_note {
+                                n += 1;
+                                encountered_pitch_classes[j % 12] = true;
+                            }
+                        }
+                    }
                     if n > best_n {
                         best_n = n;
-                        best_i = i;
+                        best_i = *i as StackCoeff;
                     }
-                });
-                self.anchored_reference_key = 60 + best_i;
-                self.anchored_reference_offset = neighbourhood
-                    .try_get_relative_stack(60 + best_i - lowest_key as StackCoeff)
-                    .unwrap();
-                // thread '<unnamed>' (19187) panicked at src/strategy/melody/neighbourhoods.rs:200:22:
-                // called `Option::unwrap()` on a `None` value
-                // note: run with `RUST_BACKTRACE=1` environment var
-                anchoring_kind = SpringAnchoringKind::MostCommonNotes(best_n);
+                }
+
+                // normally, this will be true. Sometimes, the pressed keys will have changed between the
+                // calculation of self.tmp_sounding_notes and the computation of the neighbourhood.
+                // In that case, we might end up in the else branch...
+                if neighbourhood.has_tuning_for(best_i - lowest_key as StackCoeff) {
+                    self.anchored_reference_key = best_i;
+                    self.anchored_reference_offset = neighbourhood
+                        .try_get_relative_stack(best_i - lowest_key as StackCoeff)
+                        .unwrap();
+                    anchoring_kind = SpringAnchoringKind::MostCommonNotes {
+                        count_pitch_classes,
+                        number_of_hits: best_n,
+                    };
+                } else {
+                    self.anchored_reference_key = lowest_key as StackCoeff;
+                    self.anchored_reference_offset = Stack::new_zero();
+                    anchoring_kind = SpringAnchoringKind::LowestKey;
+                }
             }
         }
 
@@ -447,7 +474,7 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                                 *lowest_key as StackCoeff + reference_offset_stack.key_distance();
                             Some(reference_key)
                         }
-                        UndeterminedSpringAnchoringKind::MostCommonNotes => None {}, // there's no determined reference
+                        UndeterminedSpringAnchoringKind::MostCommonNotes { .. } => None {}, // there's no determined reference
                     });
                     k
                 }
@@ -580,10 +607,10 @@ impl<T: StackType + HasOvertone + HasFundamental> MelodyStrategy<T>
         Self {
             scales: config.scales.drain(..).map(|n| n.named).collect(),
             curr_scale_index: 0,
-            tmp_partial: Partial::new(),
             anchored_reference_stack: Stack::new_zero(),
             anchored_reference_offset: Stack::new_zero(),
             anchored_reference_key: 60,
+            tmp_sounding_notes: Vec::with_capacity(32),
         }
     }
 
