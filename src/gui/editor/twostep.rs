@@ -14,7 +14,10 @@ use crate::{
     util::ordered_locks::Zero,
 };
 
-pub struct TwoStepEditor {}
+pub struct TwoStepEditor {
+    most_common_notes_fallback: Box<UndeterminedSpringAnchoringKind>,
+    most_common_pitch_classes_fallback: Box<UndeterminedSpringAnchoringKind>,
+}
 
 impl<T: StackType> GuiShow<T> for TwoStepEditor {
     fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
@@ -108,25 +111,183 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                                 "highest key",
                             )
                             .changed();
-                        change_anchoring |= ui
-                            .radio_value(
-                                spring_anchoring_kind,
-                                UndeterminedSpringAnchoringKind::MostCommonNotes {
-                                    count_pitch_classes: false,
-                                },
-                                "most notes from current scale",
-                            )
-                            .changed();
-                        change_anchoring |= ui
-                            .radio_value(
-                                spring_anchoring_kind,
-                                UndeterminedSpringAnchoringKind::MostCommonNotes {
-                                    count_pitch_classes: true,
-                                },
-                                "most pitch classes from current scale",
-                            )
-                            .changed();
+
+                        ui.horizontal(|ui| {
+                            if let UndeterminedSpringAnchoringKind::MostCommonNotes {
+                                count_pitch_classes: false,
+                                fallback,
+                                ..
+                            } = spring_anchoring_kind
+                            {
+                                self.most_common_notes_fallback.clone_from(fallback);
+                            }
+                            change_anchoring |= ui
+                                .radio_value(
+                                    spring_anchoring_kind,
+                                    UndeterminedSpringAnchoringKind::MostCommonNotes {
+                                        count_pitch_classes: false,
+                                        fallback: self.most_common_notes_fallback.clone(),
+                                    },
+                                    "at least 2 notes from current scale or",
+                                )
+                                .changed();
+                            if let UndeterminedSpringAnchoringKind::MostCommonNotes {
+                                count_pitch_classes: false,
+                                fallback,
+                                ..
+                            } = spring_anchoring_kind
+                            {
+                                egui::ComboBox::from_id_salt(
+                                    "alternative spring anchor for most common notes",
+                                )
+                                .selected_text(format!("{}", self.most_common_notes_fallback))
+                                .show_ui(ui, |ui| {
+                                    change_anchoring |= ui
+                                        .selectable_value(
+                                            fallback,
+                                            Box::new(UndeterminedSpringAnchoringKind::Fundamental),
+                                            format!(
+                                                "{}",
+                                                UndeterminedSpringAnchoringKind::Fundamental
+                                            ),
+                                        )
+                                        .changed();
+                                    change_anchoring |= ui
+                                        .selectable_value(
+                                            fallback,
+                                            Box::new(UndeterminedSpringAnchoringKind::Overtone),
+                                            format!(
+                                                "{}",
+                                                UndeterminedSpringAnchoringKind::Overtone
+                                            ),
+                                        )
+                                        .changed();
+                                    change_anchoring |= ui
+                                    .selectable_value(
+                                        fallback,
+                                        Box::new(
+                                            UndeterminedSpringAnchoringKind::FundamentalOrOvertone,
+                                        ),
+                                        format!(
+                                            "{}",
+                                            UndeterminedSpringAnchoringKind::FundamentalOrOvertone
+                                        ),
+                                    )
+                                    .changed();
+                                    change_anchoring |= ui
+                                        .selectable_value(
+                                            fallback,
+                                            Box::new(UndeterminedSpringAnchoringKind::LowestKey),
+                                            format!(
+                                                "{}",
+                                                UndeterminedSpringAnchoringKind::LowestKey
+                                            ),
+                                        )
+                                        .changed();
+                                    change_anchoring |= ui
+                                        .selectable_value(
+                                            fallback,
+                                            Box::new(UndeterminedSpringAnchoringKind::HighestKey),
+                                            format!(
+                                                "{}",
+                                                UndeterminedSpringAnchoringKind::HighestKey
+                                            ),
+                                        )
+                                        .changed();
+                                });
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            if let UndeterminedSpringAnchoringKind::MostCommonNotes {
+                                count_pitch_classes: true,
+                                fallback,
+                                ..
+                            } = spring_anchoring_kind
+                            {
+                                self.most_common_pitch_classes_fallback.clone_from(fallback);
+                            }
+                            change_anchoring |= ui
+                                .radio_value(
+                                    spring_anchoring_kind,
+                                    UndeterminedSpringAnchoringKind::MostCommonNotes {
+                                        count_pitch_classes: true,
+                                        fallback: self.most_common_pitch_classes_fallback.clone(),
+                                    },
+                                    "at least 2 pitch classes from current scale or",
+                                )
+                                .changed();
+                            if let UndeterminedSpringAnchoringKind::MostCommonNotes {
+                                count_pitch_classes: true,
+                                fallback,
+                                ..
+                            } = spring_anchoring_kind
+                            {
+                                egui::ComboBox::from_id_salt(
+                                    "alternative spring anchor for most common pitch classes",
+                                )
+                                .selected_text(format!(
+                                    "{}",
+                                    self.most_common_pitch_classes_fallback
+                                ))
+                                .show_ui(ui, |ui| {
+                                    change_anchoring |= ui
+                                        .selectable_value(
+                                            fallback,
+                                            Box::new(UndeterminedSpringAnchoringKind::Fundamental),
+                                            format!(
+                                                "{}",
+                                                UndeterminedSpringAnchoringKind::Fundamental
+                                            ),
+                                        )
+                                        .changed();
+                                    change_anchoring |= ui
+                                        .selectable_value(
+                                            fallback,
+                                            Box::new(UndeterminedSpringAnchoringKind::Overtone),
+                                            format!(
+                                                "{}",
+                                                UndeterminedSpringAnchoringKind::Overtone
+                                            ),
+                                        )
+                                        .changed();
+                                    change_anchoring |= ui
+                                    .selectable_value(
+                                            fallback,
+                                        Box::new(
+                                            UndeterminedSpringAnchoringKind::FundamentalOrOvertone,
+                                        ),
+                                        format!(
+                                            "{}",
+                                            UndeterminedSpringAnchoringKind::FundamentalOrOvertone
+                                        ),
+                                    )
+                                    .changed();
+                                    change_anchoring |= ui
+                                        .selectable_value(
+                                            fallback,
+                                            Box::new(UndeterminedSpringAnchoringKind::LowestKey),
+                                            format!(
+                                                "{}",
+                                                UndeterminedSpringAnchoringKind::LowestKey
+                                            ),
+                                        )
+                                        .changed();
+                                    change_anchoring |= ui
+                                        .selectable_value(
+                                            fallback,
+                                            Box::new(UndeterminedSpringAnchoringKind::HighestKey),
+                                            format!(
+                                                "{}",
+                                                UndeterminedSpringAnchoringKind::HighestKey
+                                            ),
+                                        )
+                                        .changed();
+                                });
+                            }
+                        });
                     });
+
                     if change_anchoring {
                         adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
                             ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
@@ -171,6 +332,11 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
 
 impl TwoStepEditor {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            most_common_notes_fallback: Box::new(UndeterminedSpringAnchoringKind::Fundamental),
+            most_common_pitch_classes_fallback: Box::new(
+                UndeterminedSpringAnchoringKind::Fundamental,
+            ),
+        }
     }
 }

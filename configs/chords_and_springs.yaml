@@ -535,6 +535,7 @@ strategies:
     initial-reference: {}
     spring-anchoring-kind: !most-common-notes
       count-pitch-classes: true
+      fallback: fundamental-or-overtone
     chord-anchoring-kind: chord-reference
   bindings:
     soft-pedal-down: !to-strategy set-reference-to-current

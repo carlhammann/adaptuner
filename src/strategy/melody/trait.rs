@@ -20,7 +20,7 @@ use crate::{
     util::ordered_locks::{Nat, OrderedLocks, ReadAllowed, WriteAllowed, Zero},
 };
 
-#[derive(PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub enum UndeterminedSpringAnchoringKind {
@@ -32,7 +32,34 @@ pub enum UndeterminedSpringAnchoringKind {
     #[serde(rename_all = "kebab-case")]
     MostCommonNotes {
         count_pitch_classes: bool,
+        fallback: Box<UndeterminedSpringAnchoringKind>,
     },
+}
+
+impl std::fmt::Display for UndeterminedSpringAnchoringKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            UndeterminedSpringAnchoringKind::LowestKey => write!(f, "lowest key"),
+            UndeterminedSpringAnchoringKind::HighestKey => write!(f, "highest key"),
+            UndeterminedSpringAnchoringKind::Fundamental => write!(f, "highest fundamental"),
+            UndeterminedSpringAnchoringKind::Overtone => write!(f, "lowest overtone"),
+            UndeterminedSpringAnchoringKind::FundamentalOrOvertone => {
+                write!(f, "fundamental or overtone, whichever is closer")
+            }
+            UndeterminedSpringAnchoringKind::MostCommonNotes {
+                count_pitch_classes,
+                fallback,
+            } => {
+                if *count_pitch_classes {
+                    write!(f, "at least 2 pitch classes from current scale or ")?;
+                    fallback.fmt(f)
+                } else {
+                    write!(f, "at least 2 notes from current scale or ")?;
+                    fallback.fmt(f)
+                }
+            }
+        }
+    }
 }
 
 pub enum SpringAnchoringKind {

@@ -163,128 +163,139 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
             + AtMost<StrategyConfigLevel>
             + AtMost<AnchoringLevel>,
     {
-        let undetermined_anchoring_kind;
+        let mut undetermined_anchoring_kind;
         (undetermined_anchoring_kind, adaptor) =
-            adaptor.config(|conf, _| conf.spring_anchoring_kind);
+            adaptor.config(|conf, _| conf.spring_anchoring_kind.clone());
         let anchoring_kind;
-        match undetermined_anchoring_kind {
-            UndeterminedSpringAnchoringKind::Overtone => {
-                self.anchored_reference_offset =
-                    T::overtone_many(neighbourhood.iter().map(|x| x.1));
-                self.anchored_reference_key =
-                    lowest_key as StackCoeff + self.anchored_reference_offset.key_distance();
-                anchoring_kind = SpringAnchoringKind::Overtone;
-            }
-            UndeterminedSpringAnchoringKind::Fundamental => {
-                self.anchored_reference_offset =
-                    T::fundamental_many(neighbourhood.iter().map(|x| x.1));
-                self.anchored_reference_key =
-                    lowest_key as StackCoeff + self.anchored_reference_offset.key_distance();
-                anchoring_kind = SpringAnchoringKind::Fundamental;
-            }
-            UndeterminedSpringAnchoringKind::FundamentalOrOvertone => {
-                let is_utonal;
-                (is_utonal, self.anchored_reference_offset) =
-                    fundamental_or_overtone(neighbourhood);
-                self.anchored_reference_key =
-                    lowest_key as StackCoeff + self.anchored_reference_offset.key_distance();
-                if is_utonal {
-                    anchoring_kind = SpringAnchoringKind::Fundamental;
-                } else {
+        loop {
+            let next_try: UndeterminedSpringAnchoringKind;
+            match undetermined_anchoring_kind {
+                UndeterminedSpringAnchoringKind::Overtone => {
+                    self.anchored_reference_offset =
+                        T::overtone_many(neighbourhood.iter().map(|x| x.1));
+                    self.anchored_reference_key =
+                        lowest_key as StackCoeff + self.anchored_reference_offset.key_distance();
                     anchoring_kind = SpringAnchoringKind::Overtone;
+                    break;
                 }
-            }
-            UndeterminedSpringAnchoringKind::LowestKey => {
-                // This uses the fact that the 'neighbourhood' argument comes from a
-                // [Harmony::SprigSolution], and therefore contains the zero stack as the lowest
-                // entry.
-                self.anchored_reference_offset = Stack::new_zero();
-                self.anchored_reference_key = lowest_key as StackCoeff;
-                anchoring_kind = SpringAnchoringKind::LowestKey;
-            }
-            UndeterminedSpringAnchoringKind::HighestKey => {
-                if let Some((k, s)) = neighbourhood.highest() {
-                    self.anchored_reference_key = *k + lowest_key as StackCoeff;
-                    self.anchored_reference_offset = s.clone();
-                    anchoring_kind = SpringAnchoringKind::HighestKey;
-                } else {
-                    panic!("tune_with_spring_harmony got an empty neighbourhood from a spring solution")
+                UndeterminedSpringAnchoringKind::Fundamental => {
+                    self.anchored_reference_offset =
+                        T::fundamental_many(neighbourhood.iter().map(|x| x.1));
+                    self.anchored_reference_key =
+                        lowest_key as StackCoeff + self.anchored_reference_offset.key_distance();
+                    anchoring_kind = SpringAnchoringKind::Fundamental;
+                    break;
                 }
-            }
-            UndeterminedSpringAnchoringKind::MostCommonNotes {
-                count_pitch_classes,
-            } => {
-                self.tmp_sounding_notes.clear();
-                adaptor = adaptor.for_all_sounding_keys(|i, _, _| self.tmp_sounding_notes.push(i));
+                UndeterminedSpringAnchoringKind::FundamentalOrOvertone => {
+                    let is_utonal;
+                    (is_utonal, self.anchored_reference_offset) =
+                        fundamental_or_overtone(neighbourhood);
+                    self.anchored_reference_key =
+                        lowest_key as StackCoeff + self.anchored_reference_offset.key_distance();
+                    if is_utonal {
+                        anchoring_kind = SpringAnchoringKind::Fundamental;
+                    } else {
+                        anchoring_kind = SpringAnchoringKind::Overtone;
+                    }
+                    break;
+                }
+                UndeterminedSpringAnchoringKind::LowestKey => {
+                    // This uses the fact that the 'neighbourhood' argument comes from a
+                    // [Harmony::SprigSolution], and therefore contains the zero stack as the lowest
+                    // entry.
+                    self.anchored_reference_offset = Stack::new_zero();
+                    self.anchored_reference_key = lowest_key as StackCoeff;
+                    anchoring_kind = SpringAnchoringKind::LowestKey;
+                    break;
+                }
+                UndeterminedSpringAnchoringKind::HighestKey => {
+                    if let Some((k, s)) = neighbourhood.highest() {
+                        self.anchored_reference_key = *k + lowest_key as StackCoeff;
+                        self.anchored_reference_offset = s.clone();
+                        anchoring_kind = SpringAnchoringKind::HighestKey;
+                    } else {
+                        panic!("tune_with_spring_harmony got an empty neighbourhood from a spring solution")
+                    }
+                    break;
+                }
+                UndeterminedSpringAnchoringKind::MostCommonNotes {
+                    count_pitch_classes,
+                    ref fallback,
+                } => {
+                    self.tmp_sounding_notes.clear();
+                    adaptor =
+                        adaptor.for_all_sounding_keys(|i, _, _| self.tmp_sounding_notes.push(i));
 
-                let mut best_i: StackCoeff = 0;
-                let mut best_n = 0;
-                let mut anchor_note = Stack::new_zero();
-                let mut scale_note = Stack::new_zero();
-                let mut chord_note = Stack::new_zero();
-                for i in self.tmp_sounding_notes.iter() {
-                    let mut n = 0;
-                    let mut encountered_pitch_classes = [false; 12];
-                    (_, adaptor) = adaptor.reference(|reference, _| {
-                        self.scales[self.curr_scale_index].write_absolute_stack(
+                    let mut best_i: StackCoeff = 0;
+                    let mut best_n = 0;
+                    let mut anchor_note = Stack::new_zero();
+                    let mut scale_note = Stack::new_zero();
+                    let mut chord_note = Stack::new_zero();
+                    for i in self.tmp_sounding_notes.iter() {
+                        let mut n = 0;
+                        let mut encountered_pitch_classes = [false; 12];
+                        (_, adaptor) = adaptor.reference(|reference, _| {
+                            self.scales[self.curr_scale_index].write_absolute_stack(
+                                &mut anchor_note,
+                                *i as StackCoeff,
+                                reference,
+                            )
+                        });
+                        neighbourhood.try_decrement_by_relative_stack(
                             &mut anchor_note,
-                            *i as StackCoeff,
-                            reference,
-                        )
-                    });
-                    neighbourhood.try_decrement_by_relative_stack(
-                        &mut anchor_note,
-                        *i as StackCoeff - lowest_key as StackCoeff,
-                    );
-                    for j in self.tmp_sounding_notes.iter() {
-                        if !count_pitch_classes || !encountered_pitch_classes[j % 12] {
-                            let has_chord_note;
-                            (has_chord_note, adaptor) = adaptor.reference(|reference, _| {
-                                self.scales[self.curr_scale_index].write_absolute_stack(
-                                    &mut scale_note,
-                                    *j as StackCoeff,
-                                    reference,
-                                );
-                                neighbourhood.try_write_relative_stack(
-                                    &mut chord_note,
-                                    *j as StackCoeff - lowest_key as StackCoeff,
-                                )
-                            });
-                            if !has_chord_note {
-                                continue;
-                            }
-                            chord_note.scaled_add(1, &anchor_note);
+                            *i as StackCoeff - lowest_key as StackCoeff,
+                        );
+                        for j in self.tmp_sounding_notes.iter() {
+                            if !count_pitch_classes || !encountered_pitch_classes[j % 12] {
+                                let has_chord_note;
+                                (has_chord_note, adaptor) = adaptor.reference(|reference, _| {
+                                    self.scales[self.curr_scale_index].write_absolute_stack(
+                                        &mut scale_note,
+                                        *j as StackCoeff,
+                                        reference,
+                                    );
+                                    neighbourhood.try_write_relative_stack(
+                                        &mut chord_note,
+                                        *j as StackCoeff - lowest_key as StackCoeff,
+                                    )
+                                });
+                                if !has_chord_note {
+                                    continue;
+                                }
+                                chord_note.scaled_add(1, &anchor_note);
 
-                            if chord_note == scale_note {
-                                n += 1;
-                                encountered_pitch_classes[j % 12] = true;
+                                if chord_note == scale_note {
+                                    n += 1;
+                                    encountered_pitch_classes[j % 12] = true;
+                                }
                             }
                         }
+                        if n > best_n {
+                            best_n = n;
+                            best_i = *i as StackCoeff;
+                        }
                     }
-                    if n > best_n {
-                        best_n = n;
-                        best_i = *i as StackCoeff;
-                    }
-                }
 
-                // normally, this will be true. Sometimes, the pressed keys will have changed between the
-                // calculation of self.tmp_sounding_notes and the computation of the neighbourhood.
-                // In that case, we might end up in the else branch...
-                if neighbourhood.has_tuning_for(best_i - lowest_key as StackCoeff) {
-                    self.anchored_reference_key = best_i;
-                    self.anchored_reference_offset = neighbourhood
-                        .try_get_relative_stack(best_i - lowest_key as StackCoeff)
-                        .unwrap();
-                    anchoring_kind = SpringAnchoringKind::MostCommonNotes {
-                        count_pitch_classes,
-                        number_of_hits: best_n,
-                    };
-                } else {
-                    self.anchored_reference_key = lowest_key as StackCoeff;
-                    self.anchored_reference_offset = Stack::new_zero();
-                    anchoring_kind = SpringAnchoringKind::LowestKey;
+                    // normally, this will be true. Sometimes, the pressed keys will have changed between the
+                    // calculation of self.tmp_sounding_notes and the computation of the neighbourhood.
+                    // In that case, we might end up in the else branch...
+                    if best_n > 1 && neighbourhood.has_tuning_for(best_i - lowest_key as StackCoeff)
+                    {
+                        self.anchored_reference_key = best_i;
+                        self.anchored_reference_offset = neighbourhood
+                            .try_get_relative_stack(best_i - lowest_key as StackCoeff)
+                            .unwrap();
+                        anchoring_kind = SpringAnchoringKind::MostCommonNotes {
+                            count_pitch_classes,
+                            number_of_hits: best_n,
+                        };
+                        break;
+                    } else {
+                        next_try = *fallback.clone();
+                    }
                 }
             }
+            undetermined_anchoring_kind = next_try; 
         }
 
         (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
