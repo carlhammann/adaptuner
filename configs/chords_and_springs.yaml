@@ -534,6 +534,7 @@ strategies:
             octave: '11/12'
     initial-reference: {}
     spring-anchoring-kind: !most-common-notes
+      min-number-of-common-notes: 2
       count-pitch-classes: true
       fallback: fundamental-or-overtone
     chord-anchoring-kind: chord-reference

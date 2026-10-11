@@ -220,6 +220,7 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                 }
                 UndeterminedSpringAnchoringKind::MostCommonNotes {
                     count_pitch_classes,
+                    min_number_of_common_notes,
                     ref fallback,
                 } => {
                     self.tmp_sounding_notes.clear();
@@ -279,7 +280,7 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                     // normally, this will be true. Sometimes, the pressed keys will have changed between the
                     // calculation of self.tmp_sounding_notes and the computation of the neighbourhood.
                     // In that case, we might end up in the else branch...
-                    if best_n > 1 && neighbourhood.has_tuning_for(best_i - lowest_key as StackCoeff)
+                    if best_n >= min_number_of_common_notes && neighbourhood.has_tuning_for(best_i - lowest_key as StackCoeff)
                     {
                         self.anchored_reference_key = best_i;
                         self.anchored_reference_offset = neighbourhood

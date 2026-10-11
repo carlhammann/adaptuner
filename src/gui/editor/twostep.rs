@@ -16,7 +16,9 @@ use crate::{
 
 pub struct TwoStepEditor {
     most_common_notes_fallback: Box<UndeterminedSpringAnchoringKind>,
+    min_number_of_common_notes: usize,
     most_common_pitch_classes_fallback: Box<UndeterminedSpringAnchoringKind>,
+    min_number_of_common_pitch_classes: usize,
 }
 
 impl<T: StackType> GuiShow<T> for TwoStepEditor {
@@ -113,30 +115,42 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                             .changed();
 
                         ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
                             if let UndeterminedSpringAnchoringKind::MostCommonNotes {
                                 count_pitch_classes: false,
                                 fallback,
+                                min_number_of_common_notes,
                                 ..
                             } = spring_anchoring_kind
                             {
                                 self.most_common_notes_fallback.clone_from(fallback);
+                                self.min_number_of_common_notes = *min_number_of_common_notes;
                             }
                             change_anchoring |= ui
                                 .radio_value(
                                     spring_anchoring_kind,
                                     UndeterminedSpringAnchoringKind::MostCommonNotes {
+                                        min_number_of_common_notes: self.min_number_of_common_notes,
                                         count_pitch_classes: false,
                                         fallback: self.most_common_notes_fallback.clone(),
                                     },
-                                    "at least 2 notes from current scale or",
+                                    "most notes from current scale",
                                 )
                                 .changed();
                             if let UndeterminedSpringAnchoringKind::MostCommonNotes {
                                 count_pitch_classes: false,
                                 fallback,
-                                ..
+                                min_number_of_common_notes,
                             } = spring_anchoring_kind
                             {
+                                ui.label(" (at least ");
+                                change_anchoring |= ui
+                                    .add(
+                                        egui::DragValue::new(min_number_of_common_notes)
+                                            .range(2..=128),
+                                    )
+                                    .changed();
+                                ui.label(") or ");
                                 egui::ComboBox::from_id_salt(
                                     "alternative spring anchor for most common notes",
                                 )
@@ -199,13 +213,17 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                         });
 
                         ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
                             if let UndeterminedSpringAnchoringKind::MostCommonNotes {
                                 count_pitch_classes: true,
                                 fallback,
+                                min_number_of_common_notes,
                                 ..
                             } = spring_anchoring_kind
                             {
                                 self.most_common_pitch_classes_fallback.clone_from(fallback);
+                                self.min_number_of_common_pitch_classes =
+                                    *min_number_of_common_notes;
                             }
                             change_anchoring |= ui
                                 .radio_value(
@@ -213,16 +231,26 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                                     UndeterminedSpringAnchoringKind::MostCommonNotes {
                                         count_pitch_classes: true,
                                         fallback: self.most_common_pitch_classes_fallback.clone(),
+                                        min_number_of_common_notes: self
+                                            .min_number_of_common_pitch_classes,
                                     },
-                                    "at least 2 pitch classes from current scale or",
+                                    "most pitch classes from current scale",
                                 )
                                 .changed();
                             if let UndeterminedSpringAnchoringKind::MostCommonNotes {
                                 count_pitch_classes: true,
                                 fallback,
-                                ..
+                                min_number_of_common_notes,
                             } = spring_anchoring_kind
                             {
+                                ui.label(" (at least ");
+                                change_anchoring |= ui
+                                    .add(
+                                        egui::DragValue::new(min_number_of_common_notes)
+                                            .range(2..=128),
+                                    )
+                                    .changed();
+                                ui.label(") or ");
                                 egui::ComboBox::from_id_salt(
                                     "alternative spring anchor for most common pitch classes",
                                 )
@@ -337,6 +365,8 @@ impl TwoStepEditor {
             most_common_pitch_classes_fallback: Box::new(
                 UndeterminedSpringAnchoringKind::Fundamental,
             ),
+            min_number_of_common_notes: 2,
+            min_number_of_common_pitch_classes: 2,
         }
     }
 }

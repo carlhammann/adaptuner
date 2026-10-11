@@ -31,6 +31,7 @@ pub enum UndeterminedSpringAnchoringKind {
     FundamentalOrOvertone,
     #[serde(rename_all = "kebab-case")]
     MostCommonNotes {
+        min_number_of_common_notes:usize,
         count_pitch_classes: bool,
         fallback: Box<UndeterminedSpringAnchoringKind>,
     },
@@ -49,12 +50,13 @@ impl std::fmt::Display for UndeterminedSpringAnchoringKind {
             UndeterminedSpringAnchoringKind::MostCommonNotes {
                 count_pitch_classes,
                 fallback,
+                min_number_of_common_notes
             } => {
                 if *count_pitch_classes {
-                    write!(f, "at least 2 pitch classes from current scale or ")?;
+                    write!(f, "at least {min_number_of_common_notes} pitch classes from current scale or ")?;
                     fallback.fmt(f)
                 } else {
-                    write!(f, "at least 2 notes from current scale or ")?;
+                    write!(f, "at least {min_number_of_common_notes} notes from current scale or ")?;
                     fallback.fmt(f)
                 }
             }
