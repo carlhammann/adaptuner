@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use ndarray::ArrayView1;
 use num_rational::Ratio;
+use num_traits::Zero;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
@@ -49,7 +50,7 @@ impl<T: IntervalBasis> From<PeriodicComplete<T>> for SomeCompleteNeighbourhood<T
 pub struct PeriodicComplete<T: IntervalBasis> {
     pub stacks: Vec<Stack<T>>,
     pub period: Stack<T>,
-    pub period_index: Option<usize>,
+    pub period_index: usize,
 }
 
 impl<T: PeriodicIntervalBasis> PeriodicComplete<T> {
@@ -60,7 +61,7 @@ impl<T: PeriodicIntervalBasis> PeriodicComplete<T> {
         Self {
             stacks,
             period: Stack::from_pure_interval(T::period_index(), 1),
-            period_index: Some(T::period_index()),
+            period_index: T::period_index(),
         }
     }
 }
@@ -71,10 +72,13 @@ impl<T: PeriodicIntervalBasis> PeriodicComplete<T> {
 pub struct PeriodicPartial<T: IntervalBasis> {
     pub stacks: Vec<(Stack<T>, bool)>,
     pub period: Stack<T>,
-    pub period_index: Option<usize>,
+    pub period_index: usize,
 }
 
 impl<T: IntervalBasis> PeriodicPartial<T> {
+    /// The period_index argument but be the [PeriodicIntervalBasis::period_index] of 'T', but we
+    /// don't add [PeriodicIntervalBasis] as a type-level requirement, because that would infect too
+    /// many other functions.
     pub fn new_from_period_index(period_index: usize) -> Self {
         Self {
             stacks: vec![
@@ -82,7 +86,7 @@ impl<T: IntervalBasis> PeriodicPartial<T> {
                 T::intervals()[period_index].key_distance as usize
             ],
             period: Stack::from_pure_interval(period_index, 1),
-            period_index: Some(period_index),
+            period_index,
         }
     }
 }
@@ -181,7 +185,42 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicPartial<T> {
     }
 
     fn try_period_index(&self) -> Option<usize> {
-        self.period_index
+        Some(self.period_index)
+    }
+
+    fn member_or_closest(
+        &self,
+        goal: &Stack<T>,
+        reference: &Stack<T>,
+        closest: &mut Stack<T>,
+    ) -> bool {
+        let mut best_dist = StackCoeff::MAX;
+        let mut best_i = 0;
+        for (i, (stack, valid)) in self.stacks.iter().enumerate() {
+            if !valid {
+                continue;
+            }
+            closest.clone_from(stack);
+            closest.scaled_add(1, reference);
+            let mut dist = 0; 
+            for (j, g) in goal.target.iter().enumerate() {
+                if j == self.period_index {
+                    continue;
+                }
+                dist += (g - closest.target[j]).abs();
+            }
+            if dist.is_zero() {
+                return true;
+            }
+            if dist < best_dist {
+                best_dist = dist;
+                best_i = i;
+            }
+        }
+
+        closest.clone_from(&self.stacks[best_i].0);
+        closest.scaled_add(1, reference);
+        false
     }
 }
 
@@ -267,7 +306,7 @@ pub trait Neighbourhood<T: IntervalBasis> {
     fn try_increment_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
         self.try_add_scaled_relative_stack(target, 1, offset)
     }
-    
+
     /// Like [Neighbourhood::try_write_relative_stack], but subtracting from the output argument.
     #[inline]
     fn try_decrement_by_relative_stack(&self, target: &mut Stack<T>, offset: StackCoeff) -> bool {
@@ -369,6 +408,18 @@ pub trait Neighbourhood<T: IntervalBasis> {
         });
         (min, max)
     }
+
+    /// Returns true iff the 'goal' is part of the neighbourhood. In that case, the value of
+    /// 'closest' is undetermined. If the 'goal' is not part of the neighbourhood, writes a stack
+    /// that belongs to the neighbourhood with minimum (Manhattan) distance to the 'goal' in
+    /// 'closest'. Distances are calculated wrt. the [Stack::target]s of the 'goal' and the Stacks
+    /// in the neighbourhood. The neighbourhood will be centered around the 'reference' stack.
+    fn member_or_closest(
+        &self,
+        goal: &Stack<T>,
+        reference: &Stack<T>,
+        closest: &mut Stack<T>,
+    ) -> bool;
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
@@ -477,6 +528,20 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeNeighbourhood<T> {
             SomeNeighbourhood::Partial(x) => x.try_period_index(),
         }
     }
+
+    #[inline]
+    fn member_or_closest(
+        &self,
+        goal: &Stack<T>,
+        reference: &Stack<T>,
+        closest: &mut Stack<T>,
+    ) -> bool {
+        match self {
+            SomeNeighbourhood::PeriodicComplete(x) => x.member_or_closest(goal, reference, closest),
+            SomeNeighbourhood::PeriodicPartial(x) => x.member_or_closest(goal, reference, closest),
+            SomeNeighbourhood::Partial(x) => x.member_or_closest(goal, reference, closest),
+        }
+    }
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
@@ -565,6 +630,20 @@ impl<T: IntervalBasis> Neighbourhood<T> for SomeCompleteNeighbourhood<T> {
     fn try_period_index(&self) -> Option<usize> {
         match self {
             SomeCompleteNeighbourhood::PeriodicComplete(n) => n.try_period_index(),
+        }
+    }
+
+    #[inline]
+    fn member_or_closest(
+        &self,
+        goal: &Stack<T>,
+        reference: &Stack<T>,
+        closest: &mut Stack<T>,
+    ) -> bool {
+        match self {
+            SomeCompleteNeighbourhood::PeriodicComplete(x) => {
+                x.member_or_closest(goal, reference, closest)
+            }
         }
     }
 }
@@ -664,6 +743,37 @@ impl<T: IntervalBasis> Neighbourhood<T> for Partial<T> {
     fn try_period_index(&self) -> Option<usize> {
         None {}
     }
+
+    fn member_or_closest(
+        &self,
+        goal: &Stack<T>,
+        reference: &Stack<T>,
+        closest: &mut Stack<T>,
+    ) -> bool {
+        let mut best_dist = StackCoeff::MAX;
+        let mut best_i = 0;
+        for (i, s) in self.stacks.iter() {
+            closest.clone_from(s);
+            closest.scaled_add(1, reference);
+
+            let mut dist = 0;
+            for (j, g) in goal.target.iter().enumerate() {
+                dist += (g - closest.target[j]).abs();
+            }
+            if dist.is_zero() {
+                return true;
+            }
+            if dist < best_dist {
+                best_dist = dist;
+                best_i = *i;
+            }
+        }
+
+        closest.clone_from(self.stacks.get(&best_i).unwrap());
+        closest.scaled_add(1, reference);
+
+        false
+    }
 }
 
 impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
@@ -750,7 +860,39 @@ impl<T: IntervalBasis> Neighbourhood<T> for PeriodicComplete<T> {
 
     #[inline]
     fn try_period_index(&self) -> Option<usize> {
-        self.period_index
+        Some(self.period_index)
+    }
+
+    fn member_or_closest(
+        &self,
+        goal: &Stack<T>,
+        reference: &Stack<T>,
+        closest: &mut Stack<T>,
+    ) -> bool {
+        let mut best_dist = StackCoeff::MAX;
+        let mut best_i = 0;
+        for (i, stack) in self.stacks.iter().enumerate() {
+            closest.clone_from(stack);
+            closest.scaled_add(1, reference);
+            let mut dist = 0; 
+            for (j, g) in goal.target.iter().enumerate() {
+                if j == self.period_index {
+                    continue;
+                }
+                dist += (g - closest.target[j]).abs();
+            }
+            if dist.is_zero() {
+                return true;
+            }
+            if dist < best_dist {
+                best_dist = dist;
+                best_i = i;
+            }
+        }
+
+        closest.clone_from(&self.stacks[best_i]);
+        closest.scaled_add(1, reference);
+        false
     }
 }
 

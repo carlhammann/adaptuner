@@ -280,7 +280,8 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                     // normally, this will be true. Sometimes, the pressed keys will have changed between the
                     // calculation of self.tmp_sounding_notes and the computation of the neighbourhood.
                     // In that case, we might end up in the else branch...
-                    if best_n >= min_number_of_common_notes && neighbourhood.has_tuning_for(best_i - lowest_key as StackCoeff)
+                    if best_n >= min_number_of_common_notes
+                        && neighbourhood.has_tuning_for(best_i - lowest_key as StackCoeff)
                     {
                         self.anchored_reference_key = best_i;
                         self.anchored_reference_offset = neighbourhood
@@ -296,7 +297,7 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                     }
                 }
             }
-            undetermined_anchoring_kind = next_try; 
+            undetermined_anchoring_kind = next_try;
         }
 
         (_, adaptor) = adaptor.reference(|adaptor_reference, _| {
@@ -451,43 +452,129 @@ impl<T: StackType + HasOvertone + HasFundamental> StaticNeighbourhoodsAsMelody<T
                     ..
                 } => {
                     let k;
-                    (k, adaptor) = adaptor.config(|conf, _| match conf.spring_anchoring_kind {
-                        UndeterminedSpringAnchoringKind::HighestKey => {
-                            if let Some((h, _)) = neighbourhood.highest() {
-                                Some(*h)
-                            } else {
-                                panic!(
-                                    "set_reference_to_current encountered empty \
+                    (k, adaptor) =
+                        adaptor.config(|conf, mut adaptor| match conf.spring_anchoring_kind {
+                            UndeterminedSpringAnchoringKind::HighestKey => {
+                                if let Some((h, _)) = neighbourhood.highest() {
+                                    Some(*h)
+                                } else {
+                                    panic!(
+                                        "set_reference_to_current encountered empty \
                                     neighbourhood for a spring solution!"
-                                )
+                                    )
+                                }
                             }
-                        }
-                        UndeterminedSpringAnchoringKind::LowestKey => {
-                            Some(*lowest_key as StackCoeff)
-                        }
-                        UndeterminedSpringAnchoringKind::Fundamental => {
-                            let reference_offset_stack =
-                                T::fundamental_many(neighbourhood.iter().map(|x| x.1));
-                            let reference_key =
-                                *lowest_key as StackCoeff + reference_offset_stack.key_distance();
-                            Some(reference_key)
-                        }
-                        UndeterminedSpringAnchoringKind::Overtone => {
-                            let reference_offset_stack =
-                                T::overtone_many(neighbourhood.iter().map(|x| x.1));
-                            let reference_key =
-                                *lowest_key as StackCoeff + reference_offset_stack.key_distance();
-                            Some(reference_key)
-                        }
-                        UndeterminedSpringAnchoringKind::FundamentalOrOvertone => {
-                            let (_, reference_offset_stack) =
-                                fundamental_or_overtone(&neighbourhood);
-                            let reference_key =
-                                *lowest_key as StackCoeff + reference_offset_stack.key_distance();
-                            Some(reference_key)
-                        }
-                        UndeterminedSpringAnchoringKind::MostCommonNotes { .. } => None {}, // there's no determined reference
-                    });
+                            UndeterminedSpringAnchoringKind::LowestKey => {
+                                Some(*lowest_key as StackCoeff)
+                            }
+                            UndeterminedSpringAnchoringKind::Fundamental => {
+                                let reference_offset_stack =
+                                    T::fundamental_many(neighbourhood.iter().map(|x| x.1));
+                                let reference_key = *lowest_key as StackCoeff
+                                    + reference_offset_stack.key_distance();
+                                Some(reference_key)
+                            }
+                            UndeterminedSpringAnchoringKind::Overtone => {
+                                let reference_offset_stack =
+                                    T::overtone_many(neighbourhood.iter().map(|x| x.1));
+                                let reference_key = *lowest_key as StackCoeff
+                                    + reference_offset_stack.key_distance();
+                                Some(reference_key)
+                            }
+                            UndeterminedSpringAnchoringKind::FundamentalOrOvertone => {
+                                let (_, reference_offset_stack) =
+                                    fundamental_or_overtone(&neighbourhood);
+                                let reference_key = *lowest_key as StackCoeff
+                                    + reference_offset_stack.key_distance();
+                                Some(reference_key)
+                            }
+                            UndeterminedSpringAnchoringKind::MostCommonNotes { .. } => {
+                                // There's no determined reference in this case, but we can still
+                                // move the scale around to make as many chord notes fit. There are
+                                // many options on how to do this. I'll pick the option where we
+                                // move the scale by the least possible amount so that at least one
+                                // chord note that wasn't part of the scale before now becomes part
+                                // of the scale. This might entail other chord notes leavin the
+                                // scale. If that should happen, we don't move at all.
+
+                                let mut best_dist = StackCoeff::MAX;
+                                let mut tmp_stack = Stack::new_zero();
+                                let mut best_delta = Stack::new_zero();
+
+                                // Calculate a reference key with minimal shift:
+                                adaptor =
+                                    adaptor.for_all_sounding_tunings(|_, tuning, mut adaptor| {
+                                        let is_member;
+                                        (is_member, adaptor) = adaptor.reference(|reference, _| {
+                                            self.scales[self.curr_scale_index].member_or_closest(
+                                                &tuning.stack,
+                                                reference,
+                                                &mut tmp_stack,
+                                            )
+                                        });
+                                        if !is_member {
+                                            tmp_stack.scaled_add(-1, &tuning.stack);
+                                            // now, tmp_stack contains the difference bewteen the
+                                            // chord note, which is outside of the current scale,
+                                            // and the closest note of the scale.
+                                            let mut dist = 0;
+                                            for c in &tmp_stack.target {
+                                                dist += c.abs();
+                                            }
+                                            if
+                                            //dist > 0 &&
+                                            dist < best_dist {
+                                                best_dist = dist;
+                                                best_delta.clone_from(&tmp_stack);
+                                            }
+                                        }
+                                    });
+
+                                if best_dist != StackCoeff::MAX && best_dist > 0 {
+                                    // Check if executing the shift would make chord notes leave the
+                                    // scale:
+                                    let mut new_reference = Stack::new_zero(); // dummy initialisation
+                                    let mut new_reference_key = 0; // dummy initialisation
+                                    (_, adaptor) = adaptor.reference(|reference, _| {
+                                        new_reference.clone_from(reference);
+                                        new_reference.scaled_add(-1, &best_delta);
+                                        new_reference_key = new_reference.key_number();
+                                    });
+                                    let mut dont_move = false;
+                                    adaptor.for_all_sounding_tunings_until(
+                                        &mut dont_move,
+                                        |i, tuning, dont_move, adaptor| {
+                                            adaptor.reference(|reference, _| {
+                                                self.scales[self.curr_scale_index]
+                                                    .write_absolute_stack(
+                                                        &mut tmp_stack,
+                                                        i as StackCoeff,
+                                                        reference,
+                                                    )
+                                            });
+                                            if tuning.stack == tmp_stack {
+                                                self.scales[self.curr_scale_index]
+                                                    .write_absolute_stack(
+                                                        &mut tmp_stack,
+                                                        i as StackCoeff,
+                                                        &new_reference,
+                                                    );
+                                                if tuning.stack != tmp_stack {
+                                                    *dont_move = true;
+                                                }
+                                            }
+                                        },
+                                    );
+                                    if dont_move {
+                                        None {}
+                                    } else {
+                                        Some(new_reference_key)
+                                    }
+                                } else {
+                                    None {}
+                                }
+                            }
+                        });
                     k
                 }
                 Harmony::None => None {},

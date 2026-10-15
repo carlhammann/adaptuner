@@ -126,7 +126,7 @@ impl<'de, T: IntervalBasis + serde::Deserialize<'de>> serde::Deserialize<'de>
                 },
                 // unwrap is ok, because `T::try_period_keys()` was `Some`
                 period: Stack::from_pure_interval(T::try_period_index().unwrap(), 1),
-                period_index: T::try_period_index(),
+                period_index: T::try_period_index().unwrap(),
             })
         } else {
             panic!(
@@ -186,7 +186,7 @@ impl<'de, T: IntervalBasis + serde::Deserialize<'de>> serde::Deserialize<'de>
                 },
                 // unwrap is ok, because `T::try_period_keys()` was `Some`
                 period: Stack::from_pure_interval(T::try_period_index().unwrap(), 1),
-                period_index: T::try_period_index(),
+                period_index: T::try_period_index().unwrap(),
             })
         } else {
             panic!(

@@ -328,6 +328,37 @@ impl<X, M, L: Nat> OrderedLocks<X, M, L> {
     }
 
     #[inline]
+    pub fn for_all_sounding_tunings_until<T>(
+        mut self,
+        stop: &mut bool,
+        mut f: impl FnMut(
+            usize,
+            &StackWithTuning<T>,
+            &mut bool,
+            OrderedLocks<X, M, Succ<TuningStateLevel>>,
+        ),
+    ) -> Self
+    where
+        T: IntervalBasis,
+        M: IndexedAccess<KeyStateLevel, usize, KeyState>
+            + IndexedAccess<TuningStateLevel, usize, StackWithTuning<T>>,
+        L: AtMost<KeyStateLevel>,
+        X: ReadAllowed<KeyStateLevel> + ReadAllowed<TuningStateLevel>,
+    {
+        for i in 0..128 {
+            if *stop {
+                break;
+            }
+            (_, self) = self.key_state(i, |k, r| {
+                if k.is_sounding() {
+                    r.tuning(i, |t, r| f(i, t, stop, r));
+                }
+            });
+        }
+        self
+    }
+
+    #[inline]
     pub fn for_all_sounding_tunings_mut<T>(
         mut self,
         mut f: impl FnMut(usize, &mut StackWithTuning<T>, OrderedLocks<X, M, Succ<TuningStateLevel>>),
