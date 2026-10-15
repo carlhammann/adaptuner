@@ -327,25 +327,26 @@ where
             });
 
             ui.horizontal(|ui| {
-                if !self.show_side_panel {
-                    if ui.button("☰").clicked() {
-                        self.show_side_panel = true;
-                    }
-                } else {
-                    if ui.button("⏴").clicked() {
-                        self.show_side_panel = false;
-                    }
-                }
-
-                if ui.button("🔍+").clicked() {
-                    self.adaptor.as_ref().unwrap().config_mut().lattice.zoom *= 1.1;
-                }
-                if ui.button("🔍-").clicked() {
-                    self.adaptor.as_ref().unwrap().config_mut().lattice.zoom /= 1.1;
-                }
-
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                     self.latency.show(ui);
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                        if !self.show_side_panel {
+                            if ui.button("☰").clicked() {
+                                self.show_side_panel = true;
+                            }
+                        } else {
+                            if ui.button("⏴").clicked() {
+                                self.show_side_panel = false;
+                            }
+                        }
+
+                        if ui.button("🔍+").clicked() {
+                            self.adaptor.as_ref().unwrap().config_mut().lattice.zoom *= 1.1;
+                        }
+                        if ui.button("🔍-").clicked() {
+                            self.adaptor.as_ref().unwrap().config_mut().lattice.zoom /= 1.1;
+                        }
+                    });
                 });
             });
         });
