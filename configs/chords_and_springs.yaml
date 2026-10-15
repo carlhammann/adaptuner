@@ -317,7 +317,6 @@ strategies:
     lower-intervals-are-more-stable: false
     provider: !mod12
       by-class:
-      - !rod {}
       - !springs
         options:
         - length:
@@ -421,8 +420,7 @@ strategies:
             fifth: 1
             third: -2
           stiffness: '1'
-      octave:
-        octave: 1
+      octave-index: 0
   melody: !static-neighbourhoods
     scales:
     - name: pure

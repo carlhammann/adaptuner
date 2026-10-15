@@ -60,8 +60,11 @@ pub enum RodOrSprings<T: IntervalBasis> {
 pub enum HarmonySpringsProvider<T: IntervalBasis> {
     #[serde(rename_all = "kebab-case")]
     Mod12 {
-        by_class: [RodOrSprings<T>; 12],
-        octave: Stack<T>,
+        by_class: [RodOrSprings<T>; 11],
+        /// The [PeriodicIntervalBasis::period_index] of the octave. So, this enum variant only
+        /// makes sense for [OctavePeriodicIntervalBasis], but I don't add this as a requirement,
+        /// because it would infect so many other functions.
+        octave_index: usize,
     },
 }
 
@@ -133,7 +136,10 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
         springs: &mut BTreeMap<(usize, usize), SpringInfo>,
     ) {
         match self {
-            HarmonySpringsProvider::Mod12 { by_class, octave } => {
+            HarmonySpringsProvider::Mod12 {
+                by_class,
+                octave_index,
+            } => {
                 let n = keys.len();
 
                 rods.clear();
@@ -142,14 +148,21 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
                     for j in (i + 1)..n {
                         let d = keys[j] as i8 - keys[i] as i8;
                         let rem = d.rem_euclid(12) as usize;
-                        match &by_class[rem] {
-                            RodOrSprings::Rod(stack) => {
-                                let quot = d.div_euclid(12) as StackCoeff;
-                                let mut rod = stack.clone();
-                                rod.scaled_add(quot, octave);
-                                rods.insert((i, j), rod);
+                        if rem == 0 {
+                            let quot = d.div_euclid(12) as StackCoeff;
+                            let mut rod = Stack::new_zero();
+                            rod.increment_at_index_pure(*octave_index, quot);
+                            rods.insert((i, j), rod);
+                        } else {
+                            match &by_class[rem - 1] {
+                                RodOrSprings::Rod(stack) => {
+                                    let quot = d.div_euclid(12) as StackCoeff;
+                                    let mut rod = stack.clone();
+                                    rod.increment_at_index_pure(*octave_index, quot);
+                                    rods.insert((i, j), rod);
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
                 }
@@ -176,21 +189,23 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
                     for j in (i + 1)..n {
                         let d = keys[j] as i8 - keys[i] as i8;
                         let rem = d.rem_euclid(12) as usize;
-                        match &by_class[rem] {
-                            RodOrSprings::Springs { options, .. } => {
-                                if rod_start[i].is_none() || rod_start[i] != rod_start[j] {
-                                    springs.insert(
-                                        (i, j),
-                                        SpringInfo {
-                                            current_candidate_index: 0,
-                                            memo_key: d,
-                                            solver_length_index: 0, // dummy initialisation; will be overwritten!
-                                        },
-                                    );
-                                    tmp.push(((i, j), options.len()));
+                        if rem != 0 {
+                            match &by_class[rem - 1] {
+                                RodOrSprings::Springs { options, .. } => {
+                                    if rod_start[i].is_none() || rod_start[i] != rod_start[j] {
+                                        springs.insert(
+                                            (i, j),
+                                            SpringInfo {
+                                                current_candidate_index: 0,
+                                                memo_key: d,
+                                                solver_length_index: 0, // dummy initialisation; will be overwritten!
+                                            },
+                                        );
+                                        tmp.push(((i, j), options.len()));
+                                    }
                                 }
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
                 }
@@ -212,9 +227,15 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
 
     fn candidate_springs(&self, d: i8) -> Vec<(Stack<T>, Ratio<StackCoeff>)> {
         match self {
-            HarmonySpringsProvider::Mod12 { by_class, octave } => {
+            HarmonySpringsProvider::Mod12 {
+                by_class,
+                octave_index,
+            } => {
                 let rem = d.rem_euclid(12) as usize;
-                match &by_class[rem] {
+                if rem == 0 {
+                    panic!("cannot compute candidate_springs for interval that's a multiple of an octave");
+                }
+                match &by_class[rem - 1] {
                     RodOrSprings::Rod(_) => panic!("cannot compute candidate_springs for rod"),
                     RodOrSprings::Springs {
                         options: springs, ..
@@ -228,7 +249,7 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
                                      stiffness,
                                  }| {
                                     let mut shifted_stack = stack.clone();
-                                    shifted_stack.scaled_add(quot, octave);
+                                    shifted_stack.increment_at_index_pure(*octave_index, quot);
                                     (shifted_stack, *stiffness)
                                 },
                             )
@@ -870,7 +891,9 @@ mod test {
         reference::Reference,
         strategy::melody::{
             neighbourhoods::StaticNeighbourhoodsAsMelodyConfig,
-            r#trait::{Anchoring, AnchoringKind, ChordAnchoringKind, UndeterminedSpringAnchoringKind},
+            r#trait::{
+                Anchoring, AnchoringKind, ChordAnchoringKind, UndeterminedSpringAnchoringKind,
+            },
         },
         util::ordered_locks::{OrderedLocks, Zero},
     };
@@ -921,7 +944,8 @@ mod test {
                             initial_reference: Stack::new_zero(),
                             scales: vec![], // dummy initialisation: In the real world, this is never empty
                             chord_anchoring_kind: ChordAnchoringKind::ChordReference,
-                            spring_anchoring_kind: UndeterminedSpringAnchoringKind::FundamentalOrOvertone,
+                            spring_anchoring_kind:
+                                UndeterminedSpringAnchoringKind::FundamentalOrOvertone,
                         },
                     ),
                     melody_harmony_coordination: MelodyHarmonyCoordinationConfig {
@@ -948,7 +972,6 @@ mod test {
     fn mock_provider() -> HarmonySpringsProvider<MockFiveLimitStackType> {
         HarmonySpringsProvider::Mod12 {
             by_class: [
-                RodOrSprings::Rod(Stack::from_target(vec![0, 0, 0])),
                 RodOrSprings::Springs {
                     options: vec![
                         Spring {
@@ -1046,7 +1069,7 @@ mod test {
                     }],
                 },
             ],
-            octave: Stack::from_pure_interval(0, 1),
+            octave_index: 0,
         }
     }
 

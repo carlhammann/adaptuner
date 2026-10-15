@@ -179,7 +179,7 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
     send: impl Fn(ToHarmonySprings),
 ) {
     match provider {
-        HarmonySpringsProvider::Mod12 { by_class, octave } => {
+        HarmonySpringsProvider::Mod12 { by_class, ..} => {
             egui::Grid::new(id.with("spring_provider_grid"))
                 .with_row_color(|i, style| {
                     if i % 2 == 0 {
@@ -196,7 +196,7 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
                             tmp_temperaments,
                             tmp_correction,
                             tmp_stack,
-                            i,
+                            i + 1,
                             x,
                             ui,
                         ) {
@@ -207,19 +207,6 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
                         ui.end_row();
                     }
                 });
-            egui::CollapsingHeader::new(format!("octave: {}", {
-                tmp_stack.clone_from(octave);
-                tmp_stack.scaled_add(1, &*base_note);
-                tmp_stack.corrected_notename(&NoteNameStyle::Full, false)
-            }))
-            .id_salt(id.with("octave"))
-            .show(ui, |ui| {
-                if note_picker(ui, tmp_temperaments, tmp_correction, octave) {
-                    send(ToHarmonySprings::ReloadSprings {
-                        time: Instant::now(),
-                    });
-                }
-            });
             egui::CollapsingHeader::new(format!(
                 "base note used for interval names: {}",
                 base_note.corrected_notename(&NoteNameStyle::Full, false)
