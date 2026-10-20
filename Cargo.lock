@@ -165,6 +165,7 @@ dependencies = [
  "embedded-alloc",
  "embedded-graphics",
  "embedded-hal 1.0.0",
+ "embedded-io-async 0.7.0",
  "heapless",
  "panic-halt",
  "panic-probe",

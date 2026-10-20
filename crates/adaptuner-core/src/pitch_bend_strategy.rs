@@ -1,6 +1,11 @@
 //! MIDI Pitch Bend implementation of the backend-neutral retuning strategy.
 
-use crate::{interval::base::Semitones, notes::{ActiveNote, NoteId}, pitch_bend::bend_from_semitones, retuning::RetuningStrategy};
+use crate::{
+    interval::base::Semitones,
+    notes::{ActiveNote, NoteId},
+    pitch_bend::bend_from_semitones,
+    retuning::RetuningStrategy,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PitchBendCommand {
@@ -16,8 +21,12 @@ pub struct PitchBendStrategy {
 }
 
 impl PitchBendStrategy {
-    pub const fn new(bend_range: Semitones) -> Self { Self { bend_range } }
-    pub const fn bend_range(&self) -> Semitones { self.bend_range }
+    pub const fn new(bend_range: Semitones) -> Self {
+        Self { bend_range }
+    }
+    pub const fn bend_range(&self) -> Semitones {
+        self.bend_range
+    }
 }
 
 impl RetuningStrategy for PitchBendStrategy {
@@ -26,12 +35,14 @@ impl RetuningStrategy for PitchBendStrategy {
     fn retune(&mut self, note: &ActiveNote) -> Self::Command {
         let offset = note.target_pitch() - note.source_pitch();
         let value = bend_from_semitones(self.bend_range, offset);
-        let actual_pitch = note.source_pitch()
-            + crate::pitch_bend::semitones_from_bend(self.bend_range, value);
+        let actual_pitch =
+            note.source_pitch() + crate::pitch_bend::semitones_from_bend(self.bend_range, value);
         PitchBendCommand {
             note_id: note.id(),
             value,
-            out_of_range: !self.bend_range.is_finite() || self.bend_range <= 0.0 || offset.abs() > self.bend_range,
+            out_of_range: !self.bend_range.is_finite()
+                || self.bend_range <= 0.0
+                || offset.abs() > self.bend_range,
             actual_pitch,
         }
     }

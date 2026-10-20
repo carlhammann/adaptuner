@@ -12,7 +12,12 @@ use {defmt_rtt as _, panic_probe as _};
 use alloc::boxed::Box;
 
 use embassy_executor::Spawner;
-use embassy_stm32::{Config, rcc::*, time::Hertz};
+use embassy_stm32::{
+    Config, bind_interrupts, peripherals,
+    rcc::*,
+    time::Hertz,
+    usart::{self, BufferedUart, BufferedUartRx, BufferedUartTx, DataBits, Parity, StopBits},
+};
 use embassy_time::{Instant, Timer};
 use embedded_alloc::LlffHeap;
 
@@ -29,7 +34,12 @@ mod hardware;
 mod ui;
 
 use hardware::display_dma::DisplayDma;
+use hardware::midi_uart::{self, MIDI_INPUT, MIDI_OUTPUT};
 use ui::platform::{DisplayLineBuffer, RenderStats};
+
+bind_interrupts!(struct Irqs {
+    USART3 => usart::BufferedInterruptHandler<peripherals::USART3>;
+});
 
 const DISPLAY_WIDTH: usize = 320;
 const DISPLAY_HEIGHT: usize = 240;
@@ -43,7 +53,34 @@ static mut HEAP_MEMORY: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
 static mut DISPLAY_FRAMEBUFFER: [u8; DISPLAY_FRAMEBUFFER_BYTES] = [0; DISPLAY_FRAMEBUFFER_BYTES];
 
+const MIDI_UART_BUFFER_SIZE: usize = 128;
+static mut MIDI_UART_TX_BUFFER: [u8; MIDI_UART_BUFFER_SIZE] = [0; MIDI_UART_BUFFER_SIZE];
+static mut MIDI_UART_RX_BUFFER: [u8; MIDI_UART_BUFFER_SIZE] = [0; MIDI_UART_BUFFER_SIZE];
+
 slint::include_modules!();
+
+#[embassy_executor::task]
+async fn midi_uart_rx_task(mut rx: BufferedUartRx<'static>) {
+    let result = midi_uart::receive(&mut rx, |message| async move {
+        MIDI_INPUT.send(message).await;
+    })
+    .await;
+
+    if result.is_err() {
+        defmt::error!("MIDI UART receive stopped");
+    }
+}
+
+#[embassy_executor::task]
+async fn midi_uart_tx_task(mut tx: BufferedUartTx<'static>) {
+    loop {
+        let bytes = MIDI_OUTPUT.receive().await;
+        if midi_uart::send(&mut tx, &bytes).await.is_err() {
+            defmt::error!("MIDI UART transmit stopped");
+            return;
+        }
+    }
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -103,6 +140,38 @@ async fn main(_spawner: Spawner) {
 
     let p = embassy_stm32::init(config);
 
+    // 2. MIDI-UART initialisieren: USART3, PB11 RX und PB10 TX, MIDI 1.0 8N1.
+    let mut midi_uart_config = usart::Config::default();
+    midi_uart_config.baudrate = 31_250;
+    midi_uart_config.data_bits = DataBits::DataBits8;
+    midi_uart_config.parity = Parity::ParityNone;
+    midi_uart_config.stop_bits = StopBits::STOP1;
+    midi_uart_config.eager_reads = Some(1);
+
+    let midi_uart = unsafe {
+        let tx_buffer = core::slice::from_raw_parts_mut(
+            core::ptr::addr_of_mut!(MIDI_UART_TX_BUFFER).cast::<u8>(),
+            MIDI_UART_BUFFER_SIZE,
+        );
+        let rx_buffer = core::slice::from_raw_parts_mut(
+            core::ptr::addr_of_mut!(MIDI_UART_RX_BUFFER).cast::<u8>(),
+            MIDI_UART_BUFFER_SIZE,
+        );
+        BufferedUart::new(
+            p.USART3,
+            p.PB11,
+            p.PB10,
+            tx_buffer,
+            rx_buffer,
+            Irqs,
+            midi_uart_config,
+        )
+        .unwrap()
+    };
+    let (midi_tx, midi_rx) = midi_uart.split();
+    _spawner.spawn(midi_uart_rx_task(midi_rx).unwrap());
+    _spawner.spawn(midi_uart_tx_task(midi_tx).unwrap());
+
     // 3. SPI1-DMA-Display initialisieren.
     let mut display = DisplayDma::new(
         p.SPI1,
@@ -156,6 +225,19 @@ async fn main(_spawner: Spawner) {
     // 6. Render- und DMA-Loop.
     loop {
         platform::update_timers_and_animations();
+
+        while let Ok(message) = MIDI_INPUT.try_receive() {
+            #[cfg(feature = "debug")]
+            defmt::info!(
+                "MIDI UART RX status={=u8} channel={=u8} data={=u8},{=u8}",
+                message.status(),
+                message.channel(),
+                message.data()[0],
+                message.data()[1]
+            );
+            #[cfg(not(feature = "debug"))]
+            let _ = message;
+        }
 
         let mut render_stats = RenderStats::default();
 
