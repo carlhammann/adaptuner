@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use adaptuner_core::StackTypeConfig;
 use eframe::{self, egui};
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +22,7 @@ use crate::{
     },
     interval::{
         fundamental::{HasFundamental, HasOvertone},
-        stacktype::r#trait::{OctavePeriodicStackType, Reloadable, StackType},
+        stacktype::r#trait::{OctavePeriodicStackType, StackType},
     },
     msg::{FromUi, ReceiveMsg, ToUi},
     notename::HasNoteNames,
@@ -60,6 +61,8 @@ pub struct TopLevelGui<T: StackType> {
 
     comma_editor: CommaEditor<T>,
     comma_editor_window: SmallFloatingWindow,
+
+    stack_config: StackTypeConfig<T>,
 }
 
 impl<T: StackType> TopLevelGui<T> {
@@ -71,7 +74,7 @@ impl<T: StackType> TopLevelGui<T> {
 
 impl<T> eframe::App for TopLevelGui<T>
 where
-    T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
+    T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a>,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // no need to check for the ConfigFileDialog, which is also shown as modal; this has its
@@ -117,7 +120,9 @@ where
 
                 ui.collapsing("global tuning reference", |ui| {
                     take_replace(&mut self.adaptor, |mut adaptor| {
-                        adaptor = self.tuning_editor.show(ui, adaptor);
+                        adaptor =
+                            self.tuning_editor
+                                .show_with_config(ui, adaptor, &self.stack_config);
                         ((), adaptor)
                     });
                 });
@@ -126,7 +131,9 @@ where
 
                 ui.label("Tuning strategy");
                 take_replace(&mut self.adaptor, |mut adaptor| {
-                    adaptor = self.strategy_widgets.show(ui, adaptor);
+                    adaptor =
+                        self.strategy_widgets
+                            .show_with_config(ui, adaptor, &self.stack_config);
                     ((), adaptor)
                 });
 
@@ -145,11 +152,11 @@ where
                     .show_hide_button(ui, "temperaments")
                 {
                     stop(self);
-                    self.temperament_editor = TemperamentEditor::new();
+                    self.temperament_editor = TemperamentEditor::new(&self.stack_config);
                 }
                 if self.comma_editor_window.show_hide_button(ui, "commas") {
                     stop(self);
-                    self.comma_editor = CommaEditor::new();
+                    self.comma_editor = CommaEditor::new(&self.stack_config);
                 }
 
                 ui.separator();
@@ -226,7 +233,11 @@ where
                         }
                         {
                             take_replace(&mut self.adaptor, |mut adaptor| {
-                                adaptor = self.notifications.show(ui, adaptor);
+                                adaptor = self.notifications.show_with_config(
+                                    ui,
+                                    adaptor,
+                                    &self.stack_config,
+                                );
                                 ((), adaptor)
                             });
                         }
@@ -260,22 +271,30 @@ where
 
             let do_restart = take_replace(&mut self.adaptor, |mut adaptor| {
                 let new_config;
-                (new_config, adaptor) = self.config_file_dialog.show(ui, adaptor);
+                (new_config, adaptor) =
+                    self.config_file_dialog
+                        .show(ui, adaptor, &self.stack_config);
                 if let Some(config) = new_config {
-                    let _ = T::initialise(config.temperaments, config.named_intervals);
+                    if let Ok(stack_config) =
+                        StackTypeConfig::new(config.temperaments, config.named_intervals)
+                    {
+                        self.stack_config = stack_config;
 
-                    *adaptor.config_mut() = config.gui;
+                        *adaptor.config_mut() = config.gui;
 
-                    match config.backend {
-                        BackendConfig::Pitchbend12(c) => {
-                            (_, adaptor) = adaptor.backend_config_mut(|x, _| x.clone_from(&c));
+                        match config.backend {
+                            BackendConfig::Pitchbend12(c) => {
+                                (_, adaptor) = adaptor.backend_config_mut(|x, _| x.clone_from(&c));
+                            }
                         }
+
+                        (_, adaptor) =
+                            adaptor.strategy_config_mut(|x, _| x.clone_from(&config.strategies));
+
+                        (true, adaptor)
+                    } else {
+                        (false, adaptor)
                     }
-
-                    (_, adaptor) =
-                        adaptor.strategy_config_mut(|x, _| x.clone_from(&config.strategies));
-
-                    (true, adaptor)
                 } else {
                     (false, adaptor)
                 }
@@ -292,10 +311,16 @@ where
                 .temperament_editor_window
                 .show("temperaments", ctx, |ui| self.temperament_editor.show(ui))
             {
-                let named_intervals = T::named_intervals().clone();
-                let _ = T::initialise(new_temperament_definitions, named_intervals);
+                let named_intervals = self.stack_config.named_intervals().to_vec();
 
-                restart(self);
+                if let Ok(stack_config) =
+                    StackTypeConfig::new(new_temperament_definitions, named_intervals)
+                {
+                    self.stack_config = stack_config;
+                    self.temperament_editor = TemperamentEditor::new(&self.stack_config);
+                    self.comma_editor = CommaEditor::new(&self.stack_config);
+                    restart(self);
+                }
 
                 return; // don't continue updating for this frame
             }
@@ -310,10 +335,16 @@ where
                 // If this window is open, we're loading new temperaments (i.e. a new StackType),
                 // and we've already stopped the other processes.
                 // At the end of this block, we'll restart everything.
-                let temperament_definitions = T::temperament_definitions().clone();
-                let _ = T::initialise(temperament_definitions, new_named_intervals);
+                let temperament_definitions = self.stack_config.temperament_definitions().to_vec();
 
-                restart(self);
+                if let Ok(stack_config) =
+                    StackTypeConfig::new(temperament_definitions, new_named_intervals)
+                {
+                    self.stack_config = stack_config;
+                    self.temperament_editor = TemperamentEditor::new(&self.stack_config);
+                    self.comma_editor = CommaEditor::new(&self.stack_config);
+                    restart(self);
+                }
 
                 return; // don't continue updating for this frame
             }
@@ -322,7 +353,9 @@ where
                 adaptor = self
                     .strategy_widgets
                     .show_windows(ui, adaptor, any_modal_open);
-                adaptor = self.lattice.show(ui, adaptor);
+                adaptor = self
+                    .lattice
+                    .show_with_config(ui, adaptor, &self.stack_config);
                 ((), adaptor)
             });
 
@@ -374,10 +407,9 @@ where
         + HasOvertone
         + HasFundamental
         + Serialize
-        + for<'a> Deserialize<'a>
-        + Reloadable,
+        + for<'a> Deserialize<'a>,
 {
-    fn new(adaptor: UiAdaptor<T, Zero>) -> Self {
+    fn new(adaptor: UiAdaptor<T, Zero>, stack_config: StackTypeConfig<T>) -> Self {
         let latency_mean_over = adaptor.config().latency_mean_over;
         Self {
             input_connection: ConnectionWindow::new(),
@@ -390,42 +422,43 @@ where
                 false,
             ),
             notifications: Notifications::new(),
-            tuning_editor: TuningEditor::new(),
-            strategy_widgets: StrategyWidgets::new(),
+            tuning_editor: TuningEditor::new(&stack_config),
+            strategy_widgets: StrategyWidgets::new(&stack_config),
             stopped: false,
             config_file_dialog: ConfigFileDialog::new(),
             show_side_panel: false,
-            lattice: LatticeWindow::new(),
+            lattice: LatticeWindow::new(&stack_config),
             latency: LatencyWindow::new(latency_mean_over),
-            temperament_editor: TemperamentEditor::new(),
+            temperament_editor: TemperamentEditor::new(&stack_config),
             temperament_editor_window: SmallFloatingWindow::new(
                 egui::Id::new("temperament_editor_window"),
                 false,
             ),
-            comma_editor: CommaEditor::new(),
+            comma_editor: CommaEditor::new(&stack_config),
             comma_editor_window: SmallFloatingWindow::new(
                 egui::Id::new("comma_editor_window"),
                 false,
             ),
             adaptor: Some(adaptor),
+            stack_config,
         }
     }
 }
 
 impl<T> TopLevelGui<T>
 where
-    T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a> + Reloadable,
+    T: OctavePeriodicStackType + HasNoteNames + Serialize + for<'a> Deserialize<'a>,
 {
     fn renew(&mut self) {
         self.backend = BackendWindow::new();
         self.notifications = Notifications::new();
-        self.tuning_editor = TuningEditor::new();
-        self.strategy_widgets = StrategyWidgets::new();
+        self.tuning_editor = TuningEditor::new(&self.stack_config);
+        self.strategy_widgets = StrategyWidgets::new(&self.stack_config);
         self.config_file_dialog = ConfigFileDialog::new();
-        self.lattice = LatticeWindow::new();
+        self.lattice = LatticeWindow::new(&self.stack_config);
         self.latency =
             LatencyWindow::new(self.adaptor.as_ref().unwrap().config().latency_mean_over);
-        self.temperament_editor = TemperamentEditor::new();
-        self.comma_editor = CommaEditor::new();
+        self.temperament_editor = TemperamentEditor::new(&self.stack_config);
+        self.comma_editor = CommaEditor::new(&self.stack_config);
     }
 }

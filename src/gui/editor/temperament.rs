@@ -9,6 +9,8 @@ use crate::{
     },
 };
 
+use adaptuner_core::StackTypeConfig;
+
 #[derive(Clone)]
 struct MaybeRealized<T: IntervalBasis> {
     definition: TemperamentDefinition<T>,
@@ -22,9 +24,10 @@ pub struct TemperamentEditor<T: IntervalBasis> {
 }
 
 impl<T: StackType> TemperamentEditor<T> {
-    pub fn new() -> Self {
+    pub fn new(stack_config: &StackTypeConfig<T>) -> Self {
         Self {
-            definitions: T::temperament_definitions()
+            definitions: stack_config
+                .temperament_definitions()
                 .iter()
                 .map(|definition| MaybeRealized {
                     definition: definition.clone(),

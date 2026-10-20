@@ -4,13 +4,18 @@ use eframe::egui;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    gui::{common::note_picker, r#trait::{GuiShow, UiAdaptor}},
+    gui::{
+        common::note_picker_with_config,
+        r#trait::{GuiShow, UiAdaptor},
+    },
     interval::{stack::Stack, stacktype::r#trait::StackType},
     msg::FromUi,
-    notename::{HasNoteNames, NoteNameStyle, correction::Correction},
-    reference::{Reference, frequency_from_semitones, semitones_from_frequency},
+    notename::{correction::Correction, HasNoteNames, NoteNameStyle, StackNoteNames},
+    reference::{frequency_from_semitones, semitones_from_frequency, Reference},
     util::ordered_locks::Zero,
 };
+
+use adaptuner_core::StackTypeConfig;
 
 pub struct TuningEditor<T: StackType> {
     new_reference: Reference<T>,
@@ -26,33 +31,34 @@ pub struct TuningEditorConfig {
 }
 
 impl<T: StackType> TuningEditor<T> {
-    pub fn new() -> Self {
+    pub fn new(stack_config: &StackTypeConfig<T>) -> Self {
         Self {
             new_reference: Reference {
                 stack: Stack::new_zero(),
                 semitones: 60.0,
             },
-            temperaments_applied_to_new_reference: vec![false; T::num_temperaments()],
-            corrections_applied_to_new_reference: Correction::new_zero(),
+            temperaments_applied_to_new_reference: vec![false; stack_config.num_temperaments()],
+            corrections_applied_to_new_reference: Correction::new_zero(stack_config),
         }
     }
 }
 
-impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
-    fn show(
+impl<T: StackType + HasNoteNames> TuningEditor<T> {
+    fn show_internal(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, Zero>
+        mut adaptor: UiAdaptor<T, Zero>,
+        stack_config: &StackTypeConfig<T>,
     ) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.tuning_reference(|reference, _| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.label("Current tuning is ");
-                ui.strong(
-                    reference
-                        .stack
-                        .corrected_notename(&NoteNameStyle::Full, false),
-                );
+                ui.strong(reference.stack.corrected_notename(
+                    &NoteNameStyle::Full,
+                    false,
+                    stack_config,
+                ));
                 ui.label(" at");
                 ui.strong(format!(" {:.02} Hz", reference.get_frequency()));
                 ui.label(format!(" (MIDI note {:.02})", reference.semitones));
@@ -61,7 +67,9 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
 
         ui.separator();
         ui.label("Select new reference, relative to C 4:");
-        note_picker(
+
+        note_picker_with_config(
+            stack_config,
             ui,
             &mut self.temperaments_applied_to_new_reference,
             &mut self.corrections_applied_to_new_reference,
@@ -73,11 +81,11 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             ui.label("New tuning will be ");
-            ui.strong(
-                self.new_reference
-                    .stack
-                    .corrected_notename(&NoteNameStyle::Full, false),
-            );
+            ui.strong(self.new_reference.stack.corrected_notename(
+                &NoteNameStyle::Full,
+                false,
+                stack_config,
+            ));
             ui.label(" at ");
 
             let mut new_freq = frequency_from_semitones(self.new_reference.semitones);
@@ -110,5 +118,20 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
             .inner;
 
         adaptor
+    }
+}
+
+impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
+    fn show(&mut self, _ui: &mut egui::Ui, _adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
+        panic!("Use show_with_config() for this editor")
+    }
+
+    fn show_with_config(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: UiAdaptor<T, Zero>,
+        stack_config: &StackTypeConfig<T>,
+    ) -> UiAdaptor<T, Zero> {
+        self.show_internal(ui, adaptor, stack_config)
     }
 }

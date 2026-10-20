@@ -1,0 +1,56 @@
+
+import { Button } from "std-widgets.slint";
+export component AppWindow inherits Window {
+    title: "Adaptuner";
+    width: 320px;
+    height: 240px;
+    background: #101820;
+
+    in-out property <string> active-view: "Tuning";
+    callback select-view(string);
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        Text {
+            text: "ADAPTUNER";
+            color: #8bd5ca;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        Rectangle {
+            background: #263744;
+            border-radius: 8px;
+            VerticalLayout {
+                padding: 10px;
+                spacing: 4px;
+
+                Text {
+                    text: root.active-view;
+                    color: white;
+                    font-size: 22px;
+                }
+
+                Text {
+                    text: "Bereit zur Initialisierung";
+                    color: #aab7c4;
+                    font-size: 12px;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+
+            for view in ["Tuning", "Presets", "System"]: Button {
+                text: view;
+                clicked => {
+                    root.active-view = view;
+                    root.select-view(view);
+                }
+            }
+        }
+    }
+}

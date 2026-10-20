@@ -15,6 +15,7 @@ use crate::{
     },
     util::{list_action::ListAction, ordered_locks::Zero},
 };
+use adaptuner_core::StackTypeConfig;
 
 pub struct ScaleEditor {
     current_scale_index: usize,
@@ -40,6 +41,7 @@ impl ScaleEditor {
         &mut self,
         ui: &mut egui::Ui,
         scales: &mut Vec<Named<SomeCompleteNeighbourhood<T>>>,
+        config: &StackTypeConfig<T>,
     ) -> ScaleEditorResult {
         let list_edit_res = show_list_edit(
             ui,
@@ -58,16 +60,20 @@ impl ScaleEditor {
                         ui.style().spacing.interact_size.y,
                     )));
 
-                    let mut msg: Option<usize> = None {};
-                    if T::num_temperaments() > 0 {
+                    let mut msg: Option<usize> = None;
+
+                    let num_temperaments = config.num_temperaments();
+
+                    if num_temperaments > 0 {
                         egui::ComboBox::from_id_salt(format!("temperament picker for scale {i}"))
                             .selected_text("apply temperament")
                             .show_ui(ui, |ui| {
-                                for (j, t) in T::temperaments().iter().enumerate() {
-                                    if ui.button(&t.name).clicked() {
+                                for (j, temperament) in config.temperaments().iter().enumerate() {
+                                    if ui.button(&temperament.name).clicked() {
                                         elem.named.for_each_stack_mut(|_, stack| {
-                                            stack.apply_temperament(j);
+                                            stack.apply_temperament_with_config(config, j);
                                         });
+
                                         msg = Some(i);
                                     }
                                 }
@@ -78,22 +84,25 @@ impl ScaleEditor {
                                     elem.named.for_each_stack_mut(|_, stack| {
                                         stack.make_pure();
                                     });
+
                                     msg = Some(i);
                                 }
                             });
                     }
+
                     msg
                 }),
                 clone: Some(Box::new(|ui, _elems, selected, _| {
                     ui.separator();
+
                     if let Some(i) = selected {
                         if ui.button("create copy of selected").clicked() {
                             Some(i)
                         } else {
-                            None {}
+                            None
                         }
                     } else {
-                        None {}
+                        None
                     }
                 })),
             },
@@ -102,16 +111,21 @@ impl ScaleEditor {
 
         match list_edit_res {
             ListEditResult::Message(i) => ScaleEditorResult::ChangeScale(i),
+
             ListEditResult::Action(action) => {
                 action.apply_to(scales, &mut self.current_scale_index, |x| x.clone());
+
                 match action {
                     ListAction::Select(i) => ScaleEditorResult::Select(i),
+
                     ListAction::Delete(_) | ListAction::Clone(_) | ListAction::SwapWithPrev(_) => {
                         ScaleEditorResult::ChangeList
                     }
+
                     ListAction::Deselect => unreachable!(),
                 }
             }
+
             ListEditResult::None => ScaleEditorResult::NoChange,
         }
     }

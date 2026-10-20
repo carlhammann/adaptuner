@@ -7,6 +7,8 @@ use crate::{
     util::subsequences::Subsequences,
 };
 
+use adaptuner_core::StackTypeConfig;
+
 pub struct CommaEditor<T: IntervalBasis> {
     commas: Vec<NamedInterval<T>>,
     possible_bases: Vec<Vec<usize>>,
@@ -29,41 +31,47 @@ fn compute_possible_bases<T: IntervalBasis>(intervals: &[NamedInterval<T>]) -> V
 }
 
 impl<T: StackType> CommaEditor<T> {
-    pub fn new() -> Self {
+    pub fn new(stack_config: &StackTypeConfig<T>) -> Self {
+        let commas = stack_config.named_intervals().to_vec();
+
         Self {
-            commas: T::named_intervals().clone(),
-            possible_bases: compute_possible_bases(&*T::named_intervals()),
+            possible_bases: compute_possible_bases(&commas),
+            commas,
             tmp_str: String::with_capacity(3 * T::num_intervals()),
         }
     }
 }
 
-impl<T: IntervalBasis> NamedInterval<T> {
-    fn show(&mut self, ui: &mut egui::Ui, i: usize) -> bool {
-        let mut changed = false;
-        ui.add(egui::TextEdit::singleline(&mut self.name).min_size(vec2(
+fn show_named_interval<T: IntervalBasis>(
+    interval: &mut NamedInterval<T>,
+    ui: &mut egui::Ui,
+    i: usize,
+) -> bool {
+    let mut changed = false;
+    ui.add(
+        egui::TextEdit::singleline(&mut interval.name).min_size(vec2(
             ui.style().spacing.text_edit_width / 2.0,
             ui.style().spacing.interact_size.y,
-        )));
-        ui.add(
-            egui::TextEdit::singleline(&mut self.short_name)
-                .char_limit(2)
-                .min_size(vec2(
-                    ui.style().spacing.interact_size.x,
-                    ui.style().spacing.interact_size.y,
-                )),
-        );
-        let id = egui::Id::new(format!("comma {i}"));
-        ui.vertical(|ui| {
-            for (i, c) in self.coeffs.iter_mut().enumerate() {
-                ui.horizontal(|ui| {
-                    changed |= rational_drag_value(ui, id.with(i), c, false);
-                    ui.label(&T::intervals()[i].name);
-                });
-            }
-        });
-        changed
-    }
+        )),
+    );
+    ui.add(
+        egui::TextEdit::singleline(&mut interval.short_name)
+            .char_limit(2)
+            .min_size(vec2(
+                ui.style().spacing.interact_size.x,
+                ui.style().spacing.interact_size.y,
+            )),
+    );
+    let id = egui::Id::new(format!("comma {i}"));
+    ui.vertical(|ui| {
+        for (i, c) in interval.coeffs.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                changed |= rational_drag_value(ui, id.with(i), c, false);
+                ui.label(&T::intervals()[i].name);
+            });
+        }
+    });
+    changed
 }
 
 impl<T: StackType> CommaEditor<T> {
@@ -84,7 +92,7 @@ impl<T: StackType> CommaEditor<T> {
                         delete_allowed: true,
                         reorder_allowed: true,
                         show_one: Box::new(|ui, i, t, _| {
-                            if t.show(ui, i) {
+                            if show_named_interval(t, ui, i) {
                                 Some(true)
                             } else {
                                 None {}

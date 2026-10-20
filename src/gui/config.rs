@@ -12,6 +12,8 @@ use crate::{
     util::ordered_locks::AtMost,
 };
 
+use adaptuner_core::StackTypeConfig;
+
 #[derive(PartialEq, Eq)]
 enum Phase {
     ShowingDialog,
@@ -84,10 +86,11 @@ impl<T: StackType + Serialize> ConfigFileDialog<T> {
 }
 
 impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
-    fn show_config_file_dialog< L>(
+    fn show_config_file_dialog<L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, L>
+        mut adaptor: UiAdaptor<T, L>,
+        stack_config: &StackTypeConfig<T>,
     ) -> (Option<Config<T>>, UiAdaptor<T, L>)
     where
         L: AtMost<TuningReferenceLevel> + AtMost<StrategyConfigLevel> + AtMost<BackendConfigLevel>,
@@ -134,9 +137,12 @@ impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
                                                 &serde_yml::to_string(config_in_file).unwrap(),
                                                 &serde_yml::to_string(&Config {
                                                     version: AdaptunerVersion,
-                                                    temperaments: T::temperament_definitions()
-                                                        .clone(),
-                                                    named_intervals: T::named_intervals().clone(),
+                                                    temperaments: stack_config
+                                                        .temperament_definitions()
+                                                        .to_vec(),
+                                                    named_intervals: stack_config
+                                                        .named_intervals()
+                                                        .to_vec(),
                                                     tuning_reference: tuning_reference.clone(),
                                                     strategies: strategy_config.clone(),
                                                     backend: BackendConfig::Pitchbend12(
@@ -214,8 +220,8 @@ impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
                         if let Some(path) = self.file_dialog.take_picked() {
                             let config = Config {
                                 version: AdaptunerVersion,
-                                temperaments: T::temperament_definitions().clone(),
-                                named_intervals: T::named_intervals().clone(),
+                                temperaments: stack_config.temperament_definitions().to_vec(),
+                                named_intervals: stack_config.named_intervals().to_vec(),
                                 tuning_reference: tuning_reference.clone(),
                                 strategies: strategy_config.clone(),
                                 backend: BackendConfig::Pitchbend12(backend_config.clone()),
@@ -260,16 +266,17 @@ impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
         }
     }
 
-    pub fn show< L>(
+    pub fn show<L>(
         &mut self,
         ui: &mut egui::Ui,
-        adaptor: UiAdaptor<T, L>
+        adaptor: UiAdaptor<T, L>,
+        stack_config: &StackTypeConfig<T>,
     ) -> (Option<Config<T>>, UiAdaptor<T, L>)
     where
         L: AtMost<TuningReferenceLevel> + AtMost<StrategyConfigLevel> + AtMost<BackendConfigLevel>,
     {
         match &self.phase {
-            Phase::ShowingDialog => self.show_config_file_dialog(ui, adaptor),
+            Phase::ShowingDialog => self.show_config_file_dialog(ui, adaptor, stack_config),
             Phase::ShowingError => {
                 self.show_error(ui);
                 (None {}, adaptor)

@@ -15,7 +15,7 @@ use crate::{
         stacktype::r#trait::StackType,
     },
     msg::ToUi,
-    notename::{HasNoteNames, NoteNameStyle},
+    notename::{HasNoteNames, NoteNameStyle, StackNoteNames},
     strategy::{
         harmony::{
             chordlist::{ChordListConfig, PatternConfig},
@@ -25,6 +25,8 @@ use crate::{
     },
     util::ordered_locks::Zero,
 };
+
+use adaptuner_core::StackTypeConfig;
 
 pub struct Notifications<T: StackType> {
     _phantom: PhantomData<T>,
@@ -74,10 +76,13 @@ impl<T: StackType + HasNoteNames> Notifications<T> {
     pub fn is_nonempty(&self) -> bool {
         self.harmony || self.reference.0 || self.scale_index.1 || !self.detuned_notes.is_empty()
     }
-}
 
-impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
-    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
+    pub fn show_with_config(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: UiAdaptor<T, Zero>,
+        stack_config: &StackTypeConfig<T>,
+    ) -> UiAdaptor<T, Zero> {
         if let (Some(scale_index), true, _) = self.scale_index {
             (_, adaptor) = adaptor.scales(|m_scales, _| match m_scales {
                 Some(scales) => {
@@ -108,6 +113,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                             ui.strong(anchoring.stack.corrected_notename(
                                                 &NoteNameStyle::Full,
                                                 adaptor.config().use_cent_values,
+                                                stack_config,
                                             ));
                                         }
                                         ChordAnchoringKind::HighestKey => {
@@ -115,6 +121,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                             ui.strong(anchoring.stack.corrected_notename(
                                                 &NoteNameStyle::Full,
                                                 adaptor.config().use_cent_values,
+                                                stack_config,
                                             ));
                                         }
                                         ChordAnchoringKind::ChordReference => {
@@ -122,6 +129,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                             ui.strong(anchoring.stack.corrected_notename(
                                                 &NoteNameStyle::Full,
                                                 adaptor.config().use_cent_values,
+                                                stack_config,
                                             ));
                                         }
                                     }
@@ -179,6 +187,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                     ui.strong(anchoring.stack.corrected_notename(
                                         &NoteNameStyle::Full,
                                         adaptor.config().use_cent_values,
+                                        stack_config,
                                     ));
                                 }
                                 SpringAnchoringKind::HighestKey => {
@@ -186,6 +195,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                     ui.strong(anchoring.stack.corrected_notename(
                                         &NoteNameStyle::Full,
                                         adaptor.config().use_cent_values,
+                                        stack_config,
                                     ));
                                 }
                                 SpringAnchoringKind::Fundamental => {
@@ -193,6 +203,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                     ui.strong(anchoring.stack.corrected_notename(
                                         &NoteNameStyle::Full,
                                         adaptor.config().use_cent_values,
+                                        stack_config,
                                     ));
                                 }
                                 SpringAnchoringKind::Overtone => {
@@ -200,6 +211,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                                     ui.strong(anchoring.stack.corrected_notename(
                                         &NoteNameStyle::Full,
                                         adaptor.config().use_cent_values,
+                                        stack_config,
                                     ));
                                 }
                                 SpringAnchoringKind::MostCommonNotes {
@@ -235,6 +247,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                     ui.strong(reference.corrected_notename(
                         &NoteNameStyle::Full,
                         adaptor.config().use_cent_values,
+                        stack_config,
                     ));
                 });
             });
@@ -246,12 +259,18 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
                 "note {} not tuned correctly: should be {should_be:.02}, but is {actual:.02}: {explanation}",
                     tuning
                     .stack
-                    .corrected_notename(&NoteNameStyle::Full, adaptor.config().use_cent_values,),
+                    .corrected_notename(&NoteNameStyle::Full, adaptor.config().use_cent_values, stack_config),
             ));
             });
         }
 
         adaptor
+    }
+}
+
+impl<T: StackType + HasNoteNames> GuiShow<T> for Notifications<T> {
+    fn show(&mut self, _ui: &mut egui::Ui, _adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
+        panic!("Use show_with_config() for Notifications")
     }
 }
 

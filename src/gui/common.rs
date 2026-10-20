@@ -6,9 +6,11 @@ use crate::{
         stack::Stack,
         stacktype::r#trait::{StackCoeff, StackType},
     },
-    notename::correction::Correction,
+    notename::correction::{Correction, StackCorrectionExt},
     util::list_action::ListAction,
 };
+
+use adaptuner_core::StackTypeConfig;
 
 /// returns `Some(i)` if a new value was selected.
 pub fn show_list_picker<X>(
@@ -32,12 +34,12 @@ pub fn show_list_picker<X>(
 
 /// Modifications to individual elements applied through the [ListEditOpts::show_one] argument are
 /// applied right away, but [ListAction]s are not applied.
-pub fn show_list_edit<X, M, H>(
+pub fn show_list_edit<'a, X, M, H>(
     ui: &mut egui::Ui,
     id_salt: impl std::hash::Hash,
     elems: &mut [X],
     current_selection: Option<usize>,
-    opts: ListEditOpts<X, M, H>,
+    opts: ListEditOpts<'a, X, M, H>,
     helper_data: &mut H,
 ) -> ListEditResult<M> {
     let mut res = ListEditResult::None;
@@ -134,14 +136,15 @@ pub fn show_list_edit<X, M, H>(
     res
 }
 
-pub struct ListEditOpts<X, M, H> {
+pub struct ListEditOpts<'a, X, M, H> {
     pub empty_allowed: bool,
     pub select_allowed: bool,
     pub no_selection_allowed: bool,
     pub delete_allowed: bool,
     pub reorder_allowed: bool,
-    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X, &mut H) -> Option<M>>,
-    pub clone: Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>, &mut H) -> Option<usize>>>,
+    pub show_one: Box<dyn Fn(&mut egui::Ui, usize, &mut X, &mut H) -> Option<M> + 'a>,
+    pub clone:
+        Option<Box<dyn FnOnce(&mut egui::Ui, &[X], Option<usize>, &mut H) -> Option<usize> + 'a>>,
 }
 
 #[derive(PartialEq)]
@@ -299,8 +302,9 @@ pub fn rational_drag_value(
     false
 }
 
-/// returns true on change
-pub fn note_picker<T: StackType>(
+/// Returns true on change.
+pub fn note_picker_with_config<T: StackType>(
+    config: &StackTypeConfig<T>,
     ui: &mut egui::Ui,
     tmp_temperaments: &mut [bool],
     tmp_correction: &mut Correction<T>,
@@ -308,9 +312,11 @@ pub fn note_picker<T: StackType>(
 ) -> bool {
     ui.vertical(|ui| {
         let mut target_changed = false;
+
         ui.horizontal(|ui| {
             for (i, c) in stack.target.iter_mut().enumerate() {
                 ui.label(format!("{}:", T::intervals()[i].name));
+
                 if ui.add(egui::DragValue::new(c)).changed() {
                     target_changed = true;
                 }
@@ -325,15 +331,17 @@ pub fn note_picker<T: StackType>(
 
         ui.label("tempered with:");
 
-        let temperament_changed = temperament_applier(None {}, ui, tmp_correction, stack);
+        let temperament_changed =
+            temperament_applier_with_config(config, None, ui, tmp_correction, stack);
 
         target_changed || temperament_changed
     })
     .inner
 }
 
-/// returns true on change
-pub fn temperament_applier<T: StackType>(
+/// Returns true if the stack or correction changed.
+pub fn temperament_applier_with_config<T: StackType>(
+    config: &StackTypeConfig<T>,
     reset_button_text: Option<&str>,
     ui: &mut egui::Ui,
     tmp_correction: &mut Correction<T>,
@@ -342,13 +350,11 @@ pub fn temperament_applier<T: StackType>(
     let mut temperament_select_changed = false;
     let mut correction_changed = false;
     let mut made_pure = false;
-    if reset_button_text.is_some() {
+
+    if let Some(reset_button_text) = reset_button_text {
         ui.vertical_centered(|ui| {
             if ui
-                .add_enabled(
-                    !stack.is_target(),
-                    egui::Button::new(reset_button_text.unwrap()),
-                )
+                .add_enabled(!stack.is_target(), egui::Button::new(reset_button_text))
                 .clicked()
             {
                 tmp_correction.reset_to_zero();
@@ -356,41 +362,48 @@ pub fn temperament_applier<T: StackType>(
                 made_pure = true;
             }
         });
+
         ui.separator();
     }
 
     ui.horizontal(|ui| {
-        if T::num_temperaments() > 0 {
+        if config.num_temperaments() > 0 {
             ui.vertical(|ui| {
-                for (i, t) in T::temperaments().iter().enumerate() {
-                    if ui.button(&t.name).clicked() {
-                        stack.apply_temperament(i);
-                        if !tmp_correction.set_with(stack) {
+                for (i, temperament) in config.temperaments().iter().enumerate() {
+                    if ui.button(&temperament.name).clicked() {
+                        stack.apply_temperament_with_config(config, i);
+
+                        if !tmp_correction.set_with(stack, config) {
                             tmp_correction.reset_to_zero();
                         }
+
                         temperament_select_changed = true;
                     }
                 }
             });
+
             ui.separator();
         }
 
         ui.vertical(|ui| {
             for (i, x) in tmp_correction.coeffs.indexed_iter_mut() {
                 ui.horizontal(|ui| {
-                    let name = &T::named_intervals()[i].name;
-                    if rational_drag_value(ui, ui.id().with(name), x, false) { 
+                    let name = &config.named_intervals()[i].name;
+
+                    if rational_drag_value(ui, ui.id().with(name), x, false) {
                         correction_changed = true;
                     }
+
                     ui.label(name);
                 });
             }
         });
 
         if correction_changed {
-            stack.apply_correction(tmp_correction);
+            stack.apply_correction(tmp_correction, config);
         }
     });
+
     temperament_select_changed | correction_changed | made_pure
 }
 

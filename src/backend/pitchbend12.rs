@@ -17,6 +17,8 @@ use crate::{
     util::ordered_locks::Zero,
 };
 
+use adaptuner_core::pitch_bend::decide_retuning;
+
 pub struct Pitchbend12<T: StackType> {
     /// invariant: the bend pertaining to `channels[i]` is in `bends[i]`
     bends: [u16; 12],
@@ -52,16 +54,6 @@ impl Pitchbend12Config {
     }
 }
 
-fn bend_from_semitones(bend_range: Semitones, semitones: Semitones) -> u16 {
-    ((8191.0 * semitones / bend_range + 8192.0) as u16)
-        .max(0)
-        .min(16383)
-}
-
-fn semitones_from_bend(bend_range: Semitones, bend: u16) -> Semitones {
-    (bend as Semitones - 8192.0) / 8191.0 * bend_range
-}
-
 impl<T: StackType> Pitchbend12<T> {
     pub fn new(adaptor: BackendAdaptorNew<T, Zero>) -> Self {
         Self {
@@ -83,11 +75,9 @@ impl<T: StackType> Pitchbend12<T> {
                 adaptor.backend_config(|conf, _| conf.channels[note as usize % 12]);
             adaptor.send(msg::FromBackend::OutgoingMidi {
                 time,
-                bytes: (MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::NoteOn { note, velocity },
-                })
-                .to_midi(),
+                bytes: adaptuner_core::midi::note_on(channel as u8, note, velocity)
+                    .expect("valid MIDI channel, note, and velocity")
+                    .to_vec(),
             });
             ((), adaptor)
         });
@@ -108,23 +98,23 @@ impl<T: StackType> Pitchbend12<T> {
                 adaptor.backend_config(|conf, _| (conf.bend_range, conf.channels[channel_index]));
             ((), adaptor)
         });
-        let desired_bend = bend_from_semitones(bend_range, tuning - note as Semitones);
-        let current_bend = self.bends[channel_index];
-        if current_bend != desired_bend {
+        let decision = decide_retuning(note, tuning, bend_range, self.bends[channel_index]);
+
+        if decision.should_send {
             self.send(msg::FromBackend::OutgoingMidi {
                 time,
-                bytes: (MidiMsg::ChannelVoice {
-                    channel,
-                    msg: ChannelVoiceMsg::PitchBend { bend: desired_bend },
-                })
-                .to_midi(),
+                bytes: adaptuner_core::midi::pitch_bend(channel as u8, decision.desired_bend)
+                    .expect("valid MIDI channel and pitch bend")
+                    .to_vec(),
             });
-            self.bends[channel_index] = desired_bend;
+
+            self.bends[channel_index] = decision.desired_bend;
         }
-        if (tuning - note as Semitones).abs() > bend_range {
+
+        if decision.out_of_range {
             let _ = self.send(FromBackend::DetunedNote {
                 note,
-                actual: note as Semitones + semitones_from_bend(bend_range, desired_bend),
+                actual: decision.actual_semitones,
                 should_be: tuning,
                 explanation: "exceeded bend range",
             });
@@ -138,11 +128,9 @@ impl<T: StackType> Pitchbend12<T> {
                 for channel in config.channels {
                     adaptor.send(msg::FromBackend::OutgoingMidi {
                         time,
-                        bytes: (MidiMsg::ChannelVoice {
-                            channel,
-                            msg: ChannelVoiceMsg::PitchBend { bend: 8192 },
-                        })
-                        .to_midi(),
+                        bytes: adaptuner_core::midi::pitch_bend(channel as u8, 8192)
+                            .expect("valid MIDI channel and pitch bend")
+                            .to_vec(),
                     });
                 }
             })
@@ -192,13 +180,13 @@ impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
             } => {
                 take_replace(&mut self.adaptor, |adaptor| {
                     adaptor.backend_config(|conf, adaptor| {
-                        adaptor.send(as_midi(
-                            MidiMsg::ChannelVoice {
-                                channel: conf.channels[note as usize % 12],
-                                msg: ChannelVoiceMsg::NoteOff { note, velocity },
-                            },
-                            time,
-                        ));
+                        let channel = conf.channels[note as usize % 12];
+
+                        let bytes = adaptuner_core::midi::note_off(channel as u8, note, velocity)
+                            .expect("valid MIDI channel, note, and velocity")
+                            .to_vec();
+
+                        adaptor.send(msg::FromBackend::OutgoingMidi { time, bytes });
                     })
                 });
             }
@@ -247,6 +235,30 @@ impl<T: StackType> ReceiveMsg<ToBackend> for Pitchbend12<T> {
 
             ToBackend::UpdateChannelsToUse { time } => {
                 self.reset(time);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use midi_msg::{Channel, ChannelVoiceMsg, MidiMsg};
+
+    #[test]
+    fn pitch_bend_encoding_matches_midi_msg() {
+        for channel in [Channel::Ch1, Channel::Ch2, Channel::Ch12] {
+            for bend in [0, 1, 8192, 16383] {
+                let expected = MidiMsg::ChannelVoice {
+                    channel,
+                    msg: ChannelVoiceMsg::PitchBend { bend },
+                }
+                .to_midi();
+
+                let actual = adaptuner_core::midi::pitch_bend(channel as u8, bend)
+                    .unwrap()
+                    .to_vec();
+
+                assert_eq!(actual, expected);
             }
         }
     }

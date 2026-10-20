@@ -14,7 +14,7 @@ use crate::{
     neighbourhood::{
         sounding_partial, sounding_periodic_partial, Neighbourhood, SomeNeighbourhood,
     },
-    notename::{HasNoteNames, NoteNameStyle},
+    notename::{HasNoteNames, NoteNameStyle, StackNoteNames},
     strategy::harmony::{
         chordlist::{blocks_from_current, keyshape::KeyShape, PatternConfig},
         r#trait::Harmony,
@@ -24,6 +24,8 @@ use crate::{
         ordered_locks::{AtMost, Zero},
     },
 };
+
+use adaptuner_core::StackTypeConfig;
 
 #[derive(Clone)]
 struct RememberedChord<T: StackType> {
@@ -52,6 +54,7 @@ fn describe_key_shape<T: StackType + HasNoteNames>(
     original_reference: &Stack<T>,
     use_cent_values: bool,
     tmp_stack: &mut Stack<T>,
+    stack_config: &StackTypeConfig<T>,
 ) {
     match key_shape {
         KeyShape::ClassesRelative { .. } => {
@@ -59,7 +62,7 @@ fn describe_key_shape<T: StackType + HasNoteNames>(
             neighbourhood.for_each_stack(|_offset, stack| {
                 ui.label(format!(
                     "  {}",
-                    stack.corrected_notename(&NoteNameStyle::Class, use_cent_values)
+                    stack.corrected_notename(&NoteNameStyle::Class, use_cent_values, stack_config)
                 ));
             });
         }
@@ -70,7 +73,11 @@ fn describe_key_shape<T: StackType + HasNoteNames>(
                 tmp_stack.scaled_add(1, original_reference);
                 ui.label(format!(
                     "  {}",
-                    tmp_stack.corrected_notename(&NoteNameStyle::Class, use_cent_values)
+                    tmp_stack.corrected_notename(
+                        &NoteNameStyle::Class,
+                        use_cent_values,
+                        stack_config
+                    )
                 ));
             });
         }
@@ -81,7 +88,11 @@ fn describe_key_shape<T: StackType + HasNoteNames>(
                 tmp_stack.scaled_add(1, original_reference);
                 ui.label(format!(
                     "  {}",
-                    tmp_stack.corrected_notename(&NoteNameStyle::Full, use_cent_values)
+                    tmp_stack.corrected_notename(
+                        &NoteNameStyle::Full,
+                        use_cent_values,
+                        stack_config
+                    )
                 ));
             });
         }
@@ -90,7 +101,7 @@ fn describe_key_shape<T: StackType + HasNoteNames>(
             neighbourhood.for_each_stack(|_offset, stack| {
                 ui.label(format!(
                     "  {}",
-                    stack.corrected_notename(&NoteNameStyle::Full, use_cent_values)
+                    stack.corrected_notename(&NoteNameStyle::Full, use_cent_values, stack_config)
                 ));
             });
         }
@@ -108,8 +119,11 @@ fn describe_key_shape<T: StackType + HasNoteNames>(
 
                             ui.label(format!(
                                 "  {}",
-                                tmp_stack
-                                    .corrected_notename(&NoteNameStyle::Class, use_cent_values)
+                                tmp_stack.corrected_notename(
+                                    &NoteNameStyle::Class,
+                                    use_cent_values,
+                                    stack_config
+                                )
                             ));
                         }
                     });
@@ -129,8 +143,11 @@ fn describe_key_shape<T: StackType + HasNoteNames>(
 
                             ui.label(format!(
                                 "  {}",
-                                tmp_stack
-                                    .corrected_notename(&NoteNameStyle::Class, use_cent_values)
+                                tmp_stack.corrected_notename(
+                                    &NoteNameStyle::Class,
+                                    use_cent_values,
+                                    stack_config
+                                )
                             ));
                         }
                     });
@@ -435,6 +452,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         enable: &mut bool,
         patterns: &mut Vec<PatternConfig<T>>,
         use_cent_values: bool,
+        stack_config: &StackTypeConfig<T>,
     ) -> ChordListEditorResult {
         let mut list_edit_res = ListEditResult::None;
         ui.vertical(|ui| {
@@ -443,58 +461,68 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
             }
 
             list_edit_res = show_list_edit(
-              ui,
-              "chord_list_editor_list_edit",
-              patterns,
-              self.active_pattern,
-              ListEditOpts {
-                  empty_allowed: true,
-                  select_allowed: false,
-                  no_selection_allowed: true,
-                  delete_allowed: true,
-                  reorder_allowed: true,
-                  show_one: Box::new(
-                      |ui, i, pattern, (use_cent_values, tmp_stack): &mut (bool, &mut Stack<T>)| {
-                          let mut updated_index = None {};
-                          ui.horizontal(|ui| {
-                              egui::ComboBox::from_id_salt(&pattern.key_shape)
-                                  .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                                  .selected_text(&pattern.name)
-                                  .show_ui(ui, |ui| {
-                                      ui.add(egui::TextEdit::singleline(&mut pattern.name).min_size(
-                                          egui::vec2(
-                                              ui.style().spacing.text_edit_width / 2.0,
-                                              ui.style().spacing.interact_size.y,
-                                          ),
-                                      ));
-                                      if ui
-                                          .checkbox(
-                                              &mut pattern.allow_extra_high_notes,
-                                              "allow additional high notes, \
+                ui,
+                "chord_list_editor_list_edit",
+                patterns,
+                self.active_pattern,
+                ListEditOpts {
+                    empty_allowed: true,
+                    select_allowed: false,
+                    no_selection_allowed: true,
+                    delete_allowed: true,
+                    reorder_allowed: true,
+                    show_one: Box::new(
+                        |ui,
+                         i,
+                         pattern,
+                         (use_cent_values, tmp_stack, stack_config): &mut (
+                            bool,
+                            &mut Stack<T>,
+                            &StackTypeConfig<T>,
+                        )| {
+                            let mut updated_index = None {};
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_salt(&pattern.key_shape)
+                                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                                    .selected_text(&pattern.name)
+                                    .show_ui(ui, |ui| {
+                                        ui.add(
+                                            egui::TextEdit::singleline(&mut pattern.name).min_size(
+                                                egui::vec2(
+                                                    ui.style().spacing.text_edit_width / 2.0,
+                                                    ui.style().spacing.interact_size.y,
+                                                ),
+                                            ),
+                                        );
+                                        if ui
+                                            .checkbox(
+                                                &mut pattern.allow_extra_high_notes,
+                                                "allow additional high notes, \
                                               if no other entry fits perfectly",
-                                          )
-                                          .clicked()
-                                      {
-                                          pattern.allow_extra_high_notes = true;
-                                          updated_index = Some(i);
-                                      }
-                                      describe_key_shape(
-                                          ui,
-                                          &pattern.key_shape,
-                                          &pattern.neighbourhood,
-                                          &pattern.original_reference,
-                                          *use_cent_values,
-                                          *tmp_stack,
-                                      );
-                                  });
-                          });
-                          updated_index
-                      },
-                  ),
-                  clone: None {},
-              },
-              &mut (use_cent_values, &mut self.tmp_stack),
-          );
+                                            )
+                                            .clicked()
+                                        {
+                                            pattern.allow_extra_high_notes = true;
+                                            updated_index = Some(i);
+                                        }
+                                        describe_key_shape(
+                                            ui,
+                                            &pattern.key_shape,
+                                            &pattern.neighbourhood,
+                                            &pattern.original_reference,
+                                            *use_cent_values,
+                                            *tmp_stack,
+                                            *stack_config,
+                                        );
+                                    });
+                            });
+                            updated_index
+                        },
+                    ),
+                    clone: None {},
+                },
+                &mut (use_cent_values, &mut self.tmp_stack, stack_config),
+            );
         });
         match list_edit_res {
             ListEditResult::None => ChordListEditorResult::None,
@@ -548,6 +576,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
         patterns: &mut Vec<PatternConfig<T>>,
         mut adaptor: UiAdaptor<T, L>,
         use_cent_values: bool,
+        stack_config: &StackTypeConfig<T>,
     ) -> (ChordListEditorResult, UiAdaptor<T, L>)
     where
         L: AtMost<KeyStateLevel> + AtMost<TuningStateLevel>,
@@ -577,7 +606,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
 
             ui.separator();
 
-            update_res(self.show_list(ui, enable, patterns, use_cent_values));
+            update_res(self.show_list(ui, enable, patterns, use_cent_values, stack_config));
 
             ui.separator();
 
@@ -599,6 +628,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> ChordListEditor<T> {
                     original_reference,
                     use_cent_values,
                     &mut self.tmp_stack,
+                    stack_config,
                 );
             }
 

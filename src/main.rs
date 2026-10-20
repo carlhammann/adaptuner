@@ -2,7 +2,7 @@ use std::error::Error;
 
 use adaptuner::{
     config::{BackendConfig, Config},
-    interval::stacktype::{fivelimit::TheFiveLimitStackType, r#trait::Reloadable},
+    interval::stacktype::fivelimit::TheFiveLimitStackType,
     run::RunState,
 };
 
@@ -17,7 +17,11 @@ const TEMPLATE_CONFIG: &'static str = include_str!("../configs/template.yaml");
 
 fn run() -> Result<(), Box<dyn Error>> {
     let config: Config<TheFiveLimitStackType> = serde_yml::from_str(TEMPLATE_CONFIG)?;
-    TheFiveLimitStackType::initialise(config.temperaments, config.named_intervals)?;
+
+    let stack_config = TheFiveLimitStackType::create_config(
+        config.temperaments.clone(),
+        config.named_intervals.clone(),
+    )?;
 
     let midi_in = midir::MidiInput::new("adaptuner input")?;
     let midi_out = midir::MidiOutput::new("adaptuner output")?;
@@ -33,6 +37,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         config.strategies,
         p12_config,
         config.gui,
+        stack_config,
     )?;
 
     Ok(())

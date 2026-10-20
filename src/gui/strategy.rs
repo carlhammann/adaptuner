@@ -34,6 +34,8 @@ use crate::{
     util::ordered_locks::{AtMost, Zero},
 };
 
+use adaptuner_core::StackTypeConfig;
+
 struct StrategySelectorWidget {
     strategy_list_editor_window: SmallFloatingWindow,
 }
@@ -250,14 +252,14 @@ pub struct StrategyWidgets<T: StackType> {
 }
 
 impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
-    pub fn new() -> Self {
+    pub fn new(stack_config: &StackTypeConfig<T>) -> Self {
         Self {
             selector_widget: StrategySelectorWidget::new(),
-            initial_reference_editor: ReferenceEditor::new(),
+            initial_reference_editor: ReferenceEditor::new(stack_config),
             binding_editor_widget: BindingEditorWidget::new(),
             scale_editor: ScaleEditor::new(),
             chord_list_editor: ChordListEditor::new(),
-            harmony_springs_editor: HarmonySpringsEditor::new(),
+            harmony_springs_editor: HarmonySpringsEditor::new(stack_config),
             twostep_editor: TwoStepEditor::new(),
         }
     }
@@ -281,6 +283,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
         &mut self,
         ui: &mut egui::Ui,
         mut adaptor: UiAdaptor<T, L>,
+        stack_config: &StackTypeConfig<T>,
     ) -> UiAdaptor<T, L>
     where
         L: AtMost<StrategyConfigLevel>,
@@ -290,31 +293,36 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
                 config: StaticNeighbourhoodsConfig { scales, .. },
                 ..
             } => {
-                ui.collapsing("scales", |ui| match self.scale_editor.show(ui, scales) {
-                    ScaleEditorResult::NoChange => {}
-                    ScaleEditorResult::Select(i) => {
-                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                            ToStaticNeighbourhoods::SelectScale {
-                                index: i,
-                                time: Instant::now(),
-                            },
-                        )));
-                    }
-                    ScaleEditorResult::ChangeScale(i) => {
-                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                            ToStaticNeighbourhoods::UpdateScales {
-                                only_this_scale: Some(i),
-                                time: Instant::now(),
-                            },
-                        )));
-                    }
-                    ScaleEditorResult::ChangeList => {
-                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
-                            ToStaticNeighbourhoods::UpdateScales {
-                                only_this_scale: None {},
-                                time: Instant::now(),
-                            },
-                        )));
+                ui.collapsing("scales", |ui| {
+                    match self.scale_editor.show(ui, scales, stack_config) {
+                        ScaleEditorResult::NoChange => {}
+                        ScaleEditorResult::Select(i) => {
+                            let _ =
+                                adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                                    ToStaticNeighbourhoods::SelectScale {
+                                        index: i,
+                                        time: Instant::now(),
+                                    },
+                                )));
+                        }
+                        ScaleEditorResult::ChangeScale(i) => {
+                            let _ =
+                                adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                                    ToStaticNeighbourhoods::UpdateScales {
+                                        only_this_scale: Some(i),
+                                        time: Instant::now(),
+                                    },
+                                )));
+                        }
+                        ScaleEditorResult::ChangeList => {
+                            let _ =
+                                adaptor.send(FromUi::ToStrategy(ToStrategy::StaticNeighbourhoods(
+                                    ToStaticNeighbourhoods::UpdateScales {
+                                        only_this_scale: None {},
+                                        time: Instant::now(),
+                                    },
+                                )));
+                        }
                     }
                 });
             }
@@ -326,37 +334,39 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
                     }),
                 ..
             } => {
-                ui.collapsing("scales", |ui| match self.scale_editor.show(ui, scales) {
-                    ScaleEditorResult::NoChange => {}
-                    ScaleEditorResult::Select(i) => {
-                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
-                            ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
-                                ToStaticNeighbourhoodsAsMelody::SelectScale {
-                                    index: i,
-                                    time: Instant::now(),
-                                },
-                            )),
-                        )));
-                    }
-                    ScaleEditorResult::ChangeScale(i) => {
-                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
-                            ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
-                                ToStaticNeighbourhoodsAsMelody::UpdateScales {
-                                    only_this_scale: Some(i),
-                                    time: Instant::now(),
-                                },
-                            )),
-                        )));
-                    }
-                    ScaleEditorResult::ChangeList => {
-                        let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
-                            ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
-                                ToStaticNeighbourhoodsAsMelody::UpdateScales {
-                                    only_this_scale: None {},
-                                    time: Instant::now(),
-                                },
-                            )),
-                        )));
+                ui.collapsing("scales", |ui| {
+                    match self.scale_editor.show(ui, scales, stack_config) {
+                        ScaleEditorResult::NoChange => {}
+                        ScaleEditorResult::Select(i) => {
+                            let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
+                                ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
+                                    ToStaticNeighbourhoodsAsMelody::SelectScale {
+                                        index: i,
+                                        time: Instant::now(),
+                                    },
+                                )),
+                            )));
+                        }
+                        ScaleEditorResult::ChangeScale(i) => {
+                            let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
+                                ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
+                                    ToStaticNeighbourhoodsAsMelody::UpdateScales {
+                                        only_this_scale: Some(i),
+                                        time: Instant::now(),
+                                    },
+                                )),
+                            )));
+                        }
+                        ScaleEditorResult::ChangeList => {
+                            let _ = adaptor.send(FromUi::ToStrategy(ToStrategy::TwoStep(
+                                ToTwoStep::ToMelodyStrategy(ToMelody::StaticNeighbourhoods(
+                                    ToStaticNeighbourhoodsAsMelody::UpdateScales {
+                                        only_this_scale: None {},
+                                        time: Instant::now(),
+                                    },
+                                )),
+                            )));
+                        }
                     }
                 });
             }
@@ -370,6 +380,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
         &mut self,
         ui: &mut egui::Ui,
         mut adaptor: UiAdaptor<T, L>,
+        stack_config: &StackTypeConfig<T>,
     ) -> UiAdaptor<T, L>
     where
         L: AtMost<StrategyConfigLevel>,
@@ -391,9 +402,14 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
                         }),
                     ..
                 } => {
-                    (res, adaptor) =
-                        self.chord_list_editor
-                            .show(ui, enable, patterns, adaptor, use_cent_values);
+                    (res, adaptor) = self.chord_list_editor.show(
+                        ui,
+                        enable,
+                        patterns,
+                        adaptor,
+                        use_cent_values,
+                        stack_config,
+                    );
                 }
                 StrategyConfig::TwoStep {
                     harmony: HarmonyStrategyConfig::List(confs),
@@ -411,6 +427,7 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
                                 patterns,
                                 adaptor,
                                 use_cent_values,
+                                stack_config,
                             );
                             break;
                         }
@@ -447,17 +464,30 @@ impl<T: OctavePeriodicStackType + HasNoteNames> StrategyWidgets<T> {
 
         adaptor
     }
+
+    pub fn show_with_config(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: UiAdaptor<T, Zero>,
+        stack_config: &StackTypeConfig<T>,
+    ) -> UiAdaptor<T, Zero> {
+        adaptor = self.selector_widget.show(ui, adaptor);
+        adaptor = self
+            .initial_reference_editor
+            .show_with_config(ui, adaptor, stack_config);
+        adaptor = self.binding_editor_widget.show(ui, adaptor);
+        adaptor = self.show_scale_editor(ui, adaptor, stack_config);
+        adaptor = self.show_chord_list_editor(ui, adaptor, stack_config);
+        adaptor = self
+            .harmony_springs_editor
+            .show_with_config(ui, adaptor, stack_config);
+        self.twostep_editor.show(ui, adaptor)
+    }
 }
 
 impl<T: OctavePeriodicStackType + HasNoteNames> GuiShow<T> for StrategyWidgets<T> {
-    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
-        adaptor = self.selector_widget.show(ui, adaptor);
-        adaptor = self.initial_reference_editor.show(ui, adaptor);
-        adaptor = self.binding_editor_widget.show(ui, adaptor);
-        adaptor = self.show_scale_editor(ui, adaptor);
-        adaptor = self.show_chord_list_editor(ui, adaptor);
-        adaptor = self.harmony_springs_editor.show(ui, adaptor);
-        self.twostep_editor.show(ui, adaptor)
+    fn show(&mut self, _ui: &mut egui::Ui, _adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
+        panic!("Use show_with_config() for StrategyWidgets")
     }
 }
 

@@ -131,8 +131,8 @@ pub mod fivelimit {
             if sf > 0 {
                 for _ in 0..(sf / 2) {
                     write!(f, "\u{1D12A}")?; // double sharp
-                } 
-                if sf % 2 == 1 {   
+                }
+                if sf % 2 == 1 {
                     write!(f, "\u{266F}")?; // sharp
                 }
             }
@@ -177,7 +177,7 @@ pub mod fivelimit {
     mod test {
         use super::*;
         use crate::interval::stacktype::fivelimit::mock::MockFiveLimitStackType;
-        use crate::notename::NoteNameStyle;
+        use crate::notename::{NoteNameStyle, StackNoteNames};
 
         impl crate::notename::NoteNameFor<MockFiveLimitStackType> for NoteName {
             fn new_from_stack(stack: &Stack<MockFiveLimitStackType>) -> Self {

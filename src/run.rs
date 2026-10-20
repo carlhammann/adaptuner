@@ -4,6 +4,7 @@ use std::{
     time::Instant,
 };
 
+use adaptuner_core::StackTypeConfig;
 use eframe::egui;
 use midir::{MidiInput, MidiOutput};
 use parking_lot::RwLock;
@@ -24,7 +25,7 @@ use crate::{
         base::Semitones,
         fundamental::{HasFundamental, HasOvertone},
         stack::Stack,
-        stacktype::r#trait::{OctavePeriodicStackType, Reloadable, StackType},
+        stacktype::r#trait::{OctavePeriodicStackType, StackType},
     },
     keystate::KeyState,
     maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
@@ -132,6 +133,7 @@ fn setup_fonts(ctx: &egui::Context) {
 fn start_gui<T, G>(
     rx: mpsc::Receiver<ToUi<T>>,
     adaptor: UiAdaptor<T, Zero>,
+    stack_config: StackTypeConfig<T>,
 ) -> Result<(), eframe::Error>
 where
     T: StackType + Send + 'static,
@@ -165,7 +167,7 @@ where
             // load fonts
             setup_fonts(&cc.egui_ctx);
 
-            let gui = G::new(adaptor);
+            let gui = G::new(adaptor, stack_config);
             Ok(Box::new(GuiWithConnections::new(cc, gui, rx)))
         }),
     )
@@ -366,10 +368,10 @@ impl<T: StackType> RunState<T> {
         strategies: Vec<StrategyConfig<T>>,
         backend_config: Pitchbend12Config,
         gui_config: GuiConfig,
+        stack_config: StackTypeConfig<T>,
     ) -> Result<Self, eframe::Error>
     where
         T: 'static
-            + Reloadable
             + OctavePeriodicStackType
             + HasFundamental
             + HasOvertone
@@ -474,7 +476,7 @@ impl<T: StackType> RunState<T> {
         });
         // TODO: send more start messages?
 
-        let _ = start_gui::<T, TopLevelGui<_>>(to_ui_rx, gui_adaptor);
+        let _ = start_gui::<T, TopLevelGui<_>>(to_ui_rx, gui_adaptor, stack_config);
 
         Ok(res)
     }

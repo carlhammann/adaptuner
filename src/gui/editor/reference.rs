@@ -2,14 +2,16 @@ use eframe::egui;
 
 use crate::{
     gui::{
-        common::note_picker,
+        common::note_picker_with_config,
         r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
     },
     interval::{stack::Stack, stacktype::r#trait::StackType},
     msg::ToUi,
-    notename::{HasNoteNames, NoteNameStyle, correction::Correction},
+    notename::{correction::Correction, HasNoteNames, NoteNameStyle, StackNoteNames},
     util::ordered_locks::Zero,
 };
+
+use adaptuner_core::StackTypeConfig;
 
 pub struct ReferenceEditor<T: StackType> {
     new_reference: Stack<T>,
@@ -18,17 +20,23 @@ pub struct ReferenceEditor<T: StackType> {
 }
 
 impl<T: StackType> ReferenceEditor<T> {
-    pub fn new() -> Self {
+    pub fn new(stack_config: &StackTypeConfig<T>) -> Self {
         Self {
             new_reference: Stack::new_zero(),
-            temperaments_applied_to_new_reference: vec![false; T::num_temperaments()],
-            corrections_applied_to_new_reference: Correction::new_zero(),
+            temperaments_applied_to_new_reference: vec![false; stack_config.num_temperaments()],
+            corrections_applied_to_new_reference: Correction::new_zero(stack_config),
         }
     }
-}
 
-impl<T: StackType + HasNoteNames> GuiShow<T> for ReferenceEditor<T> {
-    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
+    fn show_internal(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: UiAdaptor<T, Zero>,
+        stack_config: &StackTypeConfig<T>,
+    ) -> UiAdaptor<T, Zero>
+    where
+        T: HasNoteNames,
+    {
         (_, adaptor) = adaptor.initial_scale_reference_mut(|m_reference, adaptor| {
             if let Some(reference) = m_reference {
                 ui.collapsing("initial scale reference", |ui| {
@@ -38,12 +46,15 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for ReferenceEditor<T> {
                         ui.strong(reference.corrected_notename(
                             &NoteNameStyle::Full,
                             adaptor.config().use_cent_values,
+                            stack_config,
                         ));
                     });
 
                     ui.separator();
                     ui.label("Select new reference, relative to C 4:");
-                    note_picker(
+
+                    note_picker_with_config(
+                        stack_config,
                         ui,
                         &mut self.temperaments_applied_to_new_reference,
                         &mut self.corrections_applied_to_new_reference,
@@ -59,6 +70,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for ReferenceEditor<T> {
                             ui.strong(self.new_reference.corrected_notename(
                                 &NoteNameStyle::Full,
                                 adaptor.config().use_cent_values,
+                                stack_config,
                             ));
                         });
                     });
@@ -78,6 +90,21 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for ReferenceEditor<T> {
             }
         });
         adaptor
+    }
+}
+
+impl<T: StackType + HasNoteNames> GuiShow<T> for ReferenceEditor<T> {
+    fn show(&mut self, _ui: &mut egui::Ui, _adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
+        panic!("Use show_with_config() for this editor")
+    }
+
+    fn show_with_config(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: UiAdaptor<T, Zero>,
+        stack_config: &StackTypeConfig<T>,
+    ) -> UiAdaptor<T, Zero> {
+        self.show_internal(ui, adaptor, stack_config)
     }
 }
 

@@ -10,6 +10,8 @@ use crate::{
     util::ordered_locks::{Nat, OrderedLocks, ReadAllowed, WriteAllowed, Zero},
 };
 
+use adaptuner_core::interval::StackTypeConfig;
+
 pub struct GuiTag {}
 
 impl ReadAllowed<PedalHoldLevel> for GuiTag {}
@@ -49,10 +51,19 @@ impl<T: StackType, L: Nat> UiAdaptor<T, L> {
 
 pub trait GuiShow<T: StackType> {
     fn show(&mut self, ui: &mut egui::Ui, adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero>;
+
+    fn show_with_config(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: UiAdaptor<T, Zero>,
+        _stack_config: &StackTypeConfig<T>,
+    ) -> UiAdaptor<T, Zero> {
+        self.show(ui, adaptor)
+    }
 }
 
 pub trait Gui<T: StackType>: eframe::App + ReceiveMsg<ToUi<T>> {
-    fn new(adaptor: UiAdaptor<T, Zero>) -> Self;
+    fn new(adaptor: UiAdaptor<T, Zero>, stack_config: StackTypeConfig<T>) -> Self;
 }
 
 pub trait ReceiveToUiRef<T: StackType> {

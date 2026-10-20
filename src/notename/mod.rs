@@ -7,6 +7,7 @@ use crate::interval::{
         r#trait::{IntervalBasis, StackCoeff, StackType},
     },
 };
+use adaptuner_core::StackTypeConfig;
 use serde_derive::{Deserialize, Serialize};
 
 pub mod correction;
@@ -106,13 +107,16 @@ pub trait HasNoteNames: IntervalBasis {
         f: &mut W,
         style: &NoteNameStyle,
         use_cent_values: bool,
+        stack_config: &StackTypeConfig<Self>,
     ) -> fmt::Result
     where
         Self: StackType,
     {
         Self::write_notename(stack, f, style)?;
+
         if !stack.is_target() {
             write!(f, "  ")?;
+
             let mut write_cents = || {
                 let d = stack.semitones() - stack.target_semitones();
                 if d > 0.0 {
@@ -120,20 +124,21 @@ pub trait HasNoteNames: IntervalBasis {
                 }
                 write!(f, "{:.02}ct", d * 100.0)
             };
+
             if use_cent_values {
                 write_cents()?;
+            } else if let Some(corr) = correction::Correction::new(stack, stack_config) {
+                corr.fmt(f, stack_config)?;
             } else {
-                if let Some(corr) = correction::Correction::new(stack) {
-                    corr.fmt(f)?;
-                } else {
-                    write_cents()?;
-                }
+                write_cents()?;
             }
+
             if stack.is_pure() {
                 write!(f, " = ")?;
                 Self::write_actual_notename(stack, f, style)?;
             }
         }
+
         Ok(())
     }
 }
@@ -142,18 +147,44 @@ impl HasNoteNames for TheFiveLimitStackType {
     type NoteName = johnston::fivelimit::NoteName;
 }
 
-impl<T: StackType + HasNoteNames> Stack<T> {
-    pub fn write_notename<W: fmt::Write>(&self, f: &mut W, style: &NoteNameStyle) -> fmt::Result {
+pub trait StackNoteNames<T: StackType + HasNoteNames> {
+    fn write_notename<W: fmt::Write>(&self, f: &mut W, style: &NoteNameStyle) -> fmt::Result;
+
+    fn notename(&self, style: &NoteNameStyle) -> String;
+
+    fn write_actual_notename<W: fmt::Write>(&self, f: &mut W, style: &NoteNameStyle)
+        -> fmt::Result;
+
+    fn actual_notename(&self, style: &NoteNameStyle) -> String;
+
+    fn write_corrected_notename<W: fmt::Write>(
+        &self,
+        f: &mut W,
+        style: &NoteNameStyle,
+        use_cent_values: bool,
+        stack_config: &StackTypeConfig<T>,
+    ) -> fmt::Result;
+
+    fn corrected_notename(
+        &self,
+        style: &NoteNameStyle,
+        use_cent_values: bool,
+        stack_config: &StackTypeConfig<T>,
+    ) -> String;
+}
+
+impl<T: StackType + HasNoteNames> StackNoteNames<T> for Stack<T> {
+    fn write_notename<W: fmt::Write>(&self, f: &mut W, style: &NoteNameStyle) -> fmt::Result {
         T::write_notename(self, f, style)
     }
 
-    pub fn notename(&self, style: &NoteNameStyle) -> String {
+    fn notename(&self, style: &NoteNameStyle) -> String {
         let mut res = String::new();
-        self.write_notename(&mut res, style).unwrap();
+        T::write_notename(self, &mut res, style).unwrap();
         res
     }
 
-    pub fn write_actual_notename<W: fmt::Write>(
+    fn write_actual_notename<W: fmt::Write>(
         &self,
         f: &mut W,
         style: &NoteNameStyle,
@@ -161,24 +192,30 @@ impl<T: StackType + HasNoteNames> Stack<T> {
         T::write_actual_notename(self, f, style)
     }
 
-    pub fn actual_notename(&self, style: &NoteNameStyle) -> String {
+    fn actual_notename(&self, style: &NoteNameStyle) -> String {
         let mut res = String::new();
-        self.write_actual_notename(&mut res, style).unwrap();
+        T::write_actual_notename(self, &mut res, style).unwrap();
         res
     }
 
-    pub fn write_corrected_notename<W: fmt::Write>(
+    fn write_corrected_notename<W: fmt::Write>(
         &self,
         f: &mut W,
         style: &NoteNameStyle,
         use_cent_values: bool,
+        stack_config: &StackTypeConfig<T>,
     ) -> fmt::Result {
-        T::write_corrected_notename(self, f, style, use_cent_values)
+        T::write_corrected_notename(self, f, style, use_cent_values, stack_config)
     }
 
-    pub fn corrected_notename(&self, style: &NoteNameStyle, use_cent_values: bool) -> String {
+    fn corrected_notename(
+        &self,
+        style: &NoteNameStyle,
+        use_cent_values: bool,
+        stack_config: &StackTypeConfig<T>,
+    ) -> String {
         let mut res = String::new();
-        self.write_corrected_notename(&mut res, style, use_cent_values)
+        self.write_corrected_notename(&mut res, style, use_cent_values, stack_config)
             .unwrap();
         res
     }

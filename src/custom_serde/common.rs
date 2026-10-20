@@ -142,7 +142,11 @@ where
                 while let Some((key, value)) =
                     map.next_entry::<String, <C as DeSerNumber>::Rep>()?
                 {
-                    match T::interval_positions().get(&key) {
+                    match T::interval_positions()
+                        .iter()
+                        .find(|(name, _)| *name == key)
+                        .map(|(_, index)| index)
+                    {
                         None {} => {
                             return Err(serde::de::Error::custom(format!(
                                 "'{}' is not an interval name",

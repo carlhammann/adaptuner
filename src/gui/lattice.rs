@@ -9,8 +9,8 @@ use crate::{
     config::GuiConfig,
     custom_serde::common::{deserialize_channel, serialize_channel},
     gui::{
-        common::temperament_applier,
-        r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
+        common::temperament_applier_with_config,
+        r#trait::{ReceiveToUiRef, UiAdaptor},
     },
     interval::{
         base::Semitones,
@@ -19,10 +19,11 @@ use crate::{
     },
     msg::{FromUi, ToStrategy, ToUi},
     neighbourhood::{Neighbourhood, Partial},
-    notename::{correction::Correction, HasNoteNames},
+    notename::{correction::Correction, HasNoteNames, StackNoteNames},
     process::r#trait::StackWithTuning,
     util::ordered_locks::{AtMost, Zero},
 };
+use adaptuner_core::StackTypeConfig;
 
 // The following measurements are all in units of [LatticeWindow::zoom], which is the width of one
 // equally tempered semitone.
@@ -174,6 +175,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
         pos: egui::Pos2,
         style: NoteDrawStyle,
         gui_config: &GuiConfig,
+        stack_config: &StackTypeConfig<T>,
     ) -> egui::Rect {
         let egui::Pos2 { x: hpos, y: vpos } = pos;
         let lattice_config = &gui_config.lattice;
@@ -218,11 +220,11 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
             if gui_config.use_cent_values {
                 write_cents();
             } else {
-                if let Some(correction) = Correction::new(stack) {
+                if let Some(correction) = Correction::new(stack, stack_config) {
                     ui.painter().text(
                         pos2(hpos, second_line_vpos),
                         egui::Align2::CENTER_CENTER,
-                        correction.str(),
+                        correction.str(stack_config),
                         egui::FontId::proportional(other_lines_height),
                         text_color,
                     );
@@ -256,6 +258,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
         stack: &Stack<T>,
         reference: &Stack<T>,
         gui_config: &GuiConfig,
+        stack_config: &StackTypeConfig<T>,
     ) -> Option<(Stack<T>, Instant)> {
         let popup_id = ui.id().with(&stack.target);
         let response = ui.interact(rect, egui::Id::new(&stack.target), egui::Sense::click());
@@ -266,7 +269,10 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
             self.tmp_relative_stack.clone_from(stack);
             self.tmp_relative_stack.scaled_add(-1, reference);
 
-            if !self.tmp_correction.set_with(&self.tmp_relative_stack) {
+            if !self
+                .tmp_correction
+                .set_with(&self.tmp_relative_stack, stack_config)
+            {
                 self.tmp_correction.reset_to_zero();
             }
         }
@@ -275,18 +281,24 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
             .id(popup_id)
             .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| {
-                if temperament_applier(
-                    Some(&format!(
-                        "make pure relative to {}",
-                        reference.corrected_notename(
-                            &gui_config.notenamestyle,
-                            gui_config.use_cent_values
-                        )
-                    )),
+                let reset_button_text = format!(
+                    "make pure relative to {}",
+                    reference.corrected_notename(
+                        &gui_config.notenamestyle,
+                        gui_config.use_cent_values,
+                        stack_config
+                    )
+                );
+
+                let changed = temperament_applier_with_config(
+                    stack_config,
+                    Some(&reset_button_text),
                     ui,
                     &mut self.tmp_correction,
                     &mut self.tmp_relative_stack,
-                ) {
+                );
+
+                if changed {
                     res = Some((self.tmp_relative_stack.clone(), Instant::now()));
                 }
             });
@@ -302,6 +314,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
         reference: &Stack<T>,
         style: NoteDrawStyle,
         gui_config: &GuiConfig,
+        stack_config: &StackTypeConfig<T>,
     ) -> Option<(Stack<T>, Instant)> {
         let lattice_config = &gui_config.lattice;
         let draw_activation_circle = |active: bool| {
@@ -321,7 +334,7 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
         };
 
         draw_activation_circle(style == NoteDrawStyle::Playing);
-        let rect = self.draw_corrected_note_name(ui, stack, pos, style, gui_config);
+        let rect = self.draw_corrected_note_name(ui, stack, pos, style, gui_config, stack_config);
 
         match style {
             NoteDrawStyle::Playing => None {},
@@ -339,20 +352,20 @@ impl<T: StackType + HasNoteNames> OneNodeDrawState<T> {
                 }
             }
             NoteDrawStyle::Considered => {
-                self.retemper_popup(ui, rect, stack, reference, gui_config)
+                self.retemper_popup(ui, rect, stack, reference, gui_config, stack_config)
             }
         }
     }
 }
 
 impl<T: StackType> LatticeWindow<T> {
-    pub fn new() -> Self {
+    pub fn new(stack_config: &StackTypeConfig<T>) -> Self {
         Self {
             considered_notes: Partial::new(),
             draw_state: OneNodeDrawState {
                 tmp_relative_stack: Stack::new_zero(),
-                tmp_temperaments: vec![false; T::num_temperaments()],
-                tmp_correction: Correction::new_zero(),
+                tmp_temperaments: vec![false; stack_config.num_temperaments()],
+                tmp_correction: Correction::new_zero(stack_config),
             },
             tmp_stack: Stack::new_zero(),
             other_tmp_stack: Stack::new_zero(),
@@ -702,7 +715,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         let zoom = adaptor.config().lattice.zoom;
         if adaptor.config().lattice.scale_reference_centered {
             (_, adaptor) = adaptor.reference(|r, _| self.grid_reference.clone_from(r));
-        } 
+        }
 
         // Now comes the calculation of how many and which background nodes to show: There are four
         // corners of the area on whcih we want to paint the background grid. Additionally, there is
@@ -890,6 +903,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         &mut self,
         ui: &mut egui::Ui,
         mut adaptor: UiAdaptor<T, L>,
+        stack_config: &StackTypeConfig<T>,
     ) -> UiAdaptor<T, L>
     where
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel>,
@@ -970,6 +984,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                         reference,
                         NoteDrawStyle::Background,
                         &adaptor.config(),
+                        stack_config,
                     );
                     if let Some((stack, time)) = x {
                         adaptor.send(FromUi::ToStrategy(ToStrategy::Consider { stack, time }));
@@ -1014,6 +1029,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                         reference,
                         NoteDrawStyle::Considered,
                         &adaptor.config(),
+                        stack_config,
                     );
                     if let Some((stack, time)) = x {
                         adaptor.send(FromUi::ToStrategy(ToStrategy::Consider { stack, time }));
@@ -1037,6 +1053,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                     reference,
                     NoteDrawStyle::Playing,
                     &adaptor.config(),
+                    stack_config,
                 );
                 if let Some((stack, time)) = x {
                     adaptor.send(FromUi::ToStrategy(ToStrategy::Consider { stack, time }));
@@ -1049,6 +1066,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
                         reference,
                         NoteDrawStyle::Antenna,
                         &adaptor.config(),
+                        stack_config,
                     );
                     if let Some((stack, time)) = x {
                         adaptor.send(FromUi::ToStrategy(ToStrategy::Consider { stack, time }));
@@ -1062,13 +1080,14 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         &mut self,
         ui: &mut egui::Ui,
         mut adaptor: UiAdaptor<T, L>,
+        stack_config: &StackTypeConfig<T>,
     ) -> UiAdaptor<T, L>
     where
         L: AtMost<KeyStateLevel> + AtMost<ReferenceLevel> + AtMost<TuningReferenceLevel>,
     {
         adaptor = self.draw_down_lines(ui, adaptor);
         adaptor = self.draw_grid_lines(ui, adaptor);
-        adaptor = self.draw_note_names_and_interaction_zones(ui, adaptor);
+        adaptor = self.draw_note_names_and_interaction_zones(ui, adaptor, stack_config);
         adaptor
     }
 
@@ -1084,6 +1103,50 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
     fn keyboard_width(&self, config: &LatticeWindowConfig) -> f32 {
         // 128 keys plus a half on each end.
         config.zoom * 129.0
+    }
+
+    fn show_internal(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: UiAdaptor<T, Zero>,
+        stack_config: &StackTypeConfig<T>,
+    ) -> UiAdaptor<T, Zero> {
+        let r = ui.interact(
+            ui.max_rect(),
+            egui::Id::new("global_grid_interaction"),
+            egui::Sense::click_and_drag(),
+        );
+
+        if r.dragged() {
+            let egui::Vec2 { x, y } = r.drag_delta();
+            self.positions.grid_reference_pos.x += x;
+            self.positions.grid_reference_pos.y += y;
+            self.reset_position = false;
+        }
+
+        if r.double_clicked() {
+            self.reset_position = true;
+        }
+
+        if self.reset_position {
+            self.positions.grid_reference_pos = ui.max_rect().center();
+        }
+
+        self.keyboard_hover_interaction(ui, &adaptor.config().lattice, |m| adaptor.send(m));
+
+        adaptor = self.update_positions(ui.max_rect(), adaptor);
+        adaptor = self.draw_lattice(ui, adaptor, stack_config);
+
+        self.draw_keyboard(ui, ui.max_rect().bottom(), adaptor)
+    }
+
+    pub fn show_with_config(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: UiAdaptor<T, Zero>,
+        stack_config: &StackTypeConfig<T>,
+    ) -> UiAdaptor<T, Zero> {
+        self.show_internal(ui, adaptor, stack_config)
     }
 }
 
@@ -1105,33 +1168,5 @@ impl<T: StackType> ReceiveToUiRef<T> for LatticeWindow<T> {
             _ => {}
         }
         adaptor
-    }
-}
-
-impl<T: StackType + HasNoteNames> GuiShow<T> for LatticeWindow<T> {
-    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
-        let r = ui.interact(
-            ui.max_rect(),
-            egui::Id::new("global_grid_interaction"),
-            egui::Sense::click_and_drag(),
-        );
-
-        if r.dragged() {
-            let egui::Vec2 { x, y } = r.drag_delta();
-            self.positions.grid_reference_pos.x += x;
-            self.positions.grid_reference_pos.y += y;
-            self.reset_position = false;
-        }
-        if r.double_clicked() {
-            self.reset_position = true;
-        }
-
-        if self.reset_position {
-            self.positions.grid_reference_pos = ui.max_rect().center();
-        }
-        self.keyboard_hover_interaction(ui, &adaptor.config().lattice, |m| adaptor.send(m));
-        adaptor = self.update_positions(ui.max_rect(), adaptor);
-        adaptor = self.draw_lattice(ui, adaptor);
-        self.draw_keyboard(ui, ui.max_rect().bottom(), adaptor)
     }
 }

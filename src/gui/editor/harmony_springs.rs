@@ -5,7 +5,10 @@ use eframe::egui;
 use crate::{
     config::{HarmonyStrategyConfig, StrategyConfig},
     gui::{
-        common::{note_picker, rational_drag_value, show_list_edit, ListEditOpts, ListEditResult},
+        common::{
+            note_picker_with_config, rational_drag_value, show_list_edit, ListEditOpts,
+            ListEditResult,
+        },
         r#trait::{GuiShow, UiAdaptor},
     },
     interval::{
@@ -13,12 +16,14 @@ use crate::{
         stacktype::r#trait::{StackCoeff, StackType},
     },
     msg::{FromUi, ToHarmony, ToHarmonySprings, ToStrategy, ToTwoStep},
-    notename::{correction::Correction, HasNoteNames, NoteNameStyle},
+    notename::{correction::Correction, HasNoteNames, NoteNameStyle, StackNoteNames},
     strategy::harmony::springs::{
         HarmonySpringsConfig, HarmonySpringsProvider, RodOrSprings, Spring,
     },
     util::ordered_locks::{Nat, Zero},
 };
+
+use adaptuner_core::StackTypeConfig;
 
 pub struct HarmonySpringsEditor<T: StackType> {
     provider_base_note: Stack<T>,
@@ -28,11 +33,11 @@ pub struct HarmonySpringsEditor<T: StackType> {
 }
 
 impl<T: StackType> HarmonySpringsEditor<T> {
-    pub fn new() -> Self {
+    pub fn new(stack_config: &StackTypeConfig<T>) -> Self {
         Self {
             provider_base_note: Stack::new_zero(),
-            tmp_temperaments: vec![false; T::num_temperaments()],
-            tmp_correction: Correction::new_zero(),
+            tmp_temperaments: vec![false; stack_config.num_temperaments()],
+            tmp_correction: Correction::new_zero(stack_config),
             tmp_stack: Stack::new_zero(),
         }
     }
@@ -44,6 +49,7 @@ impl<T: StackType + HasNoteNames> HarmonySpringsEditor<T> {
         conf: &mut HarmonySpringsConfig<T>,
         ui: &mut egui::Ui,
         adaptor: &UiAdaptor<T, L>,
+        stack_config: &StackTypeConfig<T>,
     ) {
         let HarmonySpringsConfig {
             enable,
@@ -125,6 +131,7 @@ impl<T: StackType + HasNoteNames> HarmonySpringsEditor<T> {
                     provider,
                     ui,
                     |msg| send(msg),
+                    stack_config,
                 );
 
                 ui.separator();
@@ -139,14 +146,19 @@ impl<T: StackType + HasNoteNames> HarmonySpringsEditor<T> {
     }
 }
 
-impl<T: StackType + HasNoteNames> GuiShow<T> for HarmonySpringsEditor<T> {
-    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
+impl<T: StackType + HasNoteNames> HarmonySpringsEditor<T> {
+    fn show_internal(
+        &mut self,
+        ui: &mut egui::Ui,
+        mut adaptor: UiAdaptor<T, Zero>,
+        stack_config: &StackTypeConfig<T>,
+    ) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.active_strategy_mut(|mut strat, adaptor| match &mut strat {
             StrategyConfig::TwoStep {
                 harmony: HarmonyStrategyConfig::Springs(conf),
                 ..
             } => {
-                self.show_harmony_springs_config(conf, ui, &adaptor);
+                self.show_harmony_springs_config(conf, ui, &adaptor, stack_config);
             }
             StrategyConfig::TwoStep {
                 harmony: HarmonyStrategyConfig::List(confs),
@@ -154,7 +166,7 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for HarmonySpringsEditor<T> {
             } => {
                 for conf in confs {
                     if let HarmonyStrategyConfig::Springs(conf) = conf {
-                        self.show_harmony_springs_config(conf, ui, &adaptor);
+                        self.show_harmony_springs_config(conf, ui, &adaptor, stack_config);
                         break;
                     }
                 }
@@ -162,6 +174,21 @@ impl<T: StackType + HasNoteNames> GuiShow<T> for HarmonySpringsEditor<T> {
             _ => {}
         });
         adaptor
+    }
+}
+
+impl<T: StackType + HasNoteNames> GuiShow<T> for HarmonySpringsEditor<T> {
+    fn show(&mut self, _ui: &mut egui::Ui, _adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
+        panic!("Use show_with_config() for this editor")
+    }
+
+    fn show_with_config(
+        &mut self,
+        ui: &mut egui::Ui,
+        adaptor: UiAdaptor<T, Zero>,
+        stack_config: &StackTypeConfig<T>,
+    ) -> UiAdaptor<T, Zero> {
+        self.show_internal(ui, adaptor, stack_config)
     }
 }
 
@@ -177,9 +204,10 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
     provider: &mut HarmonySpringsProvider<T>,
     ui: &mut egui::Ui,
     send: impl Fn(ToHarmonySprings),
+    stack_config: &StackTypeConfig<T>,
 ) {
     match provider {
-        HarmonySpringsProvider::Mod12 { by_class, ..} => {
+        HarmonySpringsProvider::Mod12 { by_class, .. } => {
             egui::Grid::new(id.with("spring_provider_grid"))
                 .with_row_color(|i, style| {
                     if i % 2 == 0 {
@@ -199,6 +227,7 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
                             i + 1,
                             x,
                             ui,
+                            stack_config,
                         ) {
                             send(ToHarmonySprings::ReloadSprings {
                                 time: Instant::now(),
@@ -209,11 +238,17 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
                 });
             egui::CollapsingHeader::new(format!(
                 "base note used for interval names: {}",
-                base_note.corrected_notename(&NoteNameStyle::Full, false)
+                base_note.corrected_notename(&NoteNameStyle::Full, false, stack_config)
             ))
             .id_salt(id.with("base_note"))
             .show(ui, |ui| {
-                note_picker(ui, tmp_temperaments, tmp_correction, base_note)
+                note_picker_with_config(
+                    stack_config,
+                    ui,
+                    tmp_temperaments,
+                    tmp_correction,
+                    base_note,
+                )
             });
         }
     }
@@ -229,6 +264,7 @@ fn show_rod_or_springs<T: StackType + HasNoteNames>(
     i: usize,
     x: &mut RodOrSprings<T>,
     ui: &mut egui::Ui,
+    stack_config: &StackTypeConfig<T>,
 ) -> bool {
     let mut changed = false;
     let mut change_to_springs = None {};
@@ -246,6 +282,7 @@ fn show_rod_or_springs<T: StackType + HasNoteNames>(
                     tmp_stack,
                     length,
                     ui,
+                    stack_config,
                 );
                 if length.key_distance() != i as StackCoeff {
                     ui.label(
@@ -308,6 +345,7 @@ fn show_rod_or_springs<T: StackType + HasNoteNames>(
                                                 tmp_stack,
                                                 &mut spring.length,
                                                 ui,
+                                                stack_config,
                                             );
                                             if spring.length.key_distance() != *i as StackCoeff {
                                                 ui.label(
@@ -397,16 +435,17 @@ fn show_length<T: StackType + HasNoteNames>(
     tmp_stack: &mut Stack<T>,
     length: &mut Stack<T>,
     ui: &mut egui::Ui,
+    stack_config: &StackTypeConfig<T>,
 ) -> bool {
     egui::ComboBox::from_id_salt(id)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .selected_text(format!("{}", {
             tmp_stack.clone_from(length);
             tmp_stack.scaled_add(1, base_note);
-            tmp_stack.corrected_notename(&NoteNameStyle::Full, false)
+            tmp_stack.corrected_notename(&NoteNameStyle::Full, false, stack_config)
         }))
         .show_ui(ui, |ui| {
-            note_picker(ui, tmp_temperaments, tmp_correction, length)
+            note_picker_with_config(stack_config, ui, tmp_temperaments, tmp_correction, length)
         })
         .inner
         .unwrap_or(false)

@@ -1342,6 +1342,11 @@ mod test {
         // D-A fifth
         let mut delta = solution[4].clone();
         delta.scaled_add(-1, &solution[1]);
+
+        dbg!(&solution[1]);
+        dbg!(&solution[4]);
+        dbg!(&delta);
+
         // note that the target is maybe of a different shape, e.g. if we're considering the
         // "fifth" D..A, and not D..A+
         assert_eq!(delta.actual, arr1(&[0.into(), 1.into(), 0.into()]));

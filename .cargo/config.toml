@@ -1,0 +1,8 @@
+[target.thumbv7em-none-eabihf]
+runner = "probe-rs run --chip STM32H743VITx"
+
+[alias]
+check-core-embedded = "check -p adaptuner-core --no-default-features --target thumbv7em-none-eabihf"
+check-stm32 = "check -p adaptuner-stm32 --target thumbv7em-none-eabihf"
+test-core = "test -p adaptuner-core --lib"
+build-stm32 = "build -p adaptuner-stm32 --target thumbv7em-none-eabihf"
