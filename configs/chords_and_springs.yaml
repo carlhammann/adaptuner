@@ -122,7 +122,7 @@ strategies:
     • reset the reference note on the fly, either manually or automatically to the reference note of the currently sounding chord.
   harmony: !list
   - !chord-list
-    enable: true
+    enable: false
     patterns:
     - key-shape: !classes-relative
         classes:
@@ -324,35 +324,17 @@ strategies:
             fifth: -1
             third: -1
           stiffness: '1'
-        - length:
-            fifth: -1
-            third: 2
-          stiffness: '1'
       - !springs
         options:
         - length:
             octave: -1
             fifth: 2
           stiffness: '1'
-        - length:
-            octave: 1
-            fifth: -2
-            third: 1
-          stiffness: '1'
       - !springs
         options:
         - length:
             fifth: 1
             third: -1
-          stiffness: '1'
-        - length:
-            octave: 2
-            fifth: -3
-          stiffness: '1'
-        - length:
-            octave: -1
-            fifth: 1
-            third: 2
           stiffness: '1'
       - !springs
         options:
@@ -372,11 +354,6 @@ strategies:
             fifth: 2
             third: 1
           stiffness: '1'
-        - length:
-            octave: 2
-            fifth: -2
-            third: -1
-          stiffness: '1'
       - !springs
         options:
         - length:
@@ -395,30 +372,17 @@ strategies:
             fifth: -1
             third: 1
           stiffness: '1'
-        - length:
-            octave: -1
-            fifth: 3
-          stiffness: '1'
       - !springs
         options:
         - length:
             octave: 2
             fifth: -2
           stiffness: '1'
-        - length:
-            fifth: 2
-            third: -1
-          stiffness: '1'
       - !springs
         options:
         - length:
             fifth: 1
             third: 1
-          stiffness: '1'
-        - length:
-            octave: 1
-            fifth: 1
-            third: -2
           stiffness: '1'
       octave-index: 0
   melody: !static-neighbourhoods
