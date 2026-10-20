@@ -84,10 +84,10 @@ impl<T: StackType + Serialize> ConfigFileDialog<T> {
 }
 
 impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
-    fn show_config_file_dialog< L>(
+    fn show_config_file_dialog<L>(
         &mut self,
         ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, L>
+        mut adaptor: UiAdaptor<T, L>,
     ) -> (Option<Config<T>>, UiAdaptor<T, L>)
     where
         L: AtMost<TuningReferenceLevel> + AtMost<StrategyConfigLevel> + AtMost<BackendConfigLevel>,
@@ -260,10 +260,10 @@ impl<T: StackType + Serialize + for<'a> Deserialize<'a>> ConfigFileDialog<T> {
         }
     }
 
-    pub fn show< L>(
+    pub fn show<L>(
         &mut self,
         ui: &mut egui::Ui,
-        adaptor: UiAdaptor<T, L>
+        adaptor: UiAdaptor<T, L>,
     ) -> (Option<Config<T>>, UiAdaptor<T, L>)
     where
         L: AtMost<TuningReferenceLevel> + AtMost<StrategyConfigLevel> + AtMost<BackendConfigLevel>,

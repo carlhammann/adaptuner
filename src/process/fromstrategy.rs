@@ -1,46 +1,198 @@
-use std::{fmt, sync::mpsc, sync::Arc, thread, time::Instant};
+use std::{fmt, sync::Arc};
+
+use crate::time::Instant;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::{sync::mpsc, thread};
 
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 
+use crate::interval::stacktype::r#trait::FiveLimitIntervalBasis;
+
 use crate::{
-    adaptors::{ConcreteLocks, take_replace},
+    adaptors::{take_replace, ConcreteLocks},
     bindable::{BindableEvent, BindableProcessAction},
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
-    interval::{fundamental::{HasFundamental, HasOvertone}, stacktype::r#trait::StackType},
+    interval::{
+        fundamental::{HasFundamental, HasOvertone},
+        stacktype::r#trait::StackType,
+    },
     msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy},
     process::r#trait::ProcessAdaptor,
     strategy::{
-        harmony::{chordlist::ChordList, list::ListOfHarmonyStrategies, springs::HarmonySprings}, melody::neighbourhoods::StaticNeighbourhoodsAsMelody, staticneighbourhoods::StaticNeighbourhoods, r#trait::{Strategy, StrategyAdaptor}, twostep::TwoStep
+        harmony::{chordlist::ChordList, list::ListOfHarmonyStrategies, springs::HarmonySprings},
+        melody::neighbourhoods::StaticNeighbourhoodsAsMelody,
+        r#trait::{Strategy, StrategyAdaptor},
+        staticneighbourhoods::StaticNeighbourhoods,
+        twostep::TwoStep,
     },
     util::ordered_locks::Zero,
 };
 
-struct RunningStrategy<T: StackType> {
-    /// the index of the strategy in the list of strategies from the configuration file
-    index: usize,
-    to_strategy_tx: mpsc::Sender<ToStrategy<T>>,
-    strategy_thread: thread::JoinHandle<()>,
+enum StrategyRuntime<T: StackType>
+where
+    T: Send + Sync + FiveLimitIntervalBasis,
+{
+    StaticNeighbourhoods(StaticNeighbourhoods<T>),
+    TwoStepChordList(TwoStep<T, ChordList<T>, StaticNeighbourhoodsAsMelody<T>>),
+    TwoStepSprings(TwoStep<T, HarmonySprings<T>, StaticNeighbourhoodsAsMelody<T>>),
+    TwoStepList(TwoStep<T, ListOfHarmonyStrategies<T>, StaticNeighbourhoodsAsMelody<T>>),
 }
 
-impl<T: StackType + Send + Sync> RunningStrategy<T> {
-    fn start<S>(
+impl<T> StrategyRuntime<T>
+where
+    T: StackType + Send + Sync + FiveLimitIntervalBasis,
+{
+    fn from_config(config: &StrategyConfig<T>) -> Self {
+        match config {
+            StrategyConfig::StaticNeighbourhoods { config, .. } => {
+                Self::StaticNeighbourhoods(StaticNeighbourhoods::new(config.clone()))
+            }
+
+            StrategyConfig::TwoStep {
+                harmony: HarmonyStrategyConfig::ChordList(harmony_config),
+                melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
+                ..
+            } => Self::TwoStepChordList(TwoStep::new((
+                harmony_config.clone(),
+                melody_config.clone(),
+            ))),
+
+            StrategyConfig::TwoStep {
+                harmony: HarmonyStrategyConfig::Springs(harmony_config),
+                melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
+                ..
+            } => Self::TwoStepSprings(TwoStep::new((
+                harmony_config.clone(),
+                melody_config.clone(),
+            ))),
+
+            StrategyConfig::TwoStep {
+                harmony: HarmonyStrategyConfig::List(harmony_configs),
+                melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
+                ..
+            } => Self::TwoStepList(TwoStep::new((
+                harmony_configs.clone(),
+                melody_config.clone(),
+            ))),
+        }
+    }
+
+    fn start(&mut self, time: Instant, locks: Arc<ConcreteLocks<T>>) {
+        match self {
+            Self::StaticNeighbourhoods(strategy) => {
+                let adaptor = unsafe { StrategyAdaptor::new_zero(locks) };
+                let (mut needs_steps, mut adaptor) = strategy.start(time, adaptor);
+
+                while needs_steps {
+                    (needs_steps, adaptor) = strategy.step(adaptor);
+                }
+            }
+
+            Self::TwoStepChordList(strategy) => {
+                let adaptor = unsafe { StrategyAdaptor::new_zero(locks) };
+                let (mut needs_steps, mut adaptor) = strategy.start(time, adaptor);
+
+                while needs_steps {
+                    (needs_steps, adaptor) = strategy.step(adaptor);
+                }
+            }
+
+            Self::TwoStepSprings(strategy) => {
+                let adaptor = unsafe { StrategyAdaptor::new_zero(locks) };
+                let (mut needs_steps, mut adaptor) = strategy.start(time, adaptor);
+
+                while needs_steps {
+                    (needs_steps, adaptor) = strategy.step(adaptor);
+                }
+            }
+
+            Self::TwoStepList(strategy) => {
+                let adaptor = unsafe { StrategyAdaptor::new_zero(locks) };
+                let (mut needs_steps, mut adaptor) = strategy.start(time, adaptor);
+
+                while needs_steps {
+                    (needs_steps, adaptor) = strategy.step(adaptor);
+                }
+            }
+        }
+    }
+
+    fn process_message(&mut self, msg: ToStrategy<T>, locks: Arc<ConcreteLocks<T>>) {
+        match self {
+            Self::StaticNeighbourhoods(strategy) => {
+                let adaptor = unsafe { StrategyAdaptor::new_zero(locks) };
+                let (mut needs_steps, mut adaptor) = strategy.process_message(msg, adaptor);
+
+                while needs_steps {
+                    (needs_steps, adaptor) = strategy.step(adaptor);
+                }
+            }
+
+            Self::TwoStepChordList(strategy) => {
+                let adaptor = unsafe { StrategyAdaptor::new_zero(locks) };
+                let (mut needs_steps, mut adaptor) = strategy.process_message(msg, adaptor);
+
+                while needs_steps {
+                    (needs_steps, adaptor) = strategy.step(adaptor);
+                }
+            }
+
+            Self::TwoStepSprings(strategy) => {
+                let adaptor = unsafe { StrategyAdaptor::new_zero(locks) };
+                let (mut needs_steps, mut adaptor) = strategy.process_message(msg, adaptor);
+
+                while needs_steps {
+                    (needs_steps, adaptor) = strategy.step(adaptor);
+                }
+            }
+
+            Self::TwoStepList(strategy) => {
+                let adaptor = unsafe { StrategyAdaptor::new_zero(locks) };
+                let (mut needs_steps, mut adaptor) = strategy.process_message(msg, adaptor);
+
+                while needs_steps {
+                    (needs_steps, adaptor) = strategy.step(adaptor);
+                }
+            }
+        }
+    }
+}
+
+struct RunningStrategy<T>
+where
+    T: StackType + Send + Sync + FiveLimitIntervalBasis,
+{
+    /// the index of the strategy in the list of strategies from the configuration file
+    index: usize,
+    #[cfg(not(target_arch = "wasm32"))]
+    to_strategy_tx: mpsc::Sender<ToStrategy<T>>,
+
+    #[cfg(not(target_arch = "wasm32"))]
+    strategy_thread: thread::JoinHandle<()>,
+
+    #[cfg(target_arch = "wasm32")]
+    strategy: StrategyRuntime<T>,
+}
+
+impl<T: StackType + Send + Sync + FiveLimitIntervalBasis> RunningStrategy<T> {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start(
         time: Instant,
         index: usize,
-        config: S::Config,
+        config: StrategyConfig<T>,
         adaptor_inner: Arc<ConcreteLocks<T>>,
-    ) -> Self
-    where
-        S: Strategy<T>,
-        S::Config: Send + 'static,
-    {
+    ) -> Self {
         let (to_strategy_tx, to_strategy_rx) = mpsc::channel();
 
         let strategy_thread = thread::spawn(move || {
-            let mut strategy = S::new(config);
-            let mut adaptor = unsafe { StrategyAdaptor::new_zero(adaptor_inner) };
-            let needs_steps_at_first_iteration;
-            (needs_steps_at_first_iteration, adaptor) = strategy.start(time, adaptor);
-            strategy.receive_solve_loop(needs_steps_at_first_iteration, to_strategy_rx, adaptor);
+            let mut strategy = StrategyRuntime::from_config(&config);
+
+            strategy.start(time, adaptor_inner.clone());
+
+            while let Ok(msg) = to_strategy_rx.recv() {
+                strategy.process_message(msg, adaptor_inner.clone());
+            }
         });
 
         Self {
@@ -50,19 +202,54 @@ impl<T: StackType + Send + Sync> RunningStrategy<T> {
         }
     }
 
-    /// returns the index of the strategy that was stopped
+    #[cfg(target_arch = "wasm32")]
+    fn start(
+        time: Instant,
+        index: usize,
+        config: StrategyConfig<T>,
+        adaptor_inner: Arc<ConcreteLocks<T>>,
+    ) -> Self {
+        let mut strategy = StrategyRuntime::from_config(&config);
+
+        strategy.start(time, adaptor_inner);
+
+        Self { index, strategy }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn send(&self, msg: ToStrategy<T>) {
+        let _ = self.to_strategy_tx.send(msg);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn send(&mut self, msg: ToStrategy<T>, locks: Arc<ConcreteLocks<T>>) {
+        self.strategy.process_message(msg, locks);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn stop(self, time: Instant) -> usize {
         let _ = self.to_strategy_tx.send(ToStrategy::Stop { time });
 
         self.strategy_thread
             .join()
-            .unwrap_or_else(|_| panic!("Could not join running strategy thread"));
+            .unwrap_or_else(|_| panic!("Could not join running strategy"));
+
+        self.index
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn stop(mut self, time: Instant, locks: Arc<ConcreteLocks<T>>) -> usize {
+        self.strategy
+            .process_message(ToStrategy::Stop { time }, locks);
 
         self.index
     }
 }
 
-pub struct ProcessFromStrategy<T: StackType> {
+pub struct ProcessFromStrategy<T>
+where
+    T: StackType + Send + Sync + FiveLimitIntervalBasis,
+{
     current_strategy: Option<RunningStrategy<T>>,
 
     /// The `Option` is only there in order to use Option::take, which allows the "consuming" style
@@ -72,7 +259,7 @@ pub struct ProcessFromStrategy<T: StackType> {
 
 impl<T> ProcessFromStrategy<T>
 where
-    T: StackType + Send + Sync + HasFundamental + HasOvertone,
+    T: StackType + Send + Sync + FiveLimitIntervalBasis + HasFundamental + HasOvertone,
 {
     pub fn new(adaptor: ProcessAdaptor<T, Zero>) -> Self {
         Self {
@@ -87,9 +274,19 @@ where
     }
 
     #[inline]
-    fn send_to_strategy(&self, msg: ToStrategy<T>) {
-        if let Some(RunningStrategy { to_strategy_tx, .. }) = &self.current_strategy {
-            let _ = to_strategy_tx.send(msg);
+    fn send_to_strategy(&mut self, msg: ToStrategy<T>) {
+        if let Some(strategy) = &mut self.current_strategy {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                strategy.send(msg);
+            }
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let locks = unsafe { self.adaptor.as_ref().unwrap().inner_arc() };
+
+                strategy.send(msg, locks);
+            }
         }
     }
 
@@ -302,9 +499,19 @@ where
     /// Returns the index of the previously running strategy, if any.
     fn stop(&mut self, time: Instant) -> Option<usize> {
         if let Some(rs) = self.current_strategy.take() {
-            Some(rs.stop(time))
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                Some(rs.stop(time))
+            }
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let locks = unsafe { self.adaptor.as_ref().unwrap().inner_arc() };
+
+                Some(rs.stop(time, locks))
+            }
         } else {
-            None {}
+            None
         }
     }
 
@@ -315,65 +522,18 @@ where
         }
 
         take_replace(&mut self.adaptor, |adaptor| {
-            adaptor.active_strategy(|strat, adaptor| match strat {
-                StrategyConfig::StaticNeighbourhoods { config, .. } => {
-                    self.current_strategy = Some(RunningStrategy::start::<StaticNeighbourhoods<T>>(
-                        time,
-                        index,
-                        config.clone(),
-                        unsafe { adaptor.inner_arc() },
-                    ))
-                }
-                StrategyConfig::TwoStep {
-                    harmony: HarmonyStrategyConfig::ChordList(harmony_config),
-                    melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
-                    ..
-                } => {
-                    self.current_strategy = Some(RunningStrategy::start::<
-                        TwoStep<T, ChordList<T>, StaticNeighbourhoodsAsMelody<T>>,
-                    >(
-                        time,
-                        index,
-                        (harmony_config.clone(), melody_config.clone()),
-                        unsafe { adaptor.inner_arc() },
-                    ))
-                }
-                StrategyConfig::TwoStep {
-                    harmony: HarmonyStrategyConfig::Springs(harmony_config),
-                    melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
-                    ..
-                } => {
-                    self.current_strategy = Some(RunningStrategy::start::<
-                        TwoStep<T, HarmonySprings<T>, StaticNeighbourhoodsAsMelody<T>>,
-                    >(
-                        time,
-                        index,
-                        (harmony_config.clone(), melody_config.clone()),
-                        unsafe { adaptor.inner_arc() },
-                    ))
-                }
-
-                StrategyConfig::TwoStep {
-                    harmony: HarmonyStrategyConfig::List(harmony_configs),
-                    melody: MelodyStrategyConfig::StaticNeighbourhoods(melody_config),
-                    ..
-                } => {
-                    self.current_strategy = Some(RunningStrategy::start::<
-                        TwoStep<T, ListOfHarmonyStrategies<T>, StaticNeighbourhoodsAsMelody<T>>,
-                    >(
-                        time,
-                        index,
-                        (harmony_configs.clone(), melody_config.clone()),
-                        unsafe { adaptor.inner_arc() },
-                    ))
-                }
+            adaptor.active_strategy(|strat, adaptor| {
+                self.current_strategy =
+                    Some(RunningStrategy::start(time, index, strat.clone(), unsafe {
+                        adaptor.inner_arc()
+                    }));
             })
         });
 
         self.send(FromProcess::StartedStrategy {
             index: Some(index),
             time,
-        })
+        });
     }
 
     /// Will start strategy 0 if there's no running strategy at the moment.
@@ -385,7 +545,7 @@ where
 
 impl<T> ReceiveMsg<ToProcess<T>> for ProcessFromStrategy<T>
 where
-    T: StackType + fmt::Debug + Send + Sync + HasOvertone + HasFundamental,
+    T: StackType + fmt::Debug + Send + Sync + FiveLimitIntervalBasis + HasOvertone + HasFundamental,
 {
     fn receive_msg(&mut self, msg: ToProcess<T>) {
         match msg {

@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 
+use midi_msg::Channel;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     backend::pitchbend12::Pitchbend12Config,
     bindable::{BindableEvent, BindableProcessAction, BindableStrategyAction},
-    gui::lattice::LatticeWindowConfig,
+    custom_serde::common::{deserialize_channel, serialize_channel},
     interval::{
+        base::Semitones,
         stack::Stack,
         stacktype::r#trait::{IntervalBasis, NamedInterval, StackType},
         temperament::TemperamentDefinition,
@@ -56,6 +58,25 @@ pub enum StrategyConfig<T: IntervalBasis> {
         bindings: BTreeMap<BindableEvent, BindableProcessAction>,
         melody_harmony_coordination: MelodyHarmonyCoordinationConfig,
     },
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")]
+pub struct LatticeWindowConfig {
+    pub zoom: f32,
+    pub interval_heights: Vec<f32>,
+    pub scale_reference_centered: bool,
+    pub background_dimensions: (usize, usize),
+    pub project_dimension: usize,
+    pub color_period_ct: Semitones,
+    #[serde(
+        serialize_with = "serialize_channel",
+        deserialize_with = "deserialize_channel"
+    )]
+    pub screen_keyboard_channel: Channel,
+    pub screen_keyboard_velocity: u8,
+    pub highlight_playable_keys: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

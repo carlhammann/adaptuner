@@ -1,4 +1,4 @@
-use std::time::Instant;
+use crate::time::Instant;
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -180,7 +180,7 @@ impl<T: StackType> HarmonyStrategy<T> for ChordList<T> {
                 .collect(),
             next_pattern_to_try: 0,
             best_fit: (0, Fit::Failed),
-            solve_start: Instant::now(),
+            solve_start: crate::time::now(),
             active_code: 0,
             lowest_key: 0,
             highest_key: 0,

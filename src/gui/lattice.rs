@@ -1,13 +1,10 @@
 use std::time::Instant;
 
 use eframe::egui::{self, pos2, vec2, Popup, PopupCloseBehavior};
-use midi_msg::Channel;
-use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     adaptors::lock_levels::{KeyStateLevel, ReferenceLevel, TuningReferenceLevel},
-    config::GuiConfig,
-    custom_serde::common::{deserialize_channel, serialize_channel},
+    config::{GuiConfig, LatticeWindowConfig},
     gui::{
         common::temperament_applier,
         r#trait::{GuiShow, ReceiveToUiRef, UiAdaptor},
@@ -39,25 +36,6 @@ const MARKER_THICKNESS: f32 = PIANO_KEY_BORDER_THICKNESS;
 const FONT_SIZE: f32 = 2.0;
 const FAINT_GRID_LINE_THICKNESS: f32 = MARKER_THICKNESS;
 const GRID_NODE_RADIUS: f32 = 4.0 * FAINT_GRID_LINE_THICKNESS;
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "kebab-case")]
-pub struct LatticeWindowConfig {
-    pub zoom: f32,
-    pub interval_heights: Vec<f32>,
-    pub scale_reference_centered: bool,
-    pub background_dimensions: (usize, usize),
-    pub project_dimension: usize,
-    pub color_period_ct: Semitones,
-    #[serde(
-        serialize_with = "serialize_channel",
-        deserialize_with = "deserialize_channel"
-    )]
-    pub screen_keyboard_channel: Channel,
-    pub screen_keyboard_velocity: u8,
-    pub highlight_playable_keys: bool,
-}
 
 struct Positions {
     grid_reference_pos: egui::Pos2, // not necessarily the reference of the current scale neighbourhood, may also be middle c
@@ -702,7 +680,7 @@ impl<T: StackType + HasNoteNames> LatticeWindow<T> {
         let zoom = adaptor.config().lattice.zoom;
         if adaptor.config().lattice.scale_reference_centered {
             (_, adaptor) = adaptor.reference(|r, _| self.grid_reference.clone_from(r));
-        } 
+        }
 
         // Now comes the calculation of how many and which background nodes to show: There are four
         // corners of the area on whcih we want to paint the background grid. Additionally, there is

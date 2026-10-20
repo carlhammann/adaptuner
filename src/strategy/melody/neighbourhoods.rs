@@ -1,4 +1,4 @@
-use std::time::Instant;
+use crate::time::Instant;
 
 use serde_derive::{Deserialize, Serialize};
 

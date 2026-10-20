@@ -4,11 +4,14 @@ use eframe::egui;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::{
-    gui::{common::note_picker, r#trait::{GuiShow, UiAdaptor}},
+    gui::{
+        common::note_picker,
+        r#trait::{GuiShow, UiAdaptor},
+    },
     interval::{stack::Stack, stacktype::r#trait::StackType},
     msg::FromUi,
-    notename::{HasNoteNames, NoteNameStyle, correction::Correction},
-    reference::{Reference, frequency_from_semitones, semitones_from_frequency},
+    notename::{correction::Correction, HasNoteNames, NoteNameStyle},
+    reference::{frequency_from_semitones, semitones_from_frequency, Reference},
     util::ordered_locks::Zero,
 };
 
@@ -39,11 +42,7 @@ impl<T: StackType> TuningEditor<T> {
 }
 
 impl<T: StackType + HasNoteNames> GuiShow<T> for TuningEditor<T> {
-    fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, Zero>
-    ) -> UiAdaptor<T, Zero> {
+    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.tuning_reference(|reference, _| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;

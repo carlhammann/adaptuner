@@ -1,4 +1,6 @@
-use std::{marker::PhantomData, time::Instant};
+use std::marker::PhantomData;
+
+use crate::time::Instant;
 
 use crate::{
     adaptors::{

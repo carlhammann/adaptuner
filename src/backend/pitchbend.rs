@@ -15,12 +15,16 @@
 //! - Notes will be considered "on" exactly if there's at least one input channel on which they are
 //! sounding. Thus, If you send a "note on" on Channel 1 and one on Channel 2, you'll also have to
 //! send two corresponding "note off" events, or the note will continue sounding.
-use std::{sync::mpsc, time::Instant};
+use crate::time::Instant;
+use std::sync::mpsc;
 
 use midi_msg::{Channel, ChannelModeMsg, ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    config::{BackendConfig, ExtractConfig, FromConfigAndState}, interval::base::Semitones, keystate::KeyState, msg::{FromBackend, HandleMsg, ToBackend}
+    config::{BackendConfig, ExtractConfig, FromConfigAndState},
+    interval::base::Semitones,
+    keystate::KeyState,
+    msg::{FromBackend, HandleMsg, ToBackend},
 };
 
 struct AssignedNoteAndChannel {
@@ -51,7 +55,7 @@ pub struct PitchbendConfig {
 
 impl Pitchbend {
     pub fn new(config: &PitchbendConfig) -> Self {
-        let now = Instant::now();
+        let now = crate::time::now();
         Self {
             config: config.clone(),
             bend_range: config.bend_range,

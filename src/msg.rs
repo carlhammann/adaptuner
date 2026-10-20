@@ -1,13 +1,18 @@
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use midi_msg::Channel;
-use midir::{MidiInputPort, MidiOutputPort};
 
 use crate::{
     bindable::{BindableProcessAction, BindableStrategyAction},
     interval::{base::Semitones, stack::Stack, stacktype::r#trait::StackType},
     util::list_action::ListAction,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type MidiInputPort = midir::MidiInputPort;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type MidiOutputPort = midir::MidiOutputPort;
 
 pub trait ReceiveMsg<I> {
     fn receive_msg(&mut self, msg: I);
@@ -153,7 +158,7 @@ pub enum ToStaticNeighbourhoodsAsMelody<T: StackType> {
     },
     Reanchor {
         time: Instant,
-    }
+    },
 }
 
 pub enum ToTwoStep<T: StackType> {
@@ -288,21 +293,27 @@ pub enum ToUi<T: StackType> {
     EventLatency {
         since_input: Duration,
     },
+    #[cfg(not(target_arch = "wasm32"))]
     InputConnectionError {
         reason: String,
     },
+    #[cfg(not(target_arch = "wasm32"))]
     InputConnected {
         portname: String,
     },
+    #[cfg(not(target_arch = "wasm32"))]
     InputDisconnected {
         available_ports: Vec<(MidiInputPort, String)>,
     },
+    #[cfg(not(target_arch = "wasm32"))]
     OutputConnectionError {
         reason: String,
     },
+    #[cfg(not(target_arch = "wasm32"))]
     OutputConnected {
         portname: String,
     },
+    #[cfg(not(target_arch = "wasm32"))]
     OutputDisconnected {
         available_ports: Vec<(MidiOutputPort, String)>,
     },
@@ -324,18 +335,26 @@ pub enum ToUi<T: StackType> {
 }
 
 pub enum FromUi<T: StackType> {
+    #[cfg(not(target_arch = "wasm32"))]
     DisconnectInput,
+
+    #[cfg(not(target_arch = "wasm32"))]
     ConnectInput {
         port: MidiInputPort,
         portname: String,
         time: Instant,
     },
+
+    #[cfg(not(target_arch = "wasm32"))]
     DisconnectOutput,
+
+    #[cfg(not(target_arch = "wasm32"))]
     ConnectOutput {
         port: MidiOutputPort,
         portname: String,
         time: Instant,
     },
+
     UpdateTuningReference {
         time: Instant,
     },
@@ -375,6 +394,7 @@ pub enum FromUi<T: StackType> {
     ToStrategy(ToStrategy<T>), // this should somehow be merged with/include the following messages
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub enum ToMidiIn {
     Connect {
         port: MidiInputPort,
@@ -385,6 +405,7 @@ pub enum ToMidiIn {
     Stop,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub enum FromMidiIn {
     IncomingMidi {
         time: Instant,
@@ -401,6 +422,7 @@ pub enum FromMidiIn {
     },
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub enum ToMidiOut {
     OutgoingMidi {
         time: Instant,
@@ -415,6 +437,7 @@ pub enum ToMidiOut {
     Stop,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub enum FromMidiOut {
     EventLatency {
         since_input: Duration,
@@ -430,6 +453,7 @@ pub enum FromMidiOut {
     },
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<T: StackType> MessageTranslate3<ToBackend, ToMidiOut, ToUi<T>> for FromProcess<T> {
     fn translate3(self) -> (Option<ToBackend>, Option<ToMidiOut>, Option<ToUi<T>>) {
         match self {
@@ -537,6 +561,7 @@ impl<T: StackType> MessageTranslate2<ToBackend, ToUi<T>> for FromStrategy<T> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOut> for FromUi<T> {
     fn translate4(
         self,
@@ -663,6 +688,7 @@ impl<T: StackType> MessageTranslate4<ToProcess<T>, ToBackend, ToMidiIn, ToMidiOu
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<T: StackType> MessageTranslate2<ToProcess<T>, ToUi<T>> for FromMidiIn {
     fn translate2(self) -> (Option<ToProcess<T>>, Option<ToUi<T>>) {
         match self {
@@ -682,6 +708,7 @@ impl<T: StackType> MessageTranslate2<ToProcess<T>, ToUi<T>> for FromMidiIn {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<T: StackType> MessageTranslate<ToUi<T>> for FromMidiOut {
     fn translate(self) -> Option<ToUi<T>> {
         match self {
@@ -695,6 +722,7 @@ impl<T: StackType> MessageTranslate<ToUi<T>> for FromMidiOut {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<T: StackType> MessageTranslate2<ToMidiOut, ToUi<T>> for FromBackend {
     fn translate2(self) -> (Option<ToMidiOut>, Option<ToUi<T>>) {
         match self {

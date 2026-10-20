@@ -1,4 +1,4 @@
-use std::time::Instant;
+use crate::time::Instant;
 
 use midi_msg::Channel;
 
@@ -62,8 +62,8 @@ impl KeyState {
 
 #[cfg(test)]
 mod test {
-    use std::time::Instant;
     use super::KeyState;
+    use crate::time::Instant;
     use midi_msg::Channel::*;
 
     #[test]

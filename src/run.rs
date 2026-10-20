@@ -5,9 +5,15 @@ use std::{
 };
 
 use eframe::egui;
+
+#[cfg(not(target_arch = "wasm32"))]
 use midir::{MidiInput, MidiOutput};
+
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection};
 
 use crate::{
     adaptors::ConcreteLocks,
@@ -24,10 +30,11 @@ use crate::{
         base::Semitones,
         fundamental::{HasFundamental, HasOvertone},
         stack::Stack,
-        stacktype::r#trait::{OctavePeriodicStackType, Reloadable, StackType},
+        stacktype::r#trait::{
+            FiveLimitIntervalBasis, OctavePeriodicStackType, Reloadable, StackType,
+        },
     },
     keystate::KeyState,
-    maybeconnected::{input::MidiInputOrConnection, output::MidiOutputOrConnection},
     msg::{
         FromProcess, FromUi, MessageTranslate, MessageTranslate2, MessageTranslate3,
         MessageTranslate4, ReceiveMsg, ToBackend, ToMidiIn, ToMidiOut, ToProcess, ToUi,
@@ -358,7 +365,7 @@ impl std::fmt::Display for JoinError {
 
 impl std::error::Error for JoinError {}
 
-impl<T: StackType> RunState<T> {
+impl<T: StackType + FiveLimitIntervalBasis> RunState<T> {
     pub fn new(
         midi_in: MidiInput,
         midi_out: MidiOutput,

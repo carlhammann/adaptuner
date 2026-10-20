@@ -2,7 +2,7 @@
 //! [OctavePeriodicStackType].
 //!
 
-use std::time::Instant;
+use crate::time::Instant;
 
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 use serde_derive::{Deserialize, Serialize};

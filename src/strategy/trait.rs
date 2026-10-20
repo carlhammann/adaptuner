@@ -1,4 +1,6 @@
-use std::{marker::PhantomData, sync::mpsc, time::Instant};
+use std::{marker::PhantomData, sync::mpsc};
+
+use crate::time::Instant;
 
 use crate::{
     adaptors::{
@@ -111,6 +113,46 @@ pub trait Strategy<T: StackType>: Sized {
         adaptor: StrategyAdaptor<T, Self, Zero>,
     ) -> (bool, StrategyAdaptor<T, Self, Zero>);
 
+    /// Processes one strategy message.
+    ///
+    /// Returns whether further [`Strategy::step`] calls are required.
+    ///
+    /// This is the synchronous core used by both the native and WASM
+    /// runtimes.
+    fn process_message(
+        &mut self,
+        msg: ToStrategy<T>,
+        adaptor: StrategyAdaptor<T, Self, Zero>,
+    ) -> (bool, StrategyAdaptor<T, Self, Zero>) {
+        match msg {
+            ToStrategy::NoteOn { note, time } => self.note_on(note, time, adaptor),
+
+            ToStrategy::NoteOff { note, time } => self.note_off(note, time, adaptor),
+
+            ToStrategy::UpdateTuningReference { time } => {
+                self.update_tuning_reference(time, adaptor)
+            }
+
+            ToStrategy::Consider { stack, time } => self.consider(stack, time, adaptor),
+
+            ToStrategy::Start { time } => self.start(time, adaptor),
+
+            ToStrategy::Stop { time } => {
+                let adaptor = self.stop(time, adaptor);
+                (false, adaptor)
+            }
+
+            ToStrategy::BoundAction { action, time } => {
+                self.handle_bound_action(action, time, adaptor)
+            }
+
+            msg => match Self::filter_to_strategy(msg) {
+                Some(msg) => self.receive_msg(msg, adaptor),
+                None => (false, adaptor),
+            },
+        }
+    }
+
     /// This is intended to run in its own thread.
     fn receive_solve_loop(
         &mut self,
@@ -120,47 +162,31 @@ pub trait Strategy<T: StackType>: Sized {
     ) -> StrategyAdaptor<T, Self, Zero> {
         let mut continue_solving = needs_steps_at_first_iteration;
         let mut last_msg = None {};
+
         loop {
             if continue_solving {
                 (continue_solving, adaptor) = self.step(adaptor);
+
                 if let Ok(msg) = to_strategy_rx.try_recv() {
                     last_msg = Some(msg);
                 }
             } else {
-                if let Ok(msg) = to_strategy_rx.recv() {
-                    last_msg = Some(msg);
-                } else {
-                    break;
+                match to_strategy_rx.recv() {
+                    Ok(msg) => last_msg = Some(msg),
+                    Err(_) => break,
                 }
             }
 
             match last_msg.take() {
                 None {} => {}
-                Some(ToStrategy::NoteOn { note, time }) => {
-                    (continue_solving, adaptor) = self.note_on(note, time, adaptor)
-                }
-                Some(ToStrategy::NoteOff { note, time }) => {
-                    (continue_solving, adaptor) = self.note_off(note, time, adaptor)
-                }
-                Some(ToStrategy::UpdateTuningReference { time }) => {
-                    (continue_solving, adaptor) = self.update_tuning_reference(time, adaptor)
-                }
-                Some(ToStrategy::Consider { stack, time }) => {
-                    (continue_solving, adaptor) = self.consider(stack, time, adaptor)
-                }
-                Some(ToStrategy::Start { time }) => {
-                    (continue_solving, adaptor) = self.start(time, adaptor)
-                }
-                Some(ToStrategy::Stop { time }) => {
-                    adaptor = self.stop(time, adaptor);
-                    break;
-                }
-                Some(ToStrategy::BoundAction { action, time }) => {
-                    (continue_solving, adaptor) = self.handle_bound_action(action, time, adaptor)
-                }
+
                 Some(msg) => {
-                    if let Some(x) = Self::filter_to_strategy(msg) {
-                        (continue_solving, adaptor) = self.receive_msg(x, adaptor);
+                    let is_stop = matches!(msg, ToStrategy::Stop { .. });
+
+                    (continue_solving, adaptor) = self.process_message(msg, adaptor);
+
+                    if is_stop {
+                        break;
                     }
                 }
             }

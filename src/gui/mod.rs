@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod common;
 pub mod config;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod connection;
 pub mod diffshow;
 pub mod editor;

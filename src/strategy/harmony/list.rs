@@ -1,4 +1,4 @@
-use std::time::Instant;
+use crate::time::Instant;
 
 use crate::{
     bindable::BindableStrategyAction,
@@ -89,7 +89,7 @@ impl<T: StackType> HarmonyStrategy<T> for ListOfHarmonyStrategies<T> {
                 })
                 .collect(),
             currently_running: 0,
-            solve_start: Instant::now(),
+            solve_start: crate::time::now(),
         }
     }
 

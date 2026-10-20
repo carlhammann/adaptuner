@@ -1,4 +1,4 @@
-use std::time::Instant;
+use crate::time::Instant;
 
 use eframe::egui;
 use midi_msg::Channel;
@@ -21,11 +21,7 @@ impl BackendWindow {
 }
 
 impl<T: StackType> GuiShow<T> for BackendWindow {
-    fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, Zero>,
-    ) -> UiAdaptor<T, Zero> {
+    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.backend_config_mut(|backend_config, adaptor| {
             ui.vertical(|ui| {
                 let mut bend_range_changed = false;

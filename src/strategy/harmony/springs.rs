@@ -1,7 +1,6 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    time::Instant,
-};
+use std::collections::{BTreeMap, HashMap};
+
+use crate::time::Instant;
 
 use ndarray::{s, Array2, ArrayView1, ArrayView2, ArrayViewMut2};
 use num_rational::Ratio;
@@ -868,7 +867,7 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use std::sync::{mpsc, Arc};
 
@@ -925,7 +924,9 @@ mod test {
                         semitones: i as Semitones,
                     })
                 }),
-                key_states: core::array::from_fn(|_| RwLock::new(KeyState::new(Instant::now()))),
+                key_states: core::array::from_fn(|_| {
+                    RwLock::new(KeyState::new(crate::time::now()))
+                }),
                 reference: RwLock::new(Stack::new_zero()),
                 tuning_reference: RwLock::new(Reference::from_semitones(Stack::new_zero(), 60.0)),
                 strategy_config: RwLock::new(vec![StrategyConfig::TwoStep {
@@ -1090,7 +1091,7 @@ mod test {
 
         let epsilon = 0.00000000000000001; // just a very small number. I don't care precisely.
 
-        let now = Instant::now();
+        let now = crate::time::now();
         // let clear = |keys: &mut [KeyState]| keys.iter_mut().for_each(|k| *k = KeyState::new(now));
         macro_rules! clear_keys {
             () => {{

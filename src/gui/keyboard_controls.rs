@@ -22,7 +22,8 @@ impl<T: StackType> GuiShow<T> for KeyboardControls {
     fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         let screen_keyboard_channel = adaptor.config().lattice.screen_keyboard_channel;
         let pedal_was_held;
-        (pedal_was_held, adaptor) = adaptor.pedal_hold(|bs, _| bs[screen_keyboard_channel as usize]);
+        (pedal_was_held, adaptor) =
+            adaptor.pedal_hold(|bs, _| bs[screen_keyboard_channel as usize]);
 
         ui.horizontal(|ui| {
             if ui

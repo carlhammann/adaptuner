@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 midi-msg = "0.6.1"
-midir = "0.10.2"
 ndarray = "0.15.6"
 num-integer = "0.1.46"
 num-traits = "0.2.18"
@@ -20,7 +19,22 @@ egui-file-dialog = "0.12.0"
 similar = "2.7.0"
 serde_with = "3.14.0"
 parking_lot = { version = "0.12.5", features = ["deadlock_detection"] }
+js-sys = "0.3"
+web-time = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+midir = "0.10.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.100"
+serde-wasm-bindgen = "0.6"
+web-sys = { version = "0.3", features = ["console"] }
+
 
 [dev-dependencies]
 approx = "0.5.1"
 pretty_assertions = "1.4.0"
+wasm-bindgen-test = "0.3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]

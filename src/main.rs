@@ -1,11 +1,14 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::error::Error;
 
+#[cfg(not(target_arch = "wasm32"))]
 use adaptuner::{
     config::{BackendConfig, Config},
     interval::stacktype::{fivelimit::TheFiveLimitStackType, r#trait::Reloadable},
     run::RunState,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     if let Err(e) = run() {
         eprintln!("{}", e);
@@ -13,8 +16,10 @@ fn main() {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 const TEMPLATE_CONFIG: &'static str = include_str!("../configs/template.yaml");
 
+#[cfg(not(target_arch = "wasm32"))]
 fn run() -> Result<(), Box<dyn Error>> {
     let config: Config<TheFiveLimitStackType> = serde_yml::from_str(TEMPLATE_CONFIG)?;
     TheFiveLimitStackType::initialise(config.temperaments, config.named_intervals)?;
@@ -37,3 +42,6 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
