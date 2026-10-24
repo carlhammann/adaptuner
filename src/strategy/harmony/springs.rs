@@ -126,12 +126,21 @@ fn normalize_rods<T: IntervalBasis>(n_keys: usize, rods: &mut BTreeMap<(usize, u
     }
 }
 
+#[derive(PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrimOctaves {
+    DontTrim,
+    KeepHigher,
+    KeepLower,
+}
+
 impl<T: IntervalBasis> HarmonySpringsProvider<T> {
     fn collect_connectors(
         &self,
         keys: &[u8],
-        lower_intervals_are_more_stable: bool,
-        tmp: &mut Vec<((usize, usize), usize)>,
+        trim_octaves: bool,
+        keep_lower: bool,
+        octave_representatives: &mut [Option<usize>; 12],
         rods: &mut BTreeMap<(usize, usize), Stack<T>>,
         springs: &mut BTreeMap<(usize, usize), SpringInfo>,
     ) {
@@ -181,39 +190,83 @@ impl<T: IntervalBasis> HarmonySpringsProvider<T> {
                     rod_start[*j] = Some(*i);
                 }
 
-                tmp.clear();
-
                 springs.clear();
 
-                for i in 0..n {
-                    for j in (i + 1)..n {
-                        let d = keys[j] as i8 - keys[i] as i8;
+                // i has te be smaller than j
+                macro_rules! __add_spring {
+                    ($i:ident, $j:ident) => {
+                        let d = keys[$j] as i8 - keys[$i] as i8;
                         let rem = d.rem_euclid(12) as usize;
                         if rem != 0 {
                             match &by_class[rem - 1] {
-                                RodOrSprings::Springs { options, .. } => {
-                                    if rod_start[i].is_none() || rod_start[i] != rod_start[j] {
+                                RodOrSprings::Springs { .. } => {
+                                    if rod_start[$i].is_none() || rod_start[$i] != rod_start[$j] {
                                         springs.insert(
-                                            (i, j),
+                                            ($i, $j),
                                             SpringInfo {
                                                 current_candidate_index: 0,
                                                 memo_key: d,
                                                 solver_length_index: 0, // dummy initialisation; will be overwritten!
                                             },
                                         );
-                                        tmp.push(((i, j), options.len()));
                                     }
                                 }
                                 _ => {}
                             }
                         }
-                    }
+                    };
                 }
 
-                if lower_intervals_are_more_stable {
-                    tmp.sort_by(|a, b| b.0.cmp(&a.0));
+                if !trim_octaves {
+                    for i in 0..n {
+                        for j in (i + 1)..n {
+                            __add_spring!(i, j);
+                        }
+                    }
+                } else if keep_lower {
+                    for x in &mut *octave_representatives {
+                        *x = None {};
+                    }
+                    for (i, k) in keys.iter().enumerate() {
+                        if octave_representatives[(k % 12) as usize].is_none() {
+                            octave_representatives[(k % 12) as usize] = Some(i);
+                        }
+                    }
+                    for i in 0..12 {
+                        for j in 0..12 {
+                            if let Some(ki) = octave_representatives[i] {
+                                if let Some(kj) = octave_representatives[j] {
+                                    if ki < kj {
+                                        __add_spring!(ki, kj);
+                                    } else {
+                                        __add_spring!(kj, ki);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
-                    tmp.sort_by(|a, b| a.0.cmp(&b.0));
+                    for x in &mut *octave_representatives {
+                        *x = None {};
+                    }
+                    for (i, k) in keys.iter().enumerate().rev() {
+                        if octave_representatives[(k % 12) as usize].is_none() {
+                            octave_representatives[(k % 12) as usize] = Some(i);
+                        }
+                    }
+                    for i in 0..12 {
+                        for j in 0..12 {
+                            if let Some(ki) = octave_representatives[i] {
+                                if let Some(kj) = octave_representatives[j] {
+                                    if ki < kj {
+                                        __add_spring!(ki, kj);
+                                    } else {
+                                        __add_spring!(kj, ki);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 let mut i = 0;
@@ -280,7 +333,9 @@ struct SpringSetup<T: IntervalBasis> {
 
 pub struct HarmonySprings<T: IntervalBasis> {
     keys: Vec<u8>,
-    tmp: Vec<((usize, usize), usize)>,
+
+    octave_representatives: [Option<usize>; 12],
+
     spring_setup: SpringSetup<T>,
     solver: Solver,
 
@@ -301,6 +356,7 @@ pub struct HarmonySprings<T: IntervalBasis> {
 #[serde(rename_all = "kebab-case")]
 pub struct HarmonySpringsConfig<T: IntervalBasis> {
     pub enable: bool,
+    pub trim_octaves: TrimOctaves,
     /// Should the [HarmonySpringsProvider::candidate_springs] be memoised between different calls
     /// to [HarmonyStrategy::solve]?
     pub memo_springs: bool,
@@ -362,7 +418,7 @@ impl<T: IntervalBasis> SpringSetup<T> {
     }
 
     /// returns true iff the next candidate was prepared, false iff there are no more candidates.
-    fn prepare_next_candidate(&mut self, change_from_the_back: bool) -> bool {
+    fn prepare_next_candidate(&mut self, lower_intervals_are_more_stable: bool) -> bool {
         macro_rules! __prepare_nex_candidate_step {
             ($v:ident) => {
                 let max_ix = self
@@ -380,7 +436,7 @@ impl<T: IntervalBasis> SpringSetup<T> {
             };
         }
 
-        if change_from_the_back {
+        if lower_intervals_are_more_stable {
             for (_, v) in self.current_springs.iter_mut().rev() {
                 __prepare_nex_candidate_step!(v);
             }
@@ -454,8 +510,9 @@ impl<T: StackType> HarmonySprings<T> {
         (_, adaptor) = adaptor.config(|conf, _| {
             conf.provider.collect_connectors(
                 &self.keys,
-                conf.lower_intervals_are_more_stable,
-                &mut self.tmp,
+                conf.trim_octaves != TrimOctaves::DontTrim,
+                conf.trim_octaves == TrimOctaves::KeepLower,
+                &mut self.octave_representatives,
                 &mut self.spring_setup.current_rods,
                 &mut self.spring_setup.current_springs,
             );
@@ -667,12 +724,44 @@ impl<T: StackType> HarmonySprings<T> {
 
             self.solution_neighbourhood.clear();
             self.solution_neighbourhood.insert_zero();
-            for i in 1..self.keys.len() {
-                self.solution_neighbourhood.insert_target_actual(
-                    self.solution_interval_targets.row(i - 1),
-                    self.solution_actuals.row(i),
-                );
-            }
+
+            (_, adaptor) = adaptor.config(|conf, _| match conf.trim_octaves {
+                TrimOctaves::KeepLower | TrimOctaves::KeepHigher => {
+                    let HarmonySpringsProvider::Mod12 { octave_index, .. } = conf.provider;
+                    let mut tmp_stack = Stack::new_zero();
+                    for k in self.keys.iter() {
+                        if let Some(i) = self.octave_representatives[(k % 12) as usize] {
+                            if i != 0 {
+                                tmp_stack
+                                    .target
+                                    .assign(&self.solution_interval_targets.row(i - 1));
+                                tmp_stack.actual.assign(&self.solution_actuals.row(i));
+                            } else {
+                                tmp_stack.reset_to_zero();
+                            }
+                            tmp_stack.increment_at_index_pure(
+                                octave_index,
+                                (*k as StackCoeff - self.keys[i] as StackCoeff).div_euclid(12),
+                            );
+
+                            self.solution_neighbourhood.insert(&tmp_stack);
+                        } else {
+                            // Under normal circumstances, this should never happen. If it does,
+                            // we'll just do nothing. Chances are that this is due to a config
+                            // change and that the next key press or release will set things right
+                            // again...
+                        }
+                    }
+                }
+                TrimOctaves::DontTrim => {
+                    for i in 1..self.keys.len() {
+                        self.solution_neighbourhood.insert_target_actual(
+                            self.solution_interval_targets.row(i - 1),
+                            self.solution_actuals.row(i),
+                        );
+                    }
+                }
+            });
 
             (_, adaptor) = adaptor.harmony_mut(|harmony, _| {
                 *harmony = Harmony::SpringSolution {
@@ -756,6 +845,7 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
         let big_n = n * (n - 1) / 2;
         Self {
             keys: Vec::with_capacity(n),
+            octave_representatives: [None {}; 12],
             spring_setup: SpringSetup::new(),
             solver: Solver::new(n, big_n, T::num_intervals()),
             relaxed: false,
@@ -766,7 +856,6 @@ impl<T: StackType> HarmonyStrategy<T> for HarmonySprings<T> {
             solution_interval_targets: Array2::zeros((big_n, T::num_intervals())),
             solution_target_is_set: vec![false; big_n],
             solution_neighbourhood: neighbourhood::Partial::new(),
-            tmp: Vec::with_capacity(big_n),
         }
     }
 
@@ -934,6 +1023,7 @@ mod test {
                     description: "".into(),
                     harmony: HarmonyStrategyConfig::Springs(HarmonySpringsConfig {
                         enable: true,
+                        trim_octaves: TrimOctaves::DontTrim,
                         min_keys: 1,
                         memo_springs: true,
                         lower_intervals_are_more_stable: true,
@@ -1076,6 +1166,7 @@ mod test {
     fn mock_harmony_springs() -> HarmonySprings<MockFiveLimitStackType> {
         HarmonySprings::new(HarmonySpringsConfig {
             enable: true,
+            trim_octaves: TrimOctaves::DontTrim,
             min_keys: 1,
             memo_springs: true,
             lower_intervals_are_more_stable: true,

@@ -15,7 +15,7 @@ use crate::{
     msg::{FromUi, ToHarmony, ToHarmonySprings, ToStrategy, ToTwoStep},
     notename::{correction::Correction, HasNoteNames, NoteNameStyle},
     strategy::harmony::springs::{
-        HarmonySpringsConfig, HarmonySpringsProvider, RodOrSprings, Spring,
+        HarmonySpringsConfig, HarmonySpringsProvider, RodOrSprings, Spring, TrimOctaves,
     },
     util::ordered_locks::{Nat, Zero},
 };
@@ -47,6 +47,7 @@ impl<T: StackType + HasNoteNames> HarmonySpringsEditor<T> {
     ) {
         let HarmonySpringsConfig {
             enable,
+            trim_octaves,
             memo_springs,
             min_keys,
             lower_intervals_are_more_stable,
@@ -116,6 +117,41 @@ impl<T: StackType + HasNoteNames> HarmonySpringsEditor<T> {
 
                 ui.separator();
 
+                {
+                    let mut changed = false;
+                    ui.label(
+                        "How to reduce the number of springs in chords with octave-doubled notes:",
+                    );
+                    changed |= ui
+                        .selectable_value(
+                            trim_octaves,
+                            TrimOctaves::DontTrim,
+                            "don't reduce; keep all notes",
+                        )
+                        .changed();
+                    changed |= ui
+                        .selectable_value(
+                            trim_octaves,
+                            TrimOctaves::KeepHigher,
+                            "keep the highest note of each pitch class",
+                        )
+                        .changed();
+                    changed |= ui
+                        .selectable_value(
+                            trim_octaves,
+                            TrimOctaves::KeepLower,
+                            "keep the lowest note of each pitch class",
+                        )
+                        .changed();
+                    if changed {
+                        send(ToHarmonySprings::Recalculate {
+                            time: Instant::now(),
+                        })
+                    };
+                }
+
+                ui.separator();
+
                 show_spring_provider(
                     egui::Id::new("harmony_spring_provider"),
                     &mut self.provider_base_note,
@@ -179,7 +215,7 @@ fn show_spring_provider<T: StackType + HasNoteNames>(
     send: impl Fn(ToHarmonySprings),
 ) {
     match provider {
-        HarmonySpringsProvider::Mod12 { by_class, ..} => {
+        HarmonySpringsProvider::Mod12 { by_class, .. } => {
             egui::Grid::new(id.with("spring_provider_grid"))
                 .with_row_color(|i, style| {
                     if i % 2 == 0 {
