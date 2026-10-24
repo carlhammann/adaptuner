@@ -137,12 +137,14 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                                     "most notes from current scale",
                                 )
                                 .changed();
-                            if let UndeterminedSpringAnchoringKind::MostCommonNotes {
-                                count_pitch_classes: false,
-                                fallback,
-                                min_number_of_common_notes,
-                            } = spring_anchoring_kind
-                            {
+                        });
+                        if let UndeterminedSpringAnchoringKind::MostCommonNotes {
+                            count_pitch_classes: false,
+                            fallback,
+                            min_number_of_common_notes,
+                        } = spring_anchoring_kind
+                        {
+                            ui.horizontal(|ui| {
                                 ui.label(" (at least ");
                                 change_anchoring |= ui
                                     .add(
@@ -151,32 +153,27 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                                     )
                                     .changed();
                                 ui.label(") or ");
-                                egui::ComboBox::from_id_salt(
-                                    "alternative spring anchor for most common notes",
-                                )
-                                .selected_text(format!("{}", self.most_common_notes_fallback))
-                                .show_ui(ui, |ui| {
-                                    change_anchoring |= ui
-                                        .selectable_value(
-                                            fallback,
-                                            Box::new(UndeterminedSpringAnchoringKind::Fundamental),
-                                            format!(
-                                                "{}",
-                                                UndeterminedSpringAnchoringKind::Fundamental
-                                            ),
-                                        )
-                                        .changed();
-                                    change_anchoring |= ui
-                                        .selectable_value(
-                                            fallback,
-                                            Box::new(UndeterminedSpringAnchoringKind::Overtone),
-                                            format!(
-                                                "{}",
-                                                UndeterminedSpringAnchoringKind::Overtone
-                                            ),
-                                        )
-                                        .changed();
-                                    change_anchoring |= ui
+                            });
+                            egui::ComboBox::from_id_salt(
+                                "alternative spring anchor for most common notes",
+                            )
+                            .selected_text(format!("{}", self.most_common_notes_fallback))
+                            .show_ui(ui, |ui| {
+                                change_anchoring |= ui
+                                    .selectable_value(
+                                        fallback,
+                                        Box::new(UndeterminedSpringAnchoringKind::Fundamental),
+                                        format!("{}", UndeterminedSpringAnchoringKind::Fundamental),
+                                    )
+                                    .changed();
+                                change_anchoring |= ui
+                                    .selectable_value(
+                                        fallback,
+                                        Box::new(UndeterminedSpringAnchoringKind::Overtone),
+                                        format!("{}", UndeterminedSpringAnchoringKind::Overtone),
+                                    )
+                                    .changed();
+                                change_anchoring |= ui
                                     .selectable_value(
                                         fallback,
                                         Box::new(
@@ -188,29 +185,22 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                                         ),
                                     )
                                     .changed();
-                                    change_anchoring |= ui
-                                        .selectable_value(
-                                            fallback,
-                                            Box::new(UndeterminedSpringAnchoringKind::LowestKey),
-                                            format!(
-                                                "{}",
-                                                UndeterminedSpringAnchoringKind::LowestKey
-                                            ),
-                                        )
-                                        .changed();
-                                    change_anchoring |= ui
-                                        .selectable_value(
-                                            fallback,
-                                            Box::new(UndeterminedSpringAnchoringKind::HighestKey),
-                                            format!(
-                                                "{}",
-                                                UndeterminedSpringAnchoringKind::HighestKey
-                                            ),
-                                        )
-                                        .changed();
-                                });
-                            }
-                        });
+                                change_anchoring |= ui
+                                    .selectable_value(
+                                        fallback,
+                                        Box::new(UndeterminedSpringAnchoringKind::LowestKey),
+                                        format!("{}", UndeterminedSpringAnchoringKind::LowestKey),
+                                    )
+                                    .changed();
+                                change_anchoring |= ui
+                                    .selectable_value(
+                                        fallback,
+                                        Box::new(UndeterminedSpringAnchoringKind::HighestKey),
+                                        format!("{}", UndeterminedSpringAnchoringKind::HighestKey),
+                                    )
+                                    .changed();
+                            });
+                        }
 
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 0.0;
@@ -237,12 +227,14 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                                     "most pitch classes from current scale",
                                 )
                                 .changed();
-                            if let UndeterminedSpringAnchoringKind::MostCommonNotes {
-                                count_pitch_classes: true,
-                                fallback,
-                                min_number_of_common_notes,
-                            } = spring_anchoring_kind
-                            {
+                        });
+                        if let UndeterminedSpringAnchoringKind::MostCommonNotes {
+                            count_pitch_classes: true,
+                            fallback,
+                            min_number_of_common_notes,
+                        } = spring_anchoring_kind
+                        {
+                            ui.horizontal(|ui| {
                                 ui.label(" (at least ");
                                 change_anchoring |= ui
                                     .add(
@@ -251,37 +243,29 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                                     )
                                     .changed();
                                 ui.label(") or ");
-                                egui::ComboBox::from_id_salt(
-                                    "alternative spring anchor for most common pitch classes",
-                                )
-                                .selected_text(format!(
-                                    "{}",
-                                    self.most_common_pitch_classes_fallback
-                                ))
-                                .show_ui(ui, |ui| {
-                                    change_anchoring |= ui
-                                        .selectable_value(
-                                            fallback,
-                                            Box::new(UndeterminedSpringAnchoringKind::Fundamental),
-                                            format!(
-                                                "{}",
-                                                UndeterminedSpringAnchoringKind::Fundamental
-                                            ),
-                                        )
-                                        .changed();
-                                    change_anchoring |= ui
-                                        .selectable_value(
-                                            fallback,
-                                            Box::new(UndeterminedSpringAnchoringKind::Overtone),
-                                            format!(
-                                                "{}",
-                                                UndeterminedSpringAnchoringKind::Overtone
-                                            ),
-                                        )
-                                        .changed();
-                                    change_anchoring |= ui
+                            });
+                            egui::ComboBox::from_id_salt(
+                                "alternative spring anchor for most common pitch classes",
+                            )
+                            .selected_text(format!("{}", self.most_common_pitch_classes_fallback))
+                            .show_ui(ui, |ui| {
+                                change_anchoring |= ui
                                     .selectable_value(
-                                            fallback,
+                                        fallback,
+                                        Box::new(UndeterminedSpringAnchoringKind::Fundamental),
+                                        format!("{}", UndeterminedSpringAnchoringKind::Fundamental),
+                                    )
+                                    .changed();
+                                change_anchoring |= ui
+                                    .selectable_value(
+                                        fallback,
+                                        Box::new(UndeterminedSpringAnchoringKind::Overtone),
+                                        format!("{}", UndeterminedSpringAnchoringKind::Overtone),
+                                    )
+                                    .changed();
+                                change_anchoring |= ui
+                                    .selectable_value(
+                                        fallback,
                                         Box::new(
                                             UndeterminedSpringAnchoringKind::FundamentalOrOvertone,
                                         ),
@@ -291,29 +275,22 @@ impl<T: StackType> GuiShow<T> for TwoStepEditor {
                                         ),
                                     )
                                     .changed();
-                                    change_anchoring |= ui
-                                        .selectable_value(
-                                            fallback,
-                                            Box::new(UndeterminedSpringAnchoringKind::LowestKey),
-                                            format!(
-                                                "{}",
-                                                UndeterminedSpringAnchoringKind::LowestKey
-                                            ),
-                                        )
-                                        .changed();
-                                    change_anchoring |= ui
-                                        .selectable_value(
-                                            fallback,
-                                            Box::new(UndeterminedSpringAnchoringKind::HighestKey),
-                                            format!(
-                                                "{}",
-                                                UndeterminedSpringAnchoringKind::HighestKey
-                                            ),
-                                        )
-                                        .changed();
-                                });
-                            }
-                        });
+                                change_anchoring |= ui
+                                    .selectable_value(
+                                        fallback,
+                                        Box::new(UndeterminedSpringAnchoringKind::LowestKey),
+                                        format!("{}", UndeterminedSpringAnchoringKind::LowestKey),
+                                    )
+                                    .changed();
+                                change_anchoring |= ui
+                                    .selectable_value(
+                                        fallback,
+                                        Box::new(UndeterminedSpringAnchoringKind::HighestKey),
+                                        format!("{}", UndeterminedSpringAnchoringKind::HighestKey),
+                                    )
+                                    .changed();
+                            });
+                        }
                     });
 
                     if change_anchoring {
