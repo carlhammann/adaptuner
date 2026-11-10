@@ -12,39 +12,45 @@ use crate::{
 
 use super::r#trait::GuiShow;
 
-pub struct BackendWindow {}
+pub struct BackendWindow {
+    used_channels_map: u16,
+    update_used_channels_map_from_config: bool,
+    bend_range_changed: bool,
+    use_channels_changed: bool,
+}
 
 impl BackendWindow {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            used_channels_map: 0,
+            update_used_channels_map_from_config: true,
+            bend_range_changed: false,
+            use_channels_changed: false,
+        }
     }
 }
 
 impl<T: StackType> GuiShow<T> for BackendWindow {
-    fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, Zero>,
-    ) -> UiAdaptor<T, Zero> {
+    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.backend_config_mut(|backend_config, adaptor| {
             ui.vertical(|ui| {
-                let mut bend_range_changed = false;
-                let mut use_channels_changed = false;
-
                 ui.horizontal(|ui| {
                     ui.label("pitch bend range:");
                     if ui
                         .add(egui::DragValue::new(&mut backend_config.bend_range).range(0.2..=12.0))
                         .changed()
                     {
-                        bend_range_changed = true;
+                        self.bend_range_changed = true;
                     }
                     ui.label("semitones");
                 });
 
-                let mut used_channels_map: u16 = 0;
-                for c in backend_config.channels {
-                    used_channels_map |= 1 << Channel::from(c) as u8;
+                if self.update_used_channels_map_from_config {
+                    self.used_channels_map = 0;
+                    for c in backend_config.channels {
+                        self.used_channels_map |= 1 << Channel::from(c) as u8;
+                    }
+                    self.update_used_channels_map_from_config = false;
                 }
                 ui.label("output channels (must be exactly 12):");
                 ui.horizontal(|ui| {
@@ -55,13 +61,13 @@ impl<T: StackType> GuiShow<T> for BackendWindow {
 
                                 if toggle_bit(
                                     ui,
-                                    &mut used_channels_map,
+                                    &mut self.used_channels_map,
                                     ch,
                                     &format!("{}", ch + 1),
                                 )
                                 .changed()
                                 {
-                                    use_channels_changed = true;
+                                    self.use_channels_changed = true;
                                 }
                             }
                         });
@@ -70,21 +76,34 @@ impl<T: StackType> GuiShow<T> for BackendWindow {
 
                 if ui
                     .add_enabled(
-                        used_channels_map.count_ones() == 12,
+                        self.used_channels_map.count_ones() == 12,
                         egui::Button::new("update")
-                            .selected(bend_range_changed | use_channels_changed),
+                            .selected(self.bend_range_changed || self.use_channels_changed),
                     )
                     .clicked()
                 {
-                    if bend_range_changed {
+                    if self.bend_range_changed {
                         let _ = adaptor.send(FromUi::UpdateBendRange {
                             time: Instant::now(),
                         });
+                        self.bend_range_changed = false;
                     }
-                    if use_channels_changed {
+                    if self.use_channels_changed {
+                        let mut ch = 0;
+                        for pos in 0..12 {
+                            while self.used_channels_map % 2 == 0 {
+                                ch += 1;
+                                self.used_channels_map >>= 1;
+                            }
+                            backend_config.channels[pos] = Channel::from_u8(ch);
+                            ch += 1;
+                            self.used_channels_map >>= 1;
+                        }
+                        self.update_used_channels_map_from_config = true;
                         let _ = adaptor.send(FromUi::UpdateChannelsToUse {
                             time: Instant::now(),
                         });
+                        self.use_channels_changed = false;
                     }
                 }
             });
