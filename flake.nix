@@ -10,7 +10,7 @@
   };
 
   outputs = inputs @ {flake-parts, ...}: let
-    latestRust = pkgs: pkgs.rust-bin.nightly.latest;
+    latestRust = pkgs: pkgs.rust-bin.stable.latest;
     waylandPath = pkgs:
       with pkgs;
         lib.makeLibraryPath [
@@ -60,7 +60,7 @@
               };
           }
           // (with pkgs;
-            lib.optionalAttrs stdenv.isLinux {
+            lib.optionalAttrs stdenv.hostPlatform.isLinux {
               adaptuner-wayland = stdenv.mkDerivation {
                 inherit (adaptuner-bin) version pname;
                 phases = ["installPhase"];
@@ -130,7 +130,7 @@
               };
             });
 
-        devShells = pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+        devShells = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           wayland = pkgs.mkShell {
             inputsFrom = [packages.adaptuner-bin];
             packages = let
@@ -152,7 +152,7 @@
                   pandoc
                   ffmpeg
                 ]
-                ++ lib.optionals stdenv.isLinux [alsa-utils];
+                ++ lib.optionals stdenv.hostPlatform.isLinux [alsa-utils];
 
             LD_LIBRARY_PATH = waylandPath pkgs;
           };
