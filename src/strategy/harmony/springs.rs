@@ -1414,7 +1414,9 @@ mod test {
                             ..
                         }),
                     ..
-                } => by_class[7] = RodOrSprings::Rod(Stack::from_pure_interval(1, 1)),
+                } => by_class[7 - 1] = RodOrSprings::Rod(Stack::from_pure_interval(1, 1)),
+                // insert at index 7 - 1, because the fifth is at 7, but we shift by one due to the
+                // unison not needing a spring or rod.
                 _ => panic!(),
             });
         }
@@ -1466,7 +1468,7 @@ mod test {
                             ..
                         }),
                     ..
-                } => by_class[5] = RodOrSprings::Rod(Stack::from_target(arr1(&[1, -1, 0]))),
+                } => by_class[5 - 1] = RodOrSprings::Rod(Stack::from_target(arr1(&[1, -1, 0]))),
                 _ => panic!(),
             });
         }
