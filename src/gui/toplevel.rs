@@ -264,6 +264,10 @@ where
                 if let Some(config) = new_config {
                     let _ = T::initialise(config.temperaments, config.named_intervals);
 
+                    (_, adaptor) = adaptor.tuning_reference_mut(|r, _| {
+                        *r = config.tuning_reference;
+                    });
+
                     *adaptor.config_mut() = config.gui;
 
                     match config.backend {
