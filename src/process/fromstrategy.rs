@@ -3,14 +3,21 @@ use std::{fmt, sync::mpsc, sync::Arc, thread, time::Instant};
 use midi_msg::{Channel, ChannelVoiceMsg, ControlChange, MidiMsg};
 
 use crate::{
-    adaptors::{ConcreteLocks, take_replace},
+    adaptors::{take_replace, ConcreteLocks},
     bindable::{BindableEvent, BindableProcessAction},
     config::{HarmonyStrategyConfig, MelodyStrategyConfig, StrategyConfig},
-    interval::{fundamental::{HasFundamental, HasOvertone}, stacktype::r#trait::StackType},
+    interval::{
+        fundamental::{HasFundamental, HasOvertone},
+        stacktype::r#trait::StackType,
+    },
     msg::{FromProcess, ReceiveMsg, ToProcess, ToStrategy},
     process::r#trait::ProcessAdaptor,
     strategy::{
-        harmony::{chordlist::ChordList, list::ListOfHarmonyStrategies, springs::HarmonySprings}, melody::neighbourhoods::StaticNeighbourhoodsAsMelody, staticneighbourhoods::StaticNeighbourhoods, r#trait::{Strategy, StrategyAdaptor}, twostep::TwoStep
+        harmony::{chordlist::ChordList, list::ListOfHarmonyStrategies, springs::HarmonySprings},
+        melody::neighbourhoods::StaticNeighbourhoodsAsMelody,
+        r#trait::{Strategy, StrategyAdaptor},
+        staticneighbourhoods::StaticNeighbourhoods,
+        twostep::TwoStep,
     },
     util::ordered_locks::Zero,
 };
@@ -114,7 +121,34 @@ where
                 msg: ChannelVoiceMsg::NoteOn { note, velocity },
             } => {
                 if velocity != 0 {
-                    self.handle_note_on(time, note, channel, velocity);
+                    let m_action = take_replace(&mut self.adaptor, |adaptor| {
+                        adaptor.active_strategy(|strat, _| {
+                            let mut action = strat
+                                .bindings()
+                                .get(&BindableEvent::MidiNoteOn {
+                                    key: note,
+                                    channel: Some(channel as u8),
+                                })
+                                .map(|x| *x);
+                            if action.is_none() {
+                                action = strat
+                                    .bindings()
+                                    .get(&BindableEvent::MidiNoteOn {
+                                        key: note,
+                                        channel: None {},
+                                    })
+                                    .map(|x| *x);
+                            }
+                            action
+                        })
+                    });
+                    match m_action {
+                        None {} => self.handle_note_on(time, note, channel, velocity),
+                        Some(BindableProcessAction::Reset) => self.restart(time),
+                        Some(BindableProcessAction::ToStrategy(action)) => {
+                            self.send_to_strategy(ToStrategy::BoundAction { action, time })
+                        }
+                    }
                 } else {
                     self.handle_note_off(time, note, channel, 0);
                 }

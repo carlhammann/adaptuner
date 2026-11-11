@@ -29,11 +29,7 @@ impl BindingEditor {
 }
 
 impl<T: StackType> GuiShow<T> for BindingEditor {
-    fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        mut adaptor: UiAdaptor<T, Zero>
-    ) -> UiAdaptor<T, Zero> {
+    fn show(&mut self, ui: &mut egui::Ui, mut adaptor: UiAdaptor<T, Zero>) -> UiAdaptor<T, Zero> {
         (_, adaptor) = adaptor.active_strategy_mut(|strat, _| {
             ui.collapsing("key bindings", |ui| {
                 ui.vertical(|ui| {
@@ -138,6 +134,61 @@ fn bindable_selector(
                     close_popup(ui);
                 }
             }
+
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                if let BindableEvent::MidiNoteOn {
+                    key,
+                    channel,
+                } = tmp_event
+                {
+                    let mut b = true;
+                    let key_name = |i: u8| {
+                        format!(
+                            "{} {}",
+                            ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+                                [(i % 12) as usize],
+                            i as i8 / 12 - 1
+                        )
+                    };
+                    ui.selectable_value(&mut b, true, "MIDI note ");
+                    ui.add(egui::DragValue::new(key).range(0..=127));
+                    ui.label(format!("({}) on, ", key_name(*key)));
+                    if channel.is_some() {
+                        ui.selectable_value(
+                            channel,
+                            None,
+                            egui::RichText::new("any channel ").strikethrough(),
+                        );
+                    } else {
+                        ui.selectable_value(channel, None, "any channel ");
+                    }
+                    if let Some(ch) = channel {
+                        ui.label("channel ");
+                        let mut shifted = *ch + 1;
+                        ui.add(egui::DragValue::new(&mut shifted).range(1..=16));
+                        *ch = shifted - 1;
+                    } else {
+                        ui.selectable_value(
+                            channel,
+                            Some(0),
+                            egui::RichText::new("channel 1").strikethrough(),
+                        );
+                    }
+                } else {
+                    ui.selectable_value(
+                        tmp_event,
+                        BindableEvent::MidiNoteOn {
+                            key: 21,
+                            channel: None {},
+                        },
+                        "MIDI note on",
+                    )
+                    .on_hover_text_at_pointer(
+                        "If this is set, the key will lose its normal function.",
+                    );
+                }
+            });
 
             ui.horizontal(|ui| {
                 ui.style_mut().spacing.text_edit_width = 3.0 * ui.style().spacing.interact_size.y;

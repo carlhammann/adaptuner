@@ -13,6 +13,10 @@ pub enum BindableEvent {
     SostenutoPedalUp,
     SoftPedalDown,
     SoftPedalUp,
+    MidiNoteOn {
+        key: u8,
+        channel: Option<u8>,
+    },
     #[serde(
         deserialize_with = "deserialize_egui_key",
         serialize_with = "serialize_egui_key"
@@ -27,6 +31,23 @@ impl fmt::Display for BindableEvent {
             BindableEvent::SostenutoPedalUp => write!(f, "sostenuto pedal up"),
             BindableEvent::SoftPedalDown => write!(f, "soft pedal down"),
             BindableEvent::SoftPedalUp => write!(f, "soft pedal up"),
+            BindableEvent::MidiNoteOn {
+                key,
+                channel,
+            } => {
+                if let Some(channel) = channel {
+                    write!(
+                        f,
+                        "MIDI note {key} on, channel {}",
+                        channel + 1
+                    )
+                } else {
+                    write!(
+                        f,
+                        "MIDI note {key} on, any channel",
+                    )
+                }
+            }
             BindableEvent::KeyPress(key) => write!(f, "key press on {}", key.symbol_or_name()),
         }
     }
