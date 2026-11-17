@@ -93,6 +93,24 @@ impl<T: StackType> StaticNeighbourhoods<T> {
         adaptor
     }
 
+
+    /// returns true iff the reference changed
+    fn set_reference<L: AtMost<ReferenceLevel>>(
+        &mut self,
+        new_reference: Stack<T>,
+        adaptor: StrategyAdaptor<T, Self, L>,
+    ) -> (bool, StrategyAdaptor<T, Self, L>) {
+        adaptor.reference_mut(|reference, adaptor| {
+            if new_reference != *reference {
+                reference.clone_from(&new_reference);
+                adaptor.send(FromStrategy::UpdateReference {});
+                true
+            } else {
+                false
+            }
+        })
+    }
+
     /// Returns true iff the reference changed. In that case, a re-tuning using
     /// [Self::update_all_tunings_and_send] will become necessary.
     fn set_reference_to_extreme<L>(
@@ -353,6 +371,19 @@ impl<T: StackType> Strategy<T> for StaticNeighbourhoods<T> {
                 }
             }
             BindableStrategyAction::SetReferenceToCurrent => {}
+            BindableStrategyAction::SetReferenceToThis(note) => {
+                let b;
+                let new_reference;
+                (new_reference, adaptor) = adaptor.reference(|reference, _| {
+                    self.scales[self.curr_scale_index]
+                        .get_absolute_stack(note as StackCoeff, reference)
+                });
+                (b, adaptor) = self.set_reference(new_reference, adaptor);
+                if b {
+                    adaptor = self.update_all_tunings_and_send(time, adaptor)
+                }
+            }
+
             BindableStrategyAction::ToggleChordMatching => {}
             BindableStrategyAction::ToggleReanchor => {}
         }

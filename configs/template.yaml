@@ -201,6 +201,66 @@ strategies:
     sostenuto-pedal-down: !to-strategy
       increment-neighbourhood-index: 1
     soft-pedal-down: !to-strategy set-reference-to-lowest
+    ? !midi-note-on
+      key: 24
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 24
+    ? !midi-note-on
+      key: 25
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 25
+    ? !midi-note-on
+      key: 26
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 26
+    ? !midi-note-on
+      key: 27
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 27
+    ? !midi-note-on
+      key: 28
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 28
+    ? !midi-note-on
+      key: 29
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 29
+    ? !midi-note-on
+      key: 30
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 30
+    ? !midi-note-on
+      key: 31
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 31
+    ? !midi-note-on
+      key: 32
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 32
+    ? !midi-note-on
+      key: 33
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 33
+    ? !midi-note-on
+      key: 34
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 34
+    ? !midi-note-on
+      key: 35
+      channel: null
+    : !to-strategy
+      set-reference-to-this: 35
     !key-press Escape: reset
     !key-press Space: !to-strategy
       increment-neighbourhood-index: 1
@@ -512,10 +572,6 @@ strategies:
     initial-reference: {}
     spring-anchoring-kind: fundamental-or-overtone
     chord-anchoring-kind: chord-reference
-  melody-harmony-coordination:
-    reanchor: false
-    group-ms: 100
-    tune-wait-us: 1000
   bindings:
     sostenuto-pedal-down: !to-strategy
       increment-neighbourhood-index: 1
@@ -523,6 +579,10 @@ strategies:
     !key-press Escape: reset
     !key-press Space: !to-strategy
       increment-neighbourhood-index: 1
+  melody-harmony-coordination:
+    reanchor: false
+    group-ms: 100
+    tune-wait-us: 1000
 backend: !pitchbend12
   bend-range: 2.0
   channels:
@@ -547,7 +607,9 @@ gui:
     - 3.8631372
     - -7.01955
     scale-reference-centered: true
-    background-dimensions: [1, 2]
+    background-dimensions:
+    - 1
+    - 2
     project-dimension: 0
     color-period-ct: 21.506289596715078
     screen-keyboard-channel: 1

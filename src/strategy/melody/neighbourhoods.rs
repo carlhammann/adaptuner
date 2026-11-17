@@ -881,6 +881,19 @@ impl<T: StackType + HasOvertone + HasFundamental> MelodyStrategy<T>
                     adaptor
                 }
             }
+            BindableStrategyAction::SetReferenceToThis(note) => {
+                let b;
+                let new_reference;
+                (new_reference, adaptor) = adaptor.reference(|reference, _| {
+                    self.scales[self.curr_scale_index].get_absolute_stack(*note as StackCoeff, reference)
+                });
+                (b, adaptor) = self.set_reference(new_reference, adaptor);
+                if b {
+                    self.update_all_tunings_and_send(time, adaptor)
+                } else {
+                    adaptor
+                }
+            }
             _ => adaptor,
         }
     }

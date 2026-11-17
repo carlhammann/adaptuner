@@ -105,7 +105,8 @@ impl<T: IntervalBasis> StrategyConfig<T> {
             StrategyConfig::StaticNeighbourhoods { .. } => match action {
                 BindableStrategyAction::IncrementNeighbourhoodIndex(_)
                 | BindableStrategyAction::SetReferenceToLowest
-                | BindableStrategyAction::SetReferenceToHighest => true,
+                | BindableStrategyAction::SetReferenceToHighest
+                | BindableStrategyAction::SetReferenceToThis(_) => true,
                 _ => false,
             },
             StrategyConfig::TwoStep {
@@ -126,7 +127,8 @@ impl<T: IntervalBasis> StrategyConfig<T> {
                         BindableStrategyAction::IncrementNeighbourhoodIndex(_)
                         | BindableStrategyAction::SetReferenceToLowest
                         | BindableStrategyAction::SetReferenceToHighest
-                        | BindableStrategyAction::SetReferenceToCurrent => true,
+                        | BindableStrategyAction::SetReferenceToCurrent
+                        | BindableStrategyAction::SetReferenceToThis(_) => true,
                         _ => false,
                     },
                 })

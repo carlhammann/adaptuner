@@ -137,11 +137,7 @@ fn bindable_selector(
 
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
-                if let BindableEvent::MidiNoteOn {
-                    key,
-                    channel,
-                } = tmp_event
-                {
+                if let BindableEvent::MidiNoteOn { key, channel } = tmp_event {
                     let mut b = true;
                     let key_name = |i: u8| {
                         format!(
@@ -330,6 +326,46 @@ fn process_action_selector<T: StackType>(
                 if r.clicked() {
                     changed = r.changed();
                     close_popup(ui);
+                }
+            }
+
+            if active_strategy.reacts_to_bound(BindableStrategyAction::SetReferenceToThis(0)) {
+                if let Some(BindableProcessAction::ToStrategy(
+                    BindableStrategyAction::SetReferenceToThis(note),
+                )) = tmp_action
+                {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        ui.label("set reference to the the current tuning of MIDI note ");
+                        let key_name = |i: u8| {
+                            format!(
+                                "{} {}",
+                                ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+                                    [(i % 12) as usize],
+                                i as i8 / 12 - 1
+                            )
+                        };
+                        changed = ui.add(egui::DragValue::new(note).range(0..=127)).changed();
+                        ui.label(format!(" ({})", key_name(*note)));
+                    });
+                } else {
+                    let note = if let BindableEvent::MidiNoteOn { key, .. } = event {
+                        key
+                    } else {
+                        0
+                    };
+                    if ui
+                        .selectable_value(
+                            tmp_action,
+                            Some(BindableProcessAction::ToStrategy(
+                                BindableStrategyAction::SetReferenceToThis(note),
+                            )),
+                            format!("{}", BindableStrategyAction::SetReferenceToThis(note)),
+                        )
+                        .clicked()
+                    {
+                        changed = true;
+                    }
                 }
             }
 

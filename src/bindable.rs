@@ -60,6 +60,7 @@ pub enum BindableStrategyAction {
     SetReferenceToLowest,
     SetReferenceToHighest,
     SetReferenceToCurrent,
+    SetReferenceToThis(u8),
     ToggleChordMatching,
     ToggleReanchor,
 }
@@ -78,6 +79,9 @@ impl fmt::Display for BindableStrategyAction {
             }
             BindableStrategyAction::SetReferenceToCurrent => {
                 write!(f, "set reference to current chord's reference")
+            }
+            BindableStrategyAction::SetReferenceToThis(i) => {
+                write!(f, "set reference to the the current tuning of MIDI note {i}")
             }
             BindableStrategyAction::ToggleChordMatching => write!(f, "toggle chord matching"),
             BindableStrategyAction::ToggleReanchor => {
